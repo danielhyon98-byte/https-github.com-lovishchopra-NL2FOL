@@ -9,7 +9,7 @@
     "policy": ["2026.10-v4"],
     "translator": ["0.4.0"],
     "contract": ["0.5"],
-    "z3_solver": {"min": "4.13", "below": "6"}
+    "z3_solver": {"min": "5.1.0", "below": "5.2"}
   },
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
   "named_policies": ["joint", "linear", "nonlinear"],

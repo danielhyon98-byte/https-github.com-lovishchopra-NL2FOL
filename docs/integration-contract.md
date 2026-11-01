@@ -294,6 +294,17 @@ result and a `signature_key_id`. Tampering with any field makes `verify_signatur
 | `memory_max_mb` | 512; at least 128 | Z3's memory limit is process-wide. The engine therefore scales it with the number of verifications running at once and never lowers it while any run. |
 | `random_seed` | 0 | |
 
+Known limitation (integration gate 2): under the `nonlinear` policy Z3 cannot be interrupted inside some polynomial
+routines, and the per-assertion degree bound (`NONLINEAR_MAX_DEGREE`, 24) does not bound a system of chained assertions
+(`x0^d = 3`, `x1^d = x0 + 1`): such a call can overrun the bound above (measured 4 to 22 s at T = 2000 ms for d = 8 to 20).
+Its status is TIMEOUT, never a success, and the timings show the overrun. Enforcing the bound from outside Z3 is planned
+for the optimisation checks.
+
+The solver the bounds and the decisions were measured with is pinned for a kit install (`integration/constraints.txt`,
+`z3-solver==5.1.0.0`; `integration/COMPATIBILITY.json` accepts the 5.1 series): a later solver can decide a nonlinear problem
+differently within the same budget (integration gate 2: z3-solver 5.3.3 timed out at 50 and 200 ms where 5.1.0 gave the
+counterexample), so the range widens only after the whole suite is measured with it.
+
 Each verification uses a fresh Z3 context.
 
 Model extraction is a stage of its own (`model` in `timings`) and is never run for the entailment's consistency precheck.
@@ -529,8 +540,10 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - `translator_version` in `VerificationResult.versions`. Today it is reported in translation
   records, by `epinoic-logic version` and in the service's version response, but not in an
   engine result.
-- A dependency lock. `pyproject.toml` gives lower bounds only: `z3-solver>=4.13`,
-  `pydantic>=2.6`.
+- A dependency lock for every install. `pyproject.toml` gives lower bounds only: `z3-solver>=4.13`,
+  `pydantic>=2.6`. A kit install is pinned since integration gate 2 (`integration/constraints.txt`, the measured versions,
+  installed with `pip install -c` in playbook step 6), and `integration/COMPATIBILITY.json` accepts only the measured
+  solver series.
 - A frozen, versioned list of report-level finding codes for the receiving side.
 
 ## 11. Changes to this contract

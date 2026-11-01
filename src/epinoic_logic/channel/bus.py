@@ -361,6 +361,16 @@ def _shape_reason(exc: BaseException, contract: str = "report") -> str:
     return str(exc)[:300]
 
 
+def _full_dump(model: BaseModel) -> Optional[dict]:
+    """``model``'s JSON dump with every field, None kept: the form in which a None in a field that has a default but is not
+    Optional fails validation (the exclude-None dump a payload is delivered as leaves it out, and the recipient would read
+    the default). None when the object cannot be dumped (built around its contract's validation); never raises."""
+    try:
+        return model.model_dump(mode="json")
+    except Exception:  # noqa: BLE001 - an object that cannot be dumped is refused by the caller, never raised
+        return None
+
+
 def _fit_summary(summary: str, limit: int = SUMMARY_MAX_CHARS) -> str:
     """Keep a receipt summary within the contract limit, cutting the body and never the scope sentence."""
     if len(summary) <= limit:
@@ -603,14 +613,34 @@ def _credits_another_source(sentence: str, start: int, end: int) -> bool:
     return bool(_any_credit_before_re().search(clause) or _ANY_CREDIT_AFTER_RE.match(sentence[end:]))
 
 
-#: Check results of THIS exchange, credited to this system's own checks as such (integration gate, round 1): a formal check,
-#: "formally verified", the hub's checks or receipt, Z3, the checker, the translator, the verifier, the overseer, the
-#: verification engine, a receipt status, a finding code of the hub's families. Always a check result of the exchange.
+#: Check results of THIS exchange, credited to this system's own checks in its own vocabulary (integration gate, round 1;
+#: narrowed in integration gate 2): a formal check, the hub's checks or receipt, the verification engine, a transmission
+#: receipt, a receipt status. Always a check result of the exchange.
 _STRONG_CHECK_RE = re.compile(
-    r"\bformal(?:ly)?\s+(?:checks?|check(?:ed|ing)|verification|verif(?:y|ies|ied)|prov(?:ed|en)|confirmed)\b"
+    r"\bformal\s+checks?\b"
     r"|\bhub(?:'s|’s)?\s+(?:checks?|verification|receipts?|engine|solver|translator)\b"
-    r"|\bz3\b|\bthe\s+(?:checker|translator|verifier|overseer)(?:'s|’s)?\b|\b(?:verification|logic)\s+engine\b"
+    r"|\b(?:verification|logic)\s+engine\b"
     r"|\b(?:transmission|hub)\s+receipt\b|\bACCEPTED_WITH_FINDINGS\b|\bAUDIT_(?:PASSED|FAILED)\w*", re.IGNORECASE)
+#: Names of this system's checks that are also ordinary words of the subjects (integration gate 2): "the overseer" (plantation
+#: overseers), "the translator" (literature in translation), "the checker", "the verifier", "Z3" (Konrad Zuse's 1941
+#: computer), "formally confirmed", "formally proved" (treaties, theorems), "formally verified" (a verified microkernel).
+#: Such a subject states a check result of the exchange only in the exchange's own frame: in a sentence that also names a
+#: report or answer of the exchange (:data:`_REPORT_OBJECT_RE`, or a peer document's title or author word) or the agent's
+#: own text (:data:`_SELF_FRAME_RE`); otherwise it is content.
+_FRAMED_CHECK_RE = re.compile(
+    r"\bformal(?:ly)?\s+(?:check(?:ed|ing)|verification|verif(?:y|ies|ied)|prov(?:ed|en)|confirmed)\b"
+    r"|\bz3\b|\bthe\s+(?:checker|translator|verifier|overseer)(?:'s|’s)?\b", re.IGNORECASE)
+#: The agent's own text named as what was checked: "every figure here", "the values above", "this report", "my answer",
+#: "in this response" (the 'this answer' form is :data:`_REPORT_OBJECT_RE`'s).
+_SELF_FRAME_RE = re.compile(
+    r"\b(?:figures?|values?|claims?|results?|steps?|calculations?|statements?|numbers?|answers?|points?|lines?|working|everything|all)\s+(?:here|above)\b"
+    r"|\b(?:this|my|our)\s+(?:answer|report|response|reply|working|solution|calculation|paragraph|essay)s?\b", re.IGNORECASE)
+#: A receipt status ("ACCEPTED_WITH_FINDINGS", "AUDIT_PASSED"): router-side check output and an outcome in itself, never
+#: ordinary content; read like a finding code in any text (integration gate 2).
+_STATUS_TOKEN_RE = re.compile(r"\bACCEPTED_WITH_FINDINGS\b|\bAUDIT_(?:PASSED|FAILED)\w*", re.IGNORECASE)
+#: A receipt named as such ("the hub's receipt", "transmission receipt"): with an outcome, a check result in any text. The
+#: request text is read for finding codes, receipt statuses and these only (integration gate 2).
+_RECEIPT_STATUS_RE = re.compile(r"\btransmission\s+receipts?\b|\bhub(?:'s|’s)?\s+receipts?\b", re.IGNORECASE)
 #: A finding code of the hub's families ("INT-SUBJ-001", "OVS-PEER-003", "CORE-SRC-005", "HI-SRC-004"): router-side check
 #: output, never content of an answer or of a document an agent is given.
 _CHECK_CODE_RE = re.compile(r"\b(?:INT|CORE|OVS|ST|KIT|ARG|EVD|PACK|BR|GEN|HI|ES|PS|EC|BM)-[A-Z]{2,10}-\d{3}\b")
@@ -633,36 +663,47 @@ _CHECK_OUTCOME_RE = re.compile(r"\b(?:fail(?:s|ed|ing)?|flag(?:s|ged)?|(?:does|d
                                r"found\s+no\s+(?:errors?|faults?|problems?|mistakes?)|(?:no|zero)\s+(?:errors?|faults?)\s+(?:was|were)\s+found)\b", re.IGNORECASE)
 #: Every subject either rule reads (the Overseer's own reading of the rule, ``overseer.checks.fidelity``, imports it with
 #: :data:`_CHECK_OUTCOME_RE`; :func:`check_result_statement` is the channel's rule).
-_CHECK_SUBJECT_RE = re.compile(f"(?:{_STRONG_CHECK_RE.pattern})|(?:{_GENERIC_CHECK_RE.pattern})", re.IGNORECASE)
+_CHECK_SUBJECT_RE = re.compile(f"(?:{_STRONG_CHECK_RE.pattern})|(?:{_FRAMED_CHECK_RE.pattern})|(?:{_GENERIC_CHECK_RE.pattern})", re.IGNORECASE)
 _STATEMENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 
-def check_result_statement(text: str, *, object_words: Sequence[str] = (), strong_only: bool = False) -> Optional[str]:
+def check_result_statement(text: str, *, object_words: Sequence[str] = (), strong_only: bool = False, codes_only: bool = False) -> Optional[str]:
     """The words of ``text`` that state a check result of this exchange, or None (rule of INT-REQ-014 and of the request
-    scan). Read per sentence: a finding code of the hub's families; this system's own check named as such
-    (:data:`_STRONG_CHECK_RE`) with an outcome (:data:`_CHECK_OUTCOME_RE`); or, unless ``strong_only``, a generic check
-    word (:data:`_GENERIC_CHECK_RE`) with an outcome and a report or answer of the exchange as its object
-    (:data:`_REPORT_OBJECT_RE`, or a word of ``object_words``: the titles and authors of the peer documents supplied).
-    Nothing is evaluated; every pattern is anchored at a word boundary and bounded by the sentence."""
+    scan). Read per sentence: a finding code of the hub's families or a receipt status (:data:`_STATUS_TOKEN_RE`); a
+    receipt named as such (:data:`_RECEIPT_STATUS_RE`) with an outcome (:data:`_CHECK_OUTCOME_RE`); unless ``codes_only``, this system's own
+    check named in its own vocabulary (:data:`_STRONG_CHECK_RE`) with an outcome, or one of its names that is also an
+    ordinary word of the subjects (:data:`_FRAMED_CHECK_RE`: "the overseer", "Z3", "formally proved") with an outcome in
+    the exchange's own frame: a report or answer of the exchange (:data:`_REPORT_OBJECT_RE`, or a word of
+    ``object_words``: the titles and authors of the peer documents supplied) or the agent's own text
+    (:data:`_SELF_FRAME_RE`) named in the same sentence (integration gate 2); or, unless ``strong_only``, a generic check
+    word (:data:`_GENERIC_CHECK_RE`) with an outcome and a report or answer of the exchange as its object. Nothing is
+    evaluated; every pattern is anchored at a word boundary and bounded by the sentence."""
     if not text:
         return None
     words = [w.casefold() for w in object_words if w and len(w) >= 3]
     for sentence in _STATEMENT_SPLIT_RE.split(text):
-        code = _CHECK_CODE_RE.search(sentence)
+        code = _CHECK_CODE_RE.search(sentence) or _STATUS_TOKEN_RE.search(sentence)
         if code is not None:
             return code.group(0)
         if _CHECK_OUTCOME_RE.search(sentence) is None:
             continue
+        status = _RECEIPT_STATUS_RE.search(sentence)
+        if status is not None:
+            return status.group(0)
+        if codes_only:
+            continue
         strong = _STRONG_CHECK_RE.search(sentence)
         if strong is not None:
             return strong.group(0)
+        low = sentence.casefold()
+        reported = _REPORT_OBJECT_RE.search(sentence) is not None or any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words)
+        named = _FRAMED_CHECK_RE.search(sentence)
+        if named is not None and (reported or _SELF_FRAME_RE.search(sentence) is not None):
+            return named.group(0)
         if strong_only:
             continue
         generic = _GENERIC_CHECK_RE.search(sentence)
-        if generic is None:
-            continue
-        low = sentence.casefold()
-        if _REPORT_OBJECT_RE.search(sentence) or any(re.search(r"\b" + re.escape(w) + r"\b", low) for w in words):
+        if generic is not None and reported:
             return generic.group(0)
     return None
 
@@ -742,7 +783,25 @@ def _check_sentence(description: str) -> str:
 
 #: The suffix the chronology checks give a period's premises ("1960 begins", "1 October 1960 ends"): not part of the text.
 _PERIOD_EDGE_RE = re.compile(r"\s+(?:begins|ends)$")
-_FIGURE_SCALE_RE = re.compile(r"[$£€¥]?\d[\d,]*(?:\.\d+)?(?:\s+(?:thousand|million|billion|trillion))?")
+#: The word of :data:`_PERIOD_EDGE_RE` at the end of an anchor; the blank run before it is read backwards once
+#: (:func:`_without_period_edge`).
+_PERIOD_EDGE_WORD_RE = re.compile(r"(?:begins|ends)$")
+
+
+def _without_period_edge(anchor: str) -> str:
+    """``_PERIOD_EDGE_RE.sub("", anchor)`` exactly, in linear time (integration gate 2: the pattern's blank run was rescanned
+    from every position of a long run of blanks, quadratic): a closing "begins" or "ends" (before a final line break, as
+    ``$`` reads it) with the blank run before it is dropped, when that run is not empty."""
+    m = _PERIOD_EDGE_WORD_RE.search(anchor)
+    if m is None:
+        return anchor
+    j = m.start()
+    while j > 0 and anchor[j - 1].isspace():
+        j -= 1
+    return anchor if j == m.start() else anchor[:j] + anchor[m.end():]
+
+
+_FIGURE_SCALE_RE =re.compile(r"[$£€¥]?\d[\d,]*(?:\.\d+)?(?:\s+(?:thousand|million|billion|trillion))?")
 _DAY_MONTH_YEAR_RE = re.compile(r"(\d{1,2}\s+[^\W\d_]{3,})\s+\d{3,4}$")
 
 
@@ -784,7 +843,7 @@ def _clause_of(text: str, anchors: list[str], stated: Optional[str]) -> Optional
     ("3.3 million") or after an abbreviation ("c. 1963"), and it never starts inside a word or a figure."""
     from ..adapters.sources import clause_boundaries
     low = text.casefold()
-    found = [x for x in (_find_anchor(low, _PERIOD_EDGE_RE.sub("", a)) for a in anchors if a) if x[0] >= 0]
+    found = [x for x in (_find_anchor(low, _without_period_edge(a)) for a in anchors if a) if x[0] >= 0]
     if not found:
         return None
     start = min(p for p, _n in found)
@@ -1155,14 +1214,17 @@ class TranslatorChannel:
     def _router_check_results(self, req: TaskRequest) -> list[str]:
         """What a request hands an agent as content that is a router-side check result (integration gate, round 1: a
         'router-note' or 'hub-receipt' document saying "INT-SUBJ-001 error: a formal check failed its point" was delivered
-        to the dependent agent, which repeated it): a supplied text or the request text holding a finding code of the
-        hub's families, a receipt status, or this system's own check named with an outcome (:func:`check_result_statement`,
-        strong subjects only, so a document about checks in the world is no check result). A supplied text byte-identical
-        to a report delivered on this channel is the report itself, relayed as delivered: its content was checked at its
-        delivery, and it is not read again here."""
+        to the dependent agent, which repeated it): a supplied text holding a finding code of the hub's families, a receipt
+        status, or this system's own check named with an outcome (:func:`check_result_statement`, strong subjects only, so
+        a document about checks in the world is no check result, and a name that is also an ordinary word, such as "the
+        overseer" or "Z3", only in the exchange's frame); the request text (the student's question) is read for finding
+        codes and receipt statuses only (integration gate 2: "Explain how the overseer's authority passed to the
+        planters" is a History question, not a check result). A supplied text byte-identical to a report delivered on this
+        channel is the report itself, relayed as delivered: its content was checked at its delivery, and it is not read
+        again here."""
         delivered = {r.original_response for r in self.transmitted_reports.values()}
         out: list[str] = []
-        what = check_result_statement(req.user_input or "", strong_only=True)
+        what = check_result_statement(req.user_input or "", codes_only=True)
         if what is not None:
             out.append(f"the request text states a check result ({what!r})")
         for t in req.supplied_texts:
@@ -1302,16 +1364,38 @@ class TranslatorChannel:
                 cid = str(raw.get("claim_id", "?"))
                 out.append(IntegrityFinding(code="INT-HANDOFF-012", severity="error", message=f"claim {cid} carries provenance that differs from its report in {mismatch} (claim {[raw.get(k) for k in mismatch]} vs report {[payload.get(k) for k in mismatch]}): a claim of another report or request hidden inside this one; not delivered",
                                             claim_ids=[cid], report_ids=[report.report_id], agent_ids=[report.agent_id]))
-        try:
-            SpecialistReport.model_validate(payload)
-        except ValidationError as exc:
-            errors = exc.errors()
-            if out:  # the provenance fault is already named; only report what else failed
-                errors = [e for e in errors if "does not belong to this report" not in str(e.get("msg", "")) and "does not belong to this report" not in str(e.get("ctx", {}).get("error", ""))]
-            if errors:
-                out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
-                                            report_ids=[report.report_id], agent_ids=[report.agent_id]))
+        # Both forms are validated (integration gate 2): the full dump, None kept, so a None in a field that has a default but
+        # is not Optional is refused instead of being dropped from the delivered payload and read back as the default; then
+        # the delivered payload itself.
+        full = _full_dump(report)
+        if full is None:
+            out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message="report payload cannot be dumped in full for re-validation and is not delivered: a report built around its contract's validation",
+                                        report_ids=[report.report_id], agent_ids=[report.agent_id]))
+            return out
+        for data in (full, payload):
+            try:
+                SpecialistReport.model_validate(data)
+            except ValidationError as exc:
+                errors = exc.errors()
+                if out:  # the provenance fault is already named; only report what else failed
+                    errors = [e for e in errors if "does not belong to this report" not in str(e.get("msg", "")) and "does not belong to this report" not in str(e.get("ctx", {}).get("error", ""))]
+                if errors:
+                    out.append(IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload does not re-validate against the specialist_report contract and is not delivered: {_shape_reason(exc)}",
+                                                report_ids=[report.report_id], agent_ids=[report.agent_id]))
+                return out
         return out
+
+    @staticmethod
+    def _as_delivered(report: SpecialistReport, payload: dict) -> SpecialistReport:
+        """The report the recipient reads from the delivered ``payload`` (integration gate 2): every content check runs on
+        it, never on the caller's object, so a value the delivered payload leaves out (a field set to None, read back as
+        its default) is checked as the recipient reads it. The object itself when they are equal (a report that validated
+        on construction), or when the payload does not validate (the transmission is refused before any content check)."""
+        try:
+            delivered = SpecialistReport.model_validate(payload)
+        except (ValidationError, TypeError, ValueError):
+            return report
+        return report if delivered == report else delivered
 
     @staticmethod
     def _supplied_text_mismatch(report: SpecialistReport, req: TaskRequest) -> list[IntegrityFinding]:
@@ -1558,6 +1642,7 @@ class TranslatorChannel:
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
         if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):  # the payload does not re-validate or carries another report's claims
             return self._finish(msg, "specialist_to_router", findings, [], [], [], branch_key=bk)
+        report = self._as_delivered(report, payload)  # every check reads the report as delivered (integration gate 2)
         if sender != req.to_agent_id:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {sender} but the request was addressed to {req.to_agent_id}", agent_ids=sorted({sender, req.to_agent_id}), message_ids=[msg.message_id]))
         findings += check_report_against_plan(self.plan, report)
@@ -1689,6 +1774,7 @@ class TranslatorChannel:
             findings += self._revalidate(payload_obj, payload)
             if any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in findings):
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
+            payload_obj = self._as_delivered(payload_obj, payload)  # every check reads the report as delivered (integration gate 2)
             if forward:
                 # The router may only pass on a report exactly as it was delivered on this channel: same report id,
                 # same payload digest. Anything else is a report altered in transit or never received.
@@ -1738,7 +1824,10 @@ class TranslatorChannel:
             relayed_report, relayed_named = payload_obj, self._guarded("argument diagnosis (report level)", findings,
                                                                        lambda: self._report_diagnosis(payload_obj, None, outcomes), None, **rid)
         else:
-            findings += self._revalidate_synthesis(payload_obj, payload)
+            synthesis_findings, delivered = self._revalidate_synthesis(payload_obj, payload)
+            findings += synthesis_findings
+            if delivered is not None and delivered != payload_obj:
+                payload_obj = delivered  # the checks read the synthesis as delivered (integration gate 2), never the caller's object
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # an invalid synthesis, an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
@@ -1759,22 +1848,34 @@ class TranslatorChannel:
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
                             report=relayed_report, report_named=relayed_named)
 
-    def _revalidate_synthesis(self, synthesis: Synthesis, payload: dict) -> list[IntegrityFinding]:
+    def _revalidate_synthesis(self, synthesis: Synthesis, payload: dict) -> tuple[list[IntegrityFinding], Optional[Synthesis]]:
         """The synthesis delivered to the recipient must re-validate against synthesis/1.0, as a report must against its
         contract (``_revalidate``): a synthesis built around validation (``model_copy(update=...)`` or ``model_construct``,
         with a transformation written as free text, say) is REJECTED here with INT-REQ-009, and a value outside one of
         the contract's closed vocabularies is named (INT-SYNTH-014), instead of reaching the claim ledger, whose rules
         those values select. A synthesis that validated on construction re-validates unchanged, so this adds nothing to
-        its receipt."""
-        try:
-            Synthesis.model_validate(payload)
-        except (ValidationError, TypeError, ValueError) as exc:
-            sid, cid = _scrub(str(getattr(synthesis, "synthesis_id", "") or ""))[:128], _scrub(str(getattr(synthesis, "combinator_agent_id", "") or ""))[:128]
-            out = [IntegrityFinding(code="INT-REQ-009", severity="error",
-                                    message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc, 'synthesis')}",
-                                    claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])]
-            return out + (_vocabulary_findings(payload, exc) if isinstance(exc, ValidationError) else [])
-        return []
+        its receipt.
+
+        Both forms are validated (integration gate 2): the object's full dump, None kept, so a None in a field that has a
+        default but is not Optional (``transformation``, ``certainty``, ``ledger``, ...) is refused and named instead of
+        being dropped from the delivered payload and read back as the default; and the delivered payload itself. Returns
+        the findings and, when both validate, the synthesis the recipient reads from the delivered payload: every check of
+        the relay runs on it, never on the caller's object, so the ledger examines exactly what is delivered and hashed."""
+        sid, cid = _scrub(str(getattr(synthesis, "synthesis_id", "") or ""))[:128], _scrub(str(getattr(synthesis, "combinator_agent_id", "") or ""))[:128]
+        for data in (_full_dump(synthesis), payload):
+            if data is None:
+                return [IntegrityFinding(code="INT-REQ-009", severity="error",
+                                         message="synthesis payload cannot be dumped in full for re-validation and is not delivered: a synthesis built around its "
+                                                 "contract's validation",
+                                         claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])], None
+            try:
+                image = Synthesis.model_validate(data)
+            except (ValidationError, TypeError, ValueError) as exc:
+                out = [IntegrityFinding(code="INT-REQ-009", severity="error",
+                                        message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc, 'synthesis')}",
+                                        claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])]
+                return out + (_vocabulary_findings(data, exc) if isinstance(exc, ValidationError) else []), None
+        return [], image
 
     def _synthesis_id_reuse(self, synthesis: Synthesis, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
         """A synthesis id already delivered on this channel: the same content (``created_at`` aside) again to a recipient

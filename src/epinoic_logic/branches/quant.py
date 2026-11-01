@@ -243,9 +243,17 @@ _FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+{_fig(1)}\s+(?:to|and)\s+{_fig(2)}",
 #: '... X in D1 and [reached] Y in D2': both dates are required, so a list of undated figures is never a pair.
 _TO_VERB = (r"(?:reached|rose to|risen to|climbed to|grew to|increased to|jumped to|soared to|fell to|fallen to|dropped to|declined to|decreased to|"
             r"sank to|shrank to|stood at|was|were|had|bought|cost|numbered|totalled|totaled|to)")
-_AND_DATED_RE = re.compile(rf"(?<![\w.,]){_fig(1, dated=True)}\s*,?\s+and\s+(?:(?:had\s+|then\s+)?{_TO_VERB}\s+)?{_fig(2, dated=True)}", re.IGNORECASE)
-#: The next item of a list after a pair's second figure: ', 4.5 million in 1931 and 5.6 million in 1932'.
-_LIST_ITEM_RE = re.compile(rf"\s*(?:,\s*(?:and\s+)?|\s+and\s+)(?:then\s+)?(?:to\s+)?{_fig(3, dated=True)}", re.IGNORECASE)
+#: The join of two dated figures, ', and' or ' and': read as one comma-led or one blank-led run (``_AND_JOIN``), never as two
+#: adjacent blank runs around an optional comma (``\s*,?\s+and``), which a long run of blanks after a dated figure split in
+#: every way before failing, n² steps (integration gate 2); the joins matched are the same.
+_AND_JOIN = r"(?:\s*+,\s++|\s++)and\s+"
+_AND_DATED_RE = re.compile(rf"(?<![\w.,]){_fig(1, dated=True)}{_AND_JOIN}(?:(?:had\s+|then\s+)?{_TO_VERB}\s+)?{_fig(2, dated=True)}", re.IGNORECASE)
+#: The next item of a list after a pair's second figure: ', 4.5 million in 1931 and 5.6 million in 1932'. Read after every pair; the
+#: blanks before the comma or the 'and' are one possessive run (integration gate 2, critical): the leading ``\s*`` and the ``\s+`` of
+#: ' and ' split a long run of blanks after a pair in every way before failing ('... to 4.5 million in 1931' + blanks + 'xx'), n² steps
+#: (19.7 s per History receive at 40,000 characters). A comma or 'and' follows the whole run or nothing does, so the items are the same.
+_LIST_JOIN = r"(?:\s*+,\s*(?:and\s+)?|\s++and\s+)"
+_LIST_ITEM_RE = re.compile(rf"{_LIST_JOIN}(?:then\s+)?(?:to\s+)?{_fig(3, dated=True)}", re.IGNORECASE)
 #: A chained continuation: '..., before climbing to 5.6 million in 1932', ', and on to 4.5 million in 1931'.
 _CONT_RE = re.compile(
     rf"(?:\bbefore|\bthen|\band on|\band then|\band later|\blater)\s+(?:(?:climbing|rising|falling|dropping|increasing|decreasing|declining|growing|jumping|soaring|sinking|slumping|recovering|"
@@ -308,10 +316,14 @@ _ABS_CHANGE_RES = (
                r"(?!\s*(?:per\s*cent|percent|%|percentage|points?\b|times\b|-?fold\b)|[\s-]+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b)"
                rf"(?:\s*(?P<u>{_SCALE_UNIT}|seats|votes)\b)?(?P<noun>{_NOUN})(?:{_RATE_TAIL})?", re.IGNORECASE),
 )
-#: An average rate: 'an average of 450 miles a year', 'averaging 450 miles a year', 'at an average rate of 450 miles per year'.
+#: An average rate: 'an average of 450 miles a year', 'averaging 450 miles a year', 'at an average rate of 450 miles per year'. The rate tail is
+#: one group (integration gate 2): written bare, its second alternative ``\s+(annually|yearly)\b`` was an alternative of the whole pattern, so
+#: ' annually' alone matched with no amount (a clause holding 'averag' and 'annually' made the arithmetic check fail internally, a TypeError,
+#: and the search read a run of blanks again from each of its blanks, n² steps); an amount with 'annually' ('an average of 450 miles
+#: annually') is now read as the rate it states.
 _RATE_RES = (
-    re.compile(rf"\b(?:an?\s+)?(?:annual\s+)?average\s+(?:annual\s+|yearly\s+)?(?:(?:rate|increase|rise|growth|gain|fall|decline|addition)\s+)?(?:of\s+)?{_ABS_AMOUNT}{_RATE_TAIL}", re.IGNORECASE),
-    re.compile(rf"\baverag(?:ing|ed|es)\s+{_ABS_AMOUNT}{_RATE_TAIL}", re.IGNORECASE),
+    re.compile(rf"\b(?:an?\s+)?(?:annual\s+)?average\s+(?:annual\s+|yearly\s+)?(?:(?:rate|increase|rise|growth|gain|fall|decline|addition)\s+)?(?:of\s+)?{_ABS_AMOUNT}(?:{_RATE_TAIL})", re.IGNORECASE),
+    re.compile(rf"\baverag(?:ing|ed|es)\s+{_ABS_AMOUNT}(?:{_RATE_TAIL})", re.IGNORECASE),
 )
 #: A comparison of a figure with a stated benchmark: 'fell short of the First Plan's original target of about 10 million tonnes of pig
 #: iron (by about 10 per cent)', 'exceeded the target of 5 million tonnes by half'.
@@ -354,7 +366,17 @@ _THAT_YEAR_RE = re.compile(r"\b(?:that|the same|this|the following|the next)\s+y
 _YEAR_TOKEN_RE = re.compile(r"(?<![\d,.])\b(1[0-9]{3}|20[0-9]{2})\b(?![\d,.]?\d)")
 _YEAR_LIKE_RE = re.compile(r"^(?:1[0-9]{3}|20[0-9]{2})$")
 _PCT_WORDS = frozenset({"per cent", "percent", "%"})
-_SHARE_RE = re.compile(rf"\b{_NUM}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{_NUM}{_UNIT}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{_NUM}{_UNIT}", re.IGNORECASE)
+def _share_pattern(num: str, unit: str) -> str:
+    r"""'20 per cent of 300 million, or 60 million': a share of a total and the part it states. Every blank run is read once (integration
+    gate 2): the runs after 'of', 'the' and an approximation word, and before and after the separator (a comma, 'or', 'is', '=', a
+    parenthesis), were adjacent ``\s*``/``\s+`` runs around optional words, which a long run of blanks after 'of' or after the total
+    split in every way before failing, n² to n³ steps (0.72 s at 2,000 blanks, hours at 400,000). Each run is followed by a word, a mark
+    or a figure, never by a blank, so the possessive runs give the same matches; a separator word needs a blank before it, as before."""
+    return (rf"\b{num}\s*{_PCT_UNIT}\s+of\s++(?:the\s++)?(?:(?:about|around|roughly)\s*+)?{num}{unit}(?:\s+[a-z]+){{0,2}}?"
+            rf"\s*+(?:,\s*+(?:(?:or|i\.e\.|that is)\s*+)?|(?<=\s)(?:or|was|is|=|that is|i\.e\.)\s*+|\(\s*+)(?:(?:about|around|roughly|some)\s*+)?{num}{unit}")
+
+
+_SHARE_RE = re.compile(_share_pattern(_NUM, _UNIT), re.IGNORECASE)
 
 
 def _tfig(i: int) -> str:
@@ -379,7 +401,10 @@ def _search_total(pattern: "re.Pattern[str]", text: str) -> "Optional[re.Match[s
 #: A full stop followed by a lower-case word inside one parser sentence: the arithmetic reading splits there too.
 _LOWER_CONTINUATION_RE = re.compile(r"[.?!][\"”’')\]»]*\s+[a-z]")
 #: Where one part of a clause ends and the next begins between two pairs.
-_SEG_SEP_RE = re.compile(r",\s*(?:and|while|whereas|but|yet)\b|;|\s+and\s+", re.IGNORECASE)
+#: Read from a comma or from the first blank of a run (``(?<!\s)``, possessive runs; integration gate 2): ``\s+and`` was tried again from
+#: every blank of a long run between two pairs, k² steps. :func:`_segments` reads it on the text between the pairs, as the scan between
+#: their offsets read it.
+_SEG_SEP_RE = re.compile(r",\s*+(?:and|while|whereas|but|yet)\b|;|(?<!\s)\s++and\s+", re.IGNORECASE)
 _EDGE_SEP_RE = re.compile(r",\s*(?:and|while|whereas|but|yet)\b|;", re.IGNORECASE)
 _MONTH_INDEX = {m: i for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), start=1)}
 _SCALE = {"thousand": 10**3, "k": 10**3, "million": 10**6, "m": 10**6, "billion": 10**9, "bn": 10**9, "trillion": 10**12, "tn": 10**12, "trn": 10**12, "quadrillion": 10**15}
@@ -423,13 +448,13 @@ def _build_patterns(numx: str, num: str, unit_words: str, unit: str) -> _Pattern
         return _fig(i, dated=dated, numx=numx, unit_words=unit_words)
     return _Patterns(
         re.compile(rf"\b(?:from|of)\s+{fig(1)}\s+(?:to|and)\s+{fig(2)}", re.IGNORECASE),
-        re.compile(rf"(?<![\w.,]){fig(1, True)}\s*,?\s+and\s+(?:(?:had\s+|then\s+)?{_TO_VERB}\s+)?{fig(2, True)}", re.IGNORECASE),
-        re.compile(rf"\s*(?:,\s*(?:and\s+)?|\s+and\s+)(?:then\s+)?(?:to\s+)?{fig(3, True)}", re.IGNORECASE),
+        re.compile(rf"(?<![\w.,]){fig(1, True)}{_AND_JOIN}(?:(?:had\s+|then\s+)?{_TO_VERB}\s+)?{fig(2, True)}", re.IGNORECASE),
+        re.compile(rf"{_LIST_JOIN}(?:then\s+)?(?:to\s+)?{fig(3, True)}", re.IGNORECASE),
         re.compile(
             rf"(?:\bbefore|\bthen|\band on|\band then|\band later|\blater)\s+(?:(?:climbing|rising|falling|dropping|increasing|decreasing|declining|growing|jumping|soaring|sinking|slumping|recovering|"
             rf"returning|climbed|rose|fell|dropped|increased|decreased|declined|grew|jumped|soared|sank|slumped|recovered|returned)\s+)?(?:further\s+|again\s+|back\s+)?to\s+{fig(3)}"
             rf"|(?:\bbefore|\bthen|\band then|\band later|\blater)\s+(?:reaching|reached|hitting|hit|peaking at|peaked at)\s+{fig(4)}", re.IGNORECASE),
-        re.compile(rf"\b{num}\s*{_PCT_UNIT}\s+of\s+(?:the\s+)?(?:about|around|roughly)?\s*{num}{unit}(?:\s+[a-z]+){{0,2}}?(?:\s*,\s*(?:or|i\.e\.|that is)?|\s+(?:or|was|is|=|that is|i\.e\.)|\s*\()\s*(?:about|around|roughly|some)?\s*{num}{unit}", re.IGNORECASE),
+        re.compile(_share_pattern(num, unit), re.IGNORECASE),
         re.compile(rf"{num}{unit}\s+(?:and|plus)\s+(?:[a-z][a-z ]{{0,40}}?\s)?{num}{unit}[^.;]{{0,60}}?{_TOTAL_KEYWORD_START}(?:a total of|totalling|together|in total|making|giving|totals?)\s+(?:about|around|roughly)?\s*{num}{unit}", re.IGNORECASE),
     )
 
@@ -508,6 +533,13 @@ class FigureTooLarge(ValueError):
 
 
 _TOO_LARGE_REASON = f"a figure in it has more than {MAX_FIGURE_DIGITS:,} digits and is too large to check"
+#: The most derived figures, and the most pairs of figures, a clause is read for (integration gate 2): every derived figure of a clause reads
+#: the clause again (its decade, its years, its stated figures, its working), and every pair looks through the clause's derived figures, so a
+#: clause of thousands ('a rise of 20 per cent a rise of 20 per cent ...') cost n² steps (8.7 s at 10,000 characters). A real sentence
+#: states a few (the most in the recorded rounds is 2 and 3); a clause over the bound is reported undecided as a whole, never read in part.
+_MAX_CLAUSE_FIGURES = 32
+_TOO_MANY_REASON = (f"it states more than {_MAX_CLAUSE_FIGURES} derived figures or pairs of figures, more than a sentence is read for, so its "
+                    f"arithmetic was not read")
 
 
 def _number(num: str) -> Fraction:
@@ -848,21 +880,25 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
         if factor <= 1:
             continue
         out.append(_Derived(m.start(), m.end(), "fold_change", m.group(0).strip(), None, factor, _side(m.group("q"))))
-    taken = [(d.start, d.end) for d in out]
+    # the characters of the phrases read so far, marked once: a match is skipped when it shares a character with one of them (integration
+    # gate 2: each match was tested against every phrase read before it, n² steps on a clause of thousands of rates)
+    taken = bytearray(len(clause))
+    for d in out:
+        taken[d.start: d.end] = b"\x01" * (d.end - d.start)
     if "averag" in low:
         for rx in _RATE_RES:
             for m in rx.finditer(clause):
-                if any(a < m.end() and m.start() < b for a, b in taken) or _year_like(m.group("n"), m.group("u") or m.group("cur")):
+                if taken.find(1, m.start(), m.end()) >= 0 or _year_like(m.group("n"), m.group("u") or m.group("cur")):
                     continue
                 amount = _frac(m.group("n"), m.group("u"))
                 direction = _direction(m.group(0).split()[0]) if re.search(r"\b(?:fall|decline|drop|loss|cut|reduction)\b", m.group(0), re.IGNORECASE) else None
                 out.append(_Derived(m.start(), m.end(), "rate_change", m.group(0).strip(), direction, amount, _side(m.group("q")), unit=m.group("u"),
                                     noun=(m.group("noun") or "").strip(), per=(m.group("per") or "year").lower(), cur=_cur_key(m.group("cur") or "")))
-                taken.append((m.start(), m.end()))
+                taken[m.start(): m.end()] = b"\x01" * (m.end() - m.start())
     if _ABS_HINT_RE.search(clause):
         for rx in _ABS_CHANGE_RES:
             for m in rx.finditer(clause):
-                if any(a < m.end() and m.start() < b for a, b in taken) or _year_like(m.group("n"), m.group("u") or m.group("cur")):
+                if taken.find(1, m.start(), m.end()) >= 0 or _year_like(m.group("n"), m.group("u") or m.group("cur")):
                     continue
                 amount = _frac(m.group("n"), m.group("u"))
                 if amount <= 0:
@@ -879,7 +915,7 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
                     soft = word in ("added", "adding", "adds", "gained", "gaining", "gains", "lost", "losing", "loses", "shed", "shedding", "sheds")
                     out.append(_Derived(m.start(), m.end(), "abs_change", m.group(0).strip(), direction, amount, _side(m.group("q")), unit=m.group("u"),
                                         noun=(m.group("noun") or "").strip(), soft=soft, cur=_cur_key(m.group("cur") or "")))
-                taken.append((m.start(), m.end()))
+                taken[m.start(): m.end()] = b"\x01" * (m.end() - m.start())
     out.sort(key=lambda d: d.start)
     return out
 
@@ -1321,8 +1357,8 @@ def _segments(clause: str, pairs: list[_Pair]) -> list[tuple[int, int]]:
             start = bounds[-1][1]
         if i + 1 < len(pairs):
             nxt = pairs[i + 1]
-            seps = list(_SEG_SEP_RE.finditer(clause, p.end, nxt.start))
-            end = seps[-1].start() if seps else nxt.start
+            seps = list(_SEG_SEP_RE.finditer(clause[p.end: nxt.start]))
+            end = p.end + seps[-1].start() if seps else nxt.start
         else:
             sep = _EDGE_SEP_RE.search(clause, p.end)
             end = sep.start() if sep else len(clause)
@@ -1419,22 +1455,41 @@ def _pick_series(series: list[_Series], years: list[int], clause: str, *, kinds:
     return candidates[0], ""
 
 
-def _earlier_year(sentences: list[str], index: int, clause: str, phrase_start: int) -> tuple[Optional[int], str]:
+def _earlier_year(sentences: list[str], index: int, clause: str, phrase_start: int,
+                  nearest: Optional[list[Optional[list[int]]]] = None) -> tuple[Optional[int], str]:
     """The year an anaphor ('that year') refers to, and why when there is none: the one year stated
     before it in its own clause, else the one year stated in the nearest earlier sentence of the
-    paragraph that states any. Two or more candidate years at the nearest level are ambiguous."""
+    paragraph that states any. Two or more candidate years at the nearest level are ambiguous.
+    ``nearest`` (:func:`_nearest_years`) is the paragraph's reading of that sentence for every sentence, read once per paragraph
+    (integration gate 2: the walk back from every anaphor read every earlier sentence again, n² steps on a paragraph of anaphors with no
+    year); without it the sentences are walked back as before."""
     years = sorted({int(y) for y in _YEAR_TOKEN_RE.findall(clause[:phrase_start])})
     if len(years) == 1:
         return years[0], ""
     if years:
         return None, f"'that year' could refer to {len(years)} years stated before it in its sentence"
-    for j in range(index - 1, -1, -1):
-        years = sorted({int(y) for y in _YEAR_TOKEN_RE.findall(sentences[j])})
+    if nearest is not None:
+        found = nearest[index - 1] if index > 0 else None
+        candidates = [found] if found else []
+    else:
+        candidates = (y for y in (sorted({int(t) for t in _YEAR_TOKEN_RE.findall(sentences[j])}) for j in range(index - 1, -1, -1)) if y)
+    for years in candidates:
         if len(years) == 1:
             return years[0], ""
-        if years:
-            return None, f"'that year' could refer to {len(years)} years ({', '.join(map(str, years[:6]))}) stated in the sentence before it"
+        return None, f"'that year' could refer to {len(years)} years ({', '.join(map(str, years[:6]))}) stated in the sentence before it"
     return None, "'that year' refers to no year stated earlier in the paragraph"
+
+
+def _nearest_years(sentences: list[str]) -> list[Optional[list[int]]]:
+    """For every sentence of a paragraph, the years (sorted, distinct) of the nearest sentence at or before it that states any, or None."""
+    out: list[Optional[list[int]]] = []
+    last: Optional[list[int]] = None
+    for sent in sentences:
+        years = sorted({int(y) for y in _YEAR_TOKEN_RE.findall(sent)})
+        if years:
+            last = years
+        out.append(last)
+    return out
 
 
 def _decade_before(clause: str, at: int) -> Optional["re.Match[str]"]:
@@ -1459,7 +1514,8 @@ def _outside_decade(before: _Fig, after: _Fig, d0: int) -> bool:
     return before.year is not None and after.year is not None and (before.year < d0 or after.year > d0 + 10)
 
 
-def _target_years(sentences: list[str], index: int, clause: str, at: int, series_years: list[int]) -> tuple[Optional[tuple[int, int]], str]:
+def _target_years(sentences: list[str], index: int, clause: str, at: int, series_years: list[int],
+                  nearest: Optional[list[Optional[list[int]]]] = None) -> tuple[Optional[tuple[int, int]], str]:
     """(earlier year, later year) a derived figure with no pair of its own speaks of: a decade that is the clause's subject ('The
     1840s ... added roughly 4,500 miles': 1840 to 1850), a span in the clause ('from 1929 to 1930'), an anaphor ('that year') or the
     one year the clause states, read against the series' previous dated figure."""
@@ -1472,7 +1528,7 @@ def _target_years(sentences: list[str], index: int, clause: str, at: int, series
         return (int(span.group(1)), int(span.group(2))), f"the years {span.group(1)} and {span.group(2)} stated in the sentence"
     anaphor = _THAT_YEAR_RE.search(clause)
     if anaphor:
-        year, why = _earlier_year(sentences, index, clause, anaphor.start())
+        year, why = _earlier_year(sentences, index, clause, anaphor.start(), nearest)
         if year is None:
             return None, why
         how = f"'{anaphor.group(0)}' read as {year}, the one year stated before it"
@@ -1698,12 +1754,16 @@ def _any_other_spec(m: "re.Match[str]", clause: str, para: str, series: list, st
 #: '..., of which the United Kingdom received about $3.2 billion and France about $2.7 billion': the parts of the total before it.
 _OF_WHICH_RE = re.compile(r",\s*(?:(?:most|some|part|much|all)\s+)?of\s+(?:which|whom|these)\b", re.IGNORECASE)
 #: '1882 alone brought nearly 790,000', 'the United Kingdom alone received $3.2 billion': one part of the total stated before it.
-_ALONE_RE = re.compile(r"\b(?P<who>(?:1[0-9]{3}|20[0-9]{2})|[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*)*)\s+alone\s+(?:had\s+|has\s+)?"
+#: The party's name is read up to twelve capitalised words (integration gate 2: an unbounded name was read again from each of its words, n²
+#: steps on a run of capitalised words, 4 s at 24,000 characters); a longer name is read as its last twelve words.
+_ALONE_RE = re.compile(r"\b(?P<who>(?:1[0-9]{3}|20[0-9]{2})|[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*){0,11})\s+alone\s+(?:had\s+|has\s+)?"
                        r"(?P<verb>brought|saw|accounted\s+for|added|contributed|admitted|received|took|produced|absorbed|got|gained|sent|supplied|provided|delivered|lost|"
                        r"took\s+in|let\s+in)\s+")
 #: '<part>, about a quarter of the decade's total', 'about 60 per cent of the total': the share of a total stated in the sentence.
+#: Read from a comma or from the first blank of a run (``(?<!\s)``, possessive runs; integration gate 2): a search from every blank of a long
+#: run read the rest of the run each time (72 s for a clause with 16,000 blanks).
 _SHARE_OF_TOTAL_RE = re.compile(
-    rf"(?:,\s*|\s+)(?:(?P<q>{_QUAL})\s+)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})\s+of\s+(?:the|this|that|its|their)\s+"
+    rf"(?:,\s*+|(?<!\s)\s++)(?:(?P<q>{_QUAL})\s++)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})\s+of\s+(?:the|this|that|its|their)\s+"
     r"(?:(?P<period>decade|year|period|programme|plan|war|era|century|month)(?:'s|’s)\s+)?(?P<noun>total|sum|whole|aggregate|arrivals|figure|amount|number)\b",
     re.IGNORECASE)
 #: 'about $2 billion more than France': a difference between two figures the paragraph states for two named parties.
@@ -1751,6 +1811,12 @@ _PART_HINT_RE = re.compile(r"of\s+(?:which|whom|these)\b|\balone\b|\btotal\b|\bt
 _MONTH_NOUN_RE = re.compile(r"^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b", re.IGNORECASE)
 
 
+#: What makes a figure part of a decade, a span or a date ('1930s', '1914-18', '21st'), read at the figure's end (integration gate 2: the
+#: rest of the text was copied for every figure, n² steps on a text of many figures); a month name after a count, likewise.
+_FIG_SUFFIX_RE = re.compile(r"\s*(?:s\b|-|–|st\b|nd\b|rd\b|th\b)")
+_MONTH_AFTER_RE = re.compile(r"\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\b")
+
+
 def _magnitudes(text: str) -> list[_Fig]:
     """The figures of ``text`` that state an amount: digits (or a currency sign), not a year, not a per cent, not the day of a date."""
     out: list[_Fig] = []
@@ -1758,7 +1824,7 @@ def _magnitudes(text: str) -> list[_Fig]:
         f = _fig_of(m, 1)
         if not f.num[:1].isdigit() or _is_pct(f.unit) or _year_like(f.num, f.unit or f.cur) or _MONTH_NOUN_RE.match(f.noun):
             continue
-        if re.match(r"\s*(?:s\b|-|–|st\b|nd\b|rd\b|th\b)", text[m.end("n1"):]) and _year_like(f.num, None):
+        if _FIG_SUFFIX_RE.match(text, m.end("n1")) and _year_like(f.num, None):
             continue
         out.append(f)
     return out
@@ -1827,7 +1893,7 @@ def _stated_figures(text: str) -> list[_Fig]:
         f = _fig_of(m, 1)
         if not f.num[:1].isdigit() or _year_like(f.num, f.unit or f.cur) or _MONTH_NOUN_RE.match(f.noun):
             continue
-        if re.match(r"\s*(?:s\b|-|–|st\b|nd\b|rd\b|th\b)", text[m.end("n1"):]) and _year_like(f.num, None):
+        if _FIG_SUFFIX_RE.match(text, m.end("n1")) and _year_like(f.num, None):
             continue
         out.append(f)
     return out
@@ -1975,7 +2041,8 @@ def _total_rate_spec(clause: str, d: _Derived, tolerance: Fraction) -> tuple[Opt
 
 
 #: The party whose share a phrase states: '..., so the United Kingdom alone received about two-thirds of the total'.
-_SHARE_PARTY_RE = re.compile(r"(?P<who>(?:the\s+)?[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*)*)\s+(?:alone\s+|itself\s+)?(?:had\s+|has\s+)?"
+#: The party's name is read up to twelve capitalised words, as in :data:`_ALONE_RE` (integration gate 2).
+_SHARE_PARTY_RE = re.compile(r"(?P<who>(?:the\s+)?[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*){0,11})\s+(?:alone\s+|itself\s+)?(?:had\s+|has\s+)?"
                              r"(?:received|got|took|obtained|absorbed|accounted\s+for|was\s+given|was\s+granted|was\s+allotted|gained|brought|sent|admitted)\s*$")
 
 
@@ -2057,6 +2124,26 @@ def _share_spec(clause: str, whole: _Fig, part: _Fig, frac: Optional[str], pn: O
                  ("STATED_SHARE", concl, label), floor, side, "figure stated in the report itself", basis, phrase), ""
 
 
+#: The most part markers ('of which', '<party> alone', a share of the total, 'N of the M', a difference between named parties) a clause is
+#: read for (integration gate 2): each reads the clause before it again (its amounts and derived phrases, the paragraph's figures for a
+#: party), so a clause of thousands of them cost n² steps (256 s for a clause of 'of which' at 32,000 characters). A real clause states a
+#: few; a clause over the bound is reported undecided with this reason (``CORE-QNT-001``), never read in part.
+_MAX_CLAUSE_PART_MARKERS = 16
+_TOO_MANY_PARTS_REASON = (f"it states more than {_MAX_CLAUSE_PART_MARKERS} parts, shares or differences of a total, more than a clause is read "
+                          f"for, so none of them was read")
+
+
+def _part_markers_over_bound(clause: str) -> bool:
+    """True when ``clause`` holds more than :data:`_MAX_CLAUSE_PART_MARKERS` part markers (counted up to the bound)."""
+    count = 0
+    for pattern in (_OF_WHICH_RE, _ALONE_RE, _SHARE_OF_TOTAL_RE, _N_OF_M_SHARE_RE, _DIFF_RE):
+        for _m in pattern.finditer(clause):
+            count += 1
+            if count > _MAX_CLAUSE_PART_MARKERS:
+                return True
+    return False
+
+
 def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided]]:
     """Parts of a total stated before them ('..., of which A received X and B Y', 'Y alone brought N', 'Of the $13 billion, A received
     X and B Y'), a share of the total ('about a quarter of the decade's total'), a difference between two named parties' figures ('about
@@ -2070,6 +2157,9 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
     rule_note = "figure stated in the report itself"
     clauses = split_clauses(sent) if ";" in sent else [sent]
     for clause in clauses:
+        if _part_markers_over_bound(clause):
+            undecided.append(QuantUndecided(pi, si + 1, sent.strip(), " ".join(clause.split())[:120], _TOO_MANY_PARTS_REASON))
+            continue
         # parts after 'of which': their sum may not exceed the total before it
         for m in _OF_WHICH_RE.finditer(clause):
             wholes = _amounts(clause, m.start())
@@ -2267,7 +2357,7 @@ def _rate_trend_specs(sentences: list[str], si: int, pi: int) -> tuple[list[_Spe
                     continue
                 counts = [f for f in (_fig_of(x, 1) for x in _LONE_FIG_RE.finditer(clause))
                           if not _year_like(f.num, f.unit or f.cur) and not _MONTH_NOUN_RE.match(f.noun) and not _is_pct(f.unit)
-                          and not re.match(r"\s*(?:January|February|March|April|May|June|July|August|September|October|November|December)\b", clause[f.start + len(f.num):])]
+                          and not _MONTH_AFTER_RE.match(clause, f.start + len(f.num))]
                 if len(counts) == 1:
                     prior = (counts[0], y1 - 1, j)
                     break
@@ -2640,7 +2730,11 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
             for clause in clauses:
                 try:
                     derived = _derived_phrases(clause, si_mode)
-                    pairs = _pairs_outside(_pairs(clause, pat), derived)
+                    all_pairs = _pairs(clause, pat)
+                    if len(derived) > _MAX_CLAUSE_FIGURES or len(all_pairs) > _MAX_CLAUSE_FIGURES:
+                        undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), clause.strip()[:120], _TOO_MANY_REASON))
+                        continue
+                    pairs = _pairs_outside(all_pairs, derived)
                     for p in pairs:  # a later figure opening written arithmetic with no stated result: the change's end is not stated
                         if p.arith:
                             undecided.append(QuantUndecided(pi, _num(numbers, si), sent.strip(), p.arith[:120], ARITH_ENDPOINT_REASON))
@@ -2724,6 +2818,8 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
             if not _cache:
                 _cache.append(_standalone_points(_sentences))
             return _cache[0]
+        series_years = sorted({y for s in series for y in s.points})  # the series are complete here: read once per paragraph
+        nearest = _nearest_years(sentences) if pending else None
         for si, clause, loose, extras in pending:
             try:
                 sent = sentences[si].strip()
@@ -2737,7 +2833,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                     if why:
                         undecided.append(QuantUndecided(pi, si + 1, sent, d.words, why))
                         continue
-                    target, how = _target_years(sentences, si, clause, d.start, sorted({y for s in series for y in s.points}))
+                    target, how = _target_years(sentences, si, clause, d.start, series_years, nearest)
                     in_equation = not si_mode and any(eq.start <= d.start < eq.end for eq in worked_equations(clause))
                     if target is None:
                         if d.soft and not series and _decade_before(clause, d.start) is None:
@@ -2800,7 +2896,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                     proportional = bool(extreme.group(2) and extreme.group(2).strip().lower() in ("proportional", "relative", "percentage")) or bool(_PCT_CHANGE_RE.search(clause))
                     if extreme.group(2) and extreme.group(2).strip().lower() == "absolute":
                         proportional = False
-                    target, how = _target_years(sentences, si, clause, extreme.start(), sorted({y for s in series for y in s.points}))
+                    target, how = _target_years(sentences, si, clause, extreme.start(), series_years, nearest)
                     s, why = (None, how) if target is None else _pick_series(series, list(target), clause)
                     if s is None:
                         undecided.append(QuantUndecided(pi, _num(numbers, si), sent, extreme.group(0),

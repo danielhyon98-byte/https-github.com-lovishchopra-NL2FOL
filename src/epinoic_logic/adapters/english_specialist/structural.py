@@ -79,6 +79,7 @@ Style (formatting.md)
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from typing import Iterable, Optional
 
 from ...translate.common import truncate
@@ -363,7 +364,63 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
 _CLAUSE_BREAK_RE = re.compile(r"[:;](?=\s|$)")
 
 
-def _governing_document(sentence: Sentence, quote_index: int, named: list[str], docs: dict) -> Optional[str]:
+class _SentenceMarks:
+    """A sentence's quotations, clause breaks and the places it names each supplied text outside its quotations, read once per
+    sentence (integration gate 2): the credit of every quotation read the sentence's mentions again, tested each against every
+    quotation and copied the text between, n³ steps on a sentence of many quotations and mentions (a second at 5,000 characters,
+    minutes at 80,000). The answers are those of the per-quotation reading (:func:`_governing_document`, :func:`_named_before`)."""
+
+    def __init__(self, sentence: Sentence) -> None:
+        self.text = sentence.text
+        self.quotations = sentence.quotations
+        order = sorted(range(len(sentence.quotations)), key=lambda k: sentence.quotations[k].start)
+        self.starts = [sentence.quotations[k].start for k in order]
+        self.reach: list[int] = []  # the furthest end of the quotations opening at or before each start, in start order
+        best = -1
+        for k in order:
+            best = max(best, sentence.quotations[k].end)
+            self.reach.append(best)
+        # a ':' or ';' followed by a blank: a clause break wherever it stands in a span (``_CLAUSE_BREAK_RE``); a ':' or ';' just before a
+        # span's end is one too, as the span's own end (the pattern's '$')
+        self.breaks = [m.start() for m in re.finditer(r"[:;](?=\s)", self.text)]
+        self._outside: dict[str, tuple[list[tuple[int, int]], list[int], list[tuple[int, int]], list[int]]] = {}
+
+    def inside_quotation(self, a: int) -> bool:
+        """``any(o.start <= a < o.end for o in sentence.quotations)``."""
+        k = bisect_right(self.starts, a)
+        return k > 0 and self.reach[k - 1] > a
+
+    def outside(self, doc) -> tuple[list[tuple[int, int]], list[int], list[tuple[int, int]], list[int]]:
+        """The spans where the sentence names ``doc`` (a mention, and for a literary text a text cue) outside every quotation: sorted by
+        their end, with the ends, and sorted by their start, with the starts."""
+        found = self._outside.get(doc.document_id)
+        if found is None:
+            spans = list(document_mentions(self.text, doc))
+            if not is_peer_document(doc):
+                spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(self.text)]
+            spans = [(a, b) for a, b in spans if not self.inside_quotation(a)]
+            by_end = sorted(spans, key=lambda x: (x[1], x[0]))
+            by_start = sorted(spans)
+            found = (by_end, [b for _a, b in by_end], by_start, [a for a, _b in by_start])
+            self._outside[doc.document_id] = found
+        return found
+
+    def opens_between(self, lo: int, hi: int) -> bool:
+        """A quotation opens in ``[lo, hi)``."""
+        return bisect_left(self.starts, lo) < bisect_left(self.starts, hi)
+
+    def strict_break_between(self, lo: int, hi: int) -> bool:
+        """A ':' or ';' followed by a blank at a position in ``[lo, hi)``."""
+        return bisect_left(self.breaks, lo) < bisect_left(self.breaks, hi)
+
+    def breaks_between(self, lo: int, hi: int) -> bool:
+        """``_CLAUSE_BREAK_RE.search(text[lo:hi])``: a ':' or ';' before a blank in ``[lo, hi - 1)``, or one at ``hi - 1`` (the end)."""
+        if hi <= lo:
+            return False
+        return self.text[hi - 1] in ":;" or self.strict_break_between(lo, hi - 1)
+
+
+def _governing_document(sentence: Sentence, quote_index: int, named: list[str], docs: dict, marks: Optional[_SentenceMarks] = None) -> Optional[str]:
     """The supplied text that the phrase governing the ``quote_index``-th quotation of ``sentence`` credits with its
     words: the nearest possessive or crediting verb before it in its own clause ("the History specialist's "..."", "The
     History specialist observes that "..."", "Shelley writes that "..."": ``sources.quotation_credit``), else, when the
@@ -372,37 +429,41 @@ def _governing_document(sentence: Sentence, quote_index: int, named: list[str], 
     before the quotation and that holds its words (an ambiguous credit, which the core pack's CORE-SRC-005 warns of). A
     quotation that follows another quotation's attribution
     across a colon ("... consistent with the History specialist's "...": "By Wednesday they were bricking up the windows"")
-    is credited to no one by that phrase."""
+    is credited to no one by that phrase.
+
+    A name before the quotation qualifies when no quotation opens and no clause breaks between it and the quotation, so the
+    nearest name before it decides for every name before it (the text between a farther name and the quotation holds the
+    nearer one's); a name after it, when none does between the quotation's end and the name, read from the nearest
+    (integration gate 2: every name was tried against every quotation)."""
     q = sentence.quotations[quote_index]
     credit = quotation_credit(sentence.text, q.start, docs)
     if credit is not None:
         return credit.document_id if credit.document_id in docs else None
     if len(named) != 1:
         return None
-    doc = docs[named[0]]
-    others = [o for k, o in enumerate(sentence.quotations) if k != quote_index]
-    plain = sentence.text
-    spans = list(document_mentions(plain, doc))
-    if not is_peer_document(doc):
-        spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(plain)]
-    spans = [(a, b) for a, b in spans if not any(o.start <= a < o.end for o in sentence.quotations)]
-    for a, b in spans:
-        lo, hi = (b, q.start) if b <= q.start else (q.end, a)
-        if lo > hi:
-            continue
-        between = plain[lo:hi]
-        if any(lo <= o.start < hi for o in others) or _CLAUSE_BREAK_RE.search(between):
-            continue
-        return named[0]
+    marks = marks if marks is not None else _SentenceMarks(sentence)
+    _by_end, ends, _by_start, starts = marks.outside(docs[named[0]])
+    k = bisect_right(ends, q.start)
+    if k:  # the nearest name that ends at or before the quotation's opening mark
+        b = ends[k - 1]
+        if not marks.opens_between(b, q.start) and not marks.breaks_between(b, q.start):
+            return named[0]
+    # names after the quotation (they start at or after its end), nearest first: a quotation opening, or a ':' or ';' before a blank,
+    # between the quotation's end and a name stands before every name further on; a ':' or ';' just before the name ends only its span
+    for j in range(bisect_left(starts, q.end), len(starts)):
+        a = starts[j]
+        if marks.opens_between(q.end, a) or marks.strict_break_between(q.end, a - 1):
+            break
+        if not (a > q.end and sentence.text[a - 1] in ":;"):
+            return named[0]
     return None
 
 
-def _named_before(sentence: Sentence, position: int, doc) -> bool:
-    """True when ``sentence`` names ``doc`` outside its quotations before ``position``."""
-    spans = list(document_mentions(sentence.text, doc))
-    if not is_peer_document(doc):
-        spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(sentence.text)]
-    return any(b <= position and not any(o.start <= a < o.end for o in sentence.quotations) for a, b in spans)
+def _named_before(sentence: Sentence, position: int, doc, marks: Optional[_SentenceMarks] = None) -> bool:
+    """True when ``sentence`` names ``doc`` outside its quotations before ``position``: a name whose end is at or before it."""
+    marks = marks if marks is not None else _SentenceMarks(sentence)
+    _by_end, ends, _by_start, _starts = marks.outside(doc)
+    return bool(ends) and ends[0] <= position
 
 
 def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
@@ -422,16 +483,17 @@ def attribution_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, 
             if not sentence.quotations or sentence.role == "other":
                 continue
             named = documents_named(strip_quotations(sentence.text), docs)
+            marks = _SentenceMarks(sentence)
             for k, q in enumerate(sentence.quotations):
                 if not q.delimited:
                     continue
-                credited = _governing_document(sentence, k, named, docs)
+                credited = _governing_document(sentence, k, named, docs, marks)
                 if credited is None:
                     continue
                 located = [d for d in docs if excerpt_located(q.excerpt, d, docs)]
                 if not located or credited in located:
                     continue
-                if any(_named_before(sentence, q.start, docs[d]) for d in located):
+                if any(_named_before(sentence, q.start, docs[d], marks) for d in located):
                     continue  # the sentence also names the text that holds the words before them: an ambiguous credit (CORE-SRC-005 warns)
                 peer = is_peer_document(docs[credited]) or any(is_peer_document(docs[d]) for d in located)
                 claim_ids = [c.claim_id for c in report.claims if any(r.excerpt == q.excerpt for r in c.source_refs)] or _claims_for_sentence(report, sentence)

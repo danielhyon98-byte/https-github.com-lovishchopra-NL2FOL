@@ -304,9 +304,21 @@ def test_a_value_taken_after_so_is_set_against_the_chain_before_it():
 
 
 @pytest.mark.parametrize("text, kinds", [("1/R = 1/4.0 + 1/6.0 = 0.417 Ω⁻¹, so R = 2.4 Ω", ["eq", "sol", "alg"]),
-                                         ("k = ln 2 / 8.0 h = 0.087 h⁻¹, so k = 0.087 h⁻¹", ["eq"])])
+                                         ("k = ln 2 / 8.0 h = 0.087 h⁻¹, so k = 0.087 h⁻¹", ["eq", "res"])])
 def test_a_symbol_the_chain_solves_for_or_computes_is_no_restated_binding(text, kinds):
+    # integration gate 2 (rule restated-result), rewritten to the stricter rule: the symbol the chain computes, stated again after 'so',
+    # is now set against the chain as the answer's own restatement (error severity) and must hold; it is still never paired by rule
+    # restated-binding (a warning about another symbol), and the symbol the chain solves for (R of '1/R = …') still is no restatement
     assert [k for k, _st in statuses(text, request="Q")] == kinds
+    checks, _findings = decided(text, "physics", request="Q")
+    assert all(c[1] in ("ENTAILED", "SATISFIABLE") for c in checks)  # every check holds (Form E or Form S)
+    assert all(c[2] == "error" for c in checks if c[0] == "res")
+    clear_document_cache()
+    rels = [r for r in build_document(text, "Q", "physics").relations if r.kind == "res"]
+    assert all("(rule restated-result)" in r.reason and "(rule restated-binding)" not in r.reason and not r.restates for r in rels)
+    if "so k" in text:
+        wrong = decided(text.replace("so k = 0.087", "so k = 0.87"), "physics", request="Q")[0]
+        assert [c[1] for c in wrong if c[0] == "res"] == ["COUNTEREXAMPLE"]
 
 
 @pytest.mark.parametrize("text, status", [("Check: 100 counts min⁻¹ + 20 counts min⁻¹ = 130 counts min⁻¹.", "COUNTEREXAMPLE"),

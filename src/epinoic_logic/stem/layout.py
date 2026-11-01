@@ -24,7 +24,7 @@ import re
 from typing import Optional
 
 __all__ = [
-    "ANNOTATION_ONLY_RE", "BULLET_RE", "CONNECTIVE_END_RE", "CONTINUATION_RE", "LABEL_ONLY_REST_RE", "MARK_ALLOC", "MARK_CODE", "PART_LEAD_RE",
+    "ANNOTATION_ONLY_RE", "ANNOTATION_ONLY_LINEAR_RE", "BULLET_RE", "CONNECTIVE_END_RE", "CONTINUATION_RE", "LABEL_ONLY_REST_RE", "MARK_ALLOC", "MARK_CODE", "PART_LEAD_RE",
     "SENT_RE", "SOFT_WRAP_NEXT_RE", "TABLE_ROW_RE", "TABLE_SEPARATOR_RE", "TERMINAL_PUNCT_RE", "TRAILING_ANNOTATION_RE", "annotation_ranges",
     "strip_trailing_annotations", "trailing_annotation_span",
     "is_working", "joins_previous", "label_only_rest", "plain_line", "EMPHASIS_RE", "emphasis_spans",
@@ -53,10 +53,25 @@ TRAILING_ANNOTATION_RE = re.compile(rf"(?:\s*{MARK_ALLOC}|(?:\s{{2,}}|\t)\(?{MAR
 #: possessively and the run atomically. Each annotation ends on a character the lookahead cannot read (a bracket, a digit,
 #: the G of "AG"), so the pattern can match only a whole maximal run, and only when :data:`_ANNOTATION_TAIL_RE` holds at its
 #: end; :func:`trailing_annotation_span` gives the same span as the search (a test holds them equal).
-_ANNOTATION_RUN_RE = re.compile(rf"(?<!\s)(?>(?:\s*+{MARK_ALLOC}|(?:\s{{2,}}+|\t)\(?{MARK_CODE}\)?|\s*+\({MARK_CODE}\))+)")
+#: One element of a run of annotations (:data:`_ANNOTATION_RUN_RE`).
+_ANNOTATION_ELEMENT = rf"\s*+{MARK_ALLOC}|(?:\s{{2,}}+|\t)\(?{MARK_CODE}\)?|\s*+\({MARK_CODE}\)"
+_ANNOTATION_RUN_RE = re.compile(rf"(?<!\s)(?>(?:{_ANNOTATION_ELEMENT})+)")
+#: The elements a run of annotations reads on from a point it has reached, as :data:`_ANNOTATION_RUN_RE` reads them (each element
+#: ends on a bracket, a digit or the G of "AG", which no element after it can take back): when a text ends with a run and more text
+#: is added, the run goes on through what this pattern matches of the addition (the generic parser's logical lines, integration
+#: gate 2).
+ANNOTATION_RUN_CONTINUATION_RE = re.compile(rf"(?>(?:{_ANNOTATION_ELEMENT})*)")
 #: The lookahead of :data:`TRAILING_ANNOTATION_RE`: what may follow the run (a closing mark, blanks, the end).
 _ANNOTATION_TAIL_RE = re.compile(r"[.;,]?\s*$")
 ANNOTATION_ONLY_RE = re.compile(rf"\s*(?:(?:{MARK_ALLOC}|\(?{MARK_CODE}\)?)\s*)+[.;,]?\s*")
+#: :data:`ANNOTATION_ONLY_RE` with possessive blank runs, which :func:`annotation_ranges` reads each sentence of a line with
+#: (rule linear-readers, integration gate 2). As written, the blanks after the last mark and the blanks after the optional stop
+#: are adjacent runs, so a sentence of marks followed by blanks and text ('(A1)' + k blanks + 'x') tried every split of the run
+#: before failing, k² steps (0.25 s at 8,000 blanks, about 1.2 s per 20,000-character line, so 24 s for an answer of 20 such
+#: lines). Every run is followed by a mark, a stop or the end of the sentence, never by a blank, so no shorter run can lead to
+#: a match: the sentences matched are the same (tests/stem/test_integration_gate2_handoff.py keeps the pattern as written as the
+#: specification). The generic parser reads its lines with the same pattern (tests/stem/test_layout.py).
+ANNOTATION_ONLY_LINEAR_RE = re.compile(rf"\s*+(?:(?:{MARK_ALLOC}|\(?{MARK_CODE}\)?)\s*+)+[.;,]?\s*+")
 BULLET_RE = re.compile(r"^\s*[-*•–—]\s+")
 #: Blank and dash runs read possessively, the cells atomically (rule linear-readers): the same lines match (a blank run is
 #: followed by a bar, a colon, a dash or the end; a dash run by a colon, a blank, a bar or the end), and a line of many blanks
@@ -164,14 +179,182 @@ def plain_line(line: str) -> tuple[str, list[int]]:
     return "".join(out), index
 
 
+#: For each opening mark of :data:`_QUOTED_RE`: the characters that end its body (the marks that close it, and the line break the
+#: body never reads, as a character class), and the marks among them that close it.
+_QUOTE_STOPS = {'"': (re.compile(r'["\n]'), '"'), "“": (re.compile(r"[”\n]"), "”"), "«": (re.compile(r"[»\n]"), "»"),
+                "„": (re.compile(r"[“”\n]"), "“”")}
+_QUOTE_OPENER_RE = re.compile(r'["“«„]')
+#: The longest body :data:`_QUOTED_RE` reads (its ``{1,2000}``).
+_QUOTED_BODY_MAX = 2000
+
+
+def quoted_spans(line: str) -> list[tuple[int, int]]:
+    """The spans of ``_QUOTED_RE.finditer(line)``, found in one pass (rule linear-readers, integration gate 2).
+
+    The pattern reads up to 2,000 characters from every opening mark that has no closing mark, so a line of unclosed marks
+    ('„' * k) cost 2,000 steps per mark: 1.25 s for one 20,000-character line through :func:`joins_previous`, which reads both
+    lines, and 9 s for five such soft-wrapped lines through the STEM front end. A body reads no closing mark of its kind and
+    no line break, so it ends at the first of them after the opening mark: the pattern matches there exactly when that
+    character is a closing mark and the body between holds 1 to 2,000 characters. The positions of the characters that end
+    each kind of body are listed once, and each opening mark looks its end up; the matches are the pattern's, offset for
+    offset (tests/stem/test_integration_gate2_handoff.py holds them equal)."""
+    openers = [m.start() for m in _QUOTE_OPENER_RE.finditer(line)]
+    if not openers:
+        return []
+    kinds = {line[i] for i in openers}
+    stops: dict[str, list[int]] = {mark: [m.start() for m in ends.finditer(line)] for mark, (ends, _closers) in _QUOTE_STOPS.items() if mark in kinds}
+    out: list[tuple[int, int]] = []
+    cursor = dict.fromkeys(_QUOTE_STOPS, 0)
+    pos = 0  # the search resumes here after a match
+    for i in openers:
+        if i < pos:
+            continue
+        mark = line[i]
+        found, k = stops[mark], cursor[mark]
+        while k < len(found) and found[k] <= i:  # the opening marks only move right, so each list is read once
+            k += 1
+        cursor[mark] = k
+        if k < len(found):
+            j = found[k]
+            if line[j] in _QUOTE_STOPS[mark][1] and 1 <= j - i - 1 <= _QUOTED_BODY_MAX:
+                out.append((i, j + 1))
+                pos = j + 1
+    return out
+
+
 def _mask_quoted(line: str) -> str:
-    return _QUOTED_RE.sub(lambda m: " " * len(m.group(0)), line)
+    """``_QUOTED_RE.sub(lambda m: " " * len(m.group(0)), line)``, in linear time (:func:`quoted_spans`)."""
+    spans = quoted_spans(line)
+    if not spans:
+        return line
+    out: list[str] = []
+    pos = 0
+    for a, b in spans:
+        out.append(line[pos:a])
+        out.append(" " * (b - a))
+        pos = b
+    out.append(line[pos:])
+    return "".join(out)
 
 
 def is_working(line: str) -> bool:
     """A line (quoted spans aside) that holds a relation or an arithmetic expression."""
     masked = _mask_quoted(line)
     return bool(RELATION_RE.search(masked) or ARITHMETIC_RE.search(masked))
+
+
+#: The matches of :data:`RELATION_RE` and :data:`ARITHMETIC_RE` that can hold a line break: the arithmetic and '<' or '>' between
+#: blanks (the rest of :data:`RELATION_RE` is one or two signs, with look-arounds a line break satisfies as the ends of a line do).
+_CROSS_RE = re.compile(ARITHMETIC_RE.pattern + r"|\s[<>]\s")
+_BLANK_RUN_RE = re.compile(r"\s+")
+#: What a match of :data:`_CROSS_RE` that ends after a line break can hold before it, each blank run as one blank (a digit, a
+#: blank, a sign and a blank at most), with room to spare.
+_CROSS_TAIL = 8
+
+
+class WorkingReader:
+    """``is_working`` of lines joined with line breaks, read one line at a time in time linear in what is added (rule
+    linear-readers, integration gate 2).
+
+    A logical line grows by a physical line at a time, and the join rules asked whether the whole logical line so far is
+    working: a reading of all of it for every line it absorbed, n² steps on an answer of soft-wrapped lines ('ab cd' on each
+    of 8,000 lines: 39 s through the STEM front end, 35 s through the generic parser). The masking (``mask``, applied to each
+    line) must read no quoted span across a line break, as :func:`_mask_quoted` reads none. Then a match in the joined
+    lines lies in one line, where it is read with that line, or holds a line break: an arithmetic expression or a sign
+    between blanks, whose part before the break is at most a digit, a sign and their blanks; it is read on the last
+    characters of what came before, with each blank run as one blank (every blank of these patterns is ``\\s``, ``\\s*`` or
+    ``\\s+``, which read a run of blanks as they read one). A match once made stays made, so the answer only turns True."""
+
+    __slots__ = ("mask", "working", "lines", "_tail")
+
+    def __init__(self, mask=None) -> None:
+        self.mask = mask or _mask_quoted
+        self.working = False
+        self.lines = 0
+        self._tail = ""
+
+    def add(self, line: str) -> bool:
+        """Join ``line`` to the lines read so far; True when they are working."""
+        self.lines += 1
+        if self.working:
+            return True
+        masked = self.mask(line)
+        if self.lines == 1:
+            self.working = bool(RELATION_RE.search(masked) or ARITHMETIC_RE.search(masked))
+            self._tail = _BLANK_RUN_RE.sub(" ", masked)[-_CROSS_TAIL:]
+            return self.working
+        if RELATION_RE.search(masked):
+            self.working = True
+            return True
+        added = _BLANK_RUN_RE.sub(" ", "\n" + masked)
+        window = self._tail + (added[1:] if self._tail.endswith(" ") else added)
+        if _CROSS_RE.search(window):
+            self.working = True
+            return True
+        self._tail = window[-_CROSS_TAIL:]
+        return False
+
+
+class JoinedLine:
+    """What the join rules ask of a logical line (physical lines joined with line breaks, each with its trailing blanks
+    removed and none blank), kept as lines are added, so the rules read each line a bounded number of times instead of the
+    whole logical line for every line it absorbs (rule linear-readers, integration gate 2): ``joins_previous`` and the STEM
+    segmenter asked their patterns of the whole joined text, n² steps on a long run of joined lines. Each answer is the
+    pattern's on the joined text (tests/stem/test_integration_gate2_handoff.py holds them equal on random lines):
+
+    * :data:`CONNECTIVE_END_RE` and the closing colon read only the text's end (a comma, or a connective word of at most nine
+      letters with the character before it), :data:`TERMINAL_PUNCT_RE` the last line, or the line before it when the last
+      holds nothing but colons, semicolons and blanks (a closing mark never follows a line break);
+    * :data:`TABLE_ROW_RE` matches a text of two lines or more never (the second line is not blank), so only the first line;
+    * the working test is :class:`WorkingReader`'s."""
+
+    __slots__ = ("lines", "_first", "_last", "_before_last", "_end", "_reader", "_table_row")
+
+    #: How much of the text's end the connective reading keeps (a connective word and the character before it).
+    _END_KEEP = 24
+
+    def __init__(self, first: str, mask=None) -> None:
+        self.lines = 1
+        self._first = first
+        self._last = first
+        self._before_last: Optional[str] = None
+        self._end = first[-self._END_KEEP:]
+        self._reader = WorkingReader(mask)
+        self._reader.add(first)
+        self._table_row: Optional[bool] = None
+
+    def add(self, line: str) -> None:
+        self.lines += 1
+        self._before_last, self._last = self._last, line
+        self._end = (self._end + "\n" + line)[-self._END_KEEP:]
+        self._reader.add(line)
+
+    def connective_end(self) -> bool:
+        """``CONNECTIVE_END_RE.search(text.rstrip())``."""
+        return bool(CONNECTIVE_END_RE.search(self._end))
+
+    def table_row(self) -> bool:
+        """``TABLE_ROW_RE.match(text)``."""
+        if self.lines > 1:
+            return False
+        if self._table_row is None:
+            self._table_row = bool(TABLE_ROW_RE.match(self._first))
+        return self._table_row
+
+    def terminal(self) -> bool:
+        """``TERMINAL_PUNCT_RE.search(text.rstrip().rstrip(":;"))``."""
+        last = self._last.rstrip(":;")
+        if last.strip() or self._before_last is None:
+            return bool(TERMINAL_PUNCT_RE.search(last))
+        return bool(TERMINAL_PUNCT_RE.search(self._before_last + "\n" + last))
+
+    def colon_end(self) -> bool:
+        """``text.rstrip().endswith((":", ";"))``."""
+        return self._last.endswith((":", ";"))
+
+    def working(self) -> bool:
+        """``is_working(text)``."""
+        return self._reader.working
 
 
 def trailing_annotation_span(text: str) -> Optional[tuple[int, int]]:
@@ -237,7 +420,7 @@ def annotation_ranges(line: str) -> list[tuple[int, int]]:
     out: list[tuple[int, int]] = []
     for a, b in _sentence_spans(line):
         sent = line[a:b]
-        if ANNOTATION_ONLY_RE.fullmatch(sent):
+        if ANNOTATION_ONLY_LINEAR_RE.fullmatch(sent):  # ANNOTATION_ONLY_RE.fullmatch(sent), in linear time
             k = a
             while k > 0 and line[k - 1] in " \t":
                 k -= 1

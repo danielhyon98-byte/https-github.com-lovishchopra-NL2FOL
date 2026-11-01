@@ -449,7 +449,9 @@ class _Parser:
             if first is None or first.kind == "REL" or self.is_connective(first):
                 raise self._err("ST-PARSE-001", "a relation sign with no operand")
             self._tally_label(oi)
-            node = self.expr(0)
+            node = self._magnification_prefix(oi)
+            if node is None:
+                node = self.expr(0)
             tok = self.peek()
             if tok is not None and not (tok.kind == "REL" or self.is_connective(tok) or tok.kind in ("AMP", "PUNCT") or self._at_remainder()
                                         or self._modulus_ahead()):
@@ -466,6 +468,23 @@ class _Parser:
                 self.i += 1
                 end = self.t[self.i - 1].end
             return Operand((), start, max(end, start), error=exc.message, code=exc.code)
+
+    def _magnification_prefix(self, oi: int) -> Optional[Node]:
+        """Integration gate 2 (rule magnification-prefix): a side after a relation sign written '×N' or, in the sciences, 'xN' glued to its
+        number ('M = I/A = 6.0 mm / 20 μm = ×3000', '= × 3000', '= x3000'), the number ending the side: the dimensionless value N, a
+        magnification (as '3000×' is). Before, the run ended at the sign, so the side was dropped and nothing named it."""
+        if oi == 0:
+            return None
+        tok, nxt = self.peek(), self.peek(1)
+        if tok is None or nxt is None or nxt.kind != "NUM" or not isinstance(nxt.value, ExactNumber):
+            return None
+        times = tok.kind == "OP" and tok.text == "×"
+        letter = (tok.kind == "IDENT" and tok.text in ("x", "X") and not nxt.space and not tok.sub
+                  and not self.ctx.profile.is_mathematics and not self.ctx.profile.computer_science)
+        if not (times or letter) or not self._ends_operand(self.i + 2):
+            return None
+        self.i += 2
+        return self._count(Magnification(self._count(Num(nxt.value, nxt.start, nxt.end)), tok.start, nxt.end))
 
     def _tally_label(self, oi: int) -> None:
         """An atom tally in a chemistry profile: ``C 3 = 3``, ``H 8 = 4 × 2 = 8``: the element label is not a factor."""

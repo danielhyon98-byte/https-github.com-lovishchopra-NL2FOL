@@ -96,7 +96,7 @@ from typing import Iterator, NamedTuple, Optional, Sequence
 from .. import lexis
 
 __all__ = [
-    "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE",
+    "BOM", "MAX_CLAIM_TEXT_CHARS", "LIST_MARKER_RE", "LIST_LINE_RE", "HEADING_LINE_RE", "FENCE_BLOCK_RE", "FENCE_LINE_RE", "fence_blocks",
     "EMPHASIS_RE", "MEMORY_LABEL_RE", "SELF_CERT_RE", "TASK_NOTE_RE", "DOUBLE_QUOTE_MARKS", "JSON_BLOCK_RE", "JSON_KEY_RE",
     "DOUBLE_QUOTE_SPAN_RE", "SINGLE_QUOTE_SPAN_RE",
     "strip_markup", "strip_json_blocks", "split_list_items", "truncate_claim_text", "is_memory_label", "is_self_certification",
@@ -114,12 +114,14 @@ LIST_MARKER_RE = re.compile(r"^[ \t]*(?:\(?\d{1,3}[.)]|[-*•–—])[ \t]+")
 LIST_LINE_RE = re.compile(r"\n(?=[ \t]*(?:\(?\d{1,3}[.)]|[-*•–—])[ \t]+)")
 HEADING_LINE_RE = re.compile(r"^[ \t]*#{1,6}[ \t]+.*$", re.MULTILINE)
 #: A paired code fence and everything inside it. Fenced code, a pasted receipt or a decoration (a footer, a table dump) is
-#: not argument prose and is removed whole; a fence of prose keeps its body (:func:`strip_markup`).
+#: not argument prose and is removed whole; a fence of prose keeps its body (:func:`strip_markup`). Kept as the definition of
+#: a fence block: the package pairs fences with :func:`fence_blocks`, which gives this pattern's matches in linear time (a
+#: search of the pattern reads lazily to the end of the text from every opener that has no closer, n² steps).
 FENCE_BLOCK_RE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.MULTILINE | re.DOTALL)
 #: A stray (unpaired) fence line.
 FENCE_LINE_RE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
-#: The same paired fence with its info string and body captured (:func:`strip_markup` keeps a prose body).
-_FENCE_PARTS_RE = re.compile(r"^[ \t]*(```|~~~)[ \t]*([^\n]*)\n(.*?)^[ \t]*\1[ \t]*$", re.MULTILINE | re.DOTALL)
+#: A line that opens with a fence (blanks before it allowed): every opener and every closer of :data:`FENCE_BLOCK_RE` is one.
+_FENCE_START_RE = re.compile(r"^[ \t]*+(```|~~~)", re.MULTILINE)
 #: Info strings under which a fenced body may be the writer's prose (no language, or a text or markdown tag).
 _PROSE_FENCE_TAGS = frozenset({"", "text", "txt", "markdown", "md", "plain", "plaintext", "prose"})
 _FENCE_SENTENCE_END_RE = re.compile(r"[.!?][\"”’')\]]*(?=\s|$)")
@@ -210,8 +212,16 @@ SINGLE_QUOTE_SPAN_RE = re.compile(
 #: pasted receipt or payload, not of prose (``the noun "command": here`` has no JSON value).
 JSON_KEY_RE = re.compile(r'"[A-Za-z_][A-Za-z0-9_]*"\s*:\s*(?:"|-?\d|true\b|false\b|null\b|\{|\[)')
 #: A block of lines that opens with ``{`` or ``[`` and closes with the matching bracket
-#: without crossing a blank line: machine output pasted into the answer.
+#: without crossing a blank line: machine output pasted into the answer. Kept as the definition of a block: the package reads
+#: the blocks with :func:`_json_block_spans`, which gives this pattern's matches in linear time (a search of the pattern reads
+#: lazily to the next blank line from every line that opens with a bracket, n² steps on lines of unclosed brackets).
 JSON_BLOCK_RE = re.compile(r"^[ \t]*[\[{](?:[^\n]|\n(?![ \t]*\n))*?[\]}][ \t]*$", re.MULTILINE)
+#: A line that opens with ``{`` or ``[`` (blanks before it allowed): every block of :data:`JSON_BLOCK_RE` starts at one.
+_JSON_BLOCK_START_RE = re.compile(r"^[ \t]*+[\[{]", re.MULTILINE)
+#: A closing bracket with nothing but blanks after it on its line: where a block of :data:`JSON_BLOCK_RE` can close.
+_JSON_BLOCK_CLOSE_RE = re.compile(r"[\]}][ \t]*+$", re.MULTILINE)
+#: A line break before a blank line: a block of :data:`JSON_BLOCK_RE` never crosses one.
+_BLANK_LINE_BREAK_RE = re.compile(r"\n(?=[ \t]*+\n)")
 
 #: The specialist labels dates, figures or quotations as unverified recollection.
 MEMORY_LABEL_RE = re.compile(
@@ -378,9 +388,13 @@ _SELF_PREDICATE_TAIL_RE = re.compile(
 )
 #: An accuracy adjective that closes the clause ("these figures are accurate.", "... are reliable and need no further
 #: checking"): "these figures are reliable because the Board of Trade ..." is a historian weighing a source, not a self-report.
+#: The blank runs are possessive and the optional comma is read with the blanks before it (integration gate 2): ``\s*,?\s+`` split a run
+#: of blanks after the adjective in every way before failing, k² steps for each subject read (0.2 s at 4,000 blanks).
 _SELF_CLOSING_RE = re.compile(
-    r"\s*(?:[.;!:)\]\"'”’]|$|,?\s+(?:and|so)\s+(?:can|may|might|could|need|needs|require|requires|has|have|is|are|was|were|match|matches"
-    r"|appear|appears|contain|contains|so|the\s+reader)\b)",
+    r"\s*+(?:[.;!:)\]\"'”’]|$|,\s++(?:and|so)\s+(?:can|may|might|could|need|needs|require|requires|has|have|is|are|was|were|match|matches"
+    r"|appear|appears|contain|contains|so|the\s+reader)\b)"
+    r"|\s++(?:and|so)\s+(?:can|may|might|could|need|needs|require|requires|has|have|is|are|was|were|match|matches"
+    r"|appear|appears|contain|contains|so|the\s+reader)\b",
     re.IGNORECASE,
 )
 #: A check credited to an agent that is neither the writer nor the infrastructure ("my reading is confirmed by the final
@@ -654,27 +668,117 @@ def strip_json_blocks(text: str) -> tuple[str, int]:
     as JSON or carries a JSON key-value pair. Returns ``(text, number_removed)``.
     """
     removed = 0
-
-    def take(m: "re.Match[str]") -> str:
-        nonlocal removed
-        if is_json_block(m.group(0)):
+    out: list[str] = []
+    last = 0
+    for start, end in _json_block_spans(text):
+        if is_json_block(text[start:end]):
+            out.append(text[last:start])
+            last = end
             removed += 1
-            return ""
-        return m.group(0)
+    if not removed:
+        return text, 0
+    out.append(text[last:])
+    return "".join(out), removed
 
-    return JSON_BLOCK_RE.sub(take, text), removed
+
+def _json_block_spans(text: str) -> list[tuple[int, int]]:
+    """The spans of ``JSON_BLOCK_RE.finditer(text)``, read in linear time (integration gate 2). The pattern's lazy body read
+    from every line that opens with a bracket to the next blank line when no bracket closed a line before it, so lines of
+    unclosed brackets ('{x' on every line) cost n² steps (2.8 s at 20,000 characters). A block that opens at a bracket closes
+    at the first closing bracket after it that ends its line (only blanks after it), unless a line break before a blank line
+    comes first, when no block opens there; the closes and the breaks are each found once, so a block is one bisection. The
+    blocks are read left to right from the end of the one before, as the pattern's search reads them. The closes are kept as
+    offsets and the openers read one at a time, so no match object is kept per line."""
+    close_at: list[int] = []
+    close_end: list[int] = []
+    for c in _JSON_BLOCK_CLOSE_RE.finditer(text):
+        close_at.append(c.start())
+        close_end.append(c.end())
+    if not close_at:
+        return []
+    breaks = [m.start() for m in _BLANK_LINE_BREAK_RE.finditer(text)]
+    spans: list[tuple[int, int]] = []
+    resume = 0
+    for m in _JSON_BLOCK_START_RE.finditer(text):
+        if m.start() < resume:
+            continue  # inside the block read before it
+        first_body = m.end()  # the opening bracket is the match's last character; the body starts after it
+        i = bisect.bisect_left(close_at, first_body)
+        if i == len(close_at):
+            break  # no bracket closes a line after this opener, nor after any later one
+        k = bisect.bisect_left(breaks, first_body)
+        if k < len(breaks) and breaks[k] < close_at[i]:
+            continue  # a blank line comes before the first close: no block opens here
+        spans.append((m.start(), close_end[i]))
+        resume = close_end[i]
+    return spans
 
 
-def _fenced_body(m: "re.Match[str]") -> str:
+def fence_blocks(text: str) -> list[tuple[int, int, str, str]]:
+    """``(start, end, info, body)`` for every paired fence of ``text``: the matches of :data:`FENCE_BLOCK_RE` (``start``,
+    ``end``), with the opener's info string (the rest of its line after the fence, blanks before it removed) and the body
+    (from the line after the opener to the start of the closing line). Read in linear time (integration gate 2): the
+    pattern's lazy body read to the end of the text from every opener that has no closer, n² steps on lines of openers
+    ('```a' on every line: 3.3 s at 40,000 characters in :func:`strip_markup`, which is read several times per transfer).
+    The fence lines are listed once; an opener takes the first line after it that is nothing but the same fence (blanks
+    allowed), and an opener whose line has no line break opens nothing; the fences are read left to right from the end of the
+    block before, as the pattern's search reads them. Once an opener of one kind has no closer, no later opener of that kind
+    has one, so each kind's closers are read once."""
+    lines: list[tuple[int, str, int, int, bool, bool]] = []  # (start, fence, after the fence, line end, has a line break, closes)
+    for m in _FENCE_START_RE.finditer(text):
+        nl = text.find("\n", m.end())
+        end = len(text) if nl < 0 else nl
+        lines.append((m.start(), m.group(1), m.end(), end, nl >= 0, not text[m.end():end].strip(" \t")))
+    if not lines:
+        return []
+    closers: dict[str, list[int]] = {"```": [], "~~~": []}
+    for i, line in enumerate(lines):
+        if line[5]:
+            closers[line[1]].append(i)
+    cursor = {"```": 0, "~~~": 0}
+    blocks: list[tuple[int, int, str, str]] = []
+    resume = 0
+    for start, fence, after, end, has_break, _closes in lines:
+        if start < resume or not has_break:
+            continue
+        body = end + 1
+        found, k = closers[fence], cursor[fence]
+        while k < len(found) and lines[found[k]][0] < body:
+            k += 1
+        cursor[fence] = k
+        if k == len(found):
+            continue  # no closing line after this opener
+        close_start, _f, _a, close_end, _b, _c = lines[found[k]]
+        blocks.append((start, close_end, text[after:end].lstrip(" \t"), text[body:close_start]))
+        resume = close_end
+    return blocks
+
+
+def _fenced_body(info: str, body: str) -> str:
     """What a paired fence leaves in the text to segment: its body when the fence carries no language (or a text or
     markdown tag) and the body is prose (at least :data:`_MIN_FENCED_PROSE_WORDS` words, two sentence ends, no JSON
     shape): an answer wrapped in a fence is still the answer, as the English parser reads it. Code, a pasted receipt
     (```json ...```) and a short decoration (a footer) are removed whole."""
-    info, body = m.group(2).strip().lower(), m.group(3)
+    info = info.strip().lower()
     if (info in _PROSE_FENCE_TAGS and len(body.split()) >= _MIN_FENCED_PROSE_WORDS and len(_FENCE_SENTENCE_END_RE.findall(body)) >= 2
             and not JSON_KEY_RE.search(body) and not is_json_block(body.strip())):
         return body
     return ""
+
+
+def _strip_fences(text: str) -> str:
+    """``text`` with every paired fence (:func:`fence_blocks`) replaced by what :func:`_fenced_body` leaves of it."""
+    blocks = fence_blocks(text)
+    if not blocks:
+        return text
+    out: list[str] = []
+    last = 0
+    for start, end, info, body in blocks:
+        out.append(text[last:start])
+        out.append(_fenced_body(info, body))
+        last = end
+    out.append(text[last:])
+    return "".join(out)
 
 
 def strip_markup(text: str) -> str:
@@ -688,7 +792,7 @@ def strip_markup(text: str) -> str:
         s = s[len(BOM):]
     s = s.replace(BOM, "")
     s = HEADING_LINE_RE.sub("", s)
-    s = _FENCE_PARTS_RE.sub(_fenced_body, s)
+    s = _strip_fences(s)  # the paired fences of FENCE_BLOCK_RE, read in linear time (fence_blocks)
     s = FENCE_LINE_RE.sub("", s)
     s, _removed = strip_json_blocks(s)
     s = strip_emphasis(s)  # EMPHASIS_RE.sub(r"\2", s), in linear time
@@ -996,8 +1100,81 @@ _SYNTH_NO_ERRORS_RE = re.compile(
 #: A proof verdict a combinator writes on a claim, bracketed: "(proven)", "(proved)", "[proven]", "(formally proven)", "(proof
 #: complete)". A specialist's "proved" closes a proof and is content, so only the hub's reading of a synthesis reads it
 #: (:func:`synthesis_label`).
-_SYNTH_PROOF_LABEL_RE = re.compile(r"[\[(]\s*(?:formally\s+|fully\s+)?(?:proven|proved|proof\s+(?:complete|completed|checked|verified))\s*[.!]?\s*[\])]",
+_SYNTH_PROOF_LABEL_RE = re.compile(r"[\[(]\s*(?:formally\s+|fully\s+)?(?:proven|proved|proof\s+(?:complete|completed|checked|verified))\s*+[.!]?\s*+[\])]",
                                    re.IGNORECASE)
+# ---- the combinator's own verdict on what it wrote (integration gate 2, finding 7), read on a synthesis only (:func:`synthesis_label`,
+# :func:`is_synthesis_self_certification`): the engine's, the hub's and the Overseer's vocabulary written as a label ("(sat)", "(signed
+# engine result)", "(signature valid)", "(logic check passed)", "(entailment holds)", "(the hub accepted this)", "Overseer verdict:
+# pass."), a leading verdict ("Correct: ...", "Fact: ..."), a closing self-assessment ("...; this is fully reliable.", "..., which is
+# beyond doubt.") and the answer itself as the subject of a verdict ("The answer is correct.", "This answer is complete and correct.",
+# "This has been verified."). No agent can write a signed result or an Overseer verdict, and the combined answer is the answer, so each is
+# a self-report (INT-LEDGER-029, advisory); on a specialist's branch the same words may be content ("the formula is satisfiable (sat)",
+# "The answer is correct" about the student's working), so the specialists' reading keeps them out. A negated or failed verdict ("(not
+# sat)", "(signature invalid)", "(logic check failed)") and a check credited to another agent are no label.
+_SYNTH_VERDICT_TERM = (
+    r"(?:sat|unsat|satisfiable|unsatisfiable|entailed|entailment\s+(?:holds|confirmed|proved|proven|verified)|proved|proven"
+    r"|signed(?:\s+(?:engine\s+|hub\s+)?(?:result|receipt|verdict|check))?|(?:engine\s+|hub\s+)?signature\s+(?:valid|verified|ok|okay|checks\s+out)"
+    r"|valid\s+signature|receipt\s*:\s*(?:accepted|ok|okay|verified|passed|clean)"
+    r"|(?:accepted|approved|passed|cleared|verified|confirmed)\s+by\s+(?:the\s+)?(?:hub|engine|overseer|router|channel|ledger|z3|solver|verifier)"
+    r"|(?:the\s+)?(?:hub|engine|overseer|router|channel|ledger|z3|solver|verifier)\s+(?:has\s+)?(?:accepted|approved|passed|cleared|verified|confirmed)"
+    r"(?:\s+(?:this|it|the\s+claim))?"
+    r"|(?:logic|formal|engine|z3|integrity|hub|ledger|signature)\s+checks?\s*(?::\s*)?(?:passed|ok|okay|clean|complete|completed)"
+    r"|overseer(?:['’]s)?\s+(?:verdict|status|audit)?\s*:?\s*(?:pass|passed|approved|ok|okay|clean)|audit(?:ed)?\s*:?\s*(?:passed|clean|ok))"
+)
+#: The blanks around the optional stop are possessive runs (integration gate 2): adjacent ``\s*`` runs split a run of blanks after a label
+#: with no closing bracket in every way, k² steps for each opening bracket.
+_SYNTH_VERDICT_LABEL_RE = re.compile(rf"[\[(]\s*{_SYNTH_VERDICT_TERM}\s*+[.!]?\s*+[\])]", re.IGNORECASE)
+#: A status key in the engine's, the hub's or the Overseer's name written as a sentence of its own or around content: "Overseer verdict:
+#: pass.", "Engine status: entailed", "Hub: accepted". A negated or failed value ("Overseer verdict: fail") is no label.
+_SYNTH_STATUS_KEY_RE = re.compile(
+    r"\b(?:overseer|engine|hub|router|channel|ledger|audit|logic\s+check|formal\s+check|signature)(?:['’]s)?(?:\s+(?:verdict|status|result|check|decision))?"
+    r"\s*:\s*(?:pass|passed|ok|okay|accepted|approved|entailed|sat|unsat|verified|valid|signed|clean|confirmed)\b(?![-'’])", re.IGNORECASE)
+#: A leading verdict on the claim: "Correct: ...", "Fact: ...", "True: ...".
+_SYNTH_LEAD_VERDICT_RE = re.compile(r"^[\s*_`>-]*(?:correct|fact|true|accurate|verified\s+fact|confirmed\s+fact)[*_`]*\s*(?::|[—–]|\s-\s)\s*(?=\S)", re.IGNORECASE)
+#: A self-assessment that closes the claim: "...; this is fully reliable.", "..., which is beyond doubt.", "... — this is certain.".
+_SYNTH_SELF_ASSESS_RE = re.compile(
+    r"(?:[;,:—–]|\s-)\s*(?:this|it|which|that|all\s+(?:of\s+)?this)\s+(?:is|was|has\s+been|remains|stands)\s+"
+    r"(?:(?:fully|entirely|completely|absolutely|wholly|totally|perfectly|100%)\s+)?"
+    r"(?:reliable|certain|beyond\s+(?:any\s+|all\s+|reasonable\s+)?(?:doubt|question|dispute)|indisputable|undisputed|unquestionable|incontestable"
+    r"|(?:an?\s+)?(?:established|verified|confirmed|proven)\s+fact|correct|accurate|verified|confirmed|checked)\s*[.!]?\s*$", re.IGNORECASE)
+#: The answer, the combined answer or 'this'/'it' as the subject of a verdict that is the whole sentence: "The answer is correct.", "This
+#: answer is complete and correct.", "This has been verified.", "It is fully reliable." ("This answer is correct." the specialists'
+#: reading names too.) A verdict under negation, credited to another agent or followed by more of the sentence is no self-report.
+_SYNTH_ANSWER_VERDICT_RE = re.compile(
+    r"^[\W_]*(?:(?:the|this|my|our)\s+(?:(?:whole|entire|final|full|complete|combined)\s+)?(?:answer|response)(?:\s+(?:above|here|below))?|this|it"
+    r"|all\s+of\s+(?:this|it))\s+(?:is|was|has\s+been|have\s+been|remains)\s+"
+    r"(?:(?:now|all|fully|completely|entirely|thoroughly|independently|formally|carefully|absolutely|100%)\s+)*"
+    r"(?:(?:complete|comprehensive|full)\s+and\s+(?:correct|accurate)|(?:correct|accurate)\s+and\s+(?:complete|comprehensive)|correct|accurate|verified"
+    r"|checked|confirmed|validated|reliable|error[- ]free|beyond\s+(?:any\s+|all\s+)?(?:doubt|question))[\W_]*$", re.IGNORECASE)
+#: Cheap pre-filter for the combinator's verdicts above.
+_SYNTH_VERDICT_CUE_RE = re.compile(r"sat|entail|sign|receipt|accept|approv|pass|clear|overseer|hub|audit|logic|correct|fact|true|reliab|doubt|question|dispute"
+                                   r"|certain|verif|confirm|check|accura|valid|prov|ok", re.IGNORECASE)
+
+
+def _synthesis_verdict_label(masked: str) -> Optional[VerificationLabel]:
+    """The combinator's verdict label of :data:`_SYNTH_VERDICT_LABEL_RE`, :data:`_SYNTH_STATUS_KEY_RE`, :data:`_SYNTH_LEAD_VERDICT_RE` or
+    :data:`_SYNTH_SELF_ASSESS_RE` in ``masked`` (quotations masked), with where it stands, or None."""
+    if not _SYNTH_VERDICT_CUE_RE.search(masked):
+        return None
+    m = _SYNTH_LEAD_VERDICT_RE.match(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked, m.end()):
+        return VerificationLabel("before", masked[:m.end()].strip()[:200])
+    m = _SYNTH_SELF_ASSESS_RE.search(masked)
+    if m is not None and _LABEL_CONTENT_RE.search(masked[:m.start()]):
+        return VerificationLabel("after", masked[m.start():].strip()[:200])
+    m = _SYNTH_VERDICT_LABEL_RE.search(masked) or _SYNTH_STATUS_KEY_RE.search(masked)
+    if m is None:
+        return None
+    before, after = masked[:m.start()], masked[m.end():]
+    if not _LABEL_CONTENT_RE.search(before) and not _LABEL_CONTENT_RE.search(after):
+        position = "whole"
+    elif not _LABEL_CONTENT_RE.search(after):
+        position = "after"
+    elif not _LABEL_CONTENT_RE.search(before):
+        position = "before"
+    else:
+        position = "inside"
+    return VerificationLabel(position, m.group(0).strip()[:200])
 
 
 @functools.lru_cache(maxsize=8192)
@@ -1058,6 +1235,8 @@ def is_synthesis_self_certification(sentence: str) -> bool:
     :func:`is_self_certification` (the specialists' reading) does not read them. Cached per sentence."""
     if is_self_certification(sentence):
         return True
+    if _SYNTH_VERDICT_CUE_RE.search(sentence) and _SYNTH_ANSWER_VERDICT_RE.match(mask_quotations(sentence)):
+        return True  # "The answer is correct.", "This answer is complete and correct.", "This has been verified." (finding 7)
     return _synthesis_self_report(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _synthesis_self_report.__wrapped__(sentence)
 
 
@@ -1103,9 +1282,14 @@ def synthesis_label(sentence: str) -> Optional[VerificationLabel]:
     answer may write as the close of its own proof, read with the sentence's quotations masked. ``whole`` when the
     sentence is nothing but the label, else ``after`` (closing it), ``before`` (opening it) or ``inside``."""
     found = verification_label(sentence)
-    if found is not None or not sentence or not _SYNTH_PROOF_LABEL_RE.search(sentence):
+    if found is not None or not sentence:
         return found
     masked = mask_quotations(sentence.strip())
+    verdict = _synthesis_verdict_label(masked)  # the engine's and the Overseer's vocabulary, a leading verdict, a self-assessment
+    if verdict is not None:
+        return verdict
+    if not _SYNTH_PROOF_LABEL_RE.search(sentence):
+        return None
     m = _SYNTH_PROOF_LABEL_RE.search(masked)
     if m is None:
         return None
@@ -2183,8 +2367,16 @@ def find_quotation_spans(text: str, *, min_single_words: int = 2) -> list[tuple[
     if not _DOUBLE_MARK_RE.search(text) and "'" not in text and "\u2018" not in text and "\u2019" not in text:
         return []
     if len(text) > _CACHE_MAX_CHARS:
-        return list(_quotation_spans.__wrapped__(text, min_single_words))
+        return list(_long_quotation_spans(text, min_single_words))
     return list(_quotation_spans(text, min_single_words))
+
+
+@functools.lru_cache(maxsize=4)
+def _long_quotation_spans(text: str, min_single_words: int) -> tuple[tuple[int, int, str], ...]:
+    """The spans of a text longer than the main cache takes, for the last few such texts (integration gate 2): the credit of each
+    quotation of a long sentence asks for the sentence's spans again (``sources._mention_governs``), and read afresh each time they were
+    n² steps on a sentence of many quotations (15 s at 100,000 characters through the History parser)."""
+    return _quotation_spans.__wrapped__(text, min_single_words)
 
 
 def _dangling_span(text: str, masked_text: str, units: list[tuple[int, int, str]], dangling: tuple[int, int, str]) -> Optional[tuple[int, int, str]]:

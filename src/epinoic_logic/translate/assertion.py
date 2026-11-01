@@ -335,6 +335,23 @@ _PROVIDED_RE = re.compile(r"\bprovid(?:ed|ing)\b", _FLAGS)
 #: "No" opening a sentence or a clause before a word negates it ("No 17 states ..."); "No:" and "No," answer, and a vote of
 #: "No" in mid-sentence negates nothing.
 _NO_OPENING_RE = re.compile(r"(?:^|[.!?;:(]\s*|\n\s*)(No)\b(?=\s+[A-Za-z0-9$£€])")
+#: The word of :data:`_NO_OPENING_RE`, whose opening is read backwards from it once (:func:`_no_openings`).
+_NO_WORD_RE = re.compile(r"No\b(?=\s+[A-Za-z0-9$£€])")
+
+
+def _no_openings(text: str) -> list[tuple[int, int]]:
+    """The spans of "No" that :data:`_NO_OPENING_RE` reads as opening a sentence or a clause (its group 1), in linear time
+    (integration gate 2: its ``\\n\\s*`` alternative rescanned a whitespace run from every line break inside it, quadratic
+    on a run of line breaks). A "No" opens one when it starts the text, or when the blank run right before it follows a
+    sentence or clause mark (``.!?;:(``) or holds a line break; each blank run is read once, by the "No" after it."""
+    out: list[tuple[int, int]] = []
+    for m in _NO_WORD_RE.finditer(text):
+        q = r = m.start()
+        while r > 0 and text[r - 1].isspace():
+            r -= 1
+        if q == 0 or (r > 0 and text[r - 1] in ".!?;:(") or "\n" in text[r:q]:
+            out.append((q, m.end()))
+    return out
 #: A sentence that continues the condition or supposition of the one before ("Suppose b holds. Then n = 17.").
 _CONTINUES_RE = re.compile(r"[\s\"'“‘(]*(?:then|in\s+that\s+case|in\s+which\s+case|if\s+so|under\s+that\s+assumption)\b", _FLAGS)
 _FRAMING = frozenset({"condition", "supposition", "instruction", "definition", "example"})
@@ -500,8 +517,8 @@ def _index(full: str) -> _Index:
         before = text[max(0, m.start() - 3):m.start()].strip()
         if not before or before[-1] in ",;:(" or re.match(r"\s+that\b", text[m.end():m.end() + 6], _FLAGS):
             found.append((m.start(), m.end(), "condition"))
-    for m in _NO_OPENING_RE.finditer(text):
-        found.append((m.start(1), m.end(1), "negation"))
+    for s_no, e_no in _no_openings(text):
+        found.append((s_no, e_no, "negation"))
     whens = [(m.start(), m.end()) for m in _WHEN_RE.finditer(text)]
     found.sort()
     starts_found = [f[0] for f in found]

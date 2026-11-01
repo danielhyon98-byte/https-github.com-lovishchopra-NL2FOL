@@ -35,6 +35,7 @@ Nothing is deployed, no provider is called, and no live integration is claimed a
 integration/
   README.md  PLAYBOOK.md  PROTOCOL.md  DECISIONS.md
   COMPATIBILITY.json            the pinned compatibility set (PROTOCOL.md section 13)
+  constraints.txt               the versions the suite was measured with, the solver included (playbook step 6 installs with them)
   subject-map.json              website route <-> agents slug <-> translator subject <-> branch, per environment
   MANIFEST.sha256               SHA-256 of every kit file (integration/ and src/epinoic_logic/integration/)
   schemas/                      JSON Schemas generated from the pydantic models (drift-tested)

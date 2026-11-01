@@ -39,7 +39,7 @@ from .nodes import BoolOp, Node, Num, Sym
 from .numbers import exact_integer
 from .parser import ParseIssue
 
-__all__ = ["BoolRelation", "TruthTable", "gate_order", "is_boolean_context", "parse_boolean", "parse_truth_table",
+__all__ = ["BoolRelation", "TruthTable", "gate_order", "is_boolean_context", "parse_boolean", "parse_expression", "parse_truth_table",
            "truth_table_shape"]
 
 _EQUIV = frozenset({"=", "≡", "⇔"})
@@ -342,31 +342,98 @@ def parse_boolean(tokens: "tuple[Token, ...] | list[Token]", *, limits: StemLimi
 
 
 def _cells(line: str) -> list[str]:
+    """The cells of a header line: bar-separated (a Markdown table, bordered or not), comma-separated, else separated by blanks or tabs."""
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]
     if s.endswith("|"):
         s = s[:-1]
-    return [c.strip() for c in s.split("|")] if "|" in line else s.split()
+    if "|" in line:
+        return [c.strip() for c in s.split("|")]
+    if "," in s:
+        return [c.strip() for c in s.split(",")]
+    return s.split()
+
+
+def _row_cells(line: str) -> list[str]:
+    """Integration gate 2 (rule plain-table): the cells of a row of 0/1: bar-separated segments each split at blanks ('0 0 | 1'), else
+    comma-separated, else separated by blanks or tabs. One pass over the line."""
+    s = line.strip()
+    if "|" in s:
+        if s.startswith("|"):
+            s = s[1:]
+        if s.endswith("|"):
+            s = s[:-1]
+        out: list[str] = []
+        for seg in s.split("|"):
+            parts = seg.split()
+            out.extend(parts if parts else [""])
+        return out
+    if "," in s:
+        return [c.strip() for c in s.split(",")]
+    return s.split()
+
+
+def _header_letters(line: str) -> list[str]:
+    """Integration gate 2 (rule plain-table): the header cells with each bar-separated segment of several single capital letters split into
+    its letters ('A B | A NAND B' → A, B, A NAND B)."""
+    out: list[str] = []
+    for c in _cells(line):
+        parts = c.split()
+        if len(parts) > 1 and all(len(x) == 1 and x.isalpha() and x.isupper() for x in parts):
+            out.extend(parts)
+        else:
+            out.append(c)
+    return out
+
+
+def _grid(lines: list[str]) -> Optional[tuple[list[str], list[list[str]]]]:
+    """The header cells and the rows' cells of a truth-table layout (a Markdown separator row or a dashed rule skipped), the header split so
+    its width is the rows' (integration gate 2, rule plain-table: blank-, tab-, comma- and border-less bar-separated grids); None when the
+    lines are no grid of one width."""
+    if len(lines) < 2:
+        return None
+    body = [ln for ln in lines[1:] if not set(ln.strip()) <= set("|-: ")]
+    if not body:
+        return None
+    rows = [_row_cells(ln) for ln in body]
+    width = len(rows[0])
+    if any(len(r) != width for r in rows):
+        return None
+    header = _cells(lines[0])
+    if len(header) != width:
+        header = _header_letters(lines[0])
+    if len(header) != width:
+        return None
+    return header, rows
 
 
 def truth_table_shape(lines: list[str]) -> bool:
     """True when ``lines`` look like a truth table: a header of single-letter inputs followed by
     output expressions, then rows of 0/1 or T/F of the same width (a Markdown separator row is
-    allowed)."""
-    if len(lines) < 2:
+    allowed). Integration gate 2 (rule plain-table): the cells may be separated by bars (a Markdown table, bordered or not, a bar between
+    the inputs and the outputs: 'A B | A NAND B'), commas, tabs or blanks."""
+    grid = _grid(lines)
+    if grid is None:
         return False
-    header = _cells(lines[0])
+    header, rows = grid
     if len(header) < 2 or not header[0].isalpha() or len(header[0]) != 1 or not header[0].isupper():
         return False
-    body = [ln for ln in lines[1:] if not set(ln.strip()) <= set("|-: ")]
-    if not body:
-        return False
-    for ln in body:
-        cells = _cells(ln)
-        if len(cells) != len(header) or not all(c in _TRUE or c in _FALSE for c in cells):
-            return False
-    return True
+    return all(c in _TRUE or c in _FALSE for row in rows for c in row)
+
+
+def parse_expression(text: str, start: int, end: int, *, limits: StemLimits = DEFAULT_LIMITS) -> Optional[Node]:
+    """Integration gate 2 (rule request-output): the Boolean expression written in ``text[start:end]`` (the request's 'truth table for A AND
+    B'), read by the same closed grammar, or None when it is not one whole expression (or its gates have two readings)."""
+    toks = lex(text, start, end, mode="plain", cs=True, limits=limits).tokens
+    if not toks or len(toks) > limits.max_tokens_per_span or gate_order(toks):
+        return None
+    try:
+        p = _BoolParser(tuple(toks), limits)
+        node = p.expr(0)
+    except (ValueError, AssertionError):
+        return None
+    return node if p.i == len(toks) else None
 
 
 def parse_truth_table(text: str, rows: tuple[tuple[int, int], ...], *, limits: StemLimits = DEFAULT_LIMITS, computer_science: bool = True) -> Optional[TruthTable]:
@@ -376,7 +443,10 @@ def parse_truth_table(text: str, rows: tuple[tuple[int, int], ...], *, limits: S
     if not truth_table_shape(lines):
         return None
     start, end = rows[0][0], rows[-1][1]
-    header = _cells(lines[0])
+    grid = _grid(lines)
+    if grid is None:
+        return None
+    header, grid_rows = grid
     n_inputs = 0
     for h in header:
         if len(h) == 1 and h.isupper() and h.isalpha():
@@ -413,11 +483,10 @@ def parse_truth_table(text: str, rows: tuple[tuple[int, int], ...], *, limits: S
         if node is None:
             error = error or f"the output column {h!r} is not a Boolean expression of the inputs"
         outputs.append((h, node))
-    body = [ln for ln in lines[1:] if not set(ln.strip()) <= set("|-: ")]
+    body = grid_rows
     table_rows: list[tuple[bool, ...]] = []
     width = len(header)
-    for ln in body[: 2 ** n_inputs + 8]:
-        cells = _cells(ln)
+    for cells in body[: 2 ** n_inputs + 8]:
         if len(cells) != width:
             error = error or f"a row with {len(cells)} cells under a header of {width}"
             continue

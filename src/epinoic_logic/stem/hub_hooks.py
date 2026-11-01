@@ -193,13 +193,25 @@ class StemHooks:
 
 
 #: integration gate 1: a line of numerals (digit groups by spaces, apostrophes, commas or points), operators, relation signs, brackets and
-#: bars with at least one digit and one relation sign or operator (bounded per line)
-_NUMERAL_LINE_RE = re.compile(r"(?m)^[ \t]*(?=[^\n]*\d)(?=[^\n]*[=≈<>≤≥×÷+−\-*/^])[0-9 \t.,'’()\[\]|%=≈<>≤≥×÷+−\-*/^·]{1,400}$")
+#: bars with at least one digit and one relation sign or operator, at most 400 characters after its leading blanks
+_NUMERAL_LINE_CHARS = frozenset("0123456789 \t.,'’()[]|%=≈<>≤≥×÷+−-*/^·")
+_NUMERAL_LINE_SIGNS = frozenset("=≈<>≤≥×÷+−-*/^")
+_NUMERAL_LINE_MAX = 400
+
+
+def _numeral_line(line: str) -> bool:
+    body = line.lstrip(" \t")
+    return (0 < len(body) <= _NUMERAL_LINE_MAX and all(c in _NUMERAL_LINE_CHARS for c in body) and any(c.isdigit() for c in body)
+            and any(c in _NUMERAL_LINE_SIGNS for c in body))
 
 
 def _numeral_lines(segment: str) -> str:
-    """``segment`` with each whole line of numerals and signs replaced by one word of maths (its line kept)."""
-    return _NUMERAL_LINE_RE.sub(" Xmath ", segment)
+    """``segment`` with each whole line of numerals and signs replaced by one word of maths (its line kept). Integration gate 2 (sweep): one
+    pass over each line; the pattern this replaces ('^[ \\t]*' then two lookaheads to the line's end) rescanned a blank run from each of its
+    blanks, quadratic (2.3 s on 20,000 tabs in word_count_view)."""
+    if "\n" not in segment and not _numeral_line(segment):
+        return segment
+    return "\n".join(" Xmath " if _numeral_line(line) else line for line in segment.split("\n"))
 
 
 def _one_line_maths(span_text: str) -> bool:

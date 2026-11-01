@@ -48,10 +48,13 @@ def _receive(name: str, budget):
 
 
 def test_a_spent_budget_leaves_the_stem_checks_undecided_never_success():
+    # Integration gate 2 (rule named-restatement, docs/STEM_DESIGN.md section 36): the corpus answer's last sentence, 'The average
+    # speed is 60 km/h.', is a restatement of the chain's result, a second STEM check (stem-res-1). The rule is asserted for every
+    # check, each named: decided, every check ENTAILED; cut, every check undecided (no status, not satisfied), never a success.
     decided = _receive("ph-s1", None)
     cut = _receive("ph-s1", 0.0)
-    assert [fc.formal_status for fc in decided.formal_checks] == ["ENTAILED"]
-    assert [(fc.formal_status, fc.satisfied) for fc in cut.formal_checks] == [(None, None)]
+    assert [(fc.constraint_id, fc.formal_status) for fc in decided.formal_checks] == [("stem-eq-1", "ENTAILED"), ("stem-res-1", "ENTAILED")]
+    assert [(fc.constraint_id, fc.formal_status, fc.satisfied) for fc in cut.formal_checks] == [("stem-eq-1", None, None), ("stem-res-1", None, None)]
     assert any(f.code == "INT-SUBJ-002" and "0 s" in f.message for f in cut.findings)
     assert not any(f.code == "INT-SUBJ-002" for f in decided.findings)
     assert cut.status.value == "ACCEPTED_WITH_FINDINGS"

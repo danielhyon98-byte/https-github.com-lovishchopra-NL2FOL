@@ -7,7 +7,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
 | `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload, its document id and the relay status only) and the router's record of it (`<round>/router/<task>.json`: the plan, the request, the peer's receipt and the relay receipt; no agent reads it) |
-| `list_claims.py` | Lists the claims of an answer as transmitted; with `--json`, each claim text's digest and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
+| `list_claims.py` | Lists the claims of an answer as transmitted, under the claim ids the hub delivers (below, "Claim ids in a group"); with `--json`, each claim text's digest, the file's group, the files of the group delivered before it and whether its ids are agent-qualified, and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
@@ -16,6 +16,53 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 A round directory holds `specialists/*.json` (the answers), and optionally `translations/*.json` (recorded translations,
 with `claim_text_sha256` binding each to the claim text it was produced for), `syntheses/*.json`, `relayed/*.json`,
 `router/*.json`, `tasks.json` and `adjudications/translation_fidelity.json`.
+
+## Claim ids in a group: what the listing prints and what a fixture is keyed by
+
+Write translation fixtures and combinator citations with the claim ids `list_claims.py` prints: they are the ids the hub
+delivers. The reports of one group (one hub task) are delivered in `run_arena.py`'s order (name order, a peer-dependent
+task after the task it depends on), and the hub parses a STEM report whose claim ids a report of another agent delivered
+before it already holds with its ids qualified by its agent (`channel.bus.needs_qualified_ids`, integration gate 1): when
+a Chemistry and a Physics specialist of one group both write `s1.2`, the Physics report, delivered second, is delivered
+as `s1.2@physics-specialist`. `list_claims.py <round>/specialists/<task>.json` therefore parses the file after every
+member of its group delivered before it (given on the command line or not, each taken as delivered), with the subject,
+task type and request text the group's plan gives its agent, as the hub parses it, and says so: the text listing names
+the files delivered before it and whether its ids are qualified, and `--json` carries `group`, `delivered_after` and
+`ids_qualified`. `--agent-view` renders the reports in the order given, each under the ids the hub delivers it.
+
+`run_arena.py` keys a recorded translation by its claim id, and a STEM claim has two forms of its id: `s1.2` and
+`s1.2@<agent>`. The genuine pass and the delivery pass deliver the group's reports on one hub task, so the second STEM
+report of a group carries the qualified form; a mutation is delivered on a hub task of its own with only its peer's
+report before it (a peer-dependent task), so there the same claim carries the unqualified form unless that peer holds
+its id. A translation recorded under either form of one agent's STEM claim id serves that claim
+under the other: the pipeline is given the same recorded translation with its problem naming the delivered id
+(`fixture_for_claim`; nothing else changes, and a problem naming any other claim is served as recorded, so it fails as
+it would under its own id), and its claim-text digest binds it as any fixture's. Every record that served one names it
+(`fixtures_served_under_other_id_form`: recorded id -> delivered id), the fixture coverage counts them
+(`served_under_other_id_form`, with each file's map) and summary.md lists them on its fixture-coverage line. Ids a parser
+writes in one form only are matched as written: the generic parser qualifies every id it writes, so a generic fixture
+recorded as `g1.1` is an older parse's (round 7 holds 200 such fixtures) and stays unserved, as "Qualified runs" below
+says ("never re-key them by bare claim id"); so does a fixture keyed by another agent's tag.
+
+Integration gate, round 2 (correctness lens, major): the single-file listing parsed a file alone, so for the second STEM
+report of a group it printed `s1.2`, which the hub never delivers; a fixture recorded from it was never served (the
+verifier returned `CLAIM_OUT_OF_SCOPE`, the genuine record had no outcome, the run was qualified TRANSLATIONS_LOST) and,
+its claim-text digest never captured, a mutation that changed the claim was served the genuine claim's translation;
+a combinator citing `s1.2` for that agent cited the other agent's claim. The listing also left out the request text the
+STEM parsers read, so a claim's role and assumptions could differ from the delivered report's (the lens's Physics
+`Given:` line listed as evidence, delivered as quantitative); every one of round 7's 22 files is now listed as the hub
+delivers it. Tests: `scripts/arena/test_arena_rules.py` (two STEM agents in one group).
+
+A mutation is compared with its genuine record in the mutation's id form. A mutation of a group member is delivered on a
+hub task of its own with only its peer's report before it (a peer-dependent task), so the second STEM report of a group
+whose earlier member is not its peer is delivered there with its unqualified ids while its genuine record carries the
+qualified ones. The genuine findings are read with this agent's tag dropped from their claim ids and messages
+(`baseline_in_form`), so a genuine finding is never "unexplained" on the mutation record or "absent" from it for its id
+form alone (before, a genuine `ST-UNDEC-001` warning of such a report was listed both ways on each of its seven
+mutation records), and the rule that a finding the genuine record carries never names the injection holds for it. Such a
+mutation is still checked without the other members' reports on its hub task, as before, so a cross-agent finding of
+the genuine record (one naming another member's claim) still reads as absent from it; no recorded round has such a
+group (r1 to r7's groups are pairs of a peer and its dependent).
 
 ## Peer relays: what the dependent agent reads
 
@@ -49,7 +96,8 @@ python scripts/arena/list_claims.py <round>/specialists/<task>.json --json --ins
 
 Give the agent `INSTRUCTIONS.md` and the one JSON document its "What you receive" describes, the one the combinator's
 runner gives its agent. For a group of two to sixteen reports (a peer group of one request, the port's combined answer)
-`list_claims.py` prints it, rendered by the sub-project's own code in its own isolated process:
+`list_claims.py` prints it, rendered by the sub-project's own code in its own isolated process, each report under the
+claim ids the hub delivers it (above, "Claim ids in a group"), so the combinator cites the ids the hub holds:
 
 ```
 python scripts/arena/list_claims.py --agent-view <round>/specialists/<task>.json <round>/specialists/<peer>.json --instructions <round>/combinator
@@ -234,7 +282,10 @@ results.json carries `qualified` and `qualifications`:
 
 With `--fail-on-qualification` a qualified run exits with status 1. Use it for a translation-regression run: it fails
 instead of reporting figures for a different set of translations. Re-record the translations (with `claim_text_sha256`,
-from `list_claims.py --json`) and re-adjudicate them when extraction changes; never re-key them by bare claim id.
+from `list_claims.py --json`) and re-adjudicate them when extraction changes; never re-key them by bare claim id. (The two
+forms of one agent's STEM claim id, `s1.2` and `s1.2@<agent>`, name one claim of one parse; a fixture recorded under one
+serves the claim under the other, named on the record: "Claim ids in a group" above. An adjudication names the
+translation by its recorded id, and its verdict is counted for the claim it served.)
 
 ## Adjudications
 
@@ -278,7 +329,7 @@ overseer agents (tests only: scripted providers).
 ## Tests
 
 ```
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract) and the delivery pass's key ring
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, and two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)

@@ -199,7 +199,10 @@ _NOT_PART_RE = re.compile(r"^(?:and\s+|but\s+)?(?:it\s+is\s+|they\s+are\s+)?not\
 _NO_CHECK_RE = re.compile(r"^(?:and\s+|but\s+|so\s+)?(?:I|we)\s+(?:have\s+not|haven't|did\s+not|didn't|could\s+not|couldn't|cannot|can't)\s+"
                           r"(?:yet\s+)?(?:checked|verified|confirmed|check|verify|confirm|seen|read)\b[^,;:]{0,80}$", re.IGNORECASE)
 _CHECK_IT_RE = re.compile(r"^(?:and\s+|so\s+|please\s+)?(?:verify|check|confirm|treat)\s+(?:it|them|this|these|that|those)\b[^,;:]{0,80}$", re.IGNORECASE)
-_NOTE_CLAUSE_SPLIT_RE = re.compile(r"\s*(?:;|,|\s[-–—]\s|—|–)\s*")
+#: A separator between the clauses of a note: ';', ',', a dash, or a hyphen between blanks, with the blanks around it. Read from the first
+#: blank of a run (integration gate 2: ``\s*`` before ``\s[-–—]\s`` was tried again from every blank of a run, k² steps; the sentences it
+#: reads hold at most 400 characters, so this was bounded, and the splits are the same).
+_NOTE_CLAUSE_SPLIT_RE = re.compile(r"(?:(?<!\s)\s++(?:[;,—–]|-(?=\s))|[;,—–])\s*+")
 #: A bare note lead ('Note:', 'N.B.', 'Next step:', 'Confidence:', 'Limit:', 'Caveat:'): a sentence it opens is a note, and a paragraph
 #: whose first sentence it opens is a note paragraph as a whole, whatever its length, dates or figures. 'Note on ...:' and 'Note that ...'
 #: (no colon) introduce substance and are not bare leads.

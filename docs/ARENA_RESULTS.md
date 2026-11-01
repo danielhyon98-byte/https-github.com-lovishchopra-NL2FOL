@@ -1489,6 +1489,43 @@ overseer agent being configured), but r4's hi-t8 and r7's lit-p7c are no longer 
 hi-p7c is excluded only for its own INT-SUBJ-001. These are the harness's changes alone; the gate's measurement of the
 whole fix round follows it.
 
+## Integration gate, round 2: the harness's own fix
+
+One finding of the gate's second round was in the arena tooling (correctness lens, major), a new interaction of round 1's
+claim-id rule: the hub delivers a STEM report whose claim ids another agent's report already holds on the task with its
+ids qualified by its agent (`s1.2@physics-specialist`), but `list_claims.py <file>` parsed each file alone and printed
+`s1.2`. Translation fixtures and combinator citations written from the listing named ids the hub never delivered.
+Changes (`scripts/arena/list_claims.py`, `scripts/arena/run_arena.py`; rules in `scripts/arena/README.md`, "Claim ids in a
+group"; tests in `scripts/arena/test_arena_rules.py`):
+
+- **The listing prints the delivered ids.** A file is parsed after every member of its group the genuine pass delivers
+  before it (given or not), with the subject, task type and request text the group's plan gives its agent, as the hub
+  parses it; `--json` says the group, the files delivered before it and whether its ids are qualified, and
+  `--agent-view` shows each report under the ids the hub delivers it. The request text matters beyond the ids: the STEM
+  parsers read it, and the lens's Physics `Given:` line was listed as evidence and delivered as quantitative.
+- **A fixture keyed by either form of a STEM claim id serves its claim.** The genuine and delivery passes deliver the
+  second STEM report of a group qualified, a mutation (a hub task of its own) unqualified. A recorded translation keyed by
+  either form of one agent's STEM claim id is served to the claim under the other, its problem naming the delivered id
+  and its claim-text digest checked as any fixture's, and every record and the fixture coverage name it. Ids a parser
+  writes in one form only are matched as written, so round 7's 200 generic fixtures of an older parse stay unserved.
+- **A mutation is compared with its genuine record in its own id form**, so a genuine finding no longer reads as
+  unexplained on, and absent from, every mutation record of such a report.
+
+Measured on the lens's round (Chemistry and Physics in group g1, the same answer, one translation of `s1.2` per task, made
+as the old listing printed it), with the harness before and after the fix on the same tree: transport 16 of 16 both;
+fixture coverage 1 of 2 served (QUALIFIED: TRANSLATIONS_LOST) before, 2 of 2 after, one of them under the other form of
+its id (`ph-g1.json: s1.2 as s1.2@physics-specialist`); ph-g1's genuine record went from ACCEPTED with no outcome to
+`s1.2@physics-specialist` ENTAILED, as ch-g1's `s1.2`; and its two STEM mutations, which were served the genuine
+claim's translation for the changed claim (ENTAILED, beside INT-XENC-001), now refuse it as stale, as ch-g1's always did.
+With an undecided line added to the same answer, each of ph-g1's seven mutation records listed the genuine
+ST-UNDEC-001 warning as both unexplained and absent before, and none does after (ch-g1's records never did). Every one of
+round 7's 22 files is now listed as the hub delivers it, field for field (ids, roles, materiality, certainty, text,
+supporting ids, assumptions); before, five STEM files (bi-t13, ess-t13, maa-t13, mai-t13, ph-t13) were listed with
+assumptions naming other STEM checks than the delivered report's (the checks the request adds, and their numbering).
+Round 7 replayed on fresh copies before and after: 177 of 177 both,
+every record identical apart from the fixture coverage's new, empty `served_under_other_id_form`, 22 of 224 fixtures
+served both; rounds 1 to 6 hold no STEM report, so nothing of this applies to them.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |

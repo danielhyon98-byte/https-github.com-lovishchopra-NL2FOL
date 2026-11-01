@@ -84,15 +84,50 @@ def has_numeral(text: str, *, scripts: bool = False) -> bool:
 #: ("(a)", "(iii)", "(3)", "2." opening a line) and a named item ("Paper 1", "Table 1", "part (b)", "question 3", "Section A").
 _MARK_ANNOTATION_RE = re.compile(r"\[\s*\d+(?:\s*(?:marks?|spare))*\s*\]", re.IGNORECASE)
 _LABEL_RE = re.compile(r"(?<!\w)\((?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x|\d{1,2})\)|(?m:^\s*(?:\d{1,2}|[a-h])[.)](?=\s))", re.IGNORECASE)
+#: The two alternatives of :data:`_LABEL_RE`, read apart by :func:`_strip_labels` in linear time (integration gate 2): the
+#: line-start alternative rescanned a whitespace run from every line start inside it (a run of n blank lines cost n² steps).
+_PAREN_LABEL_RE = re.compile(r"(?<!\w)\((?:[a-h]|i{1,3}|iv|vi{0,3}|ix|x|\d{1,2})\)", re.IGNORECASE)
+_LINE_LABEL_RE = re.compile(r"(?:\d{1,2}|[a-h])[.)](?=\s)", re.IGNORECASE)
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
 _NAMED_ITEM_RE = re.compile(r"\b(?:paper|section|part|question|unit|topic|criterion|item|step|table|figure|diagram|paragraph|stanza|page|appendix|source)"
                             r"\s+\(?(?:\d{1,3}|[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)?(?![\w.]\d)", re.IGNORECASE)
+
+
+def _strip_labels(text: str) -> str:
+    """``_LABEL_RE.sub(" ", text)`` exactly, in linear time (integration gate 2). The line-start alternative matches from a
+    line start over a whitespace run to a label at its end; every line start inside one run reaches the same end, so the
+    leftmost of them is the match and the run is read once (the end of each run from one pass over the runs), not once
+    per line start inside it. Matches are taken leftmost first and never overlap, as ``re.sub`` takes them."""
+    spans = [(m.start(), m.end()) for m in _PAREN_LABEL_RE.finditer(text)]
+    runs = iter(_WHITESPACE_RUN_RE.finditer(text))
+    run = next(runs, None)
+    starts = [0] + [m.end() for m in re.finditer("\n", text)]
+    for p in starts:
+        while run is not None and run.end() <= p:
+            run = next(runs, None)
+        e = run.end() if run is not None and run.start() <= p < run.end() else p
+        label = _LINE_LABEL_RE.match(text, e)
+        if label is not None:
+            spans.append((p, label.end()))
+    if not spans:
+        return text
+    out: list[str] = []
+    at = 0
+    for start, end in sorted(spans):
+        if start < at:
+            continue  # inside a match already taken (a later line start of the same run)
+        out.append(text[at:start])
+        out.append(" ")
+        at = end
+    out.append(text[at:])
+    return "".join(out)
 
 
 def figure_text(text: str) -> str:
     """``text`` without the numerals that are no figure of the claim (mark annotations, part and list labels, named
     items: :data:`_MARK_ANNOTATION_RE`, :data:`_LABEL_RE`, :data:`_NAMED_ITEM_RE`): what the numeric cues are read on, so
     a mark heading "(a) [2]" or "Paper 1 is the unseen-text paper" is no quantitative claim."""
-    return _NAMED_ITEM_RE.sub(" ", _LABEL_RE.sub(" ", _MARK_ANNOTATION_RE.sub(" ", text)))
+    return _NAMED_ITEM_RE.sub(" ", _strip_labels(_MARK_ANNOTATION_RE.sub(" ", text)))
 
 
 def _figure_count(text: str) -> int:

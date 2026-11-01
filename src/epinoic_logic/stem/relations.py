@@ -48,7 +48,7 @@ from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import Iterable, Optional
 
-from .boolean import BoolRelation, TruthTable
+from .boolean import BoolRelation, TruthTable, parse_expression
 from .calculus import antiderivative, derivative, polynomial, polynomial_node
 from .chem import ELEMENTS, ChemEquation
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
@@ -113,7 +113,9 @@ _TRAILING_WORD_RE = re.compile(r"([A-Za-z]+)[ \t]*$")
 _QUESTION_RE = re.compile(r"[ \t]*\?[ \t]*(?:[(\[:—–-][ \t]*)?(yes|no|true|false)?(?![A-Za-z])", re.IGNORECASE)
 _YES_WORDS = frozenset({"yes", "true"})
 #: stem-precision-8: the words after a comparison that state it is false
-_STATED_FALSE_RE = re.compile(r"[ \t]*\)?[ \t]*,?[ \t]*(?:(?:which|this|that|it)[ \t]+)?(?:(?:is|was|evaluates[ \t]+to|returns|gives|is[ \t]+evaluated[ \t]+as)"
+#: integration gate 2 (sweep): how far after a chain its statement that it is false is read (the pattern's own words fit well inside it)
+_STATED_FALSE_WINDOW = 160
+_STATED_FALSE_RE = re.compile(r"[ \t]*+\)?[ \t]*+,?[ \t]*+(?:(?:which|this|that|it)[ \t]++)?(?:(?:is|was|evaluates[ \t]+to|returns|gives|is[ \t]+evaluated[ \t]+as)"
                               r"[ \t]+(?:false|not[ \t]+true)|fails|is[ \t]+not[ \t]+true)(?![A-Za-z])", re.IGNORECASE)
 #: rule premise-cue (STEM repair 2): the words that introduce a relation another one on the same line is derived from
 _PREMISE_CUE_RE = re.compile(r"(?:^|[\s(])(?:from|since|because|as|using|rearranging|by)[ \t]*$", re.IGNORECASE)
@@ -201,6 +203,48 @@ _STEP_WORDS = ("⇒", "∴", "so", "hence", "therefore", "thus", "gives", "givin
                "expanding", "expanded", "simplifying", "simplified", "solving", "factorising", "factorizing", "factorised", "factorized",
                "collecting", "cancelling", "canceling", "cancelled", "canceled")
 _APPROX_WORDS = ("approximately", "approx.", "about", "roughly", "estimate", "around", "nearly")
+#: rule radical-roots (integration gate 2): words that reject a stated root
+_REJECT_WORDS = ("reject", "not valid", "invalid", "extraneous", "discard", "not a solution", "not a root", "does not satisfy", "doesn't satisfy",
+                 "is not allowed", "not possible", "impossible", "ignore")
+#: rule radical-roots: how far after a root set a clause that rejects one of its values is read, and the clause boundaries (a sentence end, a
+#: semicolon, a comma, a bracket, a line break, 'but')
+_REJECT_WINDOW = 240
+_CLAUSE_SPLIT_RE = re.compile(r"\.\s|[;,()\n]|\bbut\b")
+#: rule length-root (integration gate 2): words that name a length, whose principal square root its meaning takes
+_LENGTH_WORDS = ("hypotenuse", "radius", "radii", "diameter", "distance", "height", "width", "perimeter", "triangle", "cosine rule", "sine rule",
+                 "pythagoras", "circle", "rectangle", "side length", "length of the side", "how far", "how long", "how tall", "how high")
+#: integration gate 2 (rule request-substitution): the dimensions of a volume and of a concentration over (m, kg, s, A, K, mol, cd)
+_VOLUME_EXPS = (3, 0, 0, 0, 0, 0, 0)
+_CONCENTRATION_EXPS = (-3, 0, 0, 0, 0, 1, 0)
+#: the units chemistry reads a bare volume and a bare mass in (dm³ beside mol dm⁻³, g beside g mol⁻¹)
+_CHEM_CONVENTIONAL_UNITS = {_VOLUME_EXPS: "dm³", (0, 1, 0, 0, 0, 0, 0): "g"}
+#: integration gate 2 (sweep): a masked maths run of the prose view ('Xxxx'), read from its first character and possessively. Under
+#: IGNORECASE 'X+x*' was two adjacent quantifiers over the same letters, retried from every letter of every run: about 9 ms per
+#: 150-character window on '4 minutes 30 seconds' repeated (9 s at 20,000 characters), 234 ms on a run of 'xX'
+_MASKED_RUN = r"(?<![Xx])[Xx]++"
+#: integration gate 2 (rule inline-restatement): after the chain its statement closes, a connective and words naming its quantity, then a verb
+#: ('…, so the acceleration is', '…; hence the total energy ='); bounded words, no nested repeat
+_INLINE_NAMED_RE = re.compile(_MASKED_RUN + r"[ \t]*+[,;][ \t]*+(?:so|hence|therefore|thus|i\.\s?e\.,?|which[ \t]+means)[ \t]++(?:that[ \t]++)?"
+                              r"(?P<words>(?:the|its|their|this)[ \t]+[A-Za-z][A-Za-z’'-]{0,24}(?:[ \t]+[A-Za-z][A-Za-z’'-]{0,24}){0,4})"
+                              r"[ \t]+(?:is|are|was|were|equals|=)(?:[ \t]+(?:approximately|about|roughly))?[ \t]*$", re.IGNORECASE)
+#: integration gate 2 (rule restated-result): 'Answer:', 'Final answer:', 'Ans:' before the value, at the start of its line or sentence
+_ANSWER_CUE_RE = re.compile(r"(?:^|[\n.!?][ \t]*)(?:\*\*)?(?:final[ \t]+)?(?:answer|ans)(?:\*\*)?[ \t]*[:=][ \t]*(?:\*\*)?[ \t]*$", re.IGNORECASE)
+#: integration gate 2 (rule named-restatement): a sentence that opens with the quantity's name and states its value ('The acceleration is')
+_NAMED_IS_RE = re.compile(r"(?:^|[\n.!?][ \t]*)(?P<words>(?:the|its|their|this)[ \t]+[A-Za-z][A-Za-z’'-]{0,24}(?:[ \t]+[A-Za-z][A-Za-z’'-]{0,24}){0,4})"
+                          r"[ \t]+(?:is|are|was|were|equals|=)(?:[ \t]+(?:approximately|about|roughly))?[ \t]*$", re.IGNORECASE)
+#: integration gate 2 (rule restated-result): the cue before a value stated again for the chain's symbol ('So a =', 'Therefore,', 'Answer:')
+_RESTATE_SYMBOL_CUE_RE = re.compile(r"(?:^|[\s,;(.])(?:so|therefore|hence|thus|i\.e\.|answer[ \t]*:|final[ \t]+answer[ \t]*:|ans[ \t]*:)[ \t]*,?[ \t]*(?:\*\*)?[ \t]*$",
+                                    re.IGNORECASE)
+#: rule rational-identity (integration gate 2): a request to show, prove or verify
+_SHOW_PROVE_RE = re.compile(r"\b(?:show[ \t]+that|prove[ \t]+that|prove|verify[ \t]+that|verify|demonstrate[ \t]+that)\b")
+#: rules inline-restatement and named-restatement (integration gate 2): words that qualify a quantity's name without naming another
+_QUANTITY_QUALIFIERS = frozenset({"average", "mean", "total", "net", "resultant", "overall", "final", "initial", "maximum", "minimum", "new", "actual",
+                                  "instantaneous", "required", "calculated", "constant", "uniform", "approximate", "estimated", "expected",
+                                  "magnitude", "value", "size", "answer"})
+#: rules inline-restatement and named-restatement: a chemical formula written as a word ('NaOH', 'HCl', 'CO2', 'H₂O')
+_FORMULA_TOKEN_RE = re.compile(r"(?:[A-Z][a-z]?[0-9₀-₉]{0,3}){1,8}")
+#: rule solution-set (integration gate 2): a request to solve, or to find the set or range of values (bounded words, no nested repeat)
+_SOLVE_REQUEST_RE = re.compile(r"\b(?:solve|solving|set[ \t]+of[ \t]+values|range[ \t]+of[ \t]+values|solution[ \t]+set)\b", re.IGNORECASE)
 _COMPLETE_PHRASES = ("only solution", "only root", "the solution is", "the solutions are", "is the solution", "are the solutions", "the roots are",
                      "solutions are", "roots are", "the only value", "is the only")
 #: stem-precision-1: the words that open the clause of a restated value, and the words of such a clause that name no quantity
@@ -256,7 +300,7 @@ _DEFINITION_RES = (
 #: the characters of a statement a definition is looked for in (bounded work per statement)
 _DEFINITION_WINDOW = 2000
 #: where a description stops: a relative clause or a conjunction ('the useful energy that vaporises the water')
-_DESCRIPTION_STOP_RE = re.compile(r"\s+(?:which|that|who|whose|where|when|whenever|while|and|or|but|so|because|if|as|then|thus|hence|therefore)\b.*$",
+_DESCRIPTION_STOP_RE = re.compile(r"(?<!\s)\s++(?:which|that|who|whose|where|when|whenever|while|and|or|but|so|because|if|as|then|thus|hence|therefore)\b.*$",
                                   re.IGNORECASE | re.DOTALL)
 #: a trailing unit of a description ('the monthly payment in euros' also names 'the monthly payment')
 _DESCRIPTION_UNIT_RE = re.compile(r"\s+in\s+[^\W\d_]{1,16}$")
@@ -270,9 +314,9 @@ _DESCRIBED_VALUE_RE = re.compile(r"^\s*(?:(?:so|thus|hence|therefore|and|then)\s
 _COUNT_WORDS = ("euros|euro|eur|dollars|dollar|usd|pounds|pound|gbp|yen|cents|cent|pence|seconds|second|minutes|minute|hours|hour|days|day|weeks|week|"
                 "months|month|years|year|people|persons|students|items|units|tickets|marks|points|cells|individuals")
 #: what may follow such a value up to the end of its sentence: one of those words, a rounding note, a mark annotation
-_DESCRIBED_TAIL_RE = re.compile(r"^\s*(?:(?:" + _COUNT_WORDS + r")(?![^\W\d_]))?\s*"
-                                r"(?:\(?(?:to\s+)?(?:\d{1,2}\s*(?:d\.?\s*p\.?|s\.?\s*f\.?|decimal\s+places?|significant\s+figures?)"
-                                r"|the\s+nearest\s+[^\W\d_]{1,12})\)?)?\s*(?:\(?[MARN]\d{1,2}\)?\s*)?(?:[.!;]|$)", re.IGNORECASE)
+_DESCRIBED_TAIL_RE = re.compile(r"^\s*+(?:(?:" + _COUNT_WORDS + r")(?![^\W\d_]))?\s*+"
+                                r"(?:\(?(?:to\s+)?(?:\d{1,2}\s*+(?:d\.?\s*p\.?|s\.?\s*f\.?|decimal\s+places?|significant\s+figures?)"
+                                r"|the\s+nearest\s+[^\W\d_]{1,12})\)?)?\s*+(?:\(?[MARN]\d{1,2}\)?\s*+)?(?:[.!;]|$)", re.IGNORECASE)
 #: the end of the sentence after a value: a full stop before a capital or at the end (not the stops of 'd.p.' or 's.f.'),
 #: or another clause or sentence mark
 _SENTENCE_STOP_RE = re.compile(r"\.(?=\s+[A-Z(]|\s*$)|[;!?\n]")
@@ -558,6 +602,10 @@ class Relation:
     #: step from one equation that takes another stated value of the same conclusion as a premise
     simultaneous: tuple[tuple[Operand, Operand], ...] = ()
     simultaneous_values: tuple[tuple[str, Node], ...] = ()
+    #: a ``cmp`` step of an answer to a request to solve (integration gate 2, rule solution-set): an inequality step linear in its one unknown
+    #: claims the solution set, so the checks stage decides it both ways (the next relation holds exactly when the preceding one does),
+    #: never as the one-way implication of a chain that only bounds a quantity
+    equivalence: bool = False
 
     @property
     def is_check(self) -> bool:
@@ -1546,6 +1594,75 @@ def _degree(node: Node, x: str) -> int:
     return 3
 
 
+#: rule identity-chain (integration gate 2): the largest power of a letter an identity side may hold (the parser's integer-power bound)
+_IDENTITY_MAX_POWER = 12
+
+
+def _identity_side(node: Node, *, rational: bool = False) -> bool:
+    """Rule ``identity-chain`` (integration gate 2): ``node`` is a polynomial in its letters (integer powers up to the parser's bound,
+    numerals, the four operations), or, with ``rational``, a rational expression (a division by an expression in the letters and a
+    negative power, whose divisors the encoding guards as non-zero). No function, root, unit, constant, per cent or construct outside
+    the encodings."""
+    for n in walk(node):
+        if isinstance(n, (Func, RealPower, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit, Degrees, Ratio, Magnification, BoolOp,
+                          IntOp)):
+            return False
+        if isinstance(n, Sym) and n.kind != "symbol":
+            return False
+        if isinstance(n, Pow) and (n.exp > _IDENTITY_MAX_POWER or n.exp < (-_IDENTITY_MAX_POWER if rational else 0)):
+            return False
+        if isinstance(n, BinOp) and n.op == "/" and not rational and _syms(n.right):
+            return False
+    return True
+
+
+def _identity_pair(lnode: Node, rnode: Node, *, rational: bool = False) -> bool:
+    """Rule ``identity-chain``: both sides are polynomials (or, with ``rational``, rational expressions) in the same one to three letters."""
+    names = _syms(lnode)
+    if not names or len(names) > 3 or _syms(rnode) != names:
+        return False
+    return _identity_side(lnode, rational=rational) and _identity_side(rnode, rational=rational)
+
+
+def _is_formula_token(token: str) -> bool:
+    """Rules inline-restatement and named-restatement: ``token`` is a chemical formula of known element symbols ('NaOH', 'HCl', 'CO2'), at
+    most 30 characters, and holds two symbols or a digit (a capitalised English word is none)."""
+    t = token.strip(".,;:()")
+    if not t or len(t) > 30 or not _FORMULA_TOKEN_RE.fullmatch(t):
+        return False
+    parts = re.findall(r"[A-Z][a-z]?", t)
+    return all(p in ELEMENTS for p in parts) and (len(parts) >= 2 or any(c.isdigit() or c in "₀₁₂₃₄₅₆₇₈₉" for c in t))
+
+
+def _length_value(node: Node) -> bool:
+    """Rule ``length-root``: ``node`` is a value written with a unit of length ('5 cm')."""
+    v = value_of(node) if is_value(node) else None
+    return v is not None and v[2] is not None and v[2].dim is not None and v[2].dim.exps == (1, 0, 0, 0, 0, 0, 0)
+
+
+def _radical_in(a: Node, b: Node, x: str) -> bool:
+    """Rule ``radical-roots``: a square root of an expression in ``x`` stands on either side of ``a = b``."""
+    return any(isinstance(n, Root) and x in _syms(n.arg) for side in (a, b) for n in walk(side))
+
+
+def _isolated_equation(a: Optional[Node], b: Optional[Node]) -> bool:
+    """Rule ``identity-chain``: ``a = b`` is a polynomial equation in one letter that is no identity, so it holds at isolated values of the
+    letter only, or at none ('(x + 2)(x + 3) = x² + 6' holds at x = 0 only): no premise a link of its chain may be decided under."""
+    if a is None or b is None:
+        return False
+    names = _syms(a) | _syms(b)
+    if len(names) != 1:
+        return False
+    x = next(iter(names))
+    pa, pb = polynomial(a, x), polynomial(b, x)
+    if pa is None or pb is None or pa[1] or pb[1]:
+        return False
+    diff = dict(pa[0])
+    for k, c in pb[0].items():
+        diff[k] = diff.get(k, Fraction(0)) - c
+    return any(c != 0 for c in diff.values())
+
+
 #: rule solved-law (STEM repair 7): how many operations the isolation of a symbol in a law follows
 _SOLVE_DEPTH = 24
 
@@ -1689,7 +1806,7 @@ def _contains_based(node: Node) -> bool:
 
 
 #: integration gate 1 (rule binary-reading): the words that call a numeral binary, or a fixed-width or two's-complement one
-_BINARY_WORD_RE = re.compile(r"(?<![A-Za-z])(?:binary|base[ \t-]?2|bits?|[0-9]+[ \t-]?bits?)(?![A-Za-z])|two'?s[ \t-]+complement|2'?s[ \t-]+complement",
+_BINARY_WORD_RE = re.compile(r"(?<![A-Za-z])(?:binary|base[ \t-]?2|bits?|(?<![0-9])[0-9]++[ \t-]?bits?)(?![A-Za-z])|two'?s[ \t-]+complement|2'?s[ \t-]+complement",
                              re.IGNORECASE)
 _TWOS_COMPLEMENT_RE = re.compile(r"two'?s[ \t-]+complement|2'?s[ \t-]+complement", re.IGNORECASE)
 #: the most binary digits a numeral read in binary may have
@@ -1830,6 +1947,8 @@ class _ChainState:
     ops: list[str]
     item: MathItem
     start: int
+    #: the chain went past the link limit on a line that continues it (``_Planner._chain``): the lines after are not read either
+    over_limit: bool = False
 
 
 class _Planner:
@@ -1866,6 +1985,9 @@ class _Planner:
         #: stem-soundness-5: the equations of the current system of simultaneous equations (infos), and the sol relation of its stated solution
         self._system: list[dict] = []
         self._system_sol: Optional[int] = None
+        #: integration gate 2 (rule radical-roots): each root set (its sol relation's index) whose equation the working reached by squaring an
+        #: equation with a square root of the unknown, and that first equation (left, right, statement ids)
+        self._radical_sols: list[tuple[int, tuple[Operand, Operand, tuple[str, ...]]]] = []
         #: stem-soundness-11: (equation, letter) -> (the sol relation its next-line roots extend, the order of the last root line)
         self._line_roots: dict[tuple[int, str], tuple[int, int]] = {}
         #: Boolean names the answer defines ('M = (A ∧ B) ∨ …'): name -> (expression, statement id)
@@ -1990,11 +2112,13 @@ class _Planner:
             for ci, chain in enumerate(item.chains):
                 self._chain(item, ci, chain)
         if not self.request_mode:
+            self._radical_roots()
             self._bound_relations()
             self._boolean_values()
             self._bare_factor_dimensions()
             self._defined_columns()
             self._results()
+            self._restated_results()
             self._prose_conversions()
             self._prose_bases()
             self._prose_twos_complement()
@@ -2055,6 +2179,18 @@ class _Planner:
         if chain.lead == "continuation":
             prev = self.prev_chain
             if prev is not None and prev.item.part == item.part and self.order.get(sid, 0) - self.order.get(prev.item.statement_id, 0) <= 2:
+                limit = self.scope.limits.max_chain_links
+                if prev.over_limit or len(prev.ops) + len(ops) > limit:
+                    # rule linear-readers (integration gate 2): a chain continued line after line is read whole for each line, so a
+                    # derivation of n such lines cost n² steps ('x = 1' then '= 1' on each of 800 lines: 6.7 s in the front end, 25 s
+                    # through a Physics hub); the link limit of one chain (ST-LIM-001) holds for a continued chain too
+                    if not prev.over_limit:
+                        self.finding("ST-LIM-001", f"a chain continued over its lines of more than {limit} links: the links from this line on "
+                                                   f"were not read", (sid,), chain.start, chain.end)
+                    self.add(kind="span", outcome="undecided", statement_ids=(sid,), start=chain.start, end=chain.end, code="ST-LIM-001",
+                             reason=f"a chain continued over its lines of more than {limit} links", part=item.part)
+                    self.prev_chain = _ChainState(prev.operands, prev.ops, item, chain.start, over_limit=True)
+                    return
                 operands = [prev.operands[-1]] + operands[1:]
                 base_pos = len(prev.ops)
                 continued = True
@@ -2092,7 +2228,7 @@ class _Planner:
         # rule solved-law (STEM repair 7): the law before the chain solved for the symbol it evaluates (read by its first link)
         self._solved = None if continued else self._solved_law(item, chain, full_operands, full_ops, lone, lone_head, bound_before)
         # bindings first: a later link's substitution may rely on this chain's own values
-        self._chain_bindings(item, full_operands, full_ops, lone, lone_head)
+        self._chain_bindings(item, full_operands, full_ops, lone, lone_head, connective=chain.connective)
         self._record_model(full_operands, full_ops)
         approx_ctx = _approx_context(item.gap_before)
         first_rel, first_finding = len(self.relations), len(self.findings)
@@ -2196,7 +2332,7 @@ class _Planner:
         True when the chain was handled here."""
         if not (0 <= chain.end <= len(self.text)):
             return False
-        m = _QUESTION_RE.match(self.text, chain.end)
+        m = _QUESTION_RE.match(self.text, chain.end, min(len(self.text), chain.end + _STATED_FALSE_WINDOW))
         if m is None:
             return False
         answer = (m.group(1) or "").lower()
@@ -2223,7 +2359,7 @@ class _Planner:
         checked as asserted, and every loop trace that states a failing test got INT-SUBJ-001). True when the chain was handled here."""
         if len(chain.ops) != 1 or chain.ops[0] not in _NEGATION or chain.ops[0] in _EQUALITY or not (0 <= chain.end <= len(self.text)):
             return False
-        m = _STATED_FALSE_RE.match(self.text, chain.end)
+        m = _STATED_FALSE_RE.match(self.text, chain.end, min(len(self.text), chain.end + _STATED_FALSE_WINDOW))
         if m is None:
             return False
         sid = item.statement_id
@@ -2638,7 +2774,8 @@ class _Planner:
             self.scope.add(Binding(sym.name, value, number, unit, "request" if self.request_mode else "statement", operands[k + 1][1],
                                    getattr(val, "start", 0), getattr(val, "end", 0), wrapper=wrapper))
 
-    def _chain_bindings(self, item: MathItem, operands: list[tuple[Operand, str]], ops: list[str], lone: bool, head: Optional[Node]) -> None:
+    def _chain_bindings(self, item: MathItem, operands: list[tuple[Operand, str]], ops: list[str], lone: bool, head: Optional[Node],
+                        connective: str = "") -> None:
         if any(o in _ORDER for o in ops):
             self._order_bindings(item, operands, ops)
         first = _first(operands[0][0]) if operands else None
@@ -2660,7 +2797,7 @@ class _Planner:
         if ops[0] not in _EQUALITY:
             return
         rhs = _first(operands[1][0])
-        root = self._is_root_symbol(head.name) and rhs is not None and is_closed(rhs)
+        root = (self._is_root_symbol(head.name) or self._joined_root(item, connective, head.name)) and rhs is not None and is_closed(rhs)
         if rhs is not None and not is_value(rhs) and not is_closed(rhs) and not isinstance(rhs, Unsupported) and not unsupported_reasons(rhs):
             src = "request" if self.request_mode else "law"
             self.scope.add_formula(Formula(head.name, rhs, operands[1][1], src, start=getattr(rhs, "start", 0), end=getattr(rhs, "end", 0)))
@@ -2894,6 +3031,20 @@ class _Planner:
                 return  # argument diagnostics: ST-STEP-003, a rewrite inside a chain that is no identity
             self._undecided("ST-UNDEC-001", "a function of an unknown", base, item)
             return
+        if self._identity_link(lnode, rnode, full_operands, full_ops) or (
+                pos > 0 and _isolated_equation(_first(full_operands[0][0]), _first(left)) and _identity_pair(lnode, rnode)):
+            # integration gate 2 (rule identity-chain): an inline chain of symbolic identities ('(x + 2)(x + 3) = x² + 6 = x² + 5x + 6',
+            # 'Show that (x + 3)² − 9 = x(x + 6)': '(x + 3)² − 9 = x² + 3x + 9 − 9 = x² + 6x = x(x + 6)') states each link as an identity
+            # in its variables: each is decided on its own for every value of them, as the line-per-link form is. Before, link 1 was never
+            # checked and each later link was decided under the premise of the link before it (PREV: A = B); a false first link holds at
+            # isolated values only (x = 0), so the next was vacuously ENTAILED, or, where it holds nowhere, INCONSISTENT_PREMISES
+            # (undecided), and wrong working was shown as a passing check. A link whose premise from its own chain is a polynomial
+            # equation in one letter that holds at isolated values only, or nowhere, is decided alone as well
+            names = tuple(sorted(_syms(lnode) | _syms(rnode)))
+            self.add(kind="alg", outcome="check", premise_left=left, premise_op="=", premise_right=left, premise_ids=sids, explicit=True,
+                     identity=names, reason="a link of an inline chain of identities: an identity in its variables, decided on its own for every "
+                                            "value of them (rule identity-chain)", **base)
+            return
         if pos > 0:
             self.add(kind="alg", outcome="check", premise_left=full_operands[0][0], premise_op=full_ops[0], premise_right=left, premise_ids=sids,
                      explicit=True, reason="an identity step inside one chain", **base)
@@ -2915,28 +3066,48 @@ class _Planner:
             return
         self.add(kind="stated", outcome="context", reason="a relation stated without a preceding relation to derive it from", **base)
 
+    def _identity_link(self, lnode: Node, rnode: Node, full_operands: list, full_ops: list) -> bool:
+        """Rule ``identity-chain`` (integration gate 2): a link of an inline mathematics chain of two or more '=' links none of whose operands
+        is a value or a closed expression and whose head is no lone symbol (a definition or an evaluation is read as before), both sides
+        polynomials (:func:`_identity_pair`) in the same letters: an identity in them."""
+        if not self.profile.is_mathematics or len(full_ops) < 2 or not all(o == "=" for o in full_ops):
+            return False
+        nodes = [_first(o) for o, _s in full_operands]
+        if any(n is None for n in nodes) or _is_lone(nodes[0]):
+            return False
+        if any(self._cls(n) in ("value", "closed") for n in nodes):  # type: ignore[arg-type]
+            return False  # an equation chain ('P = F = 0') or one that evaluates: no chain of identities
+        return _identity_pair(lnode, rnode, rational=True)
+
     def _stated_identity(self, item: MathItem, lnode: Node, rnode: Node) -> bool:
         """Both sides are polynomials in the same letters (at most three) and the statement, or the request, names a factorisation, an
-        expansion or a simplification (stem-soundness-12)."""
+        expansion or a simplification (stem-soundness-12). Integration gate 2 (rule rational-identity): rational expressions too (a division by
+        an expression in the letters, '(x² + 2x)/x = x + 2', decided with every divisor non-zero, the side condition the statement states or
+        the encoding's guard), integer powers up to the parser's bound (index laws: '(2x³)(3x²) = 6x⁵'), and a request to show or prove that
+        states an identity of the same kind ('Show that (x + 3)² − 9 = x(x + 6).'). Before, such a relation was stated context: a wrong
+        simplification was named nowhere."""
         if not self.profile.is_mathematics:
             return False
         words = item.context() + " " + self._request_lower
-        if not any(w in words for w in _IDENTITY_WORDS):
+        if not any(w in words for w in _IDENTITY_WORDS) and not self._request_states_identity():
             return False
         names = _syms(lnode) | _syms(rnode)
         if not names or len(names) > 3 or not _syms(lnode) or not _syms(rnode):
             return False
-        for side in (lnode, rnode):
-            for n in walk(side):
-                if isinstance(n, (Func, RealPower, Root, Apply, Abs, PlusMinus, Unsupported, Percent, Quantity, WithUnit, Degrees, Ratio)):
-                    return False
-                if isinstance(n, Sym) and n.kind not in ("symbol",):
-                    return False
-                if isinstance(n, BinOp) and n.op == "/" and _syms(n.right):
-                    return False
-                if isinstance(n, Pow) and (n.exp < 0 or n.exp > 4):
-                    return False
+        if not (_identity_side(lnode, rational=True) and _identity_side(rnode, rational=True)):
+            return False
         return max(max(_degree(lnode, x), _degree(rnode, x)) for x in names) >= 1 and shape_key(lnode) != shape_key(rnode)
+
+    def _request_states_identity(self) -> bool:
+        """Rule ``rational-identity`` (integration gate 2): the request asks to show, prove or verify a relation that is itself an identity's shape:
+        both sides polynomials or rational expressions in the same one to three letters."""
+        cached = getattr(self, "_request_identity", None)
+        if cached is None:
+            cached = bool(_SHOW_PROVE_RE.search(self._request_lower)) and any(
+                op == "=" and (l := _first(l_op)) is not None and (r := _first(r_op)) is not None and _identity_pair(l, r, rational=True)
+                for l_op, op, r_op in self.request.relations[:16])
+            self._request_identity = cached
+        return cached
 
     def _record_model(self, operands: list[tuple[Operand, str]], ops: list[str]) -> None:
         """``P = P₀e^(kt)`` (no variable named: the answer's applications name it) or ``C(t) = C0 e^(−kt)`` (the letter glued
@@ -4149,7 +4320,8 @@ class _Planner:
         rooted: Optional[dict] = None
         if lone and isinstance(head, Sym) and rel_op == "=" and len(operands) >= 2:
             rhs = _first(operands[1][0])
-            solved = head.name not in bound_before or not self._given_in(head.name, item.part)
+            solved = head.name not in bound_before or not self._given_in(head.name, item.part) \
+                or self._joined_root(item, chain.connective, head.name)  # integration gate 2 (rule root-set)
             if rhs is not None and is_closed(rhs) and solved:
                 rooted = self._roots_candidate(item, chain, head, operands)
                 if rooted is not None:
@@ -4181,6 +4353,12 @@ class _Planner:
             prev = None
         if prev is not None and info["unknown"] and prev["unknown"] and prev["item"].part == item.part and rel_op != "≠" and prev["op"] != "≠":
             explicit, adjacent, same_span, or_joined = self._step_cues(item, chain, prev)
+            and_step = or_joined and rooted is None and self._and_step(item, chain, prev, info, rel_op)
+            if and_step:
+                # integration gate 2 (rule and-step): '3x − 7 = 8, so 3x = 15 and x = 3', '2x = 8, so x = 4 and x = 5': a relation in the
+                # same one unknown joined by 'and' to a relation a step cue reached is the next step of that working, as 'giving' makes it.
+                # Before, 'and' read it as an alternative, so nothing checked or named x = 3
+                or_joined, explicit = False, True
             # rule premise-cue (STEM repair 2): 'From c = n/V, n = c/V', 'Since c = n/V, n = cV': a relation introduced by a premise word and
             # then, after a comma on the same line, another relation of exactly its symbols is a step from it (a rearrangement), not a list
             link_syms = _syms(first) | (_syms(_first(operands[1][0])) if len(operands) > 1 else set())  # the step is the chain's first link
@@ -4197,6 +4375,8 @@ class _Planner:
                 or is_closed(self._function_application(head) or Sym("?")) \
                 or (lone and isinstance(head, Sym) and self._solved is not None and self._solved.name == head.name) \
                 or item.source == "given" or self._defined_function_value(first)
+            if and_step:
+                evaluation = False  # rule and-step: 'x = 4 and x = 5' restates the letter's value as the next step, never an evaluation
             # f(2) = …, N(15) = … evaluate a function: no step; rule solved-law (STEM repair 7): neither does the evaluation of the law before it, nor
             # a Given statement, which states data ('Given: ε = 12 V.' after 'I = ε/(R + r)' had failed as a step from the law)
             # STEM repair 5: a relation the prose introduces as the inverse's equation, its variables swapped ('y = 2x + 1', then 'Swap x
@@ -4211,6 +4391,7 @@ class _Planner:
             if shares and not evaluation and not or_joined and not new_formula and not swapped \
                     and ((explicit and (same_span or info["order"] - prev["order"] <= 1)) or (adjacent and pure)):
                 info["stepped"] = True
+                info["from"] = prev  # integration gate 2 (rule radical-roots): the relation the step is from, for the roots' first equation
                 if _has_func_of(_first(prev["left"]) or Sym("?"), prev["unknown"]) or _has_func_of(_first(prev["right"]) or Sym("?"), prev["unknown"]) \
                         or _has_func_of(first, info["unknown"]) or _has_func_of(last, info["unknown"]):
                     self._undecided("ST-UNDEC-001", "a step involving a function of an unknown",
@@ -4529,6 +4710,17 @@ class _Planner:
                                       complete=not rel.restricted,
                                       reason=rel.reason + "; a value alone after 'or' is a further stated root (rule or-roots)")
 
+    def _and_step(self, item: MathItem, chain: Chain, prev: dict, info: dict, rel_op: str) -> bool:
+        """Rule ``and-step`` (integration gate 2): in mathematics, an equation joined by 'and' to the relation before it in the same statement,
+        that relation itself reached by a step cue ('so', '⇒', 'giving'), both equations (no law) in the same one unknown: the next step."""
+        if not self.profile.is_mathematics or rel_op != "=" or prev.get("op") != "=":
+            return False
+        if not (chain.connective == "and" or (item.gap_before or "").strip().lower() == "and"):
+            return False
+        if prev["item"].statement_id != item.statement_id or not prev.get("stepped") or prev.get("is_formula") or info.get("is_formula"):
+            return False
+        return len(info["unknown"]) == 1 and info["unknown"] == prev["unknown"]
+
     def _step_cues(self, item: MathItem, chain: Chain, prev: dict) -> tuple[bool, bool, bool, bool]:
         """What joins a chain to the relation before it for the step logic: ``explicit`` (a connective or step word: ⇒, ∴, so, hence,
         therefore, thus, gives, rearranging, …), ``adjacent`` (the next statement, each opening its own line of working), ``same_span``
@@ -4730,6 +4922,13 @@ class _Planner:
             plus_minus = any(isinstance(n, PlusMinus) for n in walk(cr)) or any(isinstance(n, PlusMinus) for n in walk(cl))
             text = item.context() + " " + prev["item"].context() + " " + self._request_lower
             restricted = any(w in text for w in _RESTRICT_WORDS)
+            lone_root = any(isinstance(n, Sym) and n.kind == "symbol" for n in (cl, cr))
+            if not restricted and self.profile.is_mathematics and ((lone_root and any(w in text for w in _LENGTH_WORDS))
+                                                                   or _length_value(cl) or _length_value(cr)):
+                # integration gate 2 (rule length-root): a length (a side, a hypotenuse, a radius, a distance the words name, or a value with a
+                # unit of length) is non-negative by its meaning, as the sciences read every quantity: 'c² = 3² + 4² = 25, so c = 5' for a
+                # hypotenuse, the cosine rule's 'c² = … = 39, so c = 6.24', 'r² = 25, so r = 5 cm' had been named ST-ALG-001 on correct work
+                restricted = True
             if self.profile.is_mathematics and not plus_minus and not restricted:
                 self.finding("ST-ALG-001", f"the step to '{render(cl)} = {render(cr)}' takes only the non-negative square root and no domain restriction is "
                                            f"stated; the algebra is checked under that side condition", sids, left_op.start, right_op.end,
@@ -4745,6 +4944,10 @@ class _Planner:
                     self._stated_operation(item, prev, left_op, right_op, sids, unknown, note_only=True)  # argument diagnostics: ST-STEP-002
                 return
         kind = "cmp" if (rel_op in _ORDER or prev["op"] in _ORDER) else "alg"
+        equivalence = kind == "cmp" and self._solution_set_step(prev, info, pl, pr, cl, cr, unknown, rel_op, operands)
+        if equivalence:
+            note = ("; the step is in an answer to a request to solve, linear in its one unknown, so it claims the solution set: it is decided "
+                    "both ways (rule solution-set)") + note
         positive = tuple(dict.fromkeys(tuple(prev.get("positive", ())) + tuple(info.get("positive", ()))))
         # STEM repair 11: the readings the step rests on are named in its statement (rules part-condition and root-statement)
         note = self._part_condition_note(unknown, item.part) + note
@@ -4754,7 +4957,7 @@ class _Planner:
         with_or = bool(or_alts) and kind == "alg" and rel_op == "="
         self.add(kind=kind, outcome="check", statement_ids=sids, start=left_op.start, end=right_op.end, op=rel_op, left=left_op, right=right_op,
                  premise_left=prev["left"], premise_op=prev["op"], premise_right=prev["right"], premise_ids=prev["sids"], explicit=explicit, part=item.part,
-                 principal_root=principal, positive=positive, or_alternatives=or_alts if with_or else (),
+                 principal_root=principal, positive=positive, or_alternatives=or_alts if with_or else (), equivalence=equivalence,
                  reason="the step follows from the preceding relation" + (" (stated with a connective)" if explicit else " (consecutive lines)")
                  + ("; the principal (non-negative) root is taken" if principal else "")
                  + ("; the conclusion is the disjunction the statement writes with 'or' (rule or-roots)" if with_or else "")
@@ -4762,6 +4965,23 @@ class _Planner:
                  + note)
         if kind == "alg" and rel_op == "=" and prev["op"] == "=":
             self._stated_operation(item, prev, left_op, right_op, sids, unknown)  # argument diagnostics: ST-STEP-001 and ST-STEP-002
+
+    def _solution_set_step(self, prev: dict, info: dict, pl: Node, pr: Node, cl: Node, cr: Node, unknown: set, rel_op: str,
+                           operands: list[tuple[Operand, str]]) -> bool:
+        """Rule ``solution-set`` (integration gate 2): an inequality step from an inequality, in mathematics, in an answer to a request to
+        solve (or to find the set or range of values), both relations linear in the one unknown and each one link: it claims the solution
+        set ('2x − 4 > 6 ⇒ 2x > 10 ⇒ x > 4' claims x > 4 where x > 5 is right). A chain that only bounds a quantity keeps the implication."""
+        if not self.profile.is_mathematics or len(unknown) != 1 or rel_op not in _ORDER or prev.get("op") not in _ORDER:
+            return False
+        if not _SOLVE_REQUEST_RE.search(self.request.text[:4000]):
+            return False
+        if len(operands) != 2 or len(prev.get("operands") or ((), ())) > 2:
+            return False
+        x = next(iter(unknown))
+        sides = (pl, pr, cl, cr)
+        if any(_degree(n, x) > 1 for n in sides) or not (_syms(pl) | _syms(pr)) == {x} or not (_syms(cl) | _syms(cr)) == {x}:
+            return False
+        return not any(isinstance(n, (Abs, Root, Func, PlusMinus, Unsupported, Apply)) for side in sides for n in walk(side))
 
     @staticmethod
     def _square_root_step(pl: Node, pr: Node, cl: Node, cr: Node) -> bool:
@@ -4776,6 +4996,16 @@ class _Planner:
 
     def _is_root_symbol(self, name: str) -> bool:
         return any(name in eq["unknown"] and len(eq["unknown"]) == 1 for eq in self.equations[-8:])
+
+    def _joined_root(self, item: MathItem, connective: str, name: str) -> bool:
+        """Integration gate 2 (rule root-set): a value stated for the letter of a root set its statement has opened ('x = 2 or x = 4', 'x = 2,
+        x = 4', 'x = 2 and x = 4', 'So x = 2 or x = 4', the request's equation solved) and joined to it by 'or', 'and' or a comma is a further
+        root of that set, never a rebinding of the letter. Before, a root set of the request's equation checked only its first root: the
+        second was read as a rebinding (ST-SCOPE-001 info), so a wrong second root was shown as a passing check."""
+        if (item.statement_id, name) not in self._root_groups:
+            return False
+        gap = (item.gap_before or "").strip().lower()
+        return connective in ("or", "and", ",") or gap in ("or", "and", ",", ", or", ", and", "or,", "and,")
 
     def _roots_candidate(self, item: MathItem, chain: Chain, head: Sym, operands: list[tuple[Operand, str]]) -> Optional[dict]:
         """A stated root of an equation of degree two or more in the letter (stem-sol): the equation it is recorded for (STEM repair 11,
@@ -4847,7 +5077,83 @@ class _Planner:
         group[key] = rel.index
         if follows:
             self._line_roots[line_key] = (rel.index, self.order.get(sid, -10))
+        radical = self._radical_source(eq, x, item.part) if source == "answer" else None
+        if radical is not None:
+            self._radical_sols.append((rel.index, radical))
         return eq
+
+    _MAX_STEP_HOPS = 12
+
+    def _radical_source(self, eq: dict, x: str, part: str) -> Optional[tuple[Operand, Operand, tuple[str, ...]]]:
+        """Rule ``radical-roots`` (integration gate 2): the equation in ``x`` holding a square root of an expression in ``x`` that the
+        working squared to reach ``eq`` (the steps ``eq`` is reached by, followed back), or, failing that, such an equation the request
+        states: ``(left, right, statement ids)``, else None. Squaring is no injective step, so a root of ``eq`` may be no root of it."""
+        cur: Optional[dict] = eq
+        hops = 0
+        while cur is not None and hops <= self._MAX_STEP_HOPS:
+            l, r = _first(cur.get("left")), _first(cur.get("right"))
+            if l is not None and r is not None and cur.get("op") == "=" and (_syms(l) | _syms(r)) == {x} and _radical_in(l, r, x):
+                return (cur["left"], cur["right"], tuple(cur.get("sids") or ()))
+            cur = cur.get("from")
+            hops += 1
+        for l_op, op, r_op in self.request.relations:
+            l, r = _first(l_op), _first(r_op)
+            if op == "=" and l is not None and r is not None and (_syms(l) | _syms(r)) == {x} and _radical_in(l, r, x):
+                return (l_op, r_op, ("request",))
+        return None
+
+    def _rejected_root(self, root: Node, set_end: int = 0) -> bool:
+        """Rule ``radical-roots``: the words right after the stated root, or right before it in its clause, reject it ('x = −1 is rejected',
+        'reject x = −1', 'x = −1 is not valid', 'discard x = −1', 'x = −1 is extraneous'), or a clause after the root set (at most
+        :data:`_REJECT_WINDOW` characters on) rejects the same value ('…, but x = −1 is extraneous', '; x = 0 does not satisfy it')."""
+        a, b = getattr(root, "start", 0), getattr(root, "end", 0)
+        if not self.text or b <= a:
+            return False
+        written = "".join(self.text[a:b].split()).replace("−", "-")
+        region = self.text[b:min(len(self.text), max(b, set_end) + _REJECT_WINDOW)]
+        for clause in _CLAUSE_SPLIT_RE.split(region):
+            low = clause.lower()
+            if written and any(w in low for w in _REJECT_WORDS):
+                flat = "".join(low.split()).replace("−", "-")
+                k = flat.find(written)
+                while k >= 0:
+                    edge_before = flat[k - 1:k] if k > 0 else ""
+                    edge_after = flat[k + len(written):k + len(written) + 1]
+                    if not (edge_before.isdigit() or edge_before in (".", "-") or edge_after.isdigit() or edge_after == "."):
+                        return True
+                    k = flat.find(written, k + 1)
+        after = self.text[b:b + 60].lower()
+        cuts = [k for k in (after.find(c) for c in ".;\n(,)") if k >= 0]
+        after = after[:min(cuts)] if cuts else after  # the root's own clause: never an aside or a clause about another root
+        before = self.text[max(0, a - 40):a].lower()
+        cut = max(before.rfind(c) for c in ".;\n,()")
+        before = before[cut + 1:] if cut >= 0 else before
+        return any(w in after for w in _REJECT_WORDS) or any(w in before for w in _REJECT_WORDS)
+
+    def _radical_roots(self) -> None:
+        """Rule ``radical-roots`` (integration gate 2): each root set stated for an equation the working reached by squaring an equation with a
+        square root of the unknown ('√(x + 2) = x ⇒ x + 2 = x² ⇒ x = 2 or x = −1') is also checked against that first equation, each root a
+        member (stem-sol, the principal root): a root squaring introduced (x = −1) fails there. Before, only the last equation was read, so
+        an extraneous root was accepted."""
+        for idx, (left, right, sids) in self._radical_sols:
+            rel = self.relations[idx]
+            if rel.kind != "sol" or not rel.roots:
+                continue
+            # a root the answer itself rejects ('x = 2 (x = −1 is rejected since √(x + 2) ≥ 0)', 'reject x = −1') claims nothing of the first equation
+            roots = tuple(r for r in rel.roots if not self._rejected_root(r, rel.end))
+            if not roots:
+                continue
+            ids = tuple(dict.fromkeys((sids if sids != ("request",) else ()) + rel.statement_ids))
+            if rel.complete:
+                # the full set a root line claims is the first equation's: squaring may add roots the answer rightly rejects, so the squared
+                # equation's check asks for membership only ('… ⇒ (x − 2)(x + 1) = 0 ⇒ x = 2' had failed for the missing −1)
+                self.relations[idx] = replace(rel, complete=False, reason=rel.reason + "; the full set is claimed of the equation before the squaring "
+                                                                                       "(rule radical-roots)")
+            self.add(kind="sol", outcome="check", statement_ids=ids or rel.statement_ids, start=rel.start, end=rel.end, op="=", left=rel.left, right=rel.right,
+                     part=rel.part, premise_left=left, premise_op="=", premise_right=right, premise_ids=sids, root_symbol=rel.root_symbol, roots=roots,
+                     complete=rel.complete, restricted=rel.restricted,
+                     reason=f"stated roots of the equation in {', '.join(sids)}, which the working squared to reach the equation in "
+                            f"{', '.join(rel.premise_ids)}: each root must satisfy it, the principal root taken (rule radical-roots)")
 
     # -------------------------------------------------------------- chemistry, Boolean, tables
     def _chem(self, item: MathItem) -> None:
@@ -5040,7 +5346,39 @@ class _Planner:
             return
         if self.request_mode:
             return
+        if not any(expr is not None for _h, expr in t.outputs):
+            read = self._request_output(t)
+            if read is not None:
+                table, letter = read
+                self.add(kind="tt", outcome="check", statement_ids=sids, start=t.start, end=t.end, table=table, part=item.part,
+                         reason=f"every stated row of the truth table; its last column '{letter}' names no expression and is read as the output of the "
+                                f"request's expression (rule request-output)")
+                return
         self.add(kind="tt", outcome="check", statement_ids=sids, start=t.start, end=t.end, table=t, part=item.part, reason="every stated row of the truth table")
+
+    def _request_output(self, t: TruthTable) -> Optional[tuple[TruthTable, str]]:
+        """Integration gate 2 (rule request-output): a truth table whose columns are all single letters ('A B Q') under a request for the truth
+        table of an expression ('Complete the truth table for A AND B.'): its last column, a letter the expression does not use, is that
+        expression's output, every other column one of its inputs. A reading the answer did not state (the check fails at warning
+        severity); None when the request names no such expression or the columns do not fit it."""
+        low = self._request_lower
+        k = -1
+        for cue in ("truth table for ", "truth table of ", "truth table showing "):
+            k = low.find(cue)
+            if k >= 0:
+                k += len(cue)
+                break
+        if k < 0:
+            return None
+        stop = min([x for x in (low.find(c, k) for c in ".?\n,;:") if x >= 0] + [min(len(low), k + 120)])
+        node = parse_expression(self.request.text, k, stop, limits=self.lim)
+        if node is None or not t.inputs:
+            return None
+        names = set(symbols(node))
+        letter = t.inputs[-1]
+        if letter in names or not names or set(t.inputs[:-1]) != names:
+            return None
+        return replace(t, inputs=t.inputs[:-1], outputs=((letter, node),) + tuple(t.outputs)), letter
 
     def _defined_columns(self) -> None:
         """A truth-table column headed by a name the answer defines as a Boolean expression of the table's other columns
@@ -5168,6 +5506,151 @@ class _Planner:
                      reason=f"a prose restatement against the final value of the chain in {best['sid']}{how}")
             if h_round is not None:
                 self._finer_restatement(best, Operand((pv.node,), pv.start, pv.end), pv.statement_id, pv.part, h_round, phrase)
+
+    def _restated_results(self) -> None:
+        """Integration gate 2 (rules inline-restatement, restated-result and named-restatement): the final value restated in the shapes
+        :meth:`_results` did not read, set against the chain that computed it (stem-res):
+
+        * after ', so' (or 'hence', 'therefore', 'thus', 'i.e.') the words of the chain's own quantity, then its value, in the chain's
+          statement ('a = (20 − 0)/4.0 = 5.0 m s⁻², so the acceleration is 6.0 m s⁻²');
+        * a value stated for the chain's own symbol right after it, after 'So', 'Therefore', 'Hence', 'Thus', 'Answer:' or 'Final answer:',
+          or on a line of its own ('So a = 6.0 m s⁻²', 'Answer: a = 6.0 m s⁻²', a bare 'a = 6.0 m s⁻²' line), and a value after
+          'Answer:' or 'Final answer:' ('Final answer: 6.0 m s⁻²'): the answer's restatement of its own result, an error when it differs;
+        * a sentence 'The <quantity> is v' right after the chain, its words the chain's quantity ('The acceleration is 6.0 m s⁻².',
+          'The mean is 5.'): the quantity's identity is a reading, so the check fails at warning severity.
+
+        A value that names another quantity (stem-precision-1: 'so the energy wasted is 13%') or of another dimension is never paired.
+        Before, each of these passed with only the chain's own check, the restatement read as a rebinding (ST-SCOPE-001 info) or not at all."""
+        planned = {(r.start, r.end) for r in self.relations if r.kind == "res"}
+        finals = {id(f) for f in self.final_values}  # the chains' final values, by identity (one set, never a scan per value)
+        for pv in self.prose_values:
+            if (pv.start, pv.end) in planned:
+                continue
+            v = value_of(pv.node)
+            if v is None or v[1] is None:
+                continue
+            noun_ok = self._unit_words(pv, v)
+            before, after = pv.before[-150:], pv.after or ""
+            if v[2] is None and not v[3]:
+                # a magnification written with its sign ('×200', '200×'): the sign is no word of the clause
+                if before.rstrip(" \t").endswith("×"):
+                    before = before.rstrip(" \t")[:-1]
+                if after.lstrip(" \t").startswith("×"):
+                    after = after.lstrip(" \t")[1:]
+            if not _clause_ends(after, noun_ok):
+                continue
+            named_m = _INLINE_NAMED_RE.search(before)
+            answer_m = _ANSWER_CUE_RE.search(before) if named_m is None else None
+            is_m = _NAMED_IS_RE.search(before) if named_m is None and answer_m is None else None
+            if named_m is None and answer_m is None and is_m is None:
+                continue
+            if named_m is not None:
+                # the chain its own statement closed right before the connective
+                fv = next((e for order, part, e, end in reversed(self.chain_ends)
+                           if order == pv.statement_index and end <= pv.start and not (pv.part and part and pv.part != part)), None)
+                words = named_m.group("words")
+            else:
+                found = next(((order, e) for order, part, e, end in reversed(self.chain_ends)
+                              if (order < pv.statement_index or (order == pv.statement_index and end <= pv.start))
+                              and not (pv.part and part and pv.part != part)), None)
+                fv = found[1] if found is not None and found[0] >= pv.statement_index - 1 else None
+                words = is_m.group("words") if is_m is not None else ""
+            if fv is None or not fv.get("computed") or id(fv) not in finals:
+                continue
+            if fv["order"] > pv.statement_index:
+                continue
+            if not self._restates_same_kind(v, fv):
+                continue
+            fvv = value_of(fv["node"])
+            if fvv is not None and fvv[0] < 0 < v[0]:
+                continue  # accuracy round 1 (ADV6-02): a magnitude in words ('… = −4.0 m s⁻², so the deceleration is 4.0 m s⁻²') is another reading
+            if words and not self._names_chain_quantity(words, fv):
+                continue  # stem-precision-1: the words name another quantity ('so the energy wasted is 13%')
+            warn = is_m is not None
+            how = ("the words after the connective name the chain's quantity, on its line (rule inline-restatement)" if named_m is not None else
+                   "after 'Answer:' (rule restated-result)" if answer_m is not None else
+                   "a sentence naming the chain's quantity right after it (rule named-restatement)")
+            planned.add((pv.start, pv.end))
+            self.add(kind="res", outcome="check", statement_ids=tuple(dict.fromkeys((fv["sid"], pv.statement_id))), start=pv.start, end=pv.end, op="=",
+                     left=fv["operand"], right=Operand((pv.node,), pv.start, pv.end), part=pv.part,
+                     reason=f"a prose restatement against the final value of the chain in {fv['sid']}: {how}")
+        for item, head, value_op, start in self.stated_values:
+            if not isinstance(head, Sym) or (value_op.start, value_op.end) in planned:
+                continue
+            if self._is_root_symbol(head.name) or any(b.source == "root" for b in self.scope.bindings.get(head.name, ())) \
+                    or any(r.kind == "sol" and r.root_symbol == head.name for r in self.relations):
+                continue  # a root of an equation stated after another root ('x = (5 + 1)/2 = 3', then 'x = 2') restates nothing
+            gap = (item.gap_before or "")[-40:]
+            cue = _RESTATE_SYMBOL_CUE_RE.search(gap) is not None
+            alone = not cue and self._line_alone(item, value_op)
+            if not cue and not alone:
+                continue
+            fv = next((e for order, part, e, end in reversed(self.chain_ends)
+                       if (order < item.statement_index or (order == item.statement_index and end <= start)) and not (item.part and part and item.part != part)),
+                      "none")
+            if fv == "none" or fv is None or not fv.get("computed") or fv.get("symbol") != head.name or id(fv) not in finals:
+                continue
+            if fv["order"] < item.statement_index - 1:
+                continue  # the restatement of the chain right before it (its line or the next), never of an older one
+            node = value_op.readings[0] if value_op.readings else None
+            v = value_of(node) if node is not None and is_value(node) else None
+            if v is None or v[1] is None or not self._restates_same_kind(v, fv):
+                continue
+            planned.add((value_op.start, value_op.end))
+            self.add(kind="res", outcome="check", statement_ids=tuple(dict.fromkeys((fv["sid"], item.statement_id))), start=value_op.start, end=value_op.end,
+                     op="=", left=fv["operand"], right=value_op, part=item.part,
+                     reason=f"the value stated again for {head.name} right after the chain in {fv['sid']} that computed it, against its final value "
+                            f"(rule restated-result): a restatement of the result, never a new value of the symbol")
+
+    def _line_alone(self, item: MathItem, value_op: Operand) -> bool:
+        """Rule ``restated-result``: the statement of ``item`` holds nothing but the one 'symbol = value' relation (its own line)."""
+        if item.stmt_kind not in ("derivation", "display_row", "sentence"):
+            return False
+        text = item.statement_text
+        if len(text) > 120:
+            return False
+        rest = text[:max(0, item.start - item.statement_start)] + text[max(0, item.end - item.statement_start):]
+        return not any(ch.isalnum() for ch in rest)
+
+    def _restates_same_kind(self, v: tuple, fv: dict) -> bool:
+        """Rules ``restated-result`` and ``named-restatement``: the value ``v`` and the chain's final value are of one kind: both with units of
+        one dimension, or both bare numbers (a per cent beside a per cent)."""
+        fvv = value_of(fv["node"])
+        if fvv is None:
+            return False
+        if bool(v[3]) != bool(fvv[3]):
+            return False
+        if (v[2] is None) != (fvv[2] is None):
+            return False
+        if v[2] is not None and fvv[2] is not None:
+            d1, d2 = v[2].dim, fvv[2].dim
+            if d1 is None or d2 is None:
+                return d1 is None and d2 is None and " ".join(v[2].text.split()) == " ".join(fvv[2].text.split())
+            return d1.same_physical(d2)
+        return True
+
+    def _names_chain_quantity(self, words: str, fv: dict) -> bool:
+        """Rules ``inline-restatement`` and ``named-restatement``: every content word of ``words`` is a word of the chain ``fv``: its symbol,
+        the reference's names of its symbol, the words of its statement, or the words of the request (what it asks to calculate)."""
+        item = next((it for it in self.items if it.statement_id == fv.get("sid")), None)
+        end = fv["operand"].end if fv.get("operand") is not None else 0
+        # the chain's own words: its statement up to the chain's end (never the clause that restates it), its symbol and the reference's
+        # names for it; the request's words may qualify them ('the amount of NaOH'), but at least one word must be the chain's own
+        chain_text = item.statement_text[:max(0, end - item.statement_start)].lower() if item is not None else ""
+        own = set(_words(chain_text))
+        if fv.get("symbol"):
+            own.add(fv["symbol"].lower())
+            for q in quantities_for(fv["symbol"], self.profile.key):
+                for name in (q.name, *q.names):
+                    own |= set(_words(name.lower()))
+        # the reading rests on the answer alone (a parse with or without the request reads the same checks): qualifiers of a quantity
+        # ('the average speed') and the formula of what it is about ('the amount of NaOH') may stand beside the chain's own words
+        allowed = own | _QUANTITY_QUALIFIERS | {t.lower() for t in words.split() if _is_formula_token(t)}
+        content = [w for w in _words(words.lower()) if w.isalpha() and w not in _CLAUSE_STOP_WORDS and w not in _AFTER_STOP_WORDS
+                   and (len(w) >= 3 or (len(w) == 2 and w not in _TWO_LETTER_WORDS))]
+        named = [w for w in _words(words.lower()) if w.isalpha() and w not in ("the", "its", "their", "this", "a", "an", "of", "for", "in", "on")]
+        return (bool(content) and all(w in allowed or w.rstrip("s") in allowed for w in content)
+                and any(w in own or w.rstrip("s") in own for w in named))
 
     def _assigns_other_variable(self, pv: ProseValue, fv: dict) -> bool:
         """Integration gate 1: the clause right before the prose value is a trace step giving another variable a value ('so low becomes 5',
@@ -7112,7 +7595,8 @@ class _Planner:
                                          digit_count=len(str(n))), pos, pos + len(m.group("n")))
                 # the time the prose says is that many half-lives
                 pv = next((p for p in reversed(self.prose_values) if p.statement_id == sid and p.end <= pos
-                           and _TIME_IS_RE.match(self.text[p.end:pos] if 0 <= p.end <= pos <= len(self.text) else "")), None)
+                           and 0 <= p.end <= pos <= len(self.text) and pos - p.end <= _TIME_IS_WINDOW
+                           and _TIME_IS_RE.match(self.text[p.end:pos])), None)
                 half = self._half_life_before(pos)
                 if pv is not None and half is not None:
                     tv = value_of(pv.node)
@@ -10571,6 +11055,9 @@ class _Planner:
             quants.append(Binding("", q[0], q[1], q[2], "request", "request", a0, b0))
         if not quants:
             return
+        # integration gate 2: in chemistry 'c' is the concentration the request states, never the speed of light ('n = cV = 0.200 × 0.500' for
+        # 50.0 cm³ of 0.200 mol dm⁻³ had planned no check: c was skipped as a booklet constant and nothing repeated a request value)
+        concentration_stated = self.profile.chemistry and any(q.unit.dim.exps == _CONCENTRATION_EXPS for q in quants)
         planned = {(r.start, r.end) for r in self.relations if r.kind == "giv"}
         for rel in list(self.relations):
             if rel.kind != "sub":
@@ -10587,11 +11074,15 @@ class _Planner:
             ties: list[tuple[str, Num, Binding]] = []
             used: set[tuple[int, int]] = set()
             complete = True
+            bound_numerals: list[Num] = []
             for name, numeral in pairs:
                 if name in req_by_symbol or [b for b in self.scope.bindings.get(name, ()) if b.source not in ("substitution", "root")]:
-                    complete = False  # the answer or the request binds the symbol itself: that binding is what is read
-                    break
-                if constants_for_symbol(name, self.profile.key):
+                    # integration gate 2: the answer or the request binds the symbol itself ('(c = 4200 J kg⁻¹ K⁻¹)', '(g = 9.8 m s⁻²)'): its
+                    # substitution is checked against that binding (stem-sub), and the other symbols are tied as before. Before, any such
+                    # binding abandoned the whole reading, so '2.0 × 4200 × 100' for a heating by 10 K passed with every check ok
+                    bound_numerals.append(numeral)
+                    continue
+                if constants_for_symbol(name, self.profile.key) and not (self.profile.chemistry and name == "c" and concentration_stated):
                     continue  # a booklet constant (g, R, c ...): its value is the booklet's, not the request's
                 # the dimensions the reference gives the symbol (a change, 'Δh', has its quantity's); an ambiguous letter (T: a temperature or
                 # a period) is tied when exactly one of its dimensions has request quantities, exactly one
@@ -10610,12 +11101,15 @@ class _Planner:
 
             def repeats(value: Fraction, q: Binding) -> bool:
                 scale = unit_scale(q.unit)
-                return value == q.value or (scale is not None and value == q.value * scale)
+                return value == q.value or (scale is not None and value == q.value * scale) or self._chem_volume(value, q) is not None
 
             # the working substitutes the request's givens: some numeral is its symbol's quantity, or every numeral is one of the
             # request's values ('E = 3.0 × 3.6 × 10⁶' after 'E = Pt = 3.0 kW h' carries a result on and converts it: no given is read)
             if not (any(repeats(numeral.number.value, cand) for _n, numeral, cand in ties)
-                    or all(any(repeats(numeral.number.value, q) for q in quants) for _n, numeral, _c in ties)):
+                    or all(any(repeats(numeral.number.value, q) for q in quants) for _n, numeral, _c in ties)
+                    # integration gate 2: a numeral substituted for a bound symbol that is a request value ('2.0' for the request's 2.0 kg, m
+                    # bound by the answer) shows the working substitutes the request's givens as well
+                    or any(repeats(numeral.number.value, q) for numeral in bound_numerals for q in quants)):
                 continue
             for name, numeral, cand in ties:
                 if (name, numeral.start) in seen or (numeral.start, numeral.end) in planned:
@@ -10635,8 +11129,15 @@ class _Planner:
                     target = kb
                 else:
                     if repeats(value, cand):
-                        continue  # the request's value, as written or converted to SI
-                    if not (_power_of_ten_shift(value, cand) or _miscopied(numeral.number.text, cand.number.text, value, cand.value)
+                        continue  # the request's value, as written, converted to SI or (a volume in chemistry) to dm³
+                    dm3 = self._chem_volume_unit(cand)
+                    if dm3 is not None:
+                        # integration gate 2: a bare volume in chemistry is read in dm³, the unit of the concentrations it is used with ('0.500'
+                        # for 500 cm³ is correct; '0.500' for 50.0 cm³ and '0.250' for 25.0 cm³ are a power of ten off), a bare mass in g
+                        shifted = _power_of_ten_shift(value, replace(cand, value=cand.value * unit_scale(cand.unit) / unit_scale(dm3), unit=dm3))
+                    else:
+                        shifted = False
+                    if not (shifted or _power_of_ten_shift(value, cand) or _miscopied(numeral.number.text, cand.number.text, value, cand.value)
                             or any(repeats(value, q) for q in quants if q is not cand)):
                         # a value of another size than the quantity written wrongly ('340' for a train's 30 m s⁻¹, the speed of sound) is
                         # the answer's own, often from subject knowledge (accuracy round 2, V1-STEM-GIV-FA): only a power-of-ten shift, a
@@ -10644,14 +11145,39 @@ class _Planner:
                         continue
                 seen.add((name, numeral.start))
                 planned.add((numeral.start, numeral.end))
-                node = Quantity(numeral.number, target.unit, numeral.start, numeral.end)
+                read_unit = self._chem_volume_unit(target) or target.unit
+                node = Quantity(numeral.number, read_unit, numeral.start, numeral.end)
                 self.add(kind="giv", outcome="check", statement_ids=rel.statement_ids, start=numeral.start, end=numeral.end, op="=",
                          right=Operand((node,), numeral.start, numeral.end), left=Operand((Sym(name, start=numeral.start, end=numeral.start),),
                                                                                           numeral.start, numeral.start),
                          candidates=(replace(target, symbol=name),), part=rel.part,
-                         reason=f"the bare value {numeral.number.text} the working substitutes for {name}, read in the unit of the request's "
-                                f"{cand.number.text} {cand.unit.text}, the one quantity of {name}'s dimension the request states (rule "
-                                f"request-substitution)")
+                         reason=f"the bare value {numeral.number.text} the working substitutes for {name}, read in "
+                                + (f"{read_unit.text}, the unit chemistry reads a bare {'volume' if read_unit.dim is not None and read_unit.dim.exps == _VOLUME_EXPS else 'mass'} in, against the request's "
+                                   if read_unit is not target.unit else "the unit of the request's ")
+                                + f"{cand.number.text} {cand.unit.text}, the one quantity of {name}'s dimension the request states (rule "
+                                  f"request-substitution)")
+
+    def _chem_volume_unit(self, q: Binding) -> Optional[UnitExpr]:
+        """Integration gate 2 (rule request-substitution): in chemistry, the unit a bare value is read in when the request states the quantity
+        in another unit of its dimension: dm³ for a volume (cm³, m³: the unit of the concentrations it is used with) and g for a mass (mg,
+        kg: the unit of the molar masses it is used with, g mol⁻¹); else None."""
+        if not self.profile.chemistry or q.unit is None or q.unit.dim is None:
+            return None
+        conventional = _CHEM_CONVENTIONAL_UNITS.get(q.unit.dim.exps)
+        if conventional is None:
+            return None
+        unit = parse_unit(conventional)
+        if unit is None or unit_scale(unit) is None or unit_scale(q.unit) is None or unit_scale(q.unit) == unit_scale(unit):
+            return None
+        return unit
+
+    def _chem_volume(self, value: Fraction, q: Binding) -> Optional[Fraction]:
+        """Integration gate 2: ``value`` is the request's volume ``q`` converted to dm³ (a bare volume in chemistry), its value then; else None."""
+        dm3 = self._chem_volume_unit(q)
+        if dm3 is None:
+            return None
+        converted = q.value * unit_scale(q.unit) / unit_scale(dm3)  # type: ignore[operator]
+        return converted if value == converted else None
 
     _MAX_BARE_GIVEN_POOL = 2
 
@@ -11107,7 +11633,10 @@ _PCT_DECREASE_RE = re.compile(r"\b(?:decrease[sd]?|fall(?:s|en)?|fell|drop(?:s|p
 _PCT_INCREASE_RE = re.compile(r"\b(?:increase[sd]?|rise[sn]?|rose|gain(?:s|ed)?|growth|grew)\b")
 #: rule half-lives (STEM repair 3): a number of half-lives the prose states, and the copula joining a time to it
 _HALF_LIVES_RE = re.compile(r"(?<![\w.])(?P<n>\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten)\s+half[\s-]?li(?:fe|ves)\b", re.IGNORECASE)
-_TIME_IS_RE = re.compile(r"^\s*,?\s*(?:is|are|=|equals|makes|is\s+equal\s+to|corresponds\s+to|is\s+exactly|is\s+about)\s*$", re.IGNORECASE)
+#: integration gate 2 (sweep): the most characters between a time and 'that is n half-lives' the reading takes (each prose value of the
+#: statement was sliced to the phrase, a rescan per value)
+_TIME_IS_WINDOW = 64
+_TIME_IS_RE = re.compile(r"^\s*+,?\s*+(?:is|are|=|equals|makes|is\s+equal\s+to|corresponds\s+to|is\s+exactly|is\s+about)\s*+$", re.IGNORECASE)
 #: the names the reader gives a half-life symbol (T½, t½, T_{1/2}, t_{1/2})
 _HALF_LIFE_NAMES = frozenset({"t_half", "t½", "t_{1/2}", "t1/2", "t_1/2"})
 _NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
@@ -11352,8 +11881,8 @@ _ROW_STATES_RE = re.compile(
     r"|(?:falls?|fell|falling|rises?|rose|rising|drops?|dropped|dropping|climbs?|climbed|sinks?|sank)\s+to|numbers?|numbered|totals?|totall?ed"
     r"|amounts?\s+to|amounted\s+to|comes?\s+to|came\s+to|has|had|have|having|with|of|records?|recorded|recording|shows?|showed|showing"
     r"|gives?|gave|giving|measures?|measured|measuring|contains?|contained|holds?|held|sees|saw|took|takes|taking|lasted|lasts)|=|≈|\(|,)\s*$")
-_ROW_LEAD_ADVERBS_RE = re.compile(r"(?:\s+(?i:only|just|about|approximately|around|roughly|nearly|almost|exactly|still|now|then|also|precisely"
-                                  r"|merely|barely|some))+\s*$")
+_ROW_LEAD_ADVERBS_RE = re.compile(r"(?<!\s)(?:\s++(?i:only|just|about|approximately|around|roughly|nearly|almost|exactly|still|now|then|also|precisely"
+                                  r"|merely|barely|some))+\s*+$")
 #: a clause that compares, states a change, a range, a ratio or a share: its value is no cell of one row
 _ROW_CLAUSE_SKIP_RE = re.compile(
     r"\b(?i:than|against|compared|comparison|versus|vs|between|from|increase[sd]?|increasing|decrease[sd]?|decreasing|rises?|rising|risen|rose"
@@ -11599,7 +12128,7 @@ _ROUND_PHRASE = (r"(?:(?:correct|accurate|rounded|rounding|rounds|round|given|wr
                  r"|the\s+nearest\s+(?:whole\s+)?(?P<noun>[A-Za-z]{2,20})\b)")
 _ROUND_BEFORE_RE = re.compile(_ROUND_PHRASE, re.IGNORECASE)
 #: a rounding right after the value, a word naming the value's unit between them ('5903 euros to the nearest euro'; STEM repair 4)
-_ROUND_AFTER_RE = re.compile(r"^\s*(?P<unitword>[A-Za-z]{2,20}(?=[\s,(]))?\s*[,(]?\s*(?:\(\s*)?(?P<phrase>" + _ROUND_PHRASE + ")", re.IGNORECASE)
+_ROUND_AFTER_RE = re.compile(r"^\s*+(?P<unitword>[A-Za-z]{2,20}(?=[\s,(]))?\s*+[,(]?\s*+(?:\(\s*+)?(?P<phrase>" + _ROUND_PHRASE + ")", re.IGNORECASE)
 #: STEM repair 5 (rule rounding-cue): a precision in brackets right after the value, with no "to" ('P = 16.5 W (3 s.f.)', '0.0866 (3 sf)')
 _ROUND_BRACKET_RE = re.compile(r"^\s*\(\s*(?P<phrase>(?P<n>\d{1,2}|one|two|three|four|five|six)\s*(?P<kind>s\.\s?f\.?|sf\b|sig\.?\s*figs?\.?|"
                                r"significant\s+figures?|d\.\s?p\.?|dp\b|decimal\s+places?))\s*\)", re.IGNORECASE)
@@ -11607,7 +12136,7 @@ _SMALL_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6
 #: rule inline-restatement: a value after a connective right after the chain its statement closes ('= 16.4 W, so 16 W'); STEM repair 8: up
 #: to three words that say what the value is may stand between the chain and a comma before the connective ('= 60.4% decrease, so 61% to 2
 #: s.f.', '= 4773.74 euros, so 4774 euros to the nearest euro'), never a word that opens a clause of its own (a verb, a connective)
-_INLINE_WORD = r"[ \t]+(?!(?:so|and|or|but|then|which|that|this|these|is|are|was|were|be|has|have|had|gives|giving|rounded|i\.e|ie|hence|thus|therefore)\b)[A-Za-z][A-Za-z’'-]{0,24}"
+_INLINE_WORD = r"[ \t]++(?!(?:so|and|or|but|then|which|that|this|these|is|are|was|were|be|has|have|had|gives|giving|rounded|i\.e|ie|hence|thus|therefore)\b)[A-Za-z][A-Za-z’'-]{0,24}"
 #: STEM repair 12 (rule inline-restatement): an approximation word after the connective ('= 2.67 A, which is about 2.7 A', 'i.e.
 #: approximately', 'or roughly', 'that is, about') or on its own after the comma ('= 2.67 A, about 2.7 A to 2 s.f.', '= 37.7%, about 38%')
 #: marks the value as the chain's result restated, rounded: R8, with no τ (the word names the rounding, it never widens the band). Before,
@@ -11615,13 +12144,13 @@ _INLINE_WORD = r"[ \t]+(?!(?:so|and|or|but|then|which|that|this|these|is|are|was
 _APPROX_RESTATE = r"(?:about|approximately|approx\.?|roughly|around|nearly)"
 #: The rounding the line states may also be a verb ('= 2.67 A, which rounds to 2.7 A', '…, rounded to 2.7 A'), the approximation word may
 #: say 'equal to' ('…, which is approximately equal to 2.7 A'), and the value may stand in brackets after it ('= 2.67 A (about 2.7 A)')
-_INLINE_RESTATE_RE = re.compile(r"X+x*(?:(?:" + _INLINE_WORD + r"){1,3}[ \t]*(?=,))?(?P<label>\s*\([^()\n]{1,80}\))?\s*,?\s*(?:(?:so|i\.\s?e\.|ie|that\s+is|"
+_INLINE_RESTATE_RE = re.compile(_MASKED_RUN + r"(?:(?:" + _INLINE_WORD + r"){1,3}[ \t]*+(?=,))?(?P<label>\s*+\([^()\n]{1,80}\))?\s*+,?\s*+(?:(?:so|i\.\s?e\.|ie|that\s+is|"
                                 r"which\s+is|or|giving|rounded)(?:\s*,?\s*" + _APPROX_RESTATE + r")?|" + _APPROX_RESTATE
                                 + r"|(?:which\s+)?rounds?\s+(?:up\s+|down\s+)?to|rounded\s+(?:up\s+|down\s+)?to"
                                 + r"|(?:(?:which|that)\s+is\s+)?" + _APPROX_RESTATE + r"\s+equal\s+to|\(\s*" + _APPROX_RESTATE + r")\s*$", re.IGNORECASE)
 #: the connectives rule inline-restatement read before STEM repair 12 (an approximation word only in 'or about', 'so about', 'so
 #: approximately'): a value after one of these keeps that reading whatever stands before it in its statement
-_INLINE_CONNECTIVE_RE = re.compile(r"X+x*(?:(?:" + _INLINE_WORD + r"){1,3}[ \t]*(?=,))?(?P<label>\s*\([^()\n]{1,80}\))?\s*,?\s*(?:so|i\.\s?e\.|ie|that\s+is|"
+_INLINE_CONNECTIVE_RE = re.compile(_MASKED_RUN + r"(?:(?:" + _INLINE_WORD + r"){1,3}[ \t]*+(?=,))?(?P<label>\s*+\([^()\n]{1,80}\))?\s*+,?\s*+(?:so|i\.\s?e\.|ie|that\s+is|"
                                    r"which\s+is|or|giving|rounded|or\s+about|so\s+about|so\s+approximately)\s*$", re.IGNORECASE)
 
 
@@ -11728,13 +12257,13 @@ def _restating_word(before: str) -> bool:
 
 
 #: what may follow an inline restatement in its statement: punctuation, a bracket, a stated rounding
-_CLAUSE_END_RE = re.compile(r"^\s*(?:[.;,)]|\(\s*(?:to\s+)?\d{1,2}\s*(?:s\.\s?f\.?|sf|d\.\s?p\.?|dp)\s*\)|(?:to\s+)?\d{1,2}\s*(?:s\.\s?f\.?|d\.\s?p\.?)|"
-                            r"\(?\s*" + _ROUND_PHRASE + r"\s*\)?)?\s*[.;]?\s*$", re.IGNORECASE)
+_CLAUSE_END_RE = re.compile(r"^\s*+(?:[.;,)]|\(\s*+(?:to\s+)?\d{1,2}\s*+(?:s\.\s?f\.?|sf|d\.\s?p\.?|dp)\s*+\)|(?:to\s+)?\d{1,2}\s*+(?:s\.\s?f\.?|d\.\s?p\.?)|"
+                            r"\(?\s*+" + _ROUND_PHRASE + r"\s*+\)?)?\s*+[.;]?\s*+$", re.IGNORECASE)
 
 
 #: STEM repair 4: a stated rounding after the value, a word naming its unit before it, and then the statement's end or a new clause
 #: ('5903 euros to the nearest euro, and …'): the stated rounding marks the value as a restatement
-_ROUNDED_TAIL_RE = re.compile(r"^\s*(?P<unitword>[A-Za-z]{2,20}(?=[\s,(]))?\s*,?\s*\(?\s*" + _ROUND_PHRASE + r"\s*\)?\s*(?:[.;]?\s*$|[,;])", re.IGNORECASE)
+_ROUNDED_TAIL_RE = re.compile(r"^\s*+(?P<unitword>[A-Za-z]{2,20}(?=[\s,(]))?\s*+,?\s*+\(?\s*+" + _ROUND_PHRASE + r"\s*+\)?\s*+(?:[.;]?\s*+$|[,;])", re.IGNORECASE)
 
 
 #: STEM repair 4: a word naming the value's unit, then nothing but the statement's end ('so 4775 euros.')
@@ -12162,7 +12691,7 @@ _RESISTANCE_NEGLECTED_RE = re.compile(r"\b(?:neglect(?:ing)?|ignor(?:e|ing)|no|w
                                       r"|\b(?:air\s+resistance|drag|friction)\s+(?:is|are|can\s+be)\s+(?:negligible|neglected|ignored)\b", re.IGNORECASE)
 
 
-_LEAD_SCOPE_RE = re.compile(r"\s*([^=<>≤≥≈,:;\n]{2,80}?)\s*[,:]")
+_LEAD_SCOPE_RE = re.compile(r"\s*+([^=<>≤≥≈,:;\n]{2,80}?)\s*[,:]")
 
 
 _BARE_LABEL_RE = re.compile(r"\b(?:of|for|in|on)\s+(?:the\s+)?(?:[a-z]+\s+)?([A-Z]|\d{1,2})(?![\w.])")

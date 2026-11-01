@@ -114,6 +114,14 @@ inputs (nested brackets, unclosed `$`, `1e1e1e`, 30- and 10,000-digit numbers, `
 depth 500, confusable letters, malformed LaTeX, control characters, storms of relation signs,
 fences, bars and species) to time bounds: about 20,000 characters each in the default run, and at
 the 400,000-character response bound under `-m stress` (each under two seconds when measured).
+Integration gate 2 swept every module's patterns for the class of the critical input stall (adjacent unbounded runs around optional
+groups, rescans from every opener, lookups repeated per token): the instances found are rewritten with possessive runs, a pattern
+anchored at the first character of a run, a linear per-line reading or an explicit window (docs/STEM_DESIGN.md, section 36), and
+`tests/stem/test_integration_gate2_sweep.py` bounds every public entry point of every module on the standard hostile inputs.
+The gate's handoff fixer added the compound shapes that sweep missed (a mark then a blank run, soft-wrapped lines, unclosed
+quotation marks, a chain continued line after line): the layout reads a line of marks with possessive runs and the quoted spans in
+one pass, the segmenter keeps the logical line it joins (`layout.JoinedLine`), and a chain continued past the link limit is named
+(ST-LIM-001) with its later lines undecided (docs/STEM_DESIGN.md, section 36.2; `tests/stem/test_integration_gate2_handoff.py`).
 
 ## What the front end does not decide
 
@@ -324,6 +332,23 @@ base phrase opening the clause with no comma (two false failures on correct work
 `inline-restatement` after an approximation word, a rounding verb, "approximately equal to" or in
 brackets (τ 0 by R8, the detail naming the reading; a value after a prose quantity, not a chain,
 read by the other readings), and no recorded round-7 answer failing any check.
+`test_integration_gate2_stem` pins the fixes of integration gate 2's STEM findings through the hub (docs/STEM_DESIGN.md, section 36),
+each with clean controls: rule `identity-chain` (each link of an inline chain of symbolic polynomial identities decided alone for
+every value of its letters, never under the premise of the link before it, and a premise from its own chain that holds at isolated
+values only decided as no premise), rule `root-set` ('x = a or x = b', 'x = a, x = b', 'x = a and x = b' answering the request's
+equation is one root set, never a rebinding), rules `inline-restatement`, `restated-result` and `named-restatement` (a result restated
+after ', so the <quantity> is', after 'So', 'Therefore', 'Answer:' for the chain's own symbol or on a line of its own, after 'Final
+answer:', or in a sentence naming the chain's quantity, the last at warning severity), rule `request-substitution` (a symbol the
+request or the answer binds is checked by its binding and no longer abandons the others; a bare volume in chemistry read in dm³; 'c'
+the concentration the request states), rule `solution-set` (an inequality step of an answer to a request to solve, linear in its
+one unknown, decided both ways, a rounded bound within its band), rule `radical-roots` (the roots of an equation reached by squaring
+also checked against the equation before the squaring, a root the answer rejects left out), rule `and-step` ('…, so 3x = 15 and x =
+3'), rule `data-count` (a bare side read in every unit of data its statement writes; data counts exact in Computer Science), rule
+`magnification-prefix` ('= ×3000', '= x3000'), rules `plain-table` and `request-output` (truth tables written with blanks, tabs,
+commas or bars and no border; a letter output column read as the request's expression at warning severity), rule
+`rational-identity` (rational identities and index laws under a simplify, expand, prove or show request) and rule `length-root` (no
+ST-ALG-001 for a length). `test_integration_gate2_sweep` is the sweep for the class of the critical input stall: one test per module
+of this package feeds each public entry point the standard hostile inputs of about 20,000 characters and bounds its CPU time.
 `test_integration_gate1_stem` pins the fixes of integration gate 1's STEM findings (docs/STEM_DESIGN.md, section 35: the band of a
 substitution in the reading's units, rules mixed-units, request-substitution, or-roots, value-comparison, degree-reading,
 data-count, binary-reading and unit-system, probability notation, step participles, superscript letter exponents, the year and

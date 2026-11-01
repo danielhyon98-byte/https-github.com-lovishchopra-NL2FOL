@@ -218,7 +218,9 @@ def _leads_with(low: str, words: tuple[str, ...]) -> bool:
 #: A part label of a multi-part question: "(a)", "a)", "(ii)", "ii)", "1.", "2)" standing at the start of the request, of a
 #: line, or after the end of a sentence, a mark annotation or a closing quotation mark ("... [3] (b) Find ...", "... exam.
 #: 1. Según ...", "... en 2020? 3. Indica ..."), never inside prose ("part (a)", "Paper 2", "1.5").
-_PART_LABEL_RE = re.compile(r"(?:^|(?<=\n)|(?<=[.?!:;\]»\"'”’)])\s+|(?<=[.?!:;\]»\"'”’])(?=\())[ \t]*(?P<label>\((?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)])(?=\s)")
+#: The blank run after a sentence end is possessive (integration gate 2): the label never starts with a blank, so the run
+#: ends where the label must start, and a long run with no label after it fails in linear time (it was quadratic).
+_PART_LABEL_RE = re.compile(r"(?:^|(?<=\n)|(?<=[.?!:;\]»\"'”’)])\s++|(?<=[.?!:;\]»\"'”’])(?=\())[ \t]*(?P<label>\((?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)])(?=\s)")
 #: The end of a part: its mark annotation, with any closing quotation mark of the question it belongs to ("... [3]' My
 #: answer is pasted below."); what follows is the request's own text again.
 _PART_END_RE = re.compile(r"\[\s*\d+\s*(?:marks?)?\s*\][\'’\"”»]?(?=\s+[A-Z¿¡«\"“])")
@@ -384,7 +386,10 @@ def is_note_block(block: str) -> bool:
 _EQUATION_RE = re.compile(r"[=≈≅]|\d\s*(?:→|->)\s*[-−]?\$?\d")
 _TABLE_ROW_RE = re.compile(r"^\s*\|")
 #: A label line with nothing to count but a part label and its marks ("(i) [2 marks]", "(b) [2]", "2025", "2024 (no tax)").
-_LABEL_LINE_RE = re.compile(r"^\s*(?:\(?[a-z]{1,4}\)|\d{1,2}[.)]|part\s+\(?[a-z0-9]{1,4}\)?)?\s*(?:\[\s*\d+(?:\s+(?:marks?|spare))?\s*\])?\s*$|^\s*\d{4}(?:\s*\([^)]{0,30}\))?\s*$", re.IGNORECASE)
+#: Every blank run is possessive (integration gate 2): a run is always followed by a label, a '[', a digit, 'marks'/'spare',
+#: a ']' or the end of the line, never by a blank, so no shorter run can lead to a match, and a line of blanks followed by
+#: another character fails in linear time (three adjacent backtracking runs made it cubic: 9 s at 2,000 blanks).
+_LABEL_LINE_RE = re.compile(r"^\s*+(?:\(?[a-z]{1,4}\)|\d{1,2}[.)]|part\s++\(?[a-z0-9]{1,4}\)?)?\s*+(?:\[\s*+\d++(?:\s++(?:marks?|spare))?\s*+\])?\s*+$|^\s*+\d{4}(?:\s*+\([^)]{0,30}\))?\s*+$", re.IGNORECASE)
 #: A block of working the writer labels as such ("Working for (b):", "Calculation:", "Workings").
 _WORKING_BLOCK_RE = re.compile(r"^\W{0,3}(?:working|workings|calculations?|method)\b[^\n]{0,40}:?\s*$", re.IGNORECASE | re.MULTILINE)
 #: A diagram described in words: a block opening "Diagram 1: ...", "Figure 2 -", "Graph:", "Sketch:", or a block of

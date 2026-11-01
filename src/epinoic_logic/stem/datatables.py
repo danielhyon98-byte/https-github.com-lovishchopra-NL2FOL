@@ -28,7 +28,9 @@ _MAX_ROWS = 60
 _MAX_COLUMNS = 8
 _MAX_CELL = 80
 _MAX_TEXT = 60000
-_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+#: integration gate 2 (sweep): possessive runs (a separator row is read once; the greedy runs backtracked on a long blank line, 4.2 s at
+#: 20,000 blanks)
+_SEPARATOR_RE = re.compile(r"^\s*+\|?\s*+:?-{2,}+:?\s*+(?:\|\s*+:?-{2,}+:?\s*+)*+\|?\s*+$")
 _UNIT_SLASH_RE = re.compile(r"^(?P<name>.*?\S)\s*/\s*(?P<unit>[^/]{1,40})$")
 _UNIT_BRACKET_RE = re.compile(r"^(?P<name>.*?\S)\s*\((?P<unit>[^()]{1,40})\)\s*$")
 _WORD_RE = re.compile(r"[a-z]+")

@@ -483,6 +483,20 @@ def _all_exact(node: Node) -> bool:
     return True
 
 
+def _data_count_exact(node: Node) -> bool:
+    """Integration gate 2 (rule data-count): in Computer Science, every numeral is exact as written and every unit an amount of data (a whole
+    number of bytes, KiB, MB ...): exact counts, so a conversion between them is exact work ('3 MiB = 3 × 1024 = 3000 KiB' fails, and
+    '3000' is no one-figure value)."""
+    for n in walk(node):
+        if isinstance(n, (Quantity, WithUnit)) and (n.unit.unknown or not is_data_unit(n.unit)):
+            return False
+        if isinstance(n, (Percent, Degrees)):
+            return False
+        if isinstance(n, Num) and (n.number.has_point or n.number.scientific):
+            return False
+    return True
+
+
 def _has_plus_minus(*nodes: Node) -> bool:
     return any(isinstance(n, PlusMinus) for node in nodes for n in walk(node))
 
@@ -625,6 +639,29 @@ def _statement_units(doc: StemDocument, sids: tuple[str, ...], dim: Dimension) -
                         r = n.unit.readings[0]
                         key = " ".join(n.unit.text.split())
                         if r.dim is None or r.factor is None or r.affine is not None or not r.dim.same_physical(dim) or key in seen:
+                            continue
+                        seen.add(key)
+                        out.append(n.unit)
+                        if len(out) >= 2:
+                            return out
+    return out
+
+
+def _statement_data_units(doc: StemDocument, sids: tuple[str, ...]) -> list[UnitExpr]:
+    """Integration gate 2 (rule data-count): the units of data other than the byte written in the statements ``sids``, at most two."""
+    out: list[UnitExpr] = []
+    seen: set[str] = {" ".join(_BYTE_UNIT.text.split())} if _BYTE_UNIT is not None else set()
+    for it in doc.items:
+        if it.statement_id not in sids:
+            continue
+        for ch in it.chains:
+            for op in ch.operands:
+                for node in op.readings[:2]:
+                    for n in walk(node):
+                        if not isinstance(n, (Quantity, WithUnit)) or n.unit.unknown or not is_data_unit(n.unit):
+                            continue
+                        key = " ".join(n.unit.text.split())
+                        if key in seen or key.rstrip("s") in seen or key in ("bytes", "byte", "B"):
                             continue
                         seen.add(key)
                         out.append(n.unit)
@@ -1698,7 +1735,8 @@ def _eq(ctx: _Ctx) -> None:
             ctx.detail(f"the stated value carries an absolute uncertainty (± {render(unc[1])[:40]}): the computed value is set against its central value "
                        f"{render(unc[0])[:40]} under the tolerance rule, the uncertainty never widening the band, and the uncertainty itself is not checked "
                        "(rule central-value)")
-        exact = rel.op in ("=", "≡") and not approx and _all_exact(cnode) and _all_exact(snode)
+        exact = rel.op in ("=", "≡") and not approx and ((_all_exact(cnode) and _all_exact(snode))
+                                                         or (ctx.doc.profile.computer_science and _data_count_exact(cnode) and _data_count_exact(snode)))
         exact_modes.append(exact)
         if exact:
             # STEM repair 11 (rule exact-rounding): in exact mode τ = 0, and a stated value closing rational written arithmetic has half a unit in
@@ -1795,12 +1833,26 @@ def _eq(ctx: _Ctx) -> None:
         added = []
         for (cnode, snode), h, ex in zip(list(pairs), list(hs), list(extra)):
             wc, ws = _written_unit(cnode), _written_unit(snode)
+            # integration gate 2: the side that writes the amount of data may write it in an ambiguous unit ('4 KB', decimal or binary), which
+            # _written_unit cannot reduce to one factor; only the bare side must be a pure number ('4 KB = 4 × 1000' had no bytes reading)
+            if wc is None and ws is None:
+                continue
+            if wc is None:
+                wc = (DIMENSIONLESS, Fraction(1), True) if _writes_data_unit(cnode) else None
+            if ws is None:
+                ws = (DIMENSIONLESS, Fraction(1), True) if _writes_data_unit(snode) else None
             if wc is None or ws is None:
                 continue
             if not wc[2] and _writes_data_unit(snode):
                 added.append(((_in_unit(cnode, _BYTE_UNIT), snode), h, (None if ex[0] is None else _in_unit(cnode, _BYTE_UNIT), snode)))
+                # integration gate 2 (rule data-count): and in each other unit of data its statement writes ('8192 bytes = 8192/1024 = 8 KiB':
+                # 8192/1024 is a count of KiB); before, only the bytes reading was added, so correct conversions failed (INT-SUBJ-001)
+                for u in _statement_data_units(ctx.doc, rel.statement_ids):
+                    added.append(((_in_unit(cnode, u), snode), h, (None if ex[0] is None else _in_unit(cnode, u), snode)))
             elif not ws[2] and _writes_data_unit(cnode):
                 added.append(((cnode, _in_unit(snode, _BYTE_UNIT)), h, (ex[0], _in_unit(snode, _BYTE_UNIT))))
+                for u in _statement_data_units(ctx.doc, rel.statement_ids):
+                    added.append(((cnode, _in_unit(snode, u)), h, (ex[0], _in_unit(snode, u))))
         if not added:
             # integration gate 1 (rule unit-system): a stated side that writes no unit and re-expresses a side written in units
             # ('0.0250 mol / 250 cm³ = 0.0250 / 0.250 = 0.100 mol dm⁻³') is in the units its statement gives that dimension elsewhere (mol
@@ -2196,6 +2248,10 @@ def _res(ctx: _Ctx) -> None:
     if rel.restates:
         ctx.warn(f"the value stated for {rel.restates} after 'so' is read as the value the chain before it on the same line computed (rule "
                  "restated-binding), a reading the answer did not state")
+    if "(rule named-restatement)" in (rel.reason or ""):
+        # integration gate 2: 'The acceleration is 6.0 m s⁻².' right after '… = 5.0 m s⁻²': that the sentence names the chain's quantity is a reading
+        ctx.warn("the sentence after the chain names the quantity whose value it states, read as the chain's quantity by its words (rule "
+                 "named-restatement), a reading the answer did not state")
     hs = [_value_half_width(r) for _l, r in pairs]
     if rel.rounding is not None:
         # rule rounding-cue: the prose states the rounding of the restated value, so its half-width is that rounding's. The stated
@@ -3094,6 +3150,11 @@ def _step(ctx: _Ctx) -> None:
     if pop is None or cop is None:
         raise EncodeError("ST-UNDEC-001", f"a step between relation signs {rel.premise_op!r} and {rel.op!r}")
     prem_alts, conc_alts = [], []
+    # integration gate 2 (rule solution-set): a step that claims the solution set is decided both ways; the converse is read with the
+    # conclusion narrowed by a rounded value's half-width where the forward direction widens it, so together they hold exactly when the
+    # boundary the preceding relation gives lies within the stated value's band
+    both_ways = rel.equivalence and pop in ("lt", "le", "gt", "ge") and cop in ("lt", "le", "gt", "ge") and not rel.or_alternatives
+    narrow_alts: list[dict] = []
     signs = (1, -1) if _has_plus_minus(pl0, pr0, cl0, cr0) else (1,)
     for pl, pr, cl, cr in combos:
         for sign in signs:
@@ -3103,7 +3164,7 @@ def _step(ctx: _Ctx) -> None:
             (le, re_), _k = align_terms(lt, rt)
             prem_alts.append({"op": pop, "left": le, "right": re_})
             cl_t, cr_t = e2.term(cl), e2.term(cr)
-            conc_alts.append(_step_conclusion(ctx, cop, cl, cr, cl_t, cr_t, len(conc_alts)))
+            conc_alts.append(_step_conclusion(ctx, cop, cl, cr, cl_t, cr_t, len(conc_alts), narrow=narrow_alts if both_ways else None))
     for alt_l, alt_r in rel.or_alternatives:
         # integration gate 1 (rule or-roots): the conclusion is the disjunction the statement writes with 'or' ('x² = 9 ⇒ x = −3 or x = 3')
         for al, ar in _operand_combos(alt_l, alt_r)[:ctx.doc.limits.max_readings_per_check]:
@@ -3115,8 +3176,10 @@ def _step(ctx: _Ctx) -> None:
                 conc_alts.append(_step_conclusion(ctx, cop, al, ar, e2.term(al), e2.term(ar), len(conc_alts)))
     if rel.or_alternatives:
         ctx.detail("the conclusion is the disjunction the statement writes with 'or' (rule or-roots)")
-    b.premise("PREV", nary("or", prem_alts) if len(prem_alts) > 1 else prem_alts[0],
-              f"the preceding relation {render(pl0)[:200]} {rel.premise_op} {render(pr0)[:200]} ({', '.join(rel.premise_ids)})", grounding("law"))
+    prev_expr = nary("or", prem_alts) if len(prem_alts) > 1 else prem_alts[0]
+    if not both_ways:
+        b.premise("PREV", prev_expr, f"the preceding relation {render(pl0)[:200]} {rel.premise_op} {render(pr0)[:200]} ({', '.join(rel.premise_ids)})",
+                  grounding("law"))
     # side conditions: the principal root
     if rel.principal_root:
         for side in (cl0, cr0):
@@ -3165,6 +3228,16 @@ def _step(ctx: _Ctx) -> None:
     if unrelated:
         ctx.warn("the step brings in symbols that no premise, binding or included formula connects (" + ", ".join(unrelated) + ")")
     ctx.readings = ["as written"]
+    if both_ways:
+        # rule solution-set (integration gate 2): no premise from the preceding relation; the conclusion states that the next relation holds
+        # exactly when the preceding one does, for every value of the unknown
+        forward = {"op": "implies", "left": prev_expr, "right": nary("or", conc_alts) if len(conc_alts) > 1 else conc_alts[0]}
+        converse = {"op": "implies", "left": nary("or", narrow_alts) if len(narrow_alts) > 1 else narrow_alts[0], "right": prev_expr}
+        ctx.detail(f"the step claims the solution set (an answer to a request to solve, linear in its one unknown): decided both ways, the preceding "
+                   f"relation {render(pl0)[:120]} {rel.premise_op} {render(pr0)[:120]} ({', '.join(rel.premise_ids)}) and the next one hold for the same "
+                   "values (rule solution-set)")
+        ctx.conclusion = ("STEP", {"op": "and", "args": [forward, converse]}, "the next relation holds exactly when the preceding one does")
+        return
     ctx.conclusion = ("STEP", nary("or", conc_alts) if len(conc_alts) > 1 else conc_alts[0], "the next relation follows from the preceding one")
 
 
@@ -3180,10 +3253,11 @@ def _step_binding(ctx: _Ctx, name: str, written: set[Fraction]) -> Optional[Bind
     return (before or pool)[-1]
 
 
-def _step_conclusion(ctx: _Ctx, cop: str, cl: Node, cr: Node, lt: Term, rt: Term, n: int) -> dict:
+def _step_conclusion(ctx: _Ctx, cop: str, cl: Node, cr: Node, lt: Term, rt: Term, n: int, narrow: Optional[list] = None) -> dict:
     """``l op r`` with ``L_DEF``/``R_DEF`` so the proof always uses a premise (no vacuous result). A side
     written as a rounded decimal value is compared within its band (an evaluation step), and an order
-    against a rounded value is widened by the value's half-width."""
+    against a rounded value is widened by the value's half-width. With ``narrow`` (rule solution-set, integration gate 2) the same
+    order narrowed by that half-width is appended to it, for the converse direction."""
     b = ctx.builder
     (le, re_), k = align_terms(lt, rt)
     suffix = "" if n == 0 else f"_{n + 1}"
@@ -3211,9 +3285,15 @@ def _step_conclusion(ctx: _Ctx, cop: str, cl: Node, cr: Node, lt: Term, rt: Term
         ctx.detail("an order against a rounded value: widened by its half-width")
         if value_side is cr:
             shifted = {"op": "add", "args": [rv, hv]} if cop in ("lt", "le") else {"op": "sub", "left": rv, "right": hv}
+            if narrow is not None:
+                narrow.append({"op": cop, "left": lv, "right": {"op": "sub", "left": rv, "right": hv} if cop in ("lt", "le") else {"op": "add", "args": [rv, hv]}})
             return {"op": cop, "left": lv, "right": shifted}
         shifted = {"op": "sub", "left": lv, "right": hv} if cop in ("lt", "le") else {"op": "add", "args": [lv, hv]}
+        if narrow is not None:
+            narrow.append({"op": cop, "left": {"op": "add", "args": [lv, hv]} if cop in ("lt", "le") else {"op": "sub", "left": lv, "right": hv}, "right": rv})
         return {"op": cop, "left": shifted, "right": rv}
+    if narrow is not None:
+        narrow.append({"op": cop, "left": lv, "right": rv})
     return {"op": cop, "left": lv, "right": rv}
 
 
@@ -3603,6 +3683,10 @@ def _tt(ctx: _Ctx) -> None:
             conj.append({"op": "iff", "left": {"op": "var", "name": o}, "right": _bool_expr(ctx, expr, inputs)})
         b.premise(f"ROW_{r}", nary("and", pins) if len(pins) > 1 else pins[0], f"the stated outputs of row {r}", grounding("figure"))
     ctx.readings = ["Boolean"]
+    if "(rule request-output)" in (ctx.rel.reason or ""):
+        # integration gate 2: 'A B Q' under 'Complete the truth table for A AND B.': the letter Q is read as the request's expression
+        ctx.warn("the output column is named by a letter and read as the request's expression (rule request-output), a reading the answer did "
+                 "not state")
     ctx.detail(f"{len(t.rows)} rows, {len(cols)} output column(s)")
     ctx.conclusion = ("ROWS", nary("and", conj) if len(conj) > 1 else conj[0], "every stated output equals its expression on the row's inputs")
 

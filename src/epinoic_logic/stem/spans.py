@@ -50,6 +50,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from .boolean import truth_table_shape
 from .chem import ELEMENTS, find_equations
 from .lexer import COMPLETE_UNSUP, Token, lex
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
@@ -766,6 +767,14 @@ class _RunFinder:
                     continue
                 break
             if operand:
+                if k > i and toks[k - 1].kind == "REL" and k + 1 < n and toks[k + 1].kind == "NUM" and (
+                        (kind == "OP" and t.text == "×")
+                        or (kind == "IDENT" and t.text in ("x", "X") and not toks[k + 1].space and not t.sub and not self.profile.is_mathematics
+                            and not self.profile.computer_science)):
+                    # integration gate 2 (rule magnification-prefix): '= ×3000', '= × 3000', '= x3000' (the sciences): a magnification written
+                    # before its number; the number completes the operand (the run had ended at the sign, the side dropped unnamed)
+                    k += 1
+                    continue
                 if k > i and toks[k - 1].kind == "CARET" and not t.space and any(x.kind == "UNSUP" for x in toks[max(i, k - 4):k]):
                     # STEM repair 10: an integral's upper limit written after a caret ('∫_0^1 x dx', '∫_{0}^{1} x dx', '∫_{-2}^{-1}'): part of
                     # the limits, the operand still to come; it had been read as the operand (or a group ended the run), so the relation was
@@ -1057,7 +1066,41 @@ def _verbal(toks: tuple[Token, ...]) -> list[tuple[int, int, tuple[Token, ...]]]
 # ----------------------------------------------------------------------------------------- tables and data lines
 
 
-def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover") -> list[Span]:
+#: integration gate 2 (rule plain-table): the most lines a plain truth-table grid is read over (a header, a rule, 2**5 + 8 rows)
+_MAX_GRID_LINES = 42
+_GRID_CHARS = frozenset("01TF \t|,")
+_RULE_CHARS = frozenset("|-: ")
+
+
+def _plain_grid_end(view: str, lines: tuple[Line, ...], i: int, covered: "_Cover") -> Optional[int]:
+    """Integration gate 2 (rule plain-table, Computer Science): the last line of a truth-table grid that opens at line ``i`` with no Markdown
+    border (blank-, tab-, comma- or bar-separated: 'A B | A NAND B', 'A B Q', 'A,B,Q'): a header whose first cell is one capital letter,
+    an optional dashed rule, then at least two rows of 0/1 or T/F cells of the header's width. None otherwise. At most
+    :data:`_MAX_GRID_LINES` lines are read from ``i`` (linear over the text)."""
+    head = view[lines[i].start:lines[i].end].strip()
+    if not head or len(head) > 200 or not head[:1].isupper() or (len(head) > 1 and head[1].isalpha()):
+        return None
+    block = [head]
+    j = i + 1
+    rows = 0
+    while j < len(lines) and j - i < _MAX_GRID_LINES:
+        t = view[lines[j].start:lines[j].end].strip()
+        if not t or _inside(lines[j].start, covered) or len(t) > 200:
+            break
+        if set(t) <= _RULE_CHARS and j == i + 1:
+            block.append(t)
+        elif set(t) <= _GRID_CHARS and any(c in "01TF" for c in t):
+            block.append(t)
+            rows += 1
+        else:
+            break
+        j += 1
+    if rows < 2 or not truth_table_shape(block):
+        return None
+    return j - 1
+
+
+def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover", computer_science: bool = False) -> list[Span]:
     out: list[Span] = []
     i = 0
     n = len(lines)
@@ -1066,6 +1109,12 @@ def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover") -> l
         text = view[ln.start:ln.end].strip()
         if _inside(ln.start, covered) or not text:
             i += 1
+            continue
+        end = _plain_grid_end(view, lines, i, covered) if computer_science and not text.startswith("|") else None
+        if end is not None:
+            # integration gate 2 (rule plain-table): a truth table written without Markdown borders is a table (a wrong row passed silently)
+            out.append(Span("table", lines[i].start, lines[end].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, end + 1)), line=i))
+            i = end + 1
             continue
         if text.startswith("|") and text.count("|") >= 2:
             j = i
@@ -1119,7 +1168,7 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
                 chem_cov.append((eq.start, eq.end))
         scan = blank_ranges(scan, chem_cov)
     # tables and data lines
-    tables = _tables_and_data(scan, lines, _Cover(len(scan)))
+    tables = _tables_and_data(scan, lines, _Cover(len(scan)), computer_science=profile.computer_science)
     spans.extend(tables)
     table_cov = [(s.start, s.end) for s in tables]
     scan = blank_ranges(scan, table_cov)

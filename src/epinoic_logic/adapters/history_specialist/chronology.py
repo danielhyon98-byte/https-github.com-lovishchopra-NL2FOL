@@ -97,10 +97,12 @@ the proxy's report.
 """
 from __future__ import annotations
 
+import itertools
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, replace
 from functools import lru_cache
-from typing import Optional
+from typing import NamedTuple, Optional
 
 __all__ = ["ChronologyRelation", "DateToken", "MONTH_YEAR_RE", "MONTHS", "chronology_findings_in", "chronology_relations", "date_in_aside", "month_index", "statement_pieces",
            "years_in"]
@@ -382,15 +384,39 @@ _BEFORE_TYPE = frozenset({"before", "preceded", "followed by", "earlier than", "
 _LEADING_CUES = frozenset({"after", "before", "prior to", "previous to", "subsequent to", "following", "in the wake of", "in the aftermath of", "ahead of",
                            "on the eve of", "in the run-up to", "preceding"})
 #: 'followed in July 1922', 'followed, on 13 January 1923,': the cue's subject is dated by the date that follows (intransitive use).
+#: Every run is possessive (integration gate 2): the blanks before an optional comma or adverb and the run after it were three
+#: adjacent ``\s*`` runs, so a head that does not match ('followed' + k blanks + 'abroad in') was split among them in every way,
+#: k³ steps (31.7 s at 1,200 blanks). A blank run is now read once; no shorter run can match, since what follows each run is a
+#: comma, a word or the end, never a blank, so the matches are those of the backtracking runs.
 _INTRANSITIVE_HEAD_RE = re.compile(
-    r"^\s*,?\s*(?:(?:soon|shortly|quickly|swiftly|rapidly|only|later|immediately|closely|in turn|then)\s+)*,?\s*(?:in|on|by|during|at|within)\s+"
-    r"(?:(?:early|late|mid)[\s-]+|the\s+(?:end|start|beginning|middle|spring|summer|autumn|winter|first half|second half)\s+of\s+|(?:about|around|c\.|ca\.|circa)\s+)?$",
+    r"^\s*+,?\s*+(?:(?:soon|shortly|quickly|swiftly|rapidly|only|later|immediately|closely|in turn|then)\s++)*+,?\s*+(?:in|on|by|during|at|within)\s++"
+    r"(?:(?:early|late|mid)[\s-]++|the\s++(?:end|start|beginning|middle|spring|summer|autumn|winter|first half|second half)\s++of\s++|(?:about|around|c\.|ca\.|circa)\s++)?$",
     re.IGNORECASE)
 _BY_DATE_HEAD_RE = re.compile(r"^\s*(?:(?:early|late|mid)[\s-]+|the\s+(?:end|start|beginning|middle)\s+of\s+|(?:about|around|c\.|ca\.|circa)\s+)?$", re.IGNORECASE)
 #: Between a first cue's object and a second cue: 'after X of May 1921 and before Y of 1922' coordinates both cues on the clause subject.
-_COORDINATED_GAP_RE = re.compile(r"^\s*,?\s*(?:and|or|but|yet|as well as)\s+(?:(?:also|only|long|shortly|just|well|soon|immediately|not long|even)\s+)*$", re.IGNORECASE)
+#: Possessive runs, as in :data:`_INTRANSITIVE_HEAD_RE` (two adjacent ``\s*`` runs around the optional comma were k² steps).
+_COORDINATED_GAP_RE = re.compile(r"^\s*+,?\s*+(?:and|or|but|yet|as well as)\s++(?:(?:also|only|long|shortly|just|well|soon|immediately|not long|even)\s++)*+$", re.IGNORECASE)
 #: A date that bounds a range is not the date of the event beside it ('instability up to 1923', 'since 1793').
 _RANGE_BEFORE_DATE_RE = re.compile(r"\b(?:up to|until|till|since|from|through|throughout|between|by)\s+(?:(?:early|late|mid)[\s-]+)?(?:the\s+)?$", re.IGNORECASE)
+
+
+def _range_before(text: str, end: int) -> bool:
+    """``_RANGE_BEFORE_DATE_RE.search(text[:end])``, read from a window that ends at ``end`` (integration gate 2): the readers ask it of
+    the text before every date of a clause, and a search of the whole prefix (a copy of it, then a scan from its start) for every date was
+    n² steps on a clause of many dates. A match ends at ``end`` and is a range word of at most ten characters, blanks, and at most
+    the two short words 'early'/'late'/'mid' and 'the' with their blanks or hyphens: reading back over blanks, hyphens and up to three
+    words of at most five letters, and then sixteen characters, reaches its start, so the answer is the same."""
+    j = end
+    for _ in range(3):
+        while j > 0 and (text[j - 1].isspace() or text[j - 1] == "-"):
+            j -= 1
+        k = j
+        while k > 0 and j - k <= 5 and text[k - 1].isalpha():
+            k -= 1
+        if k == j or j - k > 5:
+            break
+        j = k
+    return _RANGE_BEFORE_DATE_RE.search(text, max(0, j - 16), end) is not None
 #: Nouns that name a datable event: only these are looked up in the paragraph when a side of a cue carries no date of its own.
 _EVENT_NOUNS = frozenset("""election vote referendum plebiscite crisis crash collapse treaty war peace armistice truce putsch coup rising uprising revolt rebellion revolution
     strike occupation invasion battle siege conference congress plenum meeting summit decree act law bill plan agreement pact settlement ultimatum default murder
@@ -410,7 +436,9 @@ _PARTICIPIAL_DATE_RE = re.compile(r"^\s*[A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:on|in|at
 
 def _np_words(text: str, *, trailing: bool) -> list[str]:
     """The noun phrase at the end (``trailing``) or the start of ``text``, as lower-case words with its determiner first.
-    At the end of a clause, a 'that' after the clause's first word is a complementizer or a relative, not a determiner."""
+    At the end of a clause, a 'that' after the clause's first word is a complementizer or a relative, not a determiner.
+    Reading back from the end, the words are collected nearest first and at most six of them, the six the phrase keeps (integration
+    gate 2: each word was inserted at the front of the phrase, n² steps on a long run of words before a cue)."""
     words = [w.lower().strip("'’") for w in _WORD_RE.findall(text)]
     if trailing:
         while words and (words[-1] in _NP_STOP or words[-1] == "that"):
@@ -420,10 +448,13 @@ def _np_words(text: str, *, trailing: bool) -> list[str]:
             w = words[i]
             if w in _NP_STOP or (w == "that" and i > 0):
                 break
-            out.insert(0, w)
+            out.append(w)
             if w in _DEFINITES and (w not in _DEMONSTRATIVES or i == 0):
                 break
-        return out[-6:]
+            if len(out) == 6:
+                break  # a word further back would only be dropped: the phrase keeps the six words nearest its end
+        out.reverse()
+        return out
     out = []
     for w in words:
         if w in _NP_STOP and not (w in _DEFINITES and not out):
@@ -446,15 +477,30 @@ def _np_head(words: list[str]) -> Optional[str]:
     return None
 
 
+@lru_cache(maxsize=1024)
+def _word_index(text: str) -> tuple[list["re.Match[str]"], dict[str, list[int]]]:
+    """The words of ``text`` and, for each stem, the positions of its words in that list: read once per sentence (integration gate 2;
+    :func:`_premodifiers` read every word of the sentence again for every dated item of it)."""
+    words = list(_WORD_RE.finditer(text))
+    hits: dict[str, list[int]] = {}
+    for i, w in enumerate(words):
+        hits.setdefault(_stem(w.group(0)), []).append(i)
+    return words, hits
+
+
 def _premodifiers(text: str, head: str, near: int) -> list[str]:
     """The words written directly before the occurrence of ``head`` nearest to offset ``near`` in
     ``text`` (stems, back to a determiner; a date between them ends the run): 'The agrarian crisis'
-    -> ['agrarian'], 'the September 1930 election' -> []."""
-    words = list(_WORD_RE.finditer(text))
-    hits = [i for i, w in enumerate(words) if _stem(w.group(0)) == head]
+    -> ['agrarian'], 'the September 1930 election' -> []. The occurrences are found by bisection in the sentence's word index; of two
+    equally near, the earlier, as the scan of every occurrence kept. The words are collected nearest first and put in order once
+    (integration gate 2: each was inserted at the front, n² steps on a long run of words before the noun)."""
+    words, index = _word_index(text)
+    hits = index.get(head)
     if not hits:
         return []
-    i = min(hits, key=lambda k: abs(words[k].start() - near))
+    k = bisect_left(hits, near, key=lambda h: words[h].start())
+    nearest = [hits[x] for x in (k - 1, k) if 0 <= x < len(hits)]
+    i = min(nearest, key=lambda h: abs(words[h].start() - near))
     out: list[str] = []
     j = i - 1
     while j >= 0:
@@ -462,9 +508,26 @@ def _premodifiers(text: str, head: str, near: int) -> list[str]:
         gap = text[words[j].end(): words[j + 1].start()]
         if gap.strip() or w in _DEFINITES or w in _NP_STOP or w in MONTHS:
             break
-        out.insert(0, _stem(w))
+        out.append(_stem(w))
         j -= 1
+    out.reverse()
     return out
+
+
+@lru_cache(maxsize=64)
+def _first_sentence_index(context: str) -> dict[str, int]:
+    """For each whitespace-normalised sentence of the paragraph, the position of its first occurrence."""
+    first: dict[str, int] = {}
+    for i, (_s, normalized, _t) in enumerate(_paragraph_sentences(context)):
+        first.setdefault(normalized, i)
+    return first
+
+
+@lru_cache(maxsize=64)
+def _paragraph_spans(context: str) -> tuple[tuple[DateToken, DateToken, "re.Match[str]"], ...]:
+    """The duration spans the paragraph's sentences state (:func:`_span_in`), read once per paragraph (integration gate 2: every 'falls
+    at' cue read every sentence of the paragraph again)."""
+    return tuple(sp for other, _n, _t in _paragraph_sentences(context) for sp in [_span_in(other)] if sp is not None)
 
 
 @lru_cache(maxsize=64)
@@ -482,6 +545,53 @@ _ENACTMENT_VERBS = frozenset("""signed signs passed enacted issued proclaimed an
     approved promulgated decreed ordered founded established convened opened""".split())
 
 
+#: The most date tokens a statement is read for, and a sentence of the paragraph is looked up in (integration gate 2): every reader of a
+#: statement reads its text again for each date it holds, so a sentence of thousands of dates cost n² steps. A real sentence holds a few
+#: (the most in the recorded rounds is 107, in a list written as one sentence); a statement over the bound is reported undecided, never read
+#: in part, and a paragraph holding a sentence over it dates nothing by look-up, with that reason.
+_MAX_STATEMENT_DATES = 128
+#: The most different dates a look-up counts (:func:`_dated_mention`): more is reported as 'more than' this many.
+_MAX_MENTION_DATES = 32
+
+
+class _Mention(NamedTuple):
+    order: int          # position of the dated item in the paragraph (sentence by sentence, date by date)
+    tok: DateToken
+    other: str          # the sentence that dates it
+    normalized: str     # the sentence with its whitespace normalised
+
+
+@lru_cache(maxsize=64)
+def _paragraph_mentions(context: str) -> tuple[dict[str, list[_Mention]], str]:
+    """For every event noun, the dated items of the paragraph that can date it (the rule of :func:`_dated_mention`, read once per
+    paragraph, integration gate 2: the look-up read every dated item of the paragraph again for every cue of every sentence, n² steps on a
+    paragraph of many dated sentences), and the reason the paragraph dates nothing by look-up ('' when it can)."""
+    by_head: dict[str, list[_Mention]] = {}
+    order = 0
+    for other, normalized, tokens in _paragraph_sentences(context):
+        if len(tokens) > _MAX_STATEMENT_DATES:
+            return {}, (f"a sentence of the paragraph states more than {_MAX_STATEMENT_DATES} dates, more than a sentence is read for, so no event "
+                        f"was looked up in the paragraph")
+        for tok in tokens:
+            if tok.year is None:
+                continue
+            for head in _mention_heads(other, tok):
+                by_head.setdefault(head, []).append(_Mention(order, tok, other, normalized))
+            order += 1
+    return by_head, ""
+
+
+@lru_cache(maxsize=64)
+def _mention_groups(context: str, head: str) -> dict[frozenset, dict[int, list[_Mention]]]:
+    """The paragraph's dated items for ``head`` (:func:`_paragraph_mentions`), grouped by the words written before the noun
+    (:func:`_premodifiers`) and, in each group, by date, in paragraph order."""
+    groups: dict[frozenset, dict[int, list[_Mention]]] = {}
+    for mention in _paragraph_mentions(context)[0].get(head, ()):
+        pre = frozenset(_premodifiers(mention.other, head, mention.tok.start))
+        groups.setdefault(pre, {}).setdefault(mention.tok.ordinal(), []).append(mention)
+    return groups
+
+
 def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[set] = None) -> tuple[Optional[DateToken], str]:
     """The one date the paragraph gives the event noun ``head`` outside ``sentence``: a date
     within a few words of the noun in the same clause ('the September 1930 election', 'the
@@ -489,47 +599,76 @@ def _dated_mention(head: str, context: str, sentence: str, side_words: Optional[
     that bounds a range ('up to 1923') is not the event's date, and a mention whose noun carries a
     modifier the side does not ('The agrarian crisis that began in 1928' for 'the crisis') may be
     another event and is not used. Returns the token and the sentence it stands in, or None and a
-    reason (no mention, or several dates)."""
-    found: dict[int, tuple[DateToken, str]] = {}
+    reason (no mention, or several dates).
+
+    The paragraph is read once (:func:`_mention_groups`): a look-up takes the groups whose words before the noun are among the side's
+    (every subset of the side's words is one key), and in them the first item of each date whose sentence is not ``sentence`` (and does
+    not contain it), in paragraph order, counting at most :data:`_MAX_MENTION_DATES` dates (integration gate 2). The token and the reason
+    are those of the reading of every item, except that more dates than the bound are reported as more than it."""
+    by_head, over = _paragraph_mentions(context)
+    if over:
+        return None, over
+    groups = _mention_groups(context, head)
+    if not groups:
+        return None, "no other sentence of the paragraph dates it"
+    if side_words is None:
+        chosen = list(groups.values())
+    elif len(side_words) <= 10:
+        words = sorted(side_words)
+        keys = (frozenset(c) for r in range(len(words) + 1) for c in itertools.combinations(words, r))
+        chosen = [groups[k] for k in keys if k in groups]
+    else:
+        chosen = [g for k, g in groups.items() if k <= side_words]
     target = " ".join(sentence.split())
-    for other, normalized, tokens in _paragraph_sentences(context):
-        if normalized == target or target in normalized:
-            continue
-        for tok in tokens:
-            if tok.year is None:
-                continue
-            before = other[: tok.start]
-            if _RANGE_BEFORE_DATE_RE.search(before):
-                continue
-            pieces = re.split(r"[,;:()]", before)
-            clause_before = pieces[-1]
-            after = other[tok.end:]
-            noun_before: list[str] = []
-            if _PARTICIPLE_OPENER_RE.match(clause_before) and _PARTICIPIAL_DATE_RE.match(clause_before):
-                window_after = " ".join(re.split(r"[;:()]", after)[0].split(",")[:2])  # 'Signed on 28 June 1919, the treaty': the noun follows the comma
-                if len(pieces) >= 2 and before.rstrip()[len(before.rstrip()) - len(clause_before.rstrip()) - 1: len(before.rstrip()) - len(clause_before.rstrip())] == ",":
-                    # 'The Economic Cooperation Act, signed on 3 April 1948, launched ...': the aside dates the noun before its comma
-                    noun_before = [_stem(w) for w in _WORD_RE.findall(pieces[-2])][-4:]
-            else:
-                window_after = re.split(r"[,;:()]", after)[0]
-            words = noun_before + [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
-            if head not in words and _GOVERNING_DATE_HEAD_RE.fullmatch(clause_before):
-                # 'on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act': a date opening its clause dates the
-                # object of the clause's verb of enactment
-                governed = [w.lower() for w in _WORD_RE.findall(window_after)][:14]
-                stems = [_stem(w) for w in governed]
-                if head in stems and any(w in _ENACTMENT_VERBS for w in governed[: stems.index(head)]):
-                    words = words + [head]
-            if head in words:
-                if side_words is not None and not set(_premodifiers(other, head, tok.start)) <= side_words:
+    found: dict[int, _Mention] = {}
+    for group in chosen:
+        for ordinal, mentions in group.items():
+            for mention in mentions:
+                if ordinal in found and found[ordinal].order <= mention.order:
+                    break  # an earlier item already dates it
+                if mention.normalized == target or target in mention.normalized:
                     continue
-                found.setdefault(tok.ordinal(), (tok, other))
+                found[ordinal] = mention
+                break
+            if len(found) > _MAX_MENTION_DATES:
+                return None, f"the paragraph gives it more than {_MAX_MENTION_DATES} different dates"
     if not found:
         return None, "no other sentence of the paragraph dates it"
     if len(found) > 1:
         return None, f"the paragraph gives it {len(found)} different dates"
-    tok, other = next(iter(found.values()))
-    return tok, other.strip()
+    mention = next(iter(found.values()))
+    return mention.tok, mention.other.strip()
+
+
+def _mention_heads(other: str, tok: DateToken) -> set[str]:
+    """The event nouns the dated item ``tok`` of the sentence ``other`` can date (the rule of :func:`_dated_mention`): the words within a
+    few words of it in its clause, the noun of a participial aside, and the object of an enactment verb its clause governs; none for a
+    date that bounds a range."""
+    before = other[: tok.start]
+    if _range_before(other, tok.start):
+        return set()
+    pieces = re.split(r"[,;:()]", before)
+    clause_before = pieces[-1]
+    after = other[tok.end:]
+    noun_before: list[str] = []
+    if _PARTICIPLE_OPENER_RE.match(clause_before) and _PARTICIPIAL_DATE_RE.match(clause_before):
+        window_after = " ".join(re.split(r"[;:()]", after)[0].split(",")[:2])  # 'Signed on 28 June 1919, the treaty': the noun follows the comma
+        if len(pieces) >= 2 and before.rstrip()[len(before.rstrip()) - len(clause_before.rstrip()) - 1: len(before.rstrip()) - len(clause_before.rstrip())] == ",":
+            # 'The Economic Cooperation Act, signed on 3 April 1948, launched ...': the aside dates the noun before its comma
+            noun_before = [_stem(w) for w in _WORD_RE.findall(pieces[-2])][-4:]
+    else:
+        window_after = re.split(r"[,;:()]", after)[0]
+    words = noun_before + [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
+    heads = set(words)
+    if _GOVERNING_DATE_HEAD_RE.fullmatch(clause_before):
+        # 'on 6 May 1882 President Chester A. Arthur signed the Chinese Exclusion Act': a date opening its clause dates the
+        # object of the clause's verb of enactment
+        governed = [w.lower() for w in _WORD_RE.findall(window_after)][:14]
+        stems = [_stem(w) for w in governed]
+        for h in set(stems) - heads:
+            if any(w in _ENACTMENT_VERBS for w in governed[: stems.index(h)]):
+                heads.add(h)
+    return heads
 
 
 def _side_date(text: str, *, trailing: bool, context: Optional[str], sentence: str) -> tuple[Optional[DateToken], str, bool, str]:
@@ -594,20 +733,25 @@ def _previous_sentence_date(sentence: str, context: Optional[str]) -> tuple[Opti
         return None, ""
     sentences = _paragraph_sentences(context)
     target = " ".join(sentence.split())
-    for i, (_s, normalized, _tokens_of) in enumerate(sentences):
-        if normalized == target:
-            if i == 0:
-                return None, ""
-            prev = [t for t in sentences[i - 1][2] if t.year is not None]
-            yearless = [t for t in sentences[i - 1][2] if t.year is None and t.day is not None]
-            if len(prev) == 1 and prev[0].month is None and len(yearless) == 1:
-                # 'In 1957 ... Ghana, on 6 March.': the one yearless day takes the sentence's one year (6 March 1957)
-                y, d = prev[0], yearless[0]
-                return DateToken(d.start, d.end, f"{d.text} {y.year}", d.month, y.year, d.day), sentences[i - 1][0].strip()
-            if len(prev) == 1:
-                return prev[0], sentences[i - 1][0].strip()
-            return None, f"the previous sentence states {len(prev)} dates" if prev else ""
-    return None, ""
+    # the first sentence of the paragraph equal to it, by a dictionary read once per paragraph (integration gate 2: every intransitive cue
+    # read the paragraph's sentences again, n² steps on a paragraph of many)
+    i = _first_sentence_index(context).get(target)
+    if i is None or i == 0:
+        return None, ""
+    prev = [t for t in sentences[i - 1][2] if t.year is not None]
+    yearless = [t for t in sentences[i - 1][2] if t.year is None and t.day is not None]
+    if len(prev) == 1 and prev[0].month is None and len(yearless) == 1:
+        # 'In 1957 ... Ghana, on 6 March.': the one yearless day takes the sentence's one year (6 March 1957)
+        y, d = prev[0], yearless[0]
+        return DateToken(d.start, d.end, f"{d.text} {y.year}", d.month, y.year, d.day), sentences[i - 1][0].strip()
+    if len(prev) == 1:
+        return prev[0], sentences[i - 1][0].strip()
+    return None, f"the previous sentence states {len(prev)} dates" if prev else ""
+
+
+#: What opens the clause of a leading year: 'In ', ', and in early '. Possessive runs (integration gate 2): the two adjacent blank runs
+#: around the optional comma, read as a whole clause, were k² steps on a clause of blanks before its year.
+_LEADING_YEAR_HEAD_RE = re.compile(r"\s*+,?\s*+(?:(?:and|then|so|but|yet)\s++)?(?:in|by|during)\s++(?:(?:early|late|mid)[\s-]++)?", re.IGNORECASE)
 
 
 def _leading_year(left_text: str, tokens: list[DateToken]) -> Optional[DateToken]:
@@ -621,7 +765,7 @@ def _leading_year(left_text: str, tokens: list[DateToken]) -> Optional[DateToken
         return None
     breaks = list(_CLAUSE_BREAK_RE.finditer(left_text[: year.start]))
     clause_start = breaks[-1].end() if breaks else 0
-    if not re.fullmatch(r"\s*,?\s*(?:(?:and|then|so|but|yet)\s+)?(?:in|by|during)\s+(?:(?:early|late|mid)[\s-]+)?", left_text[clause_start: year.start], re.IGNORECASE):
+    if not _LEADING_YEAR_HEAD_RE.fullmatch(left_text, clause_start, year.start):
         return None
     between = left_text[year.end:]
     words = _WORD_RE.findall(between)
@@ -635,7 +779,9 @@ def _leading_year(left_text: str, tokens: list[DateToken]) -> Optional[DateToken
 #: A sentence end the shared splitter keeps inside one sentence because it stands inside a quotation or a pasted JSON string
 #: ('"The crash of 1929 came after a speculative boom. Banks failed in 1930 and 1931."'): a full stop, '?' or '!' (closing marks after
 #: it allowed), whitespace, and a capital, a digit or an opening mark.
-_INNER_END_RE = re.compile(r"[.?!]+[\"”’')\]»]*\s+(?=[\"“‘'(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
+#: The run of stops is read whole and only from its first stop (``(?<![.?!])``, possessive runs), as the shared splitter reads it: from every
+#: stop of a run that no blank and capital follow ('!!!...!' inside a quotation) the run was read again, n² steps (integration gate 2).
+_INNER_END_RE = re.compile(r"(?<![.?!])[.?!]++[\"”’')\]»]*+\s++(?=[\"“‘'(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
 _QUOTE_OR_JSON_RE = re.compile(r"[\"“”«»„{]")
 
 
@@ -674,7 +820,43 @@ def _chronology_relations_cached(sentence: str, context: Optional[str]) -> tuple
     return tuple(_chronology_relations(sentence, context))
 
 
+#: The most ordering, duration, containment and 'when' cues a statement is read for (integration gate 2): every cue reads the text before
+#: and after it again (its dates, its clause, the paragraph's look-ups), so a statement of thousands of cues ('after 1901 after 1901 ...')
+#: cost n² steps (35 s per History receive at 20,000 characters). A real sentence holds a few (the most in the recorded rounds is 3); a
+#: statement over the bound is reported as one undecided relation that names the bound (``CORE-CHR-001``), never read in part.
+_MAX_STATEMENT_CUES = 16
+
+
+def _statement_bound(sentence: str) -> Optional[list[ChronologyRelation]]:
+    """``[]`` when ``sentence`` holds no cue of any reader (nothing is read), one undecided relation when it holds more cues or dates
+    than a statement is read for (:data:`_MAX_STATEMENT_CUES`, :data:`_MAX_STATEMENT_DATES`), else None (the statement is read)."""
+    cues: list["re.Match[str]"] = []
+    for pattern in (_CUE_RE, _SPAN_VERB_RE, _INCLUDE_CUE_RE, _AMONG_CUE_RE, _DURING_CUE_RE, _FALLS_AT_RE, _WHEN_RE):
+        for m in pattern.finditer(sentence):
+            cues.append(m)
+            if len(cues) > _MAX_STATEMENT_CUES:
+                break
+        if len(cues) > _MAX_STATEMENT_CUES:
+            break
+    if not cues:
+        return []
+    first = min(cues, key=lambda m: m.start())
+    cue = _cue_name(first) if first.re is _CUE_RE else " ".join(first.group(0).strip(" ,").lower().split())
+    if len(cues) > _MAX_STATEMENT_CUES:
+        why = (f"the sentence states more than {_MAX_STATEMENT_CUES} ordering, duration, containment or 'when' cues, more than a statement is "
+               f"read for, so none of its relations was read")
+    else:
+        dates = len(_tokens(sentence))
+        if dates <= _MAX_STATEMENT_DATES:
+            return None
+        why = f"the sentence states {dates} dates, more than the {_MAX_STATEMENT_DATES} a statement is read for, so none of its relations was read"
+    return [ChronologyRelation(cue, "the events it relates", "one another", None, None, False, why, sentence)]
+
+
 def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
+    bounded = _statement_bound(sentence)
+    if bounded is not None:
+        return bounded
     out = _cue_relations(sentence, context)
     seen = {(r.later_text, r.earlier_text) for r in out}
     for rel in _period_relations(sentence, context):
@@ -682,6 +864,11 @@ def _chronology_relations(sentence: str, context: Optional[str] = None) -> list[
             seen.add((rel.later_text, rel.earlier_text))
             out.append(rel)
     return out
+
+
+#: A 'when' clause after the second date of a cue's right side: read from a comma or from the first blank of a run (``(?<!\s)``, a
+#: possessive run; integration gate 2): a search from every blank of a long run read the rest of the run each time, k² steps.
+_WHEN_AT_RE = re.compile(r",?(?<!\s)\s*+\bwhen\b", re.IGNORECASE)
 
 
 def _cue_relations(sentence: str, context: Optional[str] = None) -> list[ChronologyRelation]:
@@ -866,7 +1053,7 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
             d2 = right_tokens[0]
             if _CUE_RE.search(right_seg[: d2.start]):
                 continue
-            when_at = re.search(r",?\s*\bwhen\b", right_seg[: d2.start], re.IGNORECASE)
+            when_at = _WHEN_AT_RE.search(right_seg, 0, d2.start)
             if when_at:
                 # 'In 1960, after the crisis, when talks resumed in 1961, ...': the date belongs to the 'when' clause, not to the cue's object
                 across(cue, d1, None, left_clause, right_seg[: when_at.start()])
@@ -994,7 +1181,7 @@ def _named_event_date(side_text: str, *, trailing: bool, sentence: str, context:
         m = name_re.search(clause)
         if m is None:
             continue
-        toks = [t for t in _tokens(clause) if t.year is not None and t.start >= m.end() and not _RANGE_BEFORE_DATE_RE.search(clause[: t.start])]
+        toks = [t for t in _tokens(clause) if t.year is not None and t.start >= m.end() and not _range_before(clause, t.start)]
         if len(toks) == 1:
             found.setdefault(toks[0].ordinal(), toks[0])
     if len(found) != 1:
@@ -1009,9 +1196,13 @@ def _named_event_date(side_text: str, *, trailing: bool, sentence: str, context:
 _SPAN_VERB_RE = re.compile(
     r"\b(?:ran|runs?|running|lasted|lasts?|lasting|continued|continues|continuing|stretched|stretches|stretching|extended|extends|extending|raged|rages|raging|"
     r"endured|persisted|went\s+on|was\s+fought|were\s+fought|was\s+waged|were\s+waged|took\s+place|unfolded)\s+(?:[a-z]+\s+){0,2}?from\s+", re.IGNORECASE)
-_SPAN_SEP_RE = re.compile(r"\s+(?:to|until|till|through|up\s+to)\s+", re.IGNORECASE)
+#: The blanks before the separator are read from the first blank of their run (``(?<!\s)``, a possessive run): a search from every blank of a
+#: long run of blanks that no separator follows read the rest of the run from each, n² steps (integration gate 2). A match from inside a
+#: run ends where the match from its first blank ends, and the searches start after a date, so the matches are the same.
+_SPAN_SEP_RE = re.compile(r"(?<!\s)\s++(?:to|until|till|through|up\s+to)\s+", re.IGNORECASE)
 #: 'X, including Y', 'X, which included Y': the inner dates or ranges (the list after the cue) lie within the outer period (before it).
-_INCLUDE_CUE_RE = re.compile(r"(?:,\s*|\s+)(?:(?:which|that)\s+(?:had\s+)?(?:included|includes|include|encompassed|encompasses|took\s+in)|including)\b", re.IGNORECASE)
+#: Read from a comma or from the first blank of a run (``(?<!\s)``, possessive runs), as :data:`_SPAN_SEP_RE` (integration gate 2).
+_INCLUDE_CUE_RE = re.compile(r"(?:,\s*+|(?<!\s)\s++)(?:(?:which|that)\s+(?:had\s+)?(?:included|includes|include|encompassed|encompasses|took\s+in)|including)\b", re.IGNORECASE)
 #: '..., Nigeria on 1 October and the Belgian Congo on 30 June among them': the inner list stands BEFORE the cue, the outer period in the
 #: clause that governs the list; 'among them Tanganyika in 1961 and Kenya in 1963' (the list after the cue) is read like 'including'.
 _AMONG_CUE_RE = re.compile(r"\b(?:among|amongst)\s+(?:them|these|those|which|whom)\b", re.IGNORECASE)
@@ -1023,7 +1214,10 @@ _UNTIL_HEAD_RE = re.compile(r"\b(?:by|until|till|up\s+to|through|to)\s+(?:(?:ear
 _VERBISH = frozenset("""was were is are be been being had has have did do does came come comes began begun begins started occurred happened took take followed
     ended broke arrived fell rose met collapsed erupted passed signed held declared announced issued resumed continued persisted emerged appeared developed grew
     spread made led caused produced brought turned saw won became gained achieved left joined reached opened closed remained stayed peaked ran got went""".split())
-_LIST_SEP_RE = re.compile(r"\s*,\s*(?:and\s+|as\s+well\s+as\s+)?|\s+(?:and|as\s+well\s+as)\s+", re.IGNORECASE)
+#: A separator that opens with blanks is read from the first blank of their run (``(?<!\s)``, possessive runs; integration gate 2): read
+#: from every blank of a long run that no comma or 'and' follows, the run was read again from each blank, n² steps. A match never ends
+#: inside a run of blanks, so the matches of the search from the start are the same; a comma right after a match is still one.
+_LIST_SEP_RE = re.compile(r"(?:,|(?<!\s)\s++,)\s*(?:and\s+|as\s+well\s+as\s+)?|(?<!\s)\s++(?:and|as\s+well\s+as)\s+", re.IGNORECASE)
 #: 'Y during X', 'Y within X': the inner date (before the cue) lies within the outer period (after it); an inner range must meet it.
 _DURING_CUE_RE = re.compile(r"\b(?:during|within|in\s+the\s+course\s+of|in\s+the\s+midst\s+of|amid|amidst)\s+", re.IGNORECASE)
 #: 'the poem's 1902 date falls at the war's close': the date shares its year with the named point of a span the paragraph states.
@@ -1260,7 +1454,8 @@ def _containment(cue: str, inner: _Period, outer: _Period, sentence: str, *, ove
 
 
 #: '<period>, when <clause>': the clause says what happened in the period ('for 1950 to 1952, when European exports had revived').
-_WHEN_RE = re.compile(r"(?:,\s*|\s+)when\s+", re.IGNORECASE)
+#: Read from a comma or from the first blank of a run, as :data:`_INCLUDE_CUE_RE` (integration gate 2).
+_WHEN_RE = re.compile(r"(?:,\s*+|(?<!\s)\s++)when\s+", re.IGNORECASE)
 #: A beginning dated in an aside or a relative clause of a 'when' clause ('the Korean War, begun on 25 June 1950,', 'the war that had begun
 #: in 1954'): what acted in the period began no later than the period's end, though possibly before it.
 _BEGUN_BEFORE_DATE_RE = re.compile(r"(?:,\s*(?:having\s+)?|\b(?:which|that)\s+(?:had\s+)?)(?:begun|began|started|broken\s+out|broke\s+out)\s+(?:on|in)\s+"
@@ -1285,7 +1480,7 @@ def _when_relations(sentence: str) -> list[ChronologyRelation]:
         if not periods:
             continue
         outer = periods[-1]
-        if clause[outer.end:].strip(" ,") or (not outer.is_range and _RANGE_BEFORE_DATE_RE.search(clause[: outer.start])):
+        if clause[outer.end:].strip(" ,") or (not outer.is_range and _range_before(clause, outer.start)):
             continue  # the period must stand right before 'when', and not as a bound ('until 1968, when')
         if outer.decade is None and outer.bounds() is None:
             continue
@@ -1294,7 +1489,7 @@ def _when_relations(sentence: str) -> list[ChronologyRelation]:
             pre = when[: inner.start]
             if _CUE_RE.search(pre) or _WHEN_LATER_RE.search(pre):
                 break  # the dates after an ordering cue are that cue's, and after 'would' or 'later' no date is the period's
-            if _RANGE_BEFORE_DATE_RE.search(pre):
+            if _range_before(when, inner.start):
                 continue  # a bound ('until 1968', 'since 1945') is not the date of an occurrence
             segment = pre[pre.rfind(",") + 1:]
             if _BEGUN_BEFORE_DATE_RE.search(pre):
@@ -1396,7 +1591,7 @@ def _period_relations(sentence: str, context: Optional[str]) -> list[ChronologyR
             inner, outer = inners[-1], outers[0]
             if _CUE_RE.search(left[inner.end:]) or _CUE_RE.search(right[: outer.start]):
                 continue  # an ordering cue between them owns the dates
-            if re.search(r"\b(?:from|between)\s+$", left[: inner.start]) or _RANGE_BEFORE_DATE_RE.search(left[: inner.start]) and not inner.is_range:
+            if re.search(r"\b(?:from|between)\s+$", left[: inner.start]) or _range_before(left, inner.start) and not inner.is_range:
                 continue  # a date that bounds a range ('since 1793') is not an event's date
             out.append(_containment(m.group(0).strip(), inner, outer, sentence, overlap_ok=True))
     if any(c in low for c in ("falls", "fell", "comes", "came", "sits", "sat", "lies", "lay", "stands", "stood")):
@@ -1410,7 +1605,7 @@ def _period_relations(sentence: str, context: Optional[str]) -> list[ChronologyR
             ref_span = span
             where = "the same sentence"
             if ref_span is None and context:
-                spans = [sp for other, _n, _t in _paragraph_sentences(context) for sp in [_span_in(other)] if sp is not None]
+                spans = _paragraph_spans(context)
                 if len(spans) == 1:
                     ref_span, where = spans[0], "another sentence of the paragraph"
             cue = " ".join(m.group(0).split())
