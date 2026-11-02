@@ -245,6 +245,15 @@ _POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*+[\"'“”‘’«»„]?\s*+$")
 
 #: the other spellings of a subject's first word ("the Maths specialist" for a mathematics specialist)
 _SUBJECT_WORD_SPELLINGS = {"mathematics": ("maths", "math")}
+#: Other names of the English A specialists (integration gate 4): the course's own words, which a combinator writes for the
+#: agent ("the Literature specialist" for english-a-literature-specialist, "the Lang Lit specialist" for
+#: english-a-lang-lit-specialist). "English A specialist" names either course; a credit read with it names both agents in
+#: scope, and a reader that compares credits with holders finds the one that holds the view among them.
+_ENGLISH_A_NAMES = {
+    "english-a-literature-specialist": ("literature specialist", "english literature specialist", "english a specialist"),
+    "english-a-lang-lit-specialist": ("lang lit specialist", "language and literature specialist", "english language and literature specialist",
+                                      "english a specialist"),
+}
 
 
 def specialist_names(author: str) -> list[str]:
@@ -254,7 +263,9 @@ def specialist_names(author: str) -> list[str]:
     word with "specialist" ("mathematics specialist"): the name the router's own hand-off gives the colleague ("attribute
     them to the Mathematics specialist"); a mathematics specialist also as "maths specialist" and "math specialist".
     A duplicate-mode instance of the checks port (``history-specialist@a``, ``history-specialist@b``: two instances of
-    one specialist) is named as that specialist. Nothing for any other author."""
+    one specialist) is named as that specialist. An English A specialist is also named by its course's own words
+    (:data:`_ENGLISH_A_NAMES`: "literature specialist", "lang lit specialist", "english a specialist"; integration gate 4).
+    Nothing for any other author."""
     author = (author or "").strip()
     if author.endswith(("-specialist@a", "-specialist@b")):
         author = author[:-2]
@@ -265,6 +276,7 @@ def specialist_names(author: str) -> list[str]:
     if len(words) > 1 and len(words[0]) >= 3 and words[0].isalpha():
         names.append(f"{words[0]} specialist")
     names.extend(f"{w} specialist" for w in _SUBJECT_WORD_SPELLINGS.get(words[0], ()))
+    names.extend(n for n in _ENGLISH_A_NAMES.get(author, ()) if n not in names)
     return names
 
 

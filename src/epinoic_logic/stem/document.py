@@ -29,7 +29,7 @@ from typing import Mapping, Optional
 from .boolean import is_boolean_context, parse_boolean, parse_truth_table
 from .chem import latex_to_chem, parse_equation
 from .datatables import parse_data_tables
-from .lexer import Token, lex, sign_outside_grammar
+from .lexer import RELATION_LOOKALIKES, Token, is_sign_error, lex, sign_outside_grammar
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
 from .nodes import BinOp, Neg, Num, Operand, Percent, Quantity, Sym, is_value, render, shape_key, value_of
 from .normalize import SIGN_FORMS, blank_ranges, reading_view
@@ -425,7 +425,9 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
 #: STEM repair 4: what may follow a number restated on a line of working: the line's end or a full stop, a stated rounding, a bracket
 _CLAUSE_TAIL_RE = re.compile(r"^\s*(?:[.;)]\s*$|$|[,(]?\s*\(?\s*(?:to|correct\s+to|rounded\s+to)\s)", re.IGNORECASE)
 #: rule unread-relation (STEM repair 2): the relation signs a statement may hold that no span read (integration gate 3, rule sign-forms:
-#: and every relation sign outside the grammar, ``lexer.sign_outside_grammar``: '≪', '≔', '≟', '⩶', '≒')
+#: and every relation sign outside the grammar, ``lexer.sign_outside_grammar``: '≪', '≔', '≟', '⩶', '≒'; integration gate 4, rule
+#: sign-forms in every category: a relation sign of another category by its name, '⯹', '⌸', and the characters drawn as one,
+#: ``lexer.RELATION_LOOKALIKES``: '═', '⚌', '〓', '˭', '᐀', '꓿', '☰')
 _RELATION_SIGNS = frozenset("=≈≠≤≥≡<>")
 
 
@@ -434,7 +436,7 @@ _MAX_UNREAD_SCAN = 4000
 
 
 def _relation_sign(ch: str) -> bool:
-    return ch in _RELATION_SIGNS or (not ch.isascii() and sign_outside_grammar(ch) == "relation")
+    return ch in _RELATION_SIGNS or (not ch.isascii() and (ch in RELATION_LOOKALIKES or sign_outside_grammar(ch) == "relation"))
 
 
 def _unread_relation_signs(rd: _Read) -> list[FrontEndFinding]:
@@ -766,8 +768,10 @@ def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profi
         if prev is not None and not t.space and prev.kind == "OP" and prev.text in ("-", "−") and (prev.space or i == 1) \
                 and not (i >= 2 and toks[i - 2].kind in ("NUM", "IDENT") and not prev.space):
             signed = True  # 'is therefore −0.70': a minus written before a prose number is its sign
-        elif prev is not None and not prev.space and prev.kind in ("IDENT", "OP", "OTHER"):
-            continue  # 'helium-4', 'H2', '$5000'
+        elif prev is not None and not prev.space and (prev.kind in ("IDENT", "OP", "OTHER") or is_sign_error(prev)):
+            continue  # 'helium-4', 'H2', '$5000'; integration gate 4: so too after a sign outside the grammar glued to what precedes it
+            # ('5•3', '3⨯4'): the number is an operand of what the sign writes, no value the prose states (the bullet had been an
+            # unknown character here, and is one again for this rule)
         nxt = toks[i + 1] if i + 1 < len(toks) else None
         if nxt is not None and not nxt.space and nxt.kind in ("IDENT",):
             continue

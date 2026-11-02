@@ -13,10 +13,10 @@ import re
 from typing import Any, Iterable, Optional
 
 from .delivery import ClaimFields
-from .protocol import FORMAL_VALUES, NOT_ATTEMPTED
+from .protocol import DEFINITIVE, FORMAL_VALUES, NEGATIVE, NOT_ATTEMPTED, POSITIVE
 from .verifier import VerifierLog, claim_is_eligible
 
-__all__ = ["MAX_ENTRIES", "MAX_EXCERPT", "excerpt_of", "claim_entries"]
+__all__ = ["MAX_ENTRIES", "MAX_EXCERPT", "excerpt_of", "branch_check_formal", "claim_entries"]
 
 MAX_ENTRIES = 32
 MAX_EXCERPT = 200
@@ -49,6 +49,39 @@ def _fidelity(outcome: Any) -> tuple[str, bool, bool]:
     if rel is None:
         return "missing", False, False
     return rel.fidelity, bool(rel.evidence_resolved), bool(rel.permitted)
+
+
+def branch_check_formal(fc: Any, *, stem: bool) -> tuple[str, str]:
+    """``(formal, attempt)`` of one branch or STEM formal check of the report's own statements, read from the check's own
+    decision (``satisfied``), never from the raw engine status alone (integration gate 4). ``satisfied`` folds in the
+    status the check expects when the statement holds (the pack's ``expected_if_sound``): a Boolean identity or evaluation
+    (stem-bool) and a stated operation on both sides (stem-op) hold when the engine answers UNSATISFIABLE ("the two sides
+    differ" has no model), so the raw status of a correct check of that kind is a negative status and the raw status of a
+    failed one a positive status. The receipt keeps the raw status (the Overseer compares it with the signed result).
+
+    * ``satisfied`` True with a definitive raw status: the raw status when it is positive, else ENTAILED (an
+      UNSATISFIABLE "sides differ" is the entailment of the stated identity); with no definitive raw status (the channel
+      never builds one; a receipt that did would claim a check holds with no engine verdict) it is undecided, that status
+      or UNKNOWN, never positive;
+    * ``satisfied`` False: the raw status when it is negative, else COUNTEREXAMPLE (the witness is a counterexample of the
+      stated identity);
+    * ``satisfied`` None with no status: the check was not run (NOT_ATTEMPTED; ``stem_budget`` on a STEM branch, else
+      ``skipped_budget``);
+    * ``satisfied`` None with a definitive raw status (E108, vacuous with the expected status; INCONSISTENT_PREMISES on a
+      check that does not count them as a failure): UNKNOWN, an undecided check, never a positive or a blocking verdict;
+    * ``satisfied`` None with any other status (UNKNOWN, TIMEOUT, UNSUPPORTED, ...): that status."""
+    sat = getattr(fc, "satisfied", None)
+    raw = getattr(fc, "formal_status", None)
+    if sat is None and raw is None:
+        return NOT_ATTEMPTED, ("stem_budget" if stem else "skipped_budget")
+    raw = raw if raw in FORMAL_VALUES else NOT_ATTEMPTED
+    if sat is True and raw in DEFINITIVE:
+        return (raw if raw in POSITIVE else "ENTAILED"), "attempted"
+    if sat is False:
+        return (raw if raw in NEGATIVE else "COUNTEREXAMPLE"), "attempted"
+    if sat is True:  # a holding check with no definitive engine status: undecided, never positive without one
+        return ("UNKNOWN" if raw == NOT_ATTEMPTED else raw), "attempted"
+    return ("UNKNOWN" if raw in DEFINITIVE else raw), "attempted"
 
 
 def claim_entries(receipt: Any, claims: Iterable[Any], answer: str, log: Optional[VerifierLog] = None) -> tuple[list[dict], list[ClaimFields]]:
@@ -87,11 +120,8 @@ def claim_entries(receipt: Any, claims: Iterable[Any], answer: str, log: Optiona
     for k, fc in enumerate(getattr(receipt, "formal_checks", []) or []):
         named = list(getattr(fc, "claim_ids", []) or [])
         mat = "material" if any(materiality.get(cid) == "material" for cid in named) else "supporting"
-        not_run = fc.satisfied is None and fc.formal_status is None
-        formal = fc.formal_status if fc.formal_status in FORMAL_VALUES else NOT_ATTEMPTED
-        if not_run:
-            formal = NOT_ATTEMPTED
-        attempt = ("stem_budget" if stem else "skipped_budget") if not_run else "attempted"
+        # the check's own verdict (its polarity folded in), never the raw engine status (integration gate 4)
+        formal, attempt = branch_check_formal(fc, stem=stem)
         fields.append(ClaimFields(mat, formal, attempt, False))
         text = next((texts[cid] for cid in named if cid in texts), "")
         ex = excerpt_of(text, answer)

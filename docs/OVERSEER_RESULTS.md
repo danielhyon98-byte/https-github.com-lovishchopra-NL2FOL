@@ -4458,6 +4458,74 @@ two of them; the whole suite above runs on the tree with all three. 92 tests are
   (3.6 s on 400,000 characters of figures), the re-parse cost on slow parsers, and the cost of the stated-precision
   re-derivation.
 
+## 34. After integration gate round 4 (design section 49)
+
+The overseer's fix of the fourth round of the integration gate before arena round 8, on the working tree, not committed
+(design section 49, decision 87, rule `budget-cut`). Python 3.13; measured 2026-11-01 on the lens's reproductions and on a
+fresh copy of the recorded round r7 (the recorded round was not written: its checksum over 202 files is the same before and
+after). The knowledge pack is unchanged (1.4). "Before" is the shadow of the commit the round started from, run on the same
+tree; "after" is the fixed one.
+
+### The major: a STEM check budget the hub spent was an accusation
+
+| Reproduction (audited Physics hub) | Before | After |
+| --- | --- | --- |
+| real clocks: the module budget set to 1 s while the hub receives `x = 20/4.0 = 6.0. ` x 1,200 (128 checks, 67 and 68 cut), 8 s again for the audit | AUDIT_FAILED: 67 OVS-RCPT-004, 67 OVS-RCPT-005 | AUDIT_PASSED, a coverage note naming the cut |
+| the same with middle dots, `x = 20/4·0 = 6·0. ` x 1,111 (256 checks, 195 and 193 cut) | AUDIT_FAILED: 97 OVS-RCPT-004, 98 OVS-RCPT-005 | AUDIT_PASSED, a note |
+| simulated load (the channel's clock 3 s per reading, the journal 100 s per transfer): five wrong steps, three cut under 8 s | AUDIT_FAILED (OVS-RCPT-004 on s1.3 to s1.5) | AUDIT_PASSED, a note |
+| the channel's `stem_budget_s` 0 for one transfer, no deadline in the plan (every check cut) | AUDIT_FAILED: 5 OVS-RCPT-004, 5 OVS-RCPT-005 | AUDIT_PASSED_WITH_FINDINGS: one OVS-RES-008 naming the 0 s budget |
+| a reduced budget the plan's deadline left (the integration checks port's) | AUDIT_FAILED (OVS-RCPT-004) | a note |
+| the shadow's own budget spent (the auditor loaded), the receipt deciding every check | AUDIT_FAILED: 3 OVS-RCPT-004, 3 OVS-RCPT-005 | AUDIT_PASSED_WITH_FINDINGS: one OVS-RES-008, no accusation |
+
+The lens's own reproduction (three audited hubs in parallel at the module budget) did not spend the budget on this machine at
+the time of measurement (load average about 1): the hubs received in 6.4 to 6.6 s (dots: 10.7 to 11.1 s) with every check
+decided, and all six audits were AUDIT_PASSED after the fix. The first two rows reproduce the reported failure on real clocks by
+scaling the budget instead of the load.
+
+Cuts the rule does not replay (each a channel patched during the transfer, in the tests): a check in the middle stated not run,
+a cut under 8 s on a transfer the journal stamps within a fraction of a second of the one before it, two budgets, a budget of 9 s, a budget
+written `8.0`, each gives OVS-RCPT-004 on the failure it hides (and a note saying why, for the first three); a cut whose
+INT-SUBJ-002 was dropped gives OVS-RCPT-004 naming the INT-SUBJ-002. A forged cut in the channel's exact form at the end of
+the checks on a transfer that took longer than its budget is replayed, as the design states; one that leaves the channel's
+summary is OVS-RCPT-007, and one under 0 s is OVS-RES-008 besides.
+
+### The translator
+
+```
+cp -r ROUNDS/r7 OUT/r7 && python scripts/arena/run_arena.py OUT/r7
+```
+
+r7: 177 of 177 functional (recorded 177/177, and 177/177 on this tree before the change): 44 of 44 genuine transmissions
+delivered and decided, 133 of 133 injected faults named; the delivery pass decided 22 answers, all withheld (no overseer agent
+is configured in the harness), every receipt identical to the genuine record's, no delivery-pass error, and the same three
+exclusions as before the change (ch-t13, hi-p7c, lit-t13).
+
+### Test suite
+
+```
+python -m pytest -q -p no:cacheprovider
+16289 passed, 12 skipped, 45 deselected, 28 warnings in 4468.07s (1:14:28)
+```
+
+The whole suite on the working tree of this round (the other fixers' work of the round on the same tree, a STEM fixer's
+suite running beside it). The 12 skipped are the tests that need the recorded rounds; the 28 warnings are the pydantic
+serializer warnings of the channel's integration gate 3 tests, which build broken objects on purpose.
+
+With the recorded rounds (`EPINOIC_ARENA_ROUNDS` set): the overseer's round-dependent files (the contained pack, the dossier
+export, the tampering suite on its r5 and r7 targets, the re-keyed r7 pass, the STEM probe bases) with the shadow's tests and
+this round's, 202 passed in 256 s; the recorded round r7 was not written (its checksum over 202 files is the same before and
+after).
+
+44 tests are new (`tests/overseer/test_gate4_shadow_budget.py`); no existing test was changed or removed.
+
+### Not done in this round
+
+- Journaling a channel's effective STEM check budget with each event (`channel.events._channel_json`, outside the overseer)
+  would let the shadow hold a cut's stated budget to the channel's; until then a cut under a reduced budget that the plan's
+  deadline does not account for is OVS-RES-008, never an accusation.
+- Performance (no outcome change), recorded for the optimisation checks: the shadow still decides every check a receipt
+  states not run (68 of 128 in the first row; the audit took 1.99 s against 1.83 s before), which a channel hook could spare.
+
 ## Not done
 
 - **Stress, latency and load** (design 13.6 and the budgets of section 12): not built or run, by the founder's instruction

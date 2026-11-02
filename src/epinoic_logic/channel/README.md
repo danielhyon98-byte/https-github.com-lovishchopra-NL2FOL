@@ -34,7 +34,9 @@ agent ──relay()──► another agent (report or synthesis): envelope, send
             "router" other than the sender of the channel's requests, is INT-ENV-007), a synthesis id reused with other
             content refused (INT-HANDOFF-015), ledger, figure/date fidelity (decades and small counts in words included),
             quotations of the synthesis located and credited to a text that holds them (INT-LEDGER-025), direction,
-            polarity and who holds a view (INT-LEDGER-026), from-memory labels kept (INT-LEDGER-027), a misspelt quotation (INT-LEDGER-028), an inverted comparison or an added
+            polarity and who holds a view, a quantifier widened, a bound dropped, a change restated as no change and a view
+            stated as fact (INT-LEDGER-026; integration gate 4), a self-report in a synthesized claim, the text, a ledger
+            entry's reason or a conflict's description or basis (INT-LEDGER-029), from-memory labels kept (INT-LEDGER-027), a misspelt quotation (INT-LEDGER-028), an inverted comparison or an added
             negation against one source (INT-LEDGER-030), an act given to a person the cited sources do not name for it
             (INT-LEDGER-032), a student-facing text that is not composed of its claims (INT-LEDGER-031), undisclosed
             contradictions (INT-CONFLICT-002), entailment checks, and every material paraphrase or merge left unchecked

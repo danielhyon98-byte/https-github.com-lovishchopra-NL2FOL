@@ -22,7 +22,8 @@ Modules (live tier L1-L6, re-derivation R2, batch tier B1-B5):
 * ``synthesis`` L6: SYN-001; B2: SYN-002/003, RCPT-005 (ledger)
 * ``joint``     L6: JOINT-004; B3: JOINT-001/002/003
 * ``divergence`` B4: DIV-001/002
-* ``shadow``    B5: RCPT-004/005/008 (RES-008 when an undecided run explains a difference)
+* ``shadow``    B5: RCPT-004/005/008 (RES-008 when an undecided run explains a difference; rule ``budget-cut``: the checks a
+  STEM check budget left undecided are compared as the channel states them, with a note or RES-008)
 """
 from __future__ import annotations
 

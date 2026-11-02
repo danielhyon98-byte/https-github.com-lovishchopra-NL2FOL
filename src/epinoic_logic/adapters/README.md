@@ -219,7 +219,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   space ("history specialist"), and, when the id names a course or qualifier after the subject's
   first word, that word with "specialist" as well ("mathematics specialist" for
   `mathematics-aa-specialist`, the name the router's own hand-off gives the colleague), with
-  "maths specialist" and "math specialist" for Mathematics. A parenthesis closing an author's name is
+  "maths specialist" and "math specialist" for Mathematics, and the English A specialists also by their
+  course's own words (integration gate 4: "literature specialist", "english literature specialist" for
+  `english-a-literature-specialist`; "lang lit specialist", "language and literature specialist" for
+  `english-a-lang-lit-specialist`; "english a specialist" for either, so a credit in those words names both
+  English A agents in scope and a reader that compares credits with holders finds the one that holds the
+  view). A parenthesis closing an author's name is
   a description, not a name ("Kestrelford Borough Council (a fictional council)" is named
   "Kestrelford Borough Council" and "Council", "Ruth Ashdown (a fictional poet)" "Ashdown"). `_names_of` and the English parser's
   `documents_named`, which the History, STEM and generic parsers use, share it, so "The

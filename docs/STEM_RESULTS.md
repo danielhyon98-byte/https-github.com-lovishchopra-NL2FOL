@@ -740,3 +740,22 @@ sign form and no tested value, so the new readings add no check and change no ou
 expected verdicts with clean controls (`tests/stem/test_integration_gate3_stem.py`, 122 tests, the transfer audit of each new reading among them), and the new readings stay
 linear on hostile input of 20,000 characters (at most 0.7 s CPU for a document and its checks; about twice the time at twice
 the length). Measured 2026-11-01. These are replays of recorded answers: no specialist was called.
+
+### 10.13 Integration gate 4, measured on the recorded rounds
+
+After the fixes of design section 38 the harness on fresh copies of every recorded round gives the functional counts it gave before
+(round 7: 177 of 177; rounds 2 to 6: 46 of 46 each; round 1: 30 of 30; the adversarial round 1: 150 of 151, as before), and compared
+record for record with a run of the tree before the fixes (an export of its commit with only the four changed STEM modules replaced, on
+other fresh copies), every record of every round is the same once timings and generated identifiers are set aside: status, codes,
+findings and their messages, subject findings, formal checks, outcomes and summaries. No STEM answer of the recorded rounds holds an
+equals sign of another category, a look-alike of a relation sign, an unknown sign between two numerals or an invisible character (one
+soft hyphen stands in an English answer of the adversarial round, which the STEM reading never reads), so the new readings add no check
+and change no outcome there. Each finding's probes give the expected verdicts with clean controls
+(`tests/stem/test_integration_gate4_stem.py`, 93 tests, the transfer audit of the new readings among them; and the eight characters the
+lens reported, added to the sign-forms tests of `tests/stem/test_integration_gate3_stem.py`). The class sweep, before and after: of the
+11,205 non-ASCII symbols, punctuation marks, combining marks and format characters, 10,853 cut correct working between two numerals
+into a checked fragment before (an error on correct working); after, none of the categories the rule reads does, and the 906 that keep
+their old reading are the grammar's own signs and the categories it leaves. The new readings stay linear on hostile input of 20,000
+characters (at most 0.6 s CPU for a document and its checks and 0.3 s for the lexer, on a machine other test runs kept loaded; at most
+about twice the time at twice the length). Measured
+2026-11-01. These are replays of recorded answers: no specialist was called.

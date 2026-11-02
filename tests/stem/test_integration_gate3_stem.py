@@ -243,7 +243,14 @@ def test_an_explicit_product_keeps_its_reading():
 
 
 # ============================================================================================ major 3: rule sign-forms
-@pytest.mark.parametrize("sign", ["＝", "﹦", "⩵"])
+#: integration gate 4 (rule sign-forms in every category): the equals signs of other categories, U+1F7F0 HEAVY EQUALS SIGN and U+A78A
+#: MODIFIER LETTER SHORT EQUALS SIGN, and the double hyphens drawn as '=', U+30A0 and U+2E40, are '=' (they were read as nothing)
+GATE4_EQUALS_FORMS = ["\U0001f7f0", "\ua78a", "\u30a0", "\u2e40"]
+#: integration gate 4: the other characters drawn as '=' that the lens found read as nothing (U+02ED, U+2550, U+268C, U+3013): named
+GATE4_NAMED_LOOKALIKES = ["\u02ed", "\u2550", "\u268c", "\u3013"]
+
+
+@pytest.mark.parametrize("sign", ["＝", "﹦", "⩵"] + GATE4_EQUALS_FORMS)
 def test_a_step_written_with_a_relation_sign_form_is_checked(sign):
     rc = receive(PHYS, f"The trolley starts from rest. a = (20 - 0)/4.0 {sign} 6.0 m s⁻².", TROLLEY)
     assert "stem-eq-1" in failed(rc) and "c = 5, r = 6" in message(rc, "INT-SUBJ-001"), (sign, rc.formal_checks, codes(rc))
@@ -258,14 +265,15 @@ def test_correct_working_with_operator_forms_holds(answer):
     assert "stem-eq-1" in held(rc) and not failed(rc) and not errors(rc), (answer, rc.formal_checks, codes(rc))
 
 
-@pytest.mark.parametrize("answer", ["x = 3 ⨯ 4 = 12", "x = ∜16 = 2", "f ∘ g = 3", "a = 20/4.0 ≒ 6 m s⁻²", "x = 3 ⊗ 4 = 12"])
+@pytest.mark.parametrize("answer", ["x = 3 ⨯ 4 = 12", "x = ∜16 = 2", "f ∘ g = 3", "a = 20/4.0 ≒ 6 m s⁻²", "x = 3 ⊗ 4 = 12"]
+                         + [f"a = 20/4.0 {sign} 6 m s⁻²" for sign in GATE4_NAMED_LOOKALIKES])
 def test_a_sign_outside_the_grammar_keeps_its_relation_undecided(answer):
     rc = receive(AA, answer, "Find x.")
     assert not failed(rc) and not errors(rc), (answer, rc.formal_checks, codes(rc))
     assert "ST-PARSE-001" in structural(rc), (answer, structural(rc))
 
 
-@pytest.mark.parametrize("answer", ["x ≪ 1", "a ≟ 5", "y ≔ 2", "x ≢ 3"])
+@pytest.mark.parametrize("answer", ["x ≪ 1", "a ≟ 5", "y ≔ 2", "x ≢ 3"] + [f"x {sign} 6" for sign in GATE4_NAMED_LOOKALIKES])
 def test_a_relation_sign_outside_the_grammar_is_named(answer):
     rc = receive(AA, answer, "Find x.")
     assert "ST-PARSE-001" in structural(rc), (answer, structural(rc))
