@@ -40,14 +40,16 @@ this section. NEVER relaunch phase 2 from scratch; always resume wf_eee12853-0ae
   agents w1-1..w1-4, overseer-score, scalability:c1, greenlight judges and 11 greenlight-confirm, feedback:prep:c1 (available=false:
   the feedback exercise ends there), the five overseer lenses (results-audit, communication-fidelity, adversarial-live,
   stem-integration, translation-fidelity: 147 findings, 49 flagged critical). Fix round "clearance-c1": fix:stem started 10:15,
-  fix:parsers 10:15 -> returned 14:19 (15 items left undone, handoff written), fix:core started 14:19. Still to run: fix:stem and
-  fix:core (re-run after the stop; they find their partial edits in R), fix:overseer (10 findings), fix:harness (1),
+  fix:parsers 10:15 -> returned 14:19 (15 items left undone, handoff written), fix:stem returned ~15:5x, fix:core started 14:19,
+  fix:overseer ~15:55. Still to run: fix:core and fix:overseer (re-run after the stop; they find their partial edits in R), fix:harness (1),
   fix:handoffs:clearance-c1 (handoff-parsers.md and handoff-stem.md exist), two agents at a time; then verify:clearance-c1 (+ one repair
   and a second verify if red), the commit, push-check:c1, push:c1, readme:c1, prototype docs with their own verify and commit.
 - R holds the fixers' UNCOMMITTED edits (42 entries at 14:41: 37 modified, 5 untracked, growing). Never commit them by hand (the stop
   hook asks; decline): verifyAndCommit commits them.
-- STOP: I stop phase 2 with TaskStop shortly before the weekly limit; the time, the task id and the agents killed are in the last
-  entries of KNOWLEDGE/01-STATE.md.
+- STOPPED 2 Nov 15:58 UTC (TaskStop wsslbjb1v; weekly usage 97%). Journal: 119 labels with results, 0 null (dry-run map
+  S/dryrun-crit/cached-r8-stop.json). fix:stem RETURNED ~15:5x and fix:parsers at 14:19 (both replay from cache); KILLED in flight:
+  fix:core:clearance-c1 (since 14:19) and fix:overseer:clearance-c1 (since ~15:55): they re-run on resume. R had 58 uncommitted
+  paths at the stop (the final checkpoint saves them in wip.tar.xz). Still to run after them: fix:harness, fix:handoffs, verify, ...
 - RESUME (same container, after the reset): `uptime` (a VM restart kills background jobs and monitors, keeps the disk); make sure no
   phase-2 task is still running; then Workflow({scriptPath: "/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf-scripts/phase2-cont.js",
   resumeFromRunId: "wf_eee12853-0ae", args: <the exact JSON of S/wf/phase2-cont-args-r8only.json>}). No prompt embeds args, so every
