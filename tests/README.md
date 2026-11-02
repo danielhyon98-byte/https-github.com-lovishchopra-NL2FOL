@@ -1282,3 +1282,13 @@ Work in progress after it is labelled as such.
 - Integration gate, round 5, the gate's last round, is running on 1965f07 with the correctness lens. Besides re-checking
   round 4's findings and running the full suite, it builds a combined answer whose changed figure or invented quotation
   sits only past the synthesis ledger's new work bounds, and reports whether such an answer can reach a success status.
+
+### Progress, 05:00 UTC (2 November)
+
+- Integration gate, round 5, the last round, is complete: the correctness lens reported 2 findings, none critical, and
+  the default suite on 1965f07 passed (16,810 passed, 12 skipped, 45 deselected, 0 failed). The gate is clean of critical
+  findings after five rounds. Known defect carried forward (major, not critical): the synthesis ledger's new work bounds
+  are spent in claim order, so a combined answer padded with harmless claims can leave a changed date or an invented
+  quotation after the bound with only a warning; such an answer is released labelled "not verified" instead of being
+  withheld.
+- The pre-round-8 upload of 1965f07 started at 04:45 with its full simulation (suite and every recorded arena round).
