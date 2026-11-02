@@ -1276,3 +1276,9 @@ Work in progress after it is labelled as such.
   an independent verification: suite 16,810 passed, 12 skipped, 45 deselected, 0 failed.
 - Integration gate, round 5, started at 02:52 on 1965f07 with the correctness lens, the only lens that had a critical
   finding in round 4. When no critical finding is left, the pre-round-8 upload follows.
+
+### Progress, 04:00 UTC (2 November)
+
+- Integration gate, round 5, the gate's last round, is running on 1965f07 with the correctness lens. Besides re-checking
+  round 4's findings and running the full suite, it builds a combined answer whose changed figure or invented quotation
+  sits only past the synthesis ledger's new work bounds, and reports whether such an answer can reach a success status.
