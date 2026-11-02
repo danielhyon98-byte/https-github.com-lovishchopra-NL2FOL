@@ -759,3 +759,29 @@ their old reading are the grammar's own signs and the categories it leaves. The 
 characters (at most 0.6 s CPU for a document and its checks and 0.3 s for the lexer, on a machine other test runs kept loaded; at most
 about twice the time at twice the length). Measured
 2026-11-01. These are replays of recorded answers: no specialist was called.
+
+### 10.14 The pre-round-8 simulation's contained-run finding, measured on the recorded rounds
+
+The publisher's full simulation of 1965f07 before the pre-round-8 upload failed one contained-run gate, `stem_fault_classes_named`:
+the STEM control probe `units-translation-base-control`, a correct conversion of 50.0 cm³ into 0.0000500 m³, was no longer clean. Its
+translation came out AMBIGUOUS_TRANSLATION with the figure 0.0000500 marked as introduced, so its receipt carried INT-REQ-006. The probe
+is clean at 9dec1e7 and 6ac78cc and not clean from 35f1be1 (integration gate 1) on: that commit added the introduced-figure check of
+`translate/pipeline.py`, which asked whether a source states a premise's figure by reading the source's figures only as written or
+scaled, so a correct conversion into the coherent SI unit matched nothing. The default suite runs without the recorded rounds, so its
+round-dependent tests and the STEM probes are skipped there, and the gate's own verifications did not see it.
+
+6947c2d fixes it at its cause (`translate/quantities.py`): on request, a figure written with a unit also matches its value in the
+coherent SI unit and in the same unit without its prefix, with exact factors from the STEM unit table (none for dimensionless units,
+angles or degrees Celsius and Fahrenheit), and only where the symbol's meaning declares no reading; a declared unit still admits only
+the conversion into that unit. The introduced-figure check, the part-of-claim and label readings and the coverage of a source's
+figures use it; the quotation transcription check does not, by design, so a converted figure in a quotation is still named as not
+transcribed (it changes no verdict). Wrong factors stay introduced: 50.0 cm³ as 0.000500, 0.5, 0.0500 or 0.0000050, another prefix
+(5.0 cm³ as 0.0050), 72 km/h as 259.2 or 200, among the forms tried (`tests/translate/test_base_unit_conversions.py`).
+
+Measured on 6947c2d's tree: the control is clean (TRANSLATED, ENTAILED; its one remaining note is the quotation note above, which it
+also carried while clean at 6ac78cc); the full probe set on a fresh copy of round 7 counts 677 of 677 with no failing probe and the
+gate ok, and every units-class fault probe is still named (the quotation and prefix probes among them); the harness on a fresh copy
+of round 7 gives 177 of 177; the five round-dependent test files with fresh copies of rounds 5 and 7 give 151 passed, 0 skipped,
+0 failed; the default suite gives 16,864 passed, 12 skipped, 45 deselected, 0 failed; and the changed readers stay linear (hostile
+inputs of 40,000 characters at most 1.12 s through the figure reader, with time growing in proportion to the length). Measured
+2026-11-02. These are replays of recorded answers: no specialist was called.

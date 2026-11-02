@@ -321,8 +321,8 @@ def assess_unconstrained(problem: Problem, sources: Sequence[SourceText]) -> Opt
         for f in figures_in(src):
             if is_year_like(f) or (abs(f.value) in TRIVIAL_VALUES and f.scale == 1 and not f.is_percent_like):
                 continue
-            if any(literal_matches(v, [f])[0] for v in literals):
-                continue
+            if any(literal_matches(v, [f], conversions=True)[0] for v in literals):
+                continue  # encoded, as written or in its unit's SI unit or without the prefix ('50.0 cm³' as 0.0000500)
             reading = assertion_at(src.text, f.start, f.end)
             if not reading.asserted:
                 passed.append(f"{f.where()}: {reading.describe()}")

@@ -1292,3 +1292,18 @@ Work in progress after it is labelled as such.
   quotation after the bound with only a warning; such an answer is released labelled "not verified" instead of being
   withheld.
 - The pre-round-8 upload of 1965f07 started at 04:45 with its full simulation (suite and every recorded arena round).
+
+### Progress, 08:00 UTC (2 November)
+
+- The pre-round-8 upload of 1965f07 was held: its full simulation failed one contained-run gate,
+  stem_fault_classes_named. From 35f1be1 (gate round 1) on, the STEM control probe units-translation-base-control, a
+  correct conversion of 50.0 cm³ to 0.0000500 m³, was flagged as an introduced figure. The default suite runs neither
+  the STEM probes nor the round-dependent tests without the recorded arena rounds, so the gate's own verification did
+  not see it.
+- Fixed at its cause in 6947c2d: the introduced-figure check and the part-of-claim and coverage readers now also read a
+  stated figure in its coherent SI unit and in its unit without the prefix, with exact factors from the STEM unit table;
+  wrong factors stay flagged. Verification: suite 16,864 passed, 12 skipped, 45 deselected, 0 failed; the five
+  round-dependent test files with the recorded rounds, 151 passed; STEM probes on round 7, 677 of 677 with the gate ok;
+  harness r7 177/177. The full publisher simulation of 6947c2d runs before its upload.
+- Arena round 8 is running: the translators, the combinator and the harness step are done, and the overseer steps are
+  in progress.
