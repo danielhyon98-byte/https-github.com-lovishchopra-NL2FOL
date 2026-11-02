@@ -1307,3 +1307,12 @@ Work in progress after it is labelled as such.
   harness r7 177/177. The full publisher simulation of 6947c2d runs before its upload.
 - Arena round 8 is running: the translators, the combinator and the harness step are done, and the overseer steps are
   in progress.
+
+### Progress, 09:00 UTC (2 November)
+
+- The publisher held 6947c2d at 08:01: its commit message gives the verification in prose, not in the harness and suite
+  lines the publisher reads. 16d5a4a records the contained-run finding, its fix and the measurements on 6947c2d's tree in
+  docs/STEM_RESULTS.md section 10.14, with those lines; it changes documentation only, so the code is that of 6947c2d.
+  The publisher's full simulation of 16d5a4a runs before its upload.
+- Arena round 8: the translators, the combinator, the harness step and the overseer preparation are done; the overseer
+  lenses are running.
