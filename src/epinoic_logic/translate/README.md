@@ -62,7 +62,11 @@ claim, a supplied text nor the task: `introduced_figures`) is the translation's 
 ENTAILED with those premises and not without them (two internal runs), the translation is
 AMBIGUOUS_TRANSLATION (`introduced_figure`: the verdict is the translation's, not the claim's), otherwise
 a note records them (integration gate, round 1: "2010 population = 110" where the text states 200 made a
-false claim ENTAILED) → a conclusion label that states a figure its expression does not check is recorded
+false claim ENTAILED); a stated figure converted by the unit table's exact factor into its unit's SI unit or
+into the unit without its prefix is the stated figure ("50.0 cm³" or "50.0 cm3" as 0.0000500 in m³, "500 g"
+as 0.5, "72 km/h" as 20: `literal_matches(..., conversions=True)`, `unit_conversions`), for this check, the
+claim's encoded figures, the label's figures and the coverage of a source's figures, while any other factor
+stays introduced and a quotation's transcription check still reads the figure as quoted → a conclusion label that states a figure its expression does not check is recorded
 as a note (`label_beyond_expression`; a figure an interval of the conclusion holds, directly or as a
 percentage, is checked, and a number that states a precision, "2 decimal places", is no figure) and shown
 beside the label in the outcome summary, as is each "part of the claim only" note (at most three); the

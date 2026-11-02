@@ -178,7 +178,7 @@ def _conclusion_holds(problem: Problem, f) -> bool:
     if problem.conclusion is None:
         return False
     only = problem.model_copy(update={"premises": []})
-    if any(literal_matches(v, [f])[0] for v in _all_literal_values(only)):
+    if any(literal_matches(v, [f], conversions=True)[0] for v in _all_literal_values(only)):
         return True
     candidates = {f.value, f.value * f.scale} | ({f.value * f.scale * f.unit_factor} if f.unit_factor else set())
     return any(site.in_conclusion and site.kind == "interval" and site.lo is not None and site.hi is not None and site.lo <= c <= site.hi
@@ -233,8 +233,8 @@ def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
     for f in figures_in(SourceText("claim", claim.claim_id, text)):
         if f.word or is_year_like(f) or _is_code_numeral(f, text):
             continue
-        if any(literal_matches(v, [f])[0] for v in literals):
-            continue
+        if any(literal_matches(v, [f], conversions=True)[0] for v in literals):
+            continue  # typed: '50.0 cm³' is encoded by 0.0000500 (in m³) too
         candidates = {f.value, f.value * f.scale}
         if f.unit_factor:
             candidates.add(f.value * f.scale * f.unit_factor)
@@ -257,7 +257,10 @@ def introduced_figures(problem: Problem, sources: Sequence[SourceText]) -> list[
     used to reach the point, it decides the verdict while no source supports it (integration gate, round 1: '2010
     population = 110', where the text states 200, made a false claim ENTAILED). Only premises whose grounding kind says the
     figure is stated (:data:`_STATED_FIGURE_KINDS`) are read. Nothing is evaluated: literals and stated figures compare as
-    exact values."""
+    exact values. A stated figure converted into its unit's SI unit or into the unit without its prefix by the unit table's
+    exact factor is the stated figure (``literal_matches(..., conversions=True)``: '50.0 cm³' encoded as 0.0000500 in m³
+    introduces nothing; before, the check read figures as written only and made that correct conversion, on which the
+    conclusion rests, an introduced figure); a figure converted by any other factor is still introduced."""
     from .quantities import TRIVIAL_VALUES, figures_in, literal_matches
     stated = [f for src in sources for f in figures_in(src)]
     out: list[str] = []
@@ -276,7 +279,7 @@ def introduced_figures(problem: Problem, sources: Sequence[SourceText]) -> list[
         value = _fraction(lit.value)
         if value is None or abs(value) in TRIVIAL_VALUES:
             continue
-        if literal_matches(value, stated)[0]:
+        if literal_matches(value, stated, conversions=True)[0]:
             continue
         out.append(f"{pr.id} ({var.name} = {lit.value})")
     return out
@@ -438,7 +441,13 @@ def label_beyond_expression(problem: Problem) -> list[str]:
                 if scaled == v or (bounds is not None and Fraction(bounds[0]) <= scaled < Fraction(bounds[1])):
                     return True
         return any(lo <= scaled <= hi for lo, hi in intervals for scaled in (v, v / 100, v * 100))
-    figures = [m.group(0) for m in _LABEL_FIGURE_RE.finditer(concl.label) if not _PRECISION_COUNT_RE.match(concl.label, m.end())]
+    # a label figure written with a unit is checked by a literal that is it in its unit's SI unit or without the prefix
+    # ('50.0 cm³' by 0.0000500: :func:`.quantities.unit_conversions`), read where the figure stands in the label
+    from .quantities import figures_in, literal_matches
+    converted = [(f.start, f.end) for f in figures_in(SourceText("claim", concl.id, concl.label)) if f.unit is not None
+                 and any(literal_matches(lit, [f], conversions=True)[0] for lit in literals)]
+    figures = [m.group(0) for m in _LABEL_FIGURE_RE.finditer(concl.label) if not _PRECISION_COUNT_RE.match(concl.label, m.end())
+               and not any(a <= m.start() < b for a, b in converted)]
     missing = [f for f in dict.fromkeys(figures) if not checked(f)]
     if not missing:
         return []

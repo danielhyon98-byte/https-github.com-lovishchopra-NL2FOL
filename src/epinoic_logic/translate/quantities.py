@@ -60,7 +60,7 @@ __all__ = [
     "figures_in", "stated_exactness", "declared_reading", "literal_matches", "tolerance_bounds",
     "sentence_of", "is_definitional", "fraction_text", "is_year_like", "TRIVIAL_VALUES", "written_calculation_value", "approximate_text",
     "in_precision_cue", "LOWER_CASE_ABBREVIATIONS", "stated_intervals", "rounded_intervals", "interval_derivation", "figure_stated_plainly",
-    "interval_text",
+    "interval_text", "unit_conversions",
 ]
 
 SourceKind = Literal["claim", "supporting_claim", "supplied_text", "task"]
@@ -206,20 +206,64 @@ _RATIO_RE = re.compile(
 )
 _CURRENCY_BEFORE_RE = re.compile(r"(?:US\$|A\$|C\$|NZ\$|HK\$|\$|£|€|¥|₹|₩)\s?$")
 _CURRENCY_WORDS = ("dollars", "dollar", "pounds", "pound", "euros", "euro", "yen", "rupees", "krona", "kronor", "francs", "cents", "pence")
-_UNIT_TOKEN_RE = re.compile(r"\s?(?P<u>[A-Za-zµμΩ°℃][A-Za-z0-9µμΩ°⁻¹²³⁴⁵⁶⁷⁸⁹⁰/·.^\-]{0,15})")
+#: A unit written after a numeral: a letter, then up to 15 unit characters, a power written ``**3`` or ``**-1`` among them (a
+#: ``**`` before no digit, the close of a bold run, ends the unit). Bounded, and the two alternatives start with distinct
+#: characters: linear in the text.
+_UNIT_TOKEN_RE = re.compile(r"\s?(?P<u>[A-Za-zµμΩ°℃](?:[A-Za-z0-9µμΩ°⁻¹²³⁴⁵⁶⁷⁸⁹⁰/·.^\-]|\*\*(?=[-+]?\d)){0,15})")
 _SIGN_CHARS = "-−–"
+_ATOM_MARKS = "µμΩ"
 
 
-def _unit_reading(token: str) -> Optional[tuple[str, Fraction, str]]:
-    """``(unit text, SI factor, dimension name)`` of a unit written after a numeral, from the STEM unit table, or None."""
+def _ascii_exponents_glued(token: str) -> bool:
+    """Whether every ASCII digit of the unit ``token`` is an exponent glued to its atom as the STEM parser reads one after a
+    number (``stem.parser._ascii_unit_exponent``), and one such digit is there: a hyphen-minus or plus and one digit 1 to 9
+    right after a letter (``s-1``, ``dm-3``, ``mol-1``), or one digit 2 to 9 right after an atom of two or more letters
+    (``cm3``, ``dm3``); a digit after ``^`` or ``**`` is the written power the plain reading already reads. Never: more digits
+    or a decimal (``K-273``, ``m-1.5``), a one-letter atom's glued digit (``m2`` may be m₂, ``H2`` a formula). One pass."""
+    seen = False
+    n = len(token)
+    for i, ch in enumerate(token):
+        if not "0" <= ch <= "9":
+            continue
+        if i + 1 < n and ("0" <= token[i + 1] <= "9" or token[i + 1] == "."):
+            return False
+        j = i - 1 if i >= 1 and token[i - 1] in "-+" else i
+        if j >= 1 and token[j - 1] in "^*":
+            continue  # a written power: '^-1', '**3'
+        if j < i:
+            if j >= 1 and (token[j - 1].isalpha() or token[j - 1] in _ATOM_MARKS) and ch != "0":
+                seen = True
+                continue
+            return False
+        if i >= 2 and all(token[k].isalpha() or token[k] in _ATOM_MARKS for k in (i - 1, i - 2)) and "2" <= ch <= "9":
+            seen = True
+            continue
+        return False
+    return seen
+
+
+def _parse_written_unit(token: str, after_number: bool):
+    """The STEM unit table's reading of ``token``; after a number, an ASCII exponent glued to its atom too
+    (:func:`_ascii_exponents_glued`: '50.0 cm3', '0.10 mol dm-3', as supplied texts write them). None when unreadable."""
+    from ..stem.units import parse_unit  # imported here: the STEM package imports adapters that import this layer
+    try:
+        expr = parse_unit(token)
+        if expr is None and after_number and _ascii_exponents_glued(token):
+            expr = parse_unit(token, ascii_exponents=True)
+    except Exception:  # an unreadable unit is no unit
+        return None
+    return expr
+
+
+def _unit_reading(token: str, after_number: bool = False) -> Optional[tuple[str, Fraction, str]]:
+    """``(unit text, SI factor, dimension name)`` of a unit written after a numeral, from the STEM unit table, or None.
+    With ``after_number`` (the unit stands right after a figure) an ASCII exponent glued to its atom is read as the STEM
+    parser reads it there (``cm3``, ``mol dm-3``, ``m s-1``); a meaning's declaration and a lone word read none."""
     token = token.rstrip(".,;:)").strip()
     if not token or len(token) > 16:
         return None
-    from ..stem.units import dimension_name, parse_unit  # imported here: the STEM package imports adapters that import this layer
-    try:
-        expr = parse_unit(token)
-    except Exception:  # an unreadable unit is no unit
-        return None
+    from ..stem.units import dimension_name  # see _parse_written_unit
+    expr = _parse_written_unit(token, after_number)
     if expr is None or not expr.known or len(expr.readings) != 1:
         return None
     reading = expr.readings[0]
@@ -518,16 +562,40 @@ def _figure_unit(text: str, end: int) -> tuple[int, Optional[str], Optional[Frac
         lowered = token.lower().rstrip(".,;:)")
         if lowered in _CURRENCY_WORDS:
             return u.start("u") + len(token.rstrip(".,;:)")), lowered, None, "currency", scale, scale_word
-        # a two-word unit ("km h⁻¹", "m s⁻¹") before a one-word one
-        two = re.match(r"\s?([A-Za-zµμ°]{1,4}\s[A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*)", text[end:end + 24])
+        # a two-word unit ("km h⁻¹", "m s⁻¹", "mol dm-3", "m s**-1") before a one-word one
+        two = re.match(r"\s?([A-Za-zµμ°]{1,4}\s[A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*(?:\*\*[-+]?\d)?)", text[end:end + 24])
         if two is not None:
-            reading = _unit_reading(two.group(1))
-            if reading is not None:
+            reading = _unit_reading(two.group(1), after_number=True)
+            if reading is not None and not _subtraction_after(text, end + two.end(1), reading[0]):
                 return end + two.end(1), reading[0], reading[1], reading[2], scale, scale_word
-        reading = _unit_reading(token)
-        if reading is not None:
+        reading = _unit_reading(token, after_number=True)
+        if reading is not None and not _subtraction_after(text, u.start("u") + len(reading[0]), reading[0]):
             return u.start("u") + len(reading[0]), reading[0], reading[1], reading[2], scale, scale_word
     return end, None, None, None, scale, scale_word
+
+
+_NEXT_ATOM_RE = re.compile(r"[ \t]{1,4}([A-Za-zµμΩ]{1,4})(?![A-Za-z])")
+
+
+def _subtraction_after(text: str, end: int, unit: str) -> bool:
+    """Whether the ASCII exponent that ends ``unit`` (at ``end`` of ``text``) is a subtraction: a sign and a digit glued to
+    an atom, then a spaced atom of the same dimension ('5 m-3 m' subtracts two lengths; the STEM parser's reading). A
+    unit that ends no such exponent, or a plain reading, is never one."""
+    if len(unit) < 3 or not ("0" <= unit[-1] <= "9") or unit[-2] not in "-+" or unit[-3] in "^*":
+        return False
+    nxt = _NEXT_ATOM_RE.match(text, end)
+    if nxt is None:
+        return False
+    from ..stem.units import lookup_atom
+    k = len(unit) - 2
+    a = k
+    while a > 0 and (unit[a - 1].isalpha() or unit[a - 1] in _ATOM_MARKS):
+        a -= 1
+    try:
+        here, there = lookup_atom(unit[a:k]), lookup_atom(nxt.group(1))
+    except Exception:
+        return False
+    return bool(here and there and here[0].dim is not None and there[0].dim is not None and here[0].dim.same_physical(there[0].dim))
 
 
 def _sign_and_currency(text: str, start: int) -> tuple[int, int, Optional[str]]:
@@ -1544,10 +1612,47 @@ def _show(value: Fraction) -> str:
     return f"{value.numerator}/{value.denominator}"
 
 
-def literal_matches(literal: Fraction, figures: Iterable[StatedFigure], declared: DeclaredReading = DeclaredReading("none")) -> tuple[list[Match], list[str]]:
+@lru_cache(maxsize=1024)
+def unit_conversions(unit: str) -> tuple[tuple[Fraction, str], ...]:
+    """The exact factors that turn a figure written in ``unit`` (a figure's unit as :func:`figures_in` reads it) into the same
+    quantity in the coherent SI unit (``cm³`` 1/1000000: m³; ``g`` 1/1000: kg; ``km/h`` 5/18: m/s; ``mL`` 1/1000000: m³) and in
+    the same unit without its prefixes (``mL`` 1/1000: L; ``kg`` 1000: g; ``km h⁻¹`` 1000: m h⁻¹), each with its name. Read
+    through the STEM unit table, every power as written (``cm³``, ``cm^3``, ``cm**3``, ``cm3``). Empty for a unit with no
+    such factor: an unknown or ambiguous unit, a dimensionless one (percentages are read apart), an angle, a temperature
+    in degrees Celsius or Fahrenheit (an offset, not a factor), or a unit that is already its own SI unit."""
+    expr = _parse_written_unit(unit, True)
+    if expr is None or not expr.known or len(expr.readings) != 1:
+        return ()
+    r = expr.readings[0]
+    if r.dim is None or r.factor is None or r.affine is not None or r.dim.angle or r.dim.is_dimensionless:
+        return ()
+    out: list[tuple[Fraction, str]] = []
+    if r.factor != 1:
+        out.append((r.factor, "its SI unit"))
+    plain = Fraction(1)
+    for a in r.atoms:
+        if a.unit is None or not a.unit.factor or a.factor is None:
+            return tuple(out)
+        plain *= a.factor / a.unit.factor ** a.power
+    if plain not in (1, r.factor):
+        out.append((plain, "its unit without the prefix"))
+    return tuple(out)
+
+
+def literal_matches(literal: Fraction, figures: Iterable[StatedFigure], declared: DeclaredReading = DeclaredReading("none"),
+                    conversions: bool = False) -> tuple[list[Match], list[str]]:
     """The stated figures an IR ``literal`` corresponds to, each with its derivation, and the reasons a figure of the same
     number does NOT correspond under the symbol's declared reading (a unit mismatch). Values compare by magnitude: a
-    text states a fall as a positive figure ("fell by 12")."""
+    text states a fall as a positive figure ("fell by 12").
+
+    With ``conversions`` a figure written with a unit also corresponds to its value in that unit's coherent SI unit or in
+    the unit without its prefix (:func:`unit_conversions`: "50.0 cm³" is 0.0000500 in m³, "500 g" 0.5 in kg, "25 mL" 0.025 in
+    L), when the symbol declares no reading of its own (a declared unit admits the conversion into that unit only, as
+    before). Only exact table factors: a figure converted by any other factor (0.000500 or 0.5 for 50.0 cm³, 0.0050 in dm³
+    for 5.0 cm³) corresponds to nothing. The readers that ask whether a figure is the one a source STATES ask for it
+    (an introduced figure, a figure of the claim the conclusion encodes); the transcription check of a quotation does not
+    (``grounding``: a quoted figure is grounded as written, the overseer's rule ``excerpt-prefix-units`` reads its
+    conversions)."""
     target = abs(literal)
     matches: list[Match] = []
     conflicts: list[str] = []
@@ -1567,6 +1672,10 @@ def literal_matches(literal: Fraction, figures: Iterable[StatedFigure], declared
                 conv = f.unit_factor / declared.factor
                 if conv != 1:
                     candidates.append((scaled * conv, f"{f.written} = {_show(scaled * conv)} in the symbol's declared unit", Fraction(f.scale) * conv, "converted"))
+            if conversions and declared.kind == "none" and declared.scale == 1 and f.unit is not None and f.unit_factor is not None:
+                for conv, into in unit_conversions(f.unit):
+                    candidates.append((scaled * conv, f"{f.written} = {_show(scaled)} x {_show(conv)} = {_show(scaled * conv)} in {into}",
+                                       Fraction(f.scale) * conv, "unit_conversion"))
         for value, derivation, factor, implies in candidates:
             if value != target:
                 continue
