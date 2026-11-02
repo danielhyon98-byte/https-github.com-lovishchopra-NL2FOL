@@ -1316,3 +1316,10 @@ Work in progress after it is labelled as such.
   The publisher's full simulation of 16d5a4a runs before its upload.
 - Arena round 8: the translators, the combinator, the harness step and the overseer preparation are done; the overseer
   lenses are running.
+
+### Progress, 10:00 UTC (2 November)
+
+- The publisher's full simulation of 16d5a4a (the code of 6947c2d): the suite with the recorded rounds gave 16,876
+  passed, 45 deselected, 0 failed, and the harness on round 7 gave 177 of 177; the contained run on the recorded rounds
+  is in progress. The upload follows only if every gate passes.
+- Arena round 8: the overseer lenses are running.
