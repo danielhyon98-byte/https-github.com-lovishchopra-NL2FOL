@@ -774,6 +774,10 @@ one hub run.
   - A receipt finding the shadow does not raise is **RCPT-005**.
   - A different status is **RCPT-008**, unless an undecided engine run on either side explains
     the difference. Then it is **RES-008**.
+  - A STEM check the channel's check budget left undecided is compared as the channel states it, on
+    either side, when the cut is the image of the channel's budget rule (rule `budget-cut`, section 49):
+    a note, or **RES-008** for a reduced budget the plan's deadline does not account for and for the
+    shadow's own budget; never an accusation.
 - It catches channel state corrupted between transfers, findings that were dropped, and
   environment nondeterminism.
 - **When it runs.** In contained testing it runs on every task. In production it runs on tasks
@@ -4970,3 +4974,60 @@ in the raw response and stops inside a token the response goes on with now has i
 in `docs/ARGUMENT_DIAGNOSTICS.md` section 8), needs deterministic readers that show a receipt finding false and a new pack
 version; it is left open (see the round's report).
 
+
+## 49. Integration gate round 4 on the overseer: what changed and why
+
+Independent lenses ran on the integrated tree before arena round 8. Their one finding on the overseer is fixed at its cause
+with regression tests in `tests/overseer/test_gate4_shadow_budget.py` (no test weakened, deleted or rewritten).
+
+**Decision 87 (rule `budget-cut`, major).** The channel decides a report's STEM checks under a wall-clock budget
+(`channel.bus.STEM_CHECK_BUDGET_S`, 8 s, or the smaller per-channel `stem_budget_s` the integration checks port sets to what
+its deadline leaves) and states every STEM check left when it is spent as not run: `satisfied` null, no result id, a detail
+ending "not run: the report's STEM check budget (8 s) was spent", and INT-SUBJ-002 "check budget". Non-STEM checks are not
+budgeted. On a loaded machine the hub's receipt honestly stated its late checks so; the shadow replay (B5, section 6), run
+later with time to decide them, raised each failure the receipt could not have (one OVS-RCPT-004 per check: "raises
+INT-SUBJ-001 ... which its receipt lacks") and named each not-run warning unreproduced (OVS-RCPT-005), so the faithful
+transfer was AUDIT_FAILED. Whether it was depended on machine load: the lens ran three audited Physics hubs in parallel on
+1,200 wrong steps (`x = 20/4.0 = 6.0. `) and one of the three failed (122 checks decided, 6 cut); the middle-dot rule of
+integration gate 3, which runs a check holding a middle dot under both readings, spends the budget sooner. The shadow already treated an undecided engine
+run (TIMEOUT, UNKNOWN) under the channel's configuration as the environment (OVS-RES-008); a check the budget left was not
+treated so.
+
+No replay can reproduce where a clock ran out, so the comparison now replays the receipt's cut instead of re-deciding it: for
+each check the receipt states not run under its budget, the shadow's findings on that check's run (INT-SUBJ-001, -002, -004
+and INT-XENC-001, each naming the run's result id) give way to the INT-SUBJ-002 the channel writes for a check its budget
+left (its claims, the report), and a side whose status was ACCEPTED becomes ACCEPTED_WITH_FINDINGS as the channel's status
+rule makes it for any finding. Every other finding, the status, coverage, constraint results and display statuses are
+compared as before, so a receipt that cut checks but dropped their INT-SUBJ-002 is still OVS-RCPT-004.
+
+The receipt's cut is replayed only when it is the image of the channel's budget rule, read from the journal and the shadow's
+own re-derivation:
+
+- every check it names is a STEM check the branch packs derive from the journaled report, of the kind they derive;
+- it is the end of the report's STEM checks in the packs' order: once the budget is spent the channel leaves every later STEM
+  check, so a STEM check after the first one the cut names that the receipt states otherwise refutes it;
+- its checks state one budget, written as the channel writes it (`{:g}`), at least 0 s and at most the module budget (bound at
+  import);
+- the journal does not stamp the transfer sooner after the transfer before it than that budget (an observed call starts after
+  the previous event's snapshot, and the channel's budget runs inside the call; a 50 ms tolerance for the two clocks). With no
+  earlier transfer journaled the duration is not bounded and the note says so.
+
+A cut that is not the rule's image is compared as the shadow decides it, so a failure a forged cut hides (a check in the
+middle, a budget the journal's timing refutes, a budget above the module's or written otherwise, two budgets) stays
+OVS-RCPT-004, and a coverage note says why the cut was not replayed. A replayed cut under the module budget is a coverage
+note: the audit verdict no longer depends on machine load. A replayed cut under a smaller budget is a note when the plan's
+deadline accounts for it (the deadline left at most that budget, plus 2 s for the second the port writes the deadline to,
+at the end of the transfer); otherwise it is OVS-RES-008, a warning that names the budget, never an accusation: the journal
+does not record a channel's budget, so a budget starved between transfers cannot be told from one a deadline set. The checks
+the shadow's own budget left undecided that the receipt decided are compared in the not-run form too, with OVS-RES-008 (the
+auditor's environment), as an undecided run of the shadow's is.
+
+What the rule cannot tell, stated: a channel patched to state its last STEM checks not run, in the channel's exact form and
+summary, on a transfer that really took longer than the budget it states, or under a reduced budget with no deadline (then
+OVS-RES-008), is replayed as a genuine cut. That is a patch to the channel's code active during the transfer, which the
+shadow's documented limit already leaves to the receipt-level rules: a forged cut that leaves the summary as the channel
+wrote it is OVS-RCPT-007 ("Report's own formal checks: 5 (0 ok, 5 FAILED, 0 undecided)" against its structured fields). The
+checks a cut leaves are never shown as success: the receipt states them undecided, INT-SUBJ-002 keeps the formal path of the
+delivery policy incomplete (rule `unchecked-working`), and R1 and R2 have no run of them to vouch for. Journaling a channel's
+effective STEM check budget with each event (`channel.events._channel_json`) would let the shadow hold the stated budget to
+the channel's; it is outside the overseer and noted for the channel's owner.

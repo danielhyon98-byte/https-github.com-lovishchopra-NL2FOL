@@ -102,13 +102,20 @@ QUALIFIER_CASES = [
     ("The war lasted at most four years.", "The war lasted four years.", "drops the bound"),
     ("Only a minority of deputies supported the plan in 1929.", "Most deputies supported the plan in 1929.", "reverses a minority or a majority"),
     ("A few deputies backed the Young Plan.", "Nearly all deputies backed the Young Plan.", "reverses a minority or a majority"),
+    # Integration gate 4 (stricter rule; this pair was a control before): "more than" in front of a figure is a comparative
+    # bound, and "rose by 10 percent" for "rose by more than 10 percent" delivers the limit as the quantity
+    ("Wages rose by more than 10 percent.", "Wages rose by 10 percent.", "the bound is dropped"),
 ]
 QUALIFIER_CONTROLS = [
     ("The policy may have worked.", "The policy may have worked."),
     ("The policy may have worked.", "The policy of appeasement worked in the short term because the guarantees delayed the attack."),
     ("American loans usually stabilised the currency.", "American loans generally stabilised the currency."),
     ("Unemployment reached at least 6 million in 1932.", "Unemployment reached at least 6 million in 1932."),
-    ("Wages rose by more than 10 percent.", "Wages rose by 10 percent."),  # a comparison, not a bound: its figure may be exact
+    # a comparison whose figure is an exact one of the other side ("more than the 10 percent rise in prices", "far fewer than
+    # the 1,000 of linear search") is no bound on it, and a bound kept in other words is kept
+    ("Wages rose by more than the 10 percent rise in prices.", "Prices rose by 10 percent."),
+    ("Binary search needs 20 comparisons, far fewer than the 1,000 of linear search.", "Linear search needs 1,000 comparisons."),
+    ("Wages rose by more than 10 percent.", "Wages rose by over 10 percent."),
     ("The most decisive factor was the crash of 1929.", "A few historians see the crash of 1929 as decisive."),  # a superlative, not a majority
     ("Most deputies supported the plan.", "Most deputies supported the plan."),
 ]

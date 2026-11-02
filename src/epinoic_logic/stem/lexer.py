@@ -38,7 +38,8 @@ Token kinds:
 ``PUNCT``    a full stop that is not a decimal point, ``?``, ``…``
 ``QUOTE``    a quotation mark
 ``OTHER``    any other single character (``✓``, ``#``, an en dash between numbers ...)
-``ERROR``    an unknown LaTeX command or a character of another script (a confusable)
+``ERROR``    an unknown LaTeX command, a character of another script (a confusable) or a sign outside the grammar
+             (:data:`SIGN_ERROR`: by its name, or by its place between two numerals; integration gates 3 and 4)
 
 Every token records ``space`` (whitespace or LaTeX spacing right before it), so ``m s``
 (metre second) and ``ms`` (millisecond) stay different and juxtaposition can be told from
@@ -59,8 +60,8 @@ from .numbers import (
     scan_number, superscript_int,
 )
 
-__all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "SIGN_ERROR", "Token", "combination_at",
-           "is_sign_error", "lex", "sign_outside_grammar"]
+__all__ = ["COMBINATION", "COMPLETE_UNSUP", "FUNCTIONS", "GREEK", "LATEX_GREEK", "LexResult", "PERMUTATION", "RELATION_LOOKALIKES", "SIGN_ERROR",
+           "Token", "combination_at", "is_sign_error", "lex", "sign_outside_grammar"]
 
 LexMode = Literal["plain", "latex"]
 
@@ -181,6 +182,28 @@ _RELATION_NAME_WORDS = ("EQUAL", "LESS-THAN", "GREATER-THAN", "TILDE", "APPROXIM
 _OPERATOR_NAME_WORDS = ("PLUS", "MINUS", "TIMES", "MULTIPLICATION", "DIVISION", "PRODUCT", "OPERATOR", "PROPORTION", "SOLIDUS", "SLASH", "ROOT")
 #: the words of the signs of set membership and inclusion, which relate no values (left as they were: unknown characters)
 _SET_NAME_WORDS = ("ELEMENT", "SUBSET", "SUPERSET", "CONTAINS", "SUBGROUP")
+#: integration gate 4 (rule sign-forms in every category): the categories outside Sm whose characters are signs by their Unicode name:
+#: modifier and other symbols, dashes, other punctuation and combining marks. Letters, digits, brackets, quotation marks, connectors,
+#: currency signs and invisible format characters never are (a bracket named 'LEFT ARC LESS-THAN BRACKET' stays a bracket)
+_NAMED_SIGN_CATEGORIES = frozenset({"Sk", "So", "Pd", "Po", "Mn", "Me"})
+#: integration gate 4: the whole words of a Unicode name that make a character of those categories a relation sign: 'HEAVY EQUALS SIGN'
+#: (an emoji models emit), 'MODIFIER LETTER SHORT EQUALS SIGN', 'APL FUNCTIONAL SYMBOL QUAD EQUAL', 'EQUALS SIGN WITH INFINITY BELOW',
+#: 'COMBINING EQUALS SIGN BELOW', 'COMBINING ALMOST EQUAL TO ABOVE', 'APL FUNCTIONAL SYMBOL QUAD LESS-THAN'
+_ANY_RELATION_WORDS = frozenset({"EQUAL", "EQUALS", "LESS-THAN", "GREATER-THAN"})
+#: integration gate 4: the phrases of a Unicode name that make a character of those categories an operator: 'MODIFIER LETTER PLUS SIGN',
+#: 'MODIFIER LETTER MINUS SIGN', 'VERY HEAVY SOLIDUS', 'DOTTED SOLIDUS', 'FULLWIDTH REVERSE SOLIDUS' ('GINGER ROOT', 'CIRCLED ZERO WITH
+#: SLASH' and 'BLACK DIAMOND MINUS WHITE X' are no operators)
+_ANY_OPERATOR_PHRASES = ("PLUS SIGN", "MINUS SIGN", "MULTIPLICATION SIGN", "DIVISION SIGN", "SOLIDUS")
+#: integration gate 4 (rule sign-forms in every category): characters drawn as a relation sign the grammar reads whose Unicode name does not
+#: say so and which have uses of their own (a hyphen or a full stop of another script, a frame line, a trigram, a phonetic mark): the Unicode
+#: confusables of '=' U+1400 CANADIAN SYLLABICS HYPHEN and U+A4FF LISU PUNCTUATION FULL STOP, the double-bar forms U+02ED MODIFIER LETTER
+#: UNASPIRATED, U+2550 BOX DRAWINGS DOUBLE HORIZONTAL, U+268C DIGRAM FOR GREATER YANG, U+3013 GETA MARK and U+2E17 DOUBLE OBLIQUE HYPHEN,
+#: '≡' drawn as U+2630 TRIGRAM FOR HEAVEN, and '<' '>' drawn as U+02C2 U+02C3 MODIFIER LETTER LEFT / RIGHT ARROWHEAD. They stay unknown
+#: characters in the lexer (a frame line or a menu sign around working absorbs nothing); the unread-relation rule names one that stands
+#: between two operands (``document._relation_sign``, ST-PARSE-001), and one between two numerals is kept in its run like any sign there
+#: (:func:`_sign_between_numerals`). The heavy and short equals signs U+1F7F0 and U+A78A and the double hyphens U+30A0 and U+2E40 are '=' in
+#: the reading view (``normalize.SIGN_FORMS``).
+RELATION_LOOKALIKES = frozenset("\u02c2\u02c3\u02ed\u1400\u2550\u268c\u2630\u2e17\u3013\ua4ff")
 
 
 @lru_cache(maxsize=2048)
@@ -193,11 +216,30 @@ def sign_outside_grammar(ch: str) -> str:
     (``spans``), so the relation holding it is named undecided (ST-PARSE-001) instead of being cut at it into a fragment that is
     checked ('3 ⨯ 4 = 12' read as '4 = 12', an error on correct work) or dropped with nothing named ('20/4.0 ≒ 6'); the
     unread-relation rule names a relation sign of this kind that no run holds. The signs of sets (∈, ⊂, ⊆), arrows, ∵ and the
-    other symbols relate no values and stay unknown characters, as before."""
-    if len(ch) != 1 or ch.isascii() or unicodedata.category(ch) != "Sm":
+    other symbols relate no values and stay unknown characters, as before.
+
+    Integration gate 4 (rule sign-forms in every category): the rule had read category Sm only, so an equals sign of another category
+    ('🟰' HEAVY EQUALS SIGN, an emoji; '꞊'; '⯹'; '⌸') was read as nothing and named nothing, and a wrong step written with one crossed the
+    hub ACCEPTED. A character of the categories :data:`_NAMED_SIGN_CATEGORIES` whose name holds a whole word of
+    :data:`_ANY_RELATION_WORDS` is a relation sign, and one whose name holds a phrase of :data:`_ANY_OPERATOR_PHRASES` an operator
+    ('˖', '˗', '⹊', '＼'). The characters drawn as a relation sign whose name does not say so are :data:`RELATION_LOOKALIKES`, which
+    the unread-relation rule reads; the invisible characters (the invisible operators of mathematical text among them) are blanks in
+    the reading view (``normalize``)."""
+    if len(ch) != 1 or ch.isascii():
         return ""
+    category = unicodedata.category(ch)
     name = unicodedata.name(ch, "")
-    if not name or any(w in name for w in _SET_NAME_WORDS):
+    if not name:
+        return ""
+    if category != "Sm":
+        if category not in _NAMED_SIGN_CATEGORIES:
+            return ""
+        if not _ANY_RELATION_WORDS.isdisjoint(name.split()):
+            return "relation"
+        if any(p in name for p in _ANY_OPERATOR_PHRASES):
+            return "operator"
+        return ""
+    if any(w in name for w in _SET_NAME_WORDS):
         return ""
     if any(w in name for w in _RELATION_NAME_WORDS):
         return "relation"
@@ -206,8 +248,48 @@ def sign_outside_grammar(ch: str) -> str:
     return ""
 
 
+#: integration gate 4 (rule sign-forms by place): the categories of a character outside the grammar that is a sign when it stands between
+#: two numerals: symbols, other punctuation and combining marks (never a dash, which is a range there: '3–5 s'; a bracket; a quotation
+#: mark; a connector; a currency sign; an invisible format character)
+_PLACE_SIGN_CATEGORIES = frozenset({"Sm", "So", "Sk", "Po", "Mn", "Me"})
+#: the token kinds a numeral ends with: a number, a closing bracket, a superscript, a degree or percent sign
+_NUMERAL_END = frozenset({"NUM", "RPAR", "SUP", "DEGREE", "PERCENT"})
+#: at most this many blanks between such a sign and the numeral before it or after it
+_PLACE_GAP = 2
+#: the words of the names of the signs integration gate 3 left as unknown characters, which the place rule leaves so too: the signs of sets
+#: ('2 ∈ (1, 3)'), the arrows ('2 ↦ 4') and the connective ∵
+_PLACE_EXCEPT_WORDS = _SET_NAME_WORDS + ("ARROW", "BECAUSE")
+
+
+def _sign_between_numerals(s: str, i: int, n: int, toks: list) -> bool:
+    """Integration gate 4 (rule sign-forms by place): the character ``s[i]``, outside the grammar and of a category of
+    :data:`_PLACE_SIGN_CATEGORIES`, stands between two numerals on one line: the token before it ends a numeral and a numeral starts
+    after it (a digit, a bracket, or a sign or a decimal point glued to a digit), each at most :data:`_PLACE_GAP` blanks away. Bounded
+    look-behind and look-ahead (constant work per character). Whatever the character (a bullet '3 • 4', a box-drawing diagonal '20 ╱ 4.0',
+    a heavy asterisk, an emoji, an Arabic decimal separator '3٫5'), it is a sign there: it had ended the run, so the numeral after it
+    began a fragment that was checked ('x = 3 • 4 = 12' read as '4 = 12': an error on correct work; '20/4.0 🍎 6.0' read as the binding
+    a = 5 with nothing named) and the symbol before it was bound to a part of the expression ('x = 3'). The signs of sets, the arrows and
+    ∵ are read as before (:data:`_PLACE_EXCEPT_WORDS`)."""
+    if not toks or s[i].isascii() or unicodedata.category(s[i]) not in _PLACE_SIGN_CATEGORIES:
+        return False
+    if any(w in unicodedata.name(s[i], "") for w in _PLACE_EXCEPT_WORDS):
+        return False
+    prev = toks[-1]
+    if prev.kind not in _NUMERAL_END or not (0 <= i - prev.end <= _PLACE_GAP) or any(c not in " \t" for c in s[prev.end:i]):
+        return False
+    j = i + 1
+    while j < n and j - i - 1 < _PLACE_GAP and s[j] in " \t":
+        j += 1
+    if j >= n:
+        return False
+    c = s[j]
+    if "0" <= c <= "9" or c in "([":
+        return True
+    return c in ".+-" and j + 1 < n and "0" <= s[j + 1] <= "9"
+
+
 def is_sign_error(t: "Token") -> bool:
-    """An ``ERROR`` token of a mathematical sign outside the grammar (:func:`sign_outside_grammar`)."""
+    """An ``ERROR`` token of a sign outside the grammar (:func:`sign_outside_grammar`, or by its place: :func:`_sign_between_numerals`)."""
     return t.kind == "ERROR" and isinstance(t.value, str) and t.value.startswith(SIGN_ERROR)
 
 
@@ -936,6 +1018,12 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             # integration gate 3 (rule sign-forms): a relation sign or an operator the grammar does not read ('⨯', '∘', '≪', '≔'): an
             # ERROR token that its run keeps, so the relation holding it is undecided, never cut at it
             emit("ERROR", ch, i, i + 1, value=f"{SIGN_ERROR} ({kind_of_sign} {ch!r}, {unicodedata.name(ch, '')[:60].lower()})")
+            i += 1
+            continue
+        if _sign_between_numerals(s, i, n, toks):
+            # integration gate 4 (rule sign-forms by place): any other sign between two numerals ('3 • 4', '20 ╱ 4.0', '4.0 ═ 6.0') is a
+            # sign outside the grammar there: kept in its run, so the relation holding it is undecided, never cut into a fragment
+            emit("ERROR", ch, i, i + 1, value=f"{SIGN_ERROR} (a sign between two numerals {ch!r}, {unicodedata.name(ch, '')[:60].lower()})")
             i += 1
             continue
         emit("OTHER", ch, i, i + 1)

@@ -410,7 +410,8 @@ Features only, never text:
   the student text's digest;
 - **per output** (one per transfer, keyed by its message id): role (`answer` or `synthesis`), agent id, subject, branch,
   STEM; size (characters, words, paragraphs); claims (total, material, eligible, translated); the engine statuses of its
-  claims and checks (counts per status); the receipt's status, error codes and warning codes; the named diagnostics
+  claims and checks (counts per status; a branch or STEM check under its own verdict, section 8); the receipt's status,
+  error codes and warning codes; the named diagnostics
   (codes; connected in phase 2); unverified dependencies; peer relays; repeated faults (from the overseer port);
 - **topology**: `single`, `duplicate`, or `combined` with its N sources and its synthesis;
 - **limits**: `max_instances` and the profiles the overseer offers.
@@ -486,7 +487,14 @@ and the router's identity.
 **Per claim.** Six definitive statuses, verdicts about the encoding only: positive ENTAILED, CONSISTENT, SATISFIABLE;
 negative COUNTEREXAMPLE, INCONSISTENT_PREMISES, UNSATISFIABLE. Seven non-results: UNKNOWN, TIMEOUT, UNSUPPORTED,
 INVALID_FORMALIZATION, AMBIGUOUS_TRANSLATION, NOT_ELIGIBLE, INTERNAL_ERROR. `NOT_ATTEMPTED` is the kit's marker for an
-eligible claim that was skipped (cap, budget, provider unavailable, STEM budget): a non-result.
+eligible claim that was skipped (cap, budget, provider unavailable, STEM budget): a non-result. A branch or STEM check of
+the report's own statements (`source` `branch_check` or `stem`) is listed and counted under its own verdict, never under
+the raw engine status (`claims.branch_check_formal`, integration gate 4): positive when the check holds (the raw status
+when it is positive, else ENTAILED: a Boolean identity or a stated operation on both sides holds when the engine answers
+UNSATISFIABLE, "the two sides differ" having no model), negative when it fails (the raw status when it is negative, else
+COUNTEREXAMPLE), UNKNOWN when it is undecided (a vacuous check, or inconsistent premises the check does not count as a
+failure) and `NOT_ATTEMPTED` when it was not run. The receipt keeps the raw status, which the overseer compares with the
+signed result; the routing request counts the same verdicts (section 7a.2).
 
 **Per answer** (`delivery.decide`, `website/src/verify/decision-table.js`; vectors `vectors/decision-table/`). Rows in
 order, first match wins; only material claims count where a row says so:

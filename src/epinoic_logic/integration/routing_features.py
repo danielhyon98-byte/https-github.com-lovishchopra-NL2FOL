@@ -17,7 +17,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
-from .protocol import FORMAL_VALUES, NOT_ATTEMPTED, PROTOCOL, dump
+from .claims import branch_check_formal
+from .protocol import PROTOCOL, dump
 from .router_port import PORT_VERSION, REQUEST_SCHEMA, RoutingRequest, check_request
 from .verifier import claim_is_eligible
 
@@ -59,8 +60,11 @@ def output_features(rec: OutputRecord) -> dict:
         statuses[s] = statuses.get(s, 0) + 1
         if o.verification is not None:
             unverified += len(o.verification.unverified_dependencies) + len(o.verification.ungrounded_dependencies)
+    # a branch or STEM check counts under its own verdict (claims.branch_check_formal: its polarity folded in), never its raw
+    # engine status, so a correct Boolean identity (UNSATISFIABLE "sides differ") is no negative output (integration gate 4)
+    stem = (getattr(receipt, "branch", None) or "generic") in _STEM_BRANCHES
     for fc in getattr(receipt, "formal_checks", []) or []:
-        s = fc.formal_status if fc.formal_status in FORMAL_VALUES else NOT_ATTEMPTED
+        s, _attempt = branch_check_formal(fc, stem=stem)
         statuses[s] = statuses.get(s, 0) + 1
     findings = getattr(receipt, "findings", []) or []
     errors = sorted({f.code for f in findings if f.severity == "error" and _CODE.match(f.code) and not f.code.startswith("OVS-")})

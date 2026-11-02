@@ -1266,3 +1266,13 @@ Work in progress after it is labelled as such.
   synthesis ledger, such as a widened quantifier or a dropped attribution, and one laxer contract check in the arena
   harness). With parser safety's 4 findings, also none critical, two of the three lenses are clean of critical findings;
   the correctness lens is finishing its full suite run.
+
+### Progress, 03:00 UTC (2 November)
+
+- Integration gate, round 4, is complete. Its 3 lenses reported 17 findings, 1 of them critical: the integration claims
+  took a check's verdict from the raw engine status and ignored its polarity, so checks whose sound answer is
+  UNSATISFIABLE (Boolean identities in STEM working) came out inverted. 23 findings were fixed, including that one and
+  further critical input stalls the fixers' sweep found in the synthesis ledger's readers, and committed as 1965f07 after
+  an independent verification: suite 16,810 passed, 12 skipped, 45 deselected, 0 failed.
+- Integration gate, round 5, started at 02:52 on 1965f07 with the correctness lens, the only lens that had a critical
+  finding in round 4. When no critical finding is left, the pre-round-8 upload follows.

@@ -4126,3 +4126,81 @@ without the markers, states 5.0: a correct answer is AUDIT_FAILED (OVS-FID-003).
 underscore pair is kept out of the markup a claim leaves out, so the new reading of '_5.0 m s⁻²_' adds no such failure.
 
 No existing test was rewritten, weakened or deleted.
+
+## 38. Integration gate 4: the STEM finding before arena round 8
+
+The parser-safety lens of integration gate 4 found one STEM major: round 3's rule sign-forms read only the mathematical symbols of
+Unicode category Sm, so an equals sign of another category, and the characters drawn as one, were read as nothing and named nothing.
+It is fixed at its cause. The sweep for its class (every non-ASCII symbol, punctuation mark, combining mark and format character, set
+in a relation's place and between two numerals) found three further shapes, two of which failed correct working; each is fixed where it
+went wrong and listed with its rule. `tests/stem/test_integration_gate4_stem.py` pins every one through the hub (the finding through
+the audited hub, as the lens reproduced it) with clean controls, sweeps the class character by character, and bounds the new readings
+on hostile input of about 20,000 characters; the gate-3 sign-forms tests carry the eight characters the lens reported.
+
+- **Sign forms in every category** (rule sign-forms; `normalize.SIGN_FORMS`, `lexer.sign_outside_grammar`, `lexer.RELATION_LOOKALIKES`,
+  `document._relation_sign`). The finding: U+1F7F0 HEAVY EQUALS SIGN (So, an emoji models emit), U+A78A MODIFIER LETTER SHORT EQUALS
+  SIGN (Sk), U+02ED MODIFIER LETTER UNASPIRATED (Sk), U+30A0 KATAKANA-HIRAGANA DOUBLE HYPHEN (Pd), U+2E40 DOUBLE HYPHEN (Pd), U+2550
+  BOX DRAWINGS DOUBLE HORIZONTAL, U+268C DIGRAM FOR GREATER YANG and U+3013 GETA MARK (So), written for '=' in the wrong step
+  'a = (20 − 0)/4.0 <sign> 6.0 m s⁻²', each gave ACCEPTED with no finding, no structural finding and no formal check, and the transfer
+  audit passed (fail-open); in Mathematics 'x = 3 + 4 ꞊ 8' drew only the heuristic INT-REQ-004. Now the equals signs of other
+  categories ('🟰', '꞊') and the double hyphens ('゠', '⹀') are '=' in the reading view, one character for one, so the step is checked
+  (INT-SUBJ-001, c = 5, r = 6) and correct working holds (ENTAILED). A character of the categories Sk, So, Pd, Po, Mn and Me whose
+  Unicode name holds the whole word EQUAL, EQUALS, LESS-THAN or GREATER-THAN ('⯹', '⌸', '⍯', '⍃', the combining U+0347) is a relation
+  sign outside the grammar, and one whose name holds 'PLUS SIGN', 'MINUS SIGN', 'MULTIPLICATION SIGN', 'DIVISION SIGN' or 'SOLIDUS'
+  ('˖', '˗', '⹊', '＼', '🙼') an operator outside it: the ERROR token its run keeps, so the relation is undecided (ST-PARSE-001). A
+  bracket ('⦓ LEFT ARC LESS-THAN BRACKET'), an invisible tag and a symbol whose name only mentions a sign ('GINGER ROOT', 'CIRCLED ZERO
+  WITH SLASH', 'BLACK DIAMOND MINUS WHITE X') are none. The characters drawn as a relation sign whose name does not say so
+  (`RELATION_LOOKALIKES`: the Unicode confusables of '=' U+1400 CANADIAN SYLLABICS HYPHEN and U+A4FF LISU PUNCTUATION FULL STOP, the
+  double-bar forms '˭', '═', '⚌', '〓' and U+2E17 DOUBLE OBLIQUE HYPHEN, '≡' drawn as U+2630 TRIGRAM FOR HEAVEN, '<' and '>' drawn as the
+  modifier arrowheads U+02C2 and U+02C3) stay unknown characters in the lexer, since each has a use of its own (a frame line, a menu
+  sign, a hyphen or full stop of another script) where a run must not absorb it ('══════' over working, 'Click ☰ to open the menu');
+  the unread-relation rule names one that stands between two operands ('x ═ 6', ST-PARSE-001), and one between two numerals is kept in
+  its run by the next rule ('4.0 ═ 6.0').
+- **Sign forms by place** (rule sign-forms by place; `lexer._sign_between_numerals`). The sweep: of the 11,205 non-ASCII symbols,
+  punctuation marks, combining marks and format characters, 10,853, written between two numerals in correct working
+  ('x = 3 <c> 4 = 12'), ended the run, so the numeral after them began a fragment that was checked and the symbol before them was bound
+  to a part of the expression: INT-SUBJ-001 on correct working ('x = 3 • 4 = 12' read as '4 = 12', c = 4, r = 12, and x bound to 3;
+  'a = (20 − 0) ╱ 4.0 = 5.0' read as '4.0 = 5.0'). Among them a bullet '•', the asterisks '✱ ⁎ ٭', the Greek crosses '✚ ✙', the
+  box-drawing diagonal '╱', the dotted and heavy solidi '⹊ 🙼', the reverse solidi '﹨ ＼', U+27CB MATHEMATICAL RISING DIAGONAL (category
+  Sm, but its name holds no operator word) and the Arabic decimal separator '٫'. Now a character of the categories Sm, So, Sk, Po, Mn
+  and Me that the grammar does not read, standing at most two blanks after the end of a numeral (a number, a closing bracket, a
+  superscript, a degree or percent sign) and at most two blanks before the start of one (a digit, an opening bracket, a sign or a point
+  glued to a digit), on one line, is a sign outside the grammar there: its run keeps it, so the relation is undecided (ST-PARSE-001),
+  nothing is bound to a fragment, and a wrong step written with an unknown sign ('a = (20 − 0)/4.0 🍎 6.0 m s⁻²', read as the binding
+  a = 5 with nothing named) is named. The look-behind and look-ahead are bounded (constant work per character). The signs round 3 left
+  as unknown characters stay so ('2 ∈ (1, 3)', '2 ↦ 4', '∵'), a dash between numbers is a range ('3–5 s'), and a sign after a word, a
+  unit or a symbol (an inline list: 'm = 2 kg • v = 3 m s⁻¹', 'x = 5 • y = 6') is read as before. The 906 characters of the 11,205 that
+  are still not read as a sign between numerals are the signs of the grammar (there the relation after them is a written chain, not a
+  fragment) and the categories the rule leaves: dashes, brackets, quotation marks, connectors, currency signs, format characters (now
+  blanks, below) and the spacing marks of other scripts. A sign outside the grammar between a symbol and a numeral ('a ✱ 4 = 12') still
+  ends the run; the rule reads numerals only, so that an inline list after a unit is read as before. A number glued right after a sign
+  outside the grammar that is itself glued to what precedes it ('5•3', '3⨯4') is no value the prose states (`document._prose_numbers`,
+  as after an unknown character), so the bullet's new reading adds no prose value ('The values are 5•3 and 7.' states 5 and 7).
+- **Invisible characters** (`normalize._IGNORABLE_RANGES`, the reading view). The emoji presentation selector U+FE0F follows the dingbat
+  signs as models write them ('✖', '➕' or '🟰' then U+FE0F); unread, it ended the run right after the sign it presents, so 'x = 3 ✖ 4 = 12'
+  with U+FE0F after the sign was read as '4 = 12' (INT-SUBJ-001 on correct working, c = 4, r = 12) and 'x = 3 ➕ 4 = 7' so written as
+  '4 = 7'. Every other Unicode default-ignorable code point between two numerals (a left-to-right mark, a bidirectional isolate, a soft
+  hyphen, U+2062 INVISIBLE TIMES, a tag character) did the same where a blank leaves the relation named unread. They are blanks in the
+  reading view now, as the zero-width characters already were (the ranges are those of the overseer's rule invisible): a hidden
+  character splits a token but never joins two, never cuts a relation, and an invisible operator is read as it is drawn, as nothing
+  ('a', INVISIBLE TIMES, 'b' is the juxtaposition 'a b').
+- **A relation sign after a sign outside the grammar** (the run reader of `spans`). A relation sign right after a sign outside the
+  grammar ('x = 3 + 4 ⨯ = 8') ended the run; no run starts right after such a sign and the unread-relation rule reads no relation sign
+  beside one, so the relation was dropped with nothing named (round 3's rule; only the heuristic INT-REQ-004 was left). The run goes on
+  through the relation sign now, and the relation is named undecided (ST-PARSE-001). An answer that is nothing but '⨯ = 5' is named so
+  too, where it had been an answer with no words (INT-REQ-012).
+
+The recorded rounds hold none of these characters in a STEM answer (one soft hyphen stands in an English answer of the adversarial round
+1), so the new readings add no check and change no outcome there (results: `docs/STEM_RESULTS.md`, section 10.13).
+
+Found while sweeping and left for a later round, as outside this rule (no error comes from them on the recorded rounds): a degree sign
+written as U+02DA RING ABOVE or U+00BA MASCULINE ORDINAL INDICATOR ('sin 30˚ = 0.5', 'sin 30º = 0.5') is read as nothing (no check, no
+finding), and one written as a superscript zero ('sin 30⁰ = 0.5') is read as the power 30⁰ = 1, so the correct value fails
+(INT-SUBJ-001): a superscript zero after a value has two readings, which the parser does not yet keep apart. A bidirectional override in
+an answer can make the working a reader sees differ from the working that is checked; the STEM reading view now reads it as a blank, and
+whether the channel should name it in a specialist's response, as the synthesis contract does, is the core owner's to decide.
+
+Tests changed: `tests/stem/test_integration_gate3_stem.py` was rewritten to a stricter rule, not weakened: three of its sign-forms tests
+gained the eight characters the lens reported as cases (the four '=' forms must be checked with c = 5, r = 6 and c = 7, r = 8; the four
+named look-alikes must keep their relation undecided and named, ST-PARSE-001), and no case was removed or relaxed. No other test was
+rewritten, weakened or deleted.

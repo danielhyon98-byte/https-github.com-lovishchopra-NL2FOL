@@ -886,6 +886,15 @@ class _RunFinder:
                     pass
                 elif kind == "ERROR" and is_sign_error(t):
                     pass  # integration gate 3 (rule sign-forms): a sign outside the grammar before its operand ('∜16'): the run goes on
+                elif kind == "REL" and k > i and is_sign_error(toks[k - 1]):
+                    # integration gate 4 (rule sign-forms): a relation sign right after a sign outside the grammar ('3 + 4 ⨯ = 8', '3 + 4 ≒ = 8'):
+                    # the run goes on through it, so the relation is named undecided (ST-PARSE-001). It had ended the run, no run starts
+                    # right after such a sign and the unread-relation rule reads no sign beside one, so the relation was dropped with
+                    # nothing named
+                    if not stack:
+                        has_rel_at.append(k)
+                    else:
+                        inner = len(stack) if not inner else min(inner, len(stack))
                 elif kind == "ERROR":
                     operand = False
                 else:

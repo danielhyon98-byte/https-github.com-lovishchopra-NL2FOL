@@ -26,6 +26,19 @@ so an offset in any view is the same offset in the original.
       stand for, one character for one. Before, each was an unknown character: a step written with ``＝`` had no relation, no check
       and no finding, and one written with ``＋`` or ``／`` was cut at it (``3 ＋ 4 = 7`` read as ``4 = 7``, an error on correct work).
       Every other mathematical sign the grammar does not read is an ``ERROR`` token of the lexer (``lexer.sign_outside_grammar``);
+    * integration gate 4 (rule sign-forms in every category): the equals signs of other categories, U+1F7F0 HEAVY EQUALS SIGN ``🟰`` (an
+      emoji models emit) and U+A78A MODIFIER LETTER SHORT EQUALS SIGN ``꞊``, and the double hyphens drawn as ``=``, U+30A0
+      KATAKANA-HIRAGANA DOUBLE HYPHEN ``゠`` and U+2E40 DOUBLE HYPHEN ``⹀``, become ``=``. Before, each was read as nothing and named
+      nothing: a wrong step written with one crossed the hub ACCEPTED with no check and no finding. The other look-alikes of a relation
+      sign are the lexer's (``lexer.RELATION_LOOKALIKES``, read by the unread-relation rule);
+    * integration gate 4: every other invisible character (a Unicode default-ignorable code point: the variation selectors, the soft
+      hyphen, the bidirectional marks, embeddings, overrides and isolates, the invisible operators of mathematical text, the tag
+      characters, the fillers) becomes a space, as the zero-width characters do: it is read as it is drawn, as nothing between two
+      tokens (``a``, U+2062 INVISIBLE TIMES, ``b`` is the juxtaposition ``a b``). Unread, such a character ended the run and let a run
+      start right after it, as a blank does not: the emoji presentation selector U+FE0F, which follows the dingbat signs as models
+      write them (``✖``, ``➕`` or ``🟰`` then U+FE0F), cut ``x = 3 ✖ 4 = 12`` so written into ``4 = 12`` (an error on correct
+      work), and an invisible mark between two numerals (INVISIBLE TIMES, a left-to-right mark, a soft hyphen) did the same to
+      ``x = 3 4 = 12``, whose relation, with a blank, is named unread (ST-PARSE-001);
     * ``×`` stays its own token; superscript and subscript digits and signs stay as they
       stand (nothing is expanded). Letters of other scripts are left alone, so a Cyrillic
       ``а`` that looks like a Latin ``a`` is never read as one: the lexer rejects it.
@@ -53,8 +66,16 @@ _ZERO_WIDTH = {"​": " ", "‌": " ", "‍": " ", "⁠": " ", "﻿": " "}
 SIGN_FORMS = {"＝": "=", "﹦": "=", "⩵": "=", "＜": "<", "＞": ">", "﹤": "<", "﹥": ">", "≦": "≤", "≧": "≥",
               "＋": "+", "﹢": "+", "➕": "+", "－": "-", "﹣": "-", "➖": "-", "＊": "*", "﹡": "*", "✕": "×",
               "✖": "×", "／": "/", "⁄": "/", "➗": "÷", "（": "(", "）": ")", "﹙": "(", "﹚": ")", "［": "[",
-              "］": "]", "∶": ":", "∼": "~", "∆": "Δ"}
-_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | SIGN_FORMS
+              "］": "]", "∶": ":", "∼": "~", "∆": "Δ",
+              # integration gate 4 (rule sign-forms in every category): the heavy and short equals signs and the double hyphens drawn as '='
+              "\U0001f7f0": "=", "\ua78a": "=", "\u30a0": "=", "\u2e40": "="}
+#: integration gate 4: the Unicode default-ignorable code points (DerivedCoreProperties, assigned or not), invisible like the zero-width
+#: characters, become a space (module docstring)
+_IGNORABLE_RANGES = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F),
+                     (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8),
+                     (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF))
+_INVISIBLE = {chr(c): " " for a, b in _IGNORABLE_RANGES for c in range(a, b + 1)}
+_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | _INVISIBLE | SIGN_FORMS
 _DASHES = frozenset({"–", "‒"})
 #: characters after which '+/-' written before a number is a plus-or-minus sign (STEM repair 4)
 _PLUS_MINUS_BEFORE = frozenset(" \t\n(=:,;[")

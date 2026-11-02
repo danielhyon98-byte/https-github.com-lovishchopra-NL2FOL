@@ -472,6 +472,22 @@ delivers as '= 5.0 m s⁻².') is a figure the response states (rule `emphasis-f
 was AUDIT_FAILED with OVS-FID-003; `tests/overseer/test_integration_gate3_handoff.py`). Tests:
 `tests/overseer/test_gate1_overseer_fixes.py`.
 
+**After integration gate round 4** (design section 49, decision 87): the shadow replay (B5) no longer accuses a faithful
+transfer whose STEM checks ran past the channel's STEM check budget. The channel decides a report's STEM checks under a
+wall-clock budget (`channel.bus.STEM_CHECK_BUDGET_S`, 8 s, or the smaller `stem_budget_s` the integration checks port sets
+from what its deadline leaves) and states every check left when it is spent as not run (`satisfied` null, no result,
+INT-SUBJ-002 "check budget"); on a loaded machine the shadow, with time to decide those checks, raised one OVS-RCPT-004 per
+check and OVS-RCPT-005, so the audit verdict depended on machine load. Rule `budget-cut` replays the receipt's cut instead:
+each check the receipt states not run under its budget is compared in that form, everything else as before. The cut is
+replayed only when it is the image of the channel's budget rule (STEM checks the packs derive, of their kind; the end of
+the report's STEM checks in the packs' order; one budget, written as the channel writes it, at most the module budget; a
+transfer the journal does not stamp sooner after the one before it than that budget); otherwise the shadow compares the
+checks as it decides them, so a failure a forged cut hides stays OVS-RCPT-004, and a cut whose INT-SUBJ-002 was dropped is
+OVS-RCPT-004 too. A cut under the module budget, or under a smaller one the plan's deadline accounts for, is a coverage note
+(the audit passes); a cut under a smaller budget the deadline does not account for, and checks the shadow's own budget left
+undecided that the receipt decided, are OVS-RES-008 (a warning, never an accusation). Tests:
+`tests/overseer/test_gate4_shadow_budget.py`.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and

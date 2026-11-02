@@ -13,15 +13,24 @@ Figures for the synthesis-fidelity comparison (INT-LEDGER-0xx) include scientifi
 and its normalised mantissa-exponent form, so ``3.0e8``, ``3.0 × 10⁸`` and ``300000000`` are
 the same figure and ``6.67 × 10⁻¹¹`` is never read as 6.67 and 10. Figures with no exponent
 are read as before.
+
+The lexical readers are bounded on the largest syntheses the contract admits (integration gate 4): the aligned reading
+by a step budget per claim and per synthesis (rule ``align-bound``, :data:`ALIGN_STEP_BOUND`), the per-claim readers by
+the claim text one synthesis compares (rule ``read-bound``, :data:`LEDGER_READ_BOUND`) and the quotation searches by
+quotations times characters searched (rule ``quote-bound``, :data:`QUOTE_SCAN_BOUND`). A claim a bound stops is named in
+INT-LEDGER-026, never shown as compared; a cited claim's readings are kept per text (:data:`_KEPT_TEXT_CHARS`), so a claim
+cited many times is read once.
 """
 from __future__ import annotations
 
 import re
 from bisect import bisect_left, bisect_right
 from functools import lru_cache
-from typing import Iterable, Optional
+from types import MappingProxyType
+from typing import Iterable, Mapping, Optional
 
 from ..translate.contracts import ClaimRecord, SpecialistReport
+from ..translate.grounding import BoundedLRU
 from .contracts import CERTAINTY_RANK, IntegrityFinding, Synthesis
 
 PLACEHOLDERS = frozenset({"n/a", "na", "-", ".", "tbd", "see above", "none", "null", "nil", "todo", "?", "x", "...", "as above", "same",
@@ -242,10 +251,44 @@ def _word_figures(text: str, *, pairing: bool = False) -> list[tuple[int, int, s
     return sorted(out + extra)
 
 
+#: The longest text whose readings the ledger keeps (integration gate 4): a claim at its cap (4,000 characters), so a cited
+#: claim is read once per check however many synthesized claims cite it, while a longer text (the cited sources joined
+#: for one claim, a student-facing text) is read where it is needed and not kept. Each reader's memo is a module-level
+#: ``BoundedLRU`` (``translate.grounding``) bounded by entries and by the characters of the texts behind them, so a
+#: long-running service keeps a bounded amount (the test suite's timing conditions empty them); one synthesis compares at
+#: most :data:`LEDGER_READ_BOUND` characters, well within one memo.
+_KEPT_TEXT_CHARS = 4000
+_KEPT_MAX_ENTRIES = 8192
+_KEPT_MAX_CHARS = 1_000_000
+_NOT_KEPT = object()
+
+
+def _kept(memo: "BoundedLRU", key, text: str, read):
+    """``read()`` for ``text``, kept in ``memo`` under ``key`` (weighed by the text's characters)."""
+    held = memo.get(key, _NOT_KEPT)
+    if held is _NOT_KEPT:
+        held = read()
+        memo.put(key, held, weight=len(text))
+    return held
+
+
 def _words_as_digits(text: str) -> str:
     """``text`` with its figures written in words rewritten as digits ("close to a million" -> "close to 1 million",
     "roughly a tenth" -> "roughly 0.1", "under nine" -> "under 9", "ten hours" -> "10 hours"), so the pairing and dating
-    readers see them as figures."""
+    readers see them as figures. Kept per text (:data:`_KEPT_TEXT_CHARS`)."""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _words_as_digits_kept(text)
+    return _read_words_as_digits(text)
+
+
+_WORDS_AS_DIGITS_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _words_as_digits_kept(text: str) -> str:
+    return _kept(_WORDS_AS_DIGITS_KEPT, text, text, lambda: _read_words_as_digits(text))
+
+
+def _read_words_as_digits(text: str) -> str:
     figs = _word_figures(text, pairing=True)
     if not figs:
         return text
@@ -401,7 +444,20 @@ def _plain_for_pairs(text: str) -> str:
     """The text the pairing readers work on: superscript and subscript marks folded away (:func:`fold_exponent_marks`),
     list markers and thousands separators removed (a separated quantity that would then read as a year, "1,500",
     becomes "1500.0"), decades written "1840s", figures written in words rewritten as digits (so "roughly a tenth" pairs
-    like "about 13 per cent")."""
+    like "about 13 per cent"). Kept per text (:data:`_KEPT_TEXT_CHARS`)."""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _plain_for_pairs_kept(text)
+    return _read_plain_for_pairs(text)
+
+
+_PLAIN_FOR_PAIRS_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _plain_for_pairs_kept(text: str) -> str:
+    return _kept(_PLAIN_FOR_PAIRS_KEPT, text, text, lambda: _read_plain_for_pairs(text))
+
+
+def _read_plain_for_pairs(text: str) -> str:
     text = fold_exponent_marks(text)
     for rx, rep in _MATH_MARKUP:
         text = rx.sub(rep, text)
@@ -551,11 +607,25 @@ def _equation_clauses(tokens: list[str]) -> list[list[str]]:
     return out
 
 
-def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], dict[str, str]]:
+def _figure_partners(text: str) -> tuple[frozenset[tuple[str, str]], Mapping[str, str], Mapping[str, str]]:
     """``(pairs, kinds, surface)``: every ``(figure, partner)`` of ``text``, the kind of each figure, and the word each
     stemmed partner was first seen as. A partner is an event word within :data:`_WORD_WINDOW` tokens of the figure in
     the same clause (light-stemmed, prefixed ``w:``) that has no nearer figure of the same kind, or another figure within
-    :data:`_FIGURE_WINDOW` tokens (prefixed ``f:``). Unit words and function words are not partners."""
+    :data:`_FIGURE_WINDOW` tokens (prefixed ``f:``). Unit words and function words are not partners. Kept per text
+    (:data:`_KEPT_TEXT_CHARS`), in read-only forms."""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _figure_partners_kept(text)
+    return _read_figure_partners(text)
+
+
+_FIGURE_PARTNERS_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _figure_partners_kept(text: str) -> tuple[frozenset[tuple[str, str]], Mapping[str, str], Mapping[str, str]]:
+    return _kept(_FIGURE_PARTNERS_KEPT, text, text, lambda: _read_figure_partners(text))
+
+
+def _read_figure_partners(text: str) -> tuple[frozenset[tuple[str, str]], Mapping[str, str], Mapping[str, str]]:
     pairs: set[tuple[str, str]] = set()
     kinds: dict[str, str] = {}
     surface: dict[str, str] = {}
@@ -578,10 +648,17 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
                 if j != i:
                     pairs.add((tok, "f:" + other))
         clause_kinds = {k for _i, _t, k in figs}
+        lows = [t.casefold() for t in clause]
+        # The positions of the clause's "and", ascending (read by bisection): "and" joins two dated statements of one subject
+        # ("The war began in 1914 and ended in 1918", "signed in March 1802 and broke down in May 1803"), so an event word
+        # between two figures of one kind belongs to the statement on its own side of the "and" (:func:`_own_conjunct`;
+        # integration gate 4: 'broke' stood two tokens from 1802 and four from 1803, and a faithful "Signed in March 1802,
+        # the Peace of Amiens broke down in May 1803." was charged with re-pairing 1803).
+        ands = [k for k, w in enumerate(lows) if w == "and"]
         for j, word in enumerate(clause):
             if _is_numeral(word):
                 continue
-            low = word.casefold()
+            low = lows[j]
             if low in _PARTNER_STOP or len(low) < 3 or light_stem(low) in _REASONING_STEMS:
                 continue
             key = "w:" + _partner_stem(low)
@@ -589,19 +666,23 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
             # "announced on 22 October and in force from 24 October" 'force' belongs to 24, not to 22 as well.
             window = figs[bisect_left(positions, j - _WORD_WINDOW):bisect_right(positions, j + _WORD_WINDOW)]
             for kind in clause_kinds:
-                near = [(abs(i - j), tok) for i, tok, k in window if k == kind]
+                near = [(i, tok) for i, tok, k in window if k == kind]
                 if not near:
                     continue
-                best = min(d for d, _t in near)
-                for d, tok in near:
-                    if d == best:
+                if ands:
+                    near = _own_conjunct(near, j, ands)
+                best = min(abs(i - j) for i, _t in near)
+                for i, tok in near:
+                    if abs(i - j) == best:
                         surface.setdefault(key, low)
                         add_word(tok, key)
+        if ands and len(figs) >= 2:
+            for tok, key in _shared_subject(clause, lows, figs, positions, ands, pairs):
+                add_word(tok, key)
         # "rises from 2.4 to 4.0": both ends of a from-to change stand with the words of the change, so "rises to 4.0"
         # states the end the source states and re-pairs nothing; and both stand with the series the change is of, the
         # words before "from" back to the previous figure ("the crude death rate in Country X fell from 11 to 7"), so
         # a synthesis that gives the death rate the birth rate's figures exchanges them.
-        lows = [t.casefold() for t in clause]
         for a_i in [k + 1 for k, w in enumerate(lows[:-1]) if w == "from" and _is_numeral(clause[k + 1])]:
             b_i = next((k + 1 for k in range(a_i + 1, min(len(clause) - 1, a_i + 6)) if lows[k] == "to" and _is_numeral(clause[k + 1])), None)
             if b_i is None:
@@ -627,7 +708,84 @@ def _figure_partners(text: str) -> tuple[set[tuple[str, str]], dict[str, str], d
                 add_word(b, q)
             for q in words_b:
                 add_word(a, q)
-    return pairs, kinds, surface
+    return frozenset(pairs), MappingProxyType(kinds), MappingProxyType(surface)
+
+
+def _own_conjunct(near: list[tuple[int, str]], j: int, ands: list[int]) -> list[tuple[int, str]]:
+    """The figures of one kind near the event word at ``j`` (``(position, figure)``) that stand in the word's own statement:
+    when figures of that kind stand on both sides of the word and an "and" separates the word from the nearest one on one
+    side only, the figures across that "and" are left out ("began in 1914 and ended in 1918": 'ended' is 1918's; "signed in
+    March 1802 and broke down in May 1803": 'broke' is 1803's). A word with figures on one side only keeps them ("In 1939
+    Britain and France declared war": 'France' stands with 1939). Two bisections over ``ands``."""
+    before = [i for i, _t in near if i < j]
+    after = [i for i, _t in near if i > j]
+    if not before or not after:
+        return near
+    nb, na = max(before), min(after)
+    k = bisect_right(ands, nb)
+    and_before = k < len(ands) and ands[k] < j
+    k = bisect_right(ands, j)
+    and_after = k < len(ands) and ands[k] < na
+    if and_before and not and_after:
+        return [(i, t) for i, t in near if i > j]
+    if and_after and not and_before:
+        return [(i, t) for i, t in near if i < j]
+    return near
+
+
+#: Auxiliaries that open a verb phrase ("was signed", "had begun"): with a past form (an -ed word, an irregular past or
+#: participle) the words of the pairing reader taken for a verb (:func:`_verb_form`).
+_AUXILIARIES = frozenset("was were is are has had have been became become becomes".split())
+#: Adverbs that may stand between "and" and the verb of the second statement ("and later collapsed").
+_LINK_ADVERBS = frozenset("later soon again also subsequently eventually finally quickly gradually".split())
+#: How far after its "and" the date of a second statement may stand ("and broke down in May 1803": five tokens).
+_SECOND_STATEMENT_REACH = 8
+
+
+def _verb_form(low: str) -> bool:
+    """A word the pairing reader takes for a verb: an auxiliary, an irregular past form or participle
+    (:data:`_IRREGULAR_FORMS`) or a word of five letters or more ending in -ed ("ended", "signed", "ratified")."""
+    return low in _AUXILIARIES or low in _IRREGULAR_FORMS or (len(low) >= 5 and low.endswith("ed") and low.isalpha())
+
+
+def _shared_subject(clause: list[str], lows: list[str], figs: list[tuple[int, str, str]], positions: list[int], ands: list[int],
+                    pairs: set[tuple[str, str]]) -> list[tuple[str, str]]:
+    """``(figure, partner)`` pairs of the subject two dated statements of one clause share (integration gate 4): "The war
+    began in 1914 and ended in 1918" states two events of the war, so 'war', which stands within the window of 1914 only,
+    stands with 1918 as well, and a faithful "Having begun in 1914, the war ended in 1918." pairs nothing differently. The
+    second statement opens with a verb after its "and" (past one adverb: "and later collapsed"), so it has no subject of its
+    own ("and the Ten Hours Act of 1847" has one: nothing is shared); the subject is the event words before the clause's
+    first verb (:func:`_verb_form`) that the first statement's figure already stands with, at most :data:`_WORD_WINDOW` of
+    them. Bounded work per "and": its second figure within :data:`_SECOND_STATEMENT_REACH` tokens, its first figure the
+    nearest before it."""
+    first_verb = next((k for k, w in enumerate(lows) if _verb_form(w)), None)
+    if first_verb is None:
+        return []
+    kind_at = {i: k for i, _t, k in figs}
+    out: list[tuple[str, str]] = []
+    for a in ands:
+        nxt = a + 1
+        if nxt < len(lows) and (lows[nxt] in _LINK_ADVERBS or (lows[nxt].endswith("ly") and len(lows[nxt]) >= 5)):
+            nxt += 1
+        if nxt >= len(lows) or not _verb_form(lows[nxt]):
+            continue
+        p = bisect_left(positions, a)
+        if p == 0:
+            continue
+        i1 = positions[p - 1]  # the first statement's figure: the nearest before the "and"
+        if first_verb >= i1:
+            continue
+        i2 = next((i for i in positions[p:bisect_right(positions, a + _SECOND_STATEMENT_REACH)] if kind_at[i] == kind_at[i1]), None)
+        if i2 is None:
+            continue
+        for k in range(max(0, i1 - _WORD_WINDOW), first_verb):
+            low = lows[k]
+            if _is_numeral(clause[k]) or low in _PARTNER_STOP or len(low) < 3 or light_stem(low) in _REASONING_STEMS:
+                continue
+            key = "w:" + _partner_stem(low)
+            if (clause[i1], key) in pairs:
+                out.append((clause[i2], key))
+    return out
 
 
 def _partner_stem(word: str) -> str:
@@ -1015,8 +1173,22 @@ def _quotations_masked(text: str) -> str:
     return "".join(out)
 
 
-def _sentences_of(text: str, *, quotations: bool = False) -> list[list[str]]:
-    """The sentences of ``text`` as tokens; quoted spans masked unless ``quotations``."""
+def _sentences_of(text: str, *, quotations: bool = False) -> tuple[tuple[str, ...], ...]:
+    """The sentences of ``text`` as tokens; quoted spans masked unless ``quotations``. Kept per text
+    (:data:`_KEPT_TEXT_CHARS`)."""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _sentences_of_kept(text, quotations)
+    return _read_sentences_of(text, quotations)
+
+
+_SENTENCES_OF_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _sentences_of_kept(text: str, quotations: bool) -> tuple[tuple[str, ...], ...]:
+    return _kept(_SENTENCES_OF_KEPT, (text, quotations), text, lambda: _read_sentences_of(text, quotations))
+
+
+def _read_sentences_of(text: str, quotations: bool) -> tuple[tuple[str, ...], ...]:
     body = text if quotations else _quotations_masked(text)
     toks = _PAIR_TOKEN_RE.findall(_strip_list_markers(_mask_math(body)))
     sentences: list[list[str]] = [[]]
@@ -1025,7 +1197,7 @@ def _sentences_of(text: str, *, quotations: bool = False) -> list[list[str]]:
             sentences.append([])
         else:
             sentences[-1].append(t)
-    return [s for s in sentences if s]
+    return tuple(tuple(s) for s in sentences if s)
 
 
 def _first_word(sent: list[str]) -> int:
@@ -1034,13 +1206,33 @@ def _first_word(sent: list[str]) -> int:
 
 def _mid_capitalised(texts: list[str]) -> set[str]:
     """Name words written capitalised away from the start of a sentence in ``texts`` (quotations included): what a
-    sentence-initial word is folded against."""
+    sentence-initial word is folded against. Each text is read once (integration gate 4: the claims of every cited report
+    were read again for every synthesized claim, twice; :func:`_mid_capitalised_of`)."""
     out: set[str] = set()
     for t in texts:
-        for sent in _sentences_of(t, quotations=True):
-            first = _first_word(sent)
-            out.update(_name_word(x) for k, x in enumerate(sent) if k != first and _is_cap_word(x))
+        out |= _mid_capitalised_of(t)
     return out
+
+
+def _mid_capitalised_of(text: str) -> frozenset[str]:
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _mid_capitalised_kept(text)
+    return _read_mid_capitalised(text)
+
+
+_MID_CAPITALISED_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _mid_capitalised_kept(text: str) -> frozenset[str]:
+    return _kept(_MID_CAPITALISED_KEPT, text, text, lambda: _read_mid_capitalised(text))
+
+
+def _read_mid_capitalised(text: str) -> frozenset[str]:
+    out: set[str] = set()
+    for sent in _sentences_of(text, quotations=True):
+        first = _first_word(sent)
+        out.update(_name_word(x) for k, x in enumerate(sent) if k != first and _is_cap_word(x))
+    return frozenset(out)
 
 
 def _identifies(word: str) -> bool:
@@ -1119,8 +1311,23 @@ def _actors(text: str, mid_caps: set[str]) -> list[tuple[tuple[str, ...], str, f
 
 
 def _stated_words(texts: list[str]) -> set[str]:
-    """Every word ``texts`` state, folded as name words, quotations included (a name a source quotes, it states)."""
-    return {_name_word(x) for t in texts for sent in _sentences_of(t, quotations=True) for x in sent if not _is_numeral(x)}
+    """Every word ``texts`` state, folded as name words, quotations included (a name a source quotes, it states). Each
+    text is read once (:data:`_KEPT_TEXT_CHARS`)."""
+    out: set[str] = set()
+    for t in texts:
+        out |= _stated_words_kept(t) if len(t) <= _KEPT_TEXT_CHARS else _read_stated_words(t)
+    return out
+
+
+_STATED_WORDS_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _stated_words_kept(text: str) -> frozenset[str]:
+    return _kept(_STATED_WORDS_KEPT, text, text, lambda: _read_stated_words(text))
+
+
+def _read_stated_words(text: str) -> frozenset[str]:
+    return frozenset(_name_word(x) for sent in _sentences_of(text, quotations=True) for x in sent if not _is_numeral(x))
 
 
 def substituted_names(synthesized_text: str, source_texts: list[str], transformation: str, *, context_texts: tuple[str, ...] | list[str] = ()) -> list[str]:
@@ -1152,8 +1359,9 @@ def substituted_names(synthesized_text: str, source_texts: list[str], transforma
     stated = _stated_words(source_texts)
     src = [a for t in source_texts for a in _actors(t, mid_caps)]
     syn_words = set().union(*(set(a[0]) for a in syn))
+    syn_stated = _stated_words([synthesized_text])  # read once (integration gate 4: it was read again for every name of every cited source)
     dropped = sorted({surface for ident, surface, _sl in src if ident[0] not in _ACTOR_PRONOUNS and not set(ident) & syn_words
-                      and not any(w in _stated_words([synthesized_text]) for w in ident)})
+                      and not any(w in syn_stated for w in ident)})
     out: list[str] = []
     seen: set[tuple[str, ...]] = set()
     for ident, surface, slots in syn:
@@ -1406,10 +1614,12 @@ _CANON_SHOWN = {canon: shown for _re, canon, shown in _CANON_PHRASES}
 _PARENTHETICAL_RE = re.compile(r"\([^()]{0,300}\)")
 
 
+@lru_cache(maxsize=65536)
 def _akey(word: str) -> str:
     """The aligned comparison's key of a word: :func:`light_stem` applied twice, so the singular and plural of a noun
     ending in -ing compare equal ("shilling", "shillings"), after a final -ies or -ied is read as -y ("territories",
-    "territory"; "carried", "carry")."""
+    "territory"; "carried", "carry"). Memoised (a pure function of the word; integration gate 4: every token of every
+    cited text was stemmed again for every synthesized claim citing it)."""
     w = word.casefold()
     if len(w) > 4 and w.endswith(("ies", "ied")):
         w = w[:-3] + "y"
@@ -1474,6 +1684,10 @@ _OPPOSED: tuple[tuple[frozenset[str], frozenset[str], str], ...] = (
     (_stems("legal lawful legally lawfully constitutional constitutionally peaceful peacefully nonviolent parliamentary electoral"),
      _stems("violent violently illegal unlawful unconstitutional forceful forcibly coercive coercion terror intimidation"), "lawful or violent means"),
     (_stems("true verdadero verdadera vrai vraie correct right"), _stems("false falso falsa faux incorrect wrong"), "a true/false verdict"),
+    # integration gate 4: a change of the source stated as no change ("the flow fell sharply" -> "the flow continued
+    # unchanged", "stayed the same", "was unaffected"); "continued to fall" carries the change and is no reversal
+    (_stems(" ".join(sorted(_RISE_WORDS | _FALL_WORDS))), _stems("unchanged unaffected unaltered undiminished same steady stable constant flat static stagnant "
+                                                                "stagnated continued"), "a change or its absence"),
 )
 #: Verbs of comparison whose passive reverses the comparison ("working-age people outnumber dependants" -> "are outnumbered
 #: by dependants"): the active form, and the passive with its agent.
@@ -1524,9 +1738,24 @@ _ALIGN_STOP = _PARTNER_STOP | frozenset(("his her him he she they them we our yo
                                          "accordingly besides").split())
 
 
-def _align_tokens(text: str) -> list[tuple[str, str]]:
+def _align_tokens(text: str) -> tuple[tuple[str, str], ...]:
     """``(key, surface)`` per token of ``text``: words light-stemmed and case-folded, numerals as written (thousands
-    separators removed), decades as "1840s", and the canonical phrases (:data:`_CANON_PHRASES`) as one token."""
+    separators removed), decades as "1840s", and the canonical phrases (:data:`_CANON_PHRASES`) as one token. A text of
+    at most :data:`_KEPT_TEXT_CHARS` characters is read once (integration gate 4: every cited claim and each of its
+    sentences was tokenized again for every synthesized claim citing it, and twice per claim)."""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _align_tokens_kept(text)
+    return _read_align_tokens(text)
+
+
+_ALIGN_TOKENS_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _align_tokens_kept(text: str) -> tuple[tuple[str, str], ...]:
+    return _kept(_ALIGN_TOKENS_KEPT, text, text, lambda: _read_align_tokens(text))
+
+
+def _read_align_tokens(text: str) -> tuple[tuple[str, str], ...]:
     plain = _DECADE_RE.sub(lambda m: m.group(1) + "s", _ungroup(_PARENTHETICAL_RE.sub(" ", fold_exponent_marks(text))))
     for rx, canon, _shown in _CANON_PHRASES:
         plain = rx.sub(canon, plain)
@@ -1535,7 +1764,7 @@ def _align_tokens(text: str) -> list[tuple[str, str]]:
         w = m.group(0)
         low = w.casefold()
         out.append((low if low[:1].isdecimal() or low in _CANON_SHOWN else _akey(low), _CANON_SHOWN.get(low, w)))
-    return out
+    return tuple(out)
 
 
 #: A multiplier stated as a verb or an adverb ("prices doubled", "tripled", "halved", "a tenfold rise"): the count it states
@@ -1624,10 +1853,11 @@ def _reversal(syn_keys: list[str], src_keys: list[str]) -> Optional[str]:
     return None
 
 
-def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str], list[str]]:
+def aligned_changes(synthesized_text: str, source_text: str, *, budget: Optional["_AlignBudget"] = None) -> tuple[list[str], list[str]]:
     """``(figure_changes, meaning_changes)``: where ``synthesized_text`` copies a statement of ``source_text`` word for word
-    around one changed place (difflib alignment of the light-stemmed tokens; the change must stand between copied words
-    on both sides, at least three copied words in all; a replaced content word two on each side, four in all):
+    around one changed place (alignment of the light-stemmed tokens by their common runs, :func:`_align_opcodes`; the
+    change must stand between copied words on both sides, at least three copied words in all; a replaced content word two
+    on each side, four in all):
 
     * a small count written in words changed ("about a shilling a day" -> "about two shillings a day", "two contingents"
       -> "three contingents", "ten years" -> "twenty years"), a month changed ("11 December" -> "11 October"), or a figure
@@ -1649,48 +1879,201 @@ def aligned_changes(synthesized_text: str, source_text: str) -> tuple[list[str],
     content words, with the source sentence's start and end as anchors: a change to the first or last word of a sentence
     the synthesis copies into a merged claim ("Legal means did most of the consolidating" -> "Violent means did most of the
     consolidating") is read like one between copied words (a replaced content word then needs three copied words on its
-    other side)."""
+    other side).
+
+    The reading is bounded (integration gate 4, rule ``align-bound``): it spends at most the steps of ``budget`` (by
+    default :data:`ALIGN_STEP_BOUND`), and when they run out it stops and says so in ``meaning_changes`` (the changes it
+    found before are kept), so a claim it could not compare is never read as compared."""
+    if budget is None:
+        budget = _AlignBudget(ALIGN_STEP_BOUND)
+    figures: list[str] = []
+    meaning: list[str] = []
     syn, src = _align_tokens(synthesized_text), _align_tokens(source_text)
     if not syn or not src:
         return [], []
-    src_numerals = {k for k, _s in src if k[:1].isdecimal()}
-    figures, meaning = _aligned_ops(syn, src, src_numerals)
-    src_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(source_text)) if len(t) >= 4]
-    syn_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(synthesized_text)) if len(t) >= 4]
-    if src_sentences and syn_sentences:
-        syn_run = "\x00" + "\x00".join(k for k, _s in syn) + "\x00"
-        for st in src_sentences:
-            # A source sentence the synthesis reproduces word for word is copied, not changed: it is aligned with nothing
-            # (a verbatim copy is never charged a figure swap across parallel sentences).
-            if "\x00" + "\x00".join(k for k, _s in st) + "\x00" in syn_run:
-                continue
-            content = {k for k, w in st if w.isalpha() and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP}
-            if not content:
-                continue
-            # Each source sentence is aligned only with the synthesized sentence that shares most of its content words
-            # (the first of equals), never with every sentence sharing half of them.
-            best, best_shared = None, -1
-            for yt in syn_sentences:
-                shared = len(content & {k for k, _w in yt})
-                if shared * 2 >= len(content) and shared > best_shared:
-                    best, best_shared = yt, shared
-            if best is None:
-                continue
-            f2, m2 = _aligned_ops(best, st, src_numerals, anchored=True)
-            figures += f2
-            meaning += m2
+    try:
+        src_numerals = {k for k, _s in src if k[:1].isdecimal()}
+        figures, meaning = _aligned_ops(syn, src, src_numerals, budget=budget)
+        src_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(source_text)) if len(t) >= 4]
+        syn_sentences = [t for t in (_align_tokens(x) for x in _ALIGN_SENTENCE_RE.split(synthesized_text)) if len(t) >= 4]
+        if src_sentences and syn_sentences:
+            syn_run = "\x00" + "\x00".join(k for k, _s in syn) + "\x00"
+            # each synthesized sentence's keys are read once (integration gate 4: they were read again for every source
+            # sentence compared with it)
+            syn_keys = [frozenset(k for k, _w in yt) for yt in syn_sentences]
+            for st in src_sentences:
+                budget.spend(len(st) + len(syn_keys))
+                # A source sentence the synthesis reproduces word for word is copied, not changed: it is aligned with nothing
+                # (a verbatim copy is never charged a figure swap across parallel sentences).
+                if "\x00" + "\x00".join(k for k, _s in st) + "\x00" in syn_run:
+                    continue
+                content = {k for k, w in st if w.isalpha() and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP}
+                if not content:
+                    continue
+                # Each source sentence is aligned only with the synthesized sentence that shares most of its content words
+                # (the first of equals), never with every sentence sharing half of them.
+                best, best_shared = None, -1
+                for yt, keys in zip(syn_sentences, syn_keys):
+                    shared = len(content & keys)
+                    if shared * 2 >= len(content) and shared > best_shared:
+                        best, best_shared = yt, shared
+                if best is None:
+                    continue
+                f2, m2 = _aligned_ops(best, st, src_numerals, anchored=True, budget=budget)
+                figures += f2
+                meaning += m2
+    except _AlignBoundReached:
+        meaning.append(budget.notice(len(syn), len(src)))
     return list(dict.fromkeys(figures)), list(dict.fromkeys(meaning))
 
 
 #: Sentence ends for the anchored alignment: a full stop, question or exclamation mark, a semicolon, a line break.
 _ALIGN_SENTENCE_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
 
+#: Steps the aligned reading may spend on one synthesized claim, and on all the claims of one synthesis (integration gate 4,
+#: rule ``align-bound``): one step per token of a range searched for its longest common run and one per pair of equal
+#: tokens extended, plus the tokens of each source sentence matched with the synthesized sentences. The largest claim
+#: of the recorded rounds and of the test corpus takes under 2,000 steps; a claim of 4,000 characters of ordinary prose
+#: against 64 cited claims of 4,000 characters (the contract's caps) about 2,000,000. A claim of 250 short sentences of
+#: repeated words against 64 such cited claims took the unbounded alignment minutes (quadratic in the tokens, times the
+#: number of common runs); bounded, it stops within a second and is named, never read as compared.
+ALIGN_STEP_BOUND = 4_000_000
+ALIGN_CHECK_STEP_BOUND = 24_000_000
 
-def _aligned_ops(syn: list[tuple[str, str]], src: list[tuple[str, str]], src_numerals: set[str], *, anchored: bool = False) -> tuple[list[str], list[str]]:
+#: Characters of claim text (each synthesized claim's own text and the texts of the claims it cites) the per-claim lexical
+#: readers of :func:`check_synthesis_ledger` compare in one synthesis (integration gate 4, rule ``read-bound``). The
+#: largest synthesis of the recorded rounds compares 3,350 characters and the largest of the test corpus 31,448; one
+#: synthesized claim compares at most 260,000 (4,000 of its own and 64 cited claims of 4,000), so every claim of a
+#: synthesis within the bound is compared. At the contract's caps (512 claims each citing 64 claims of 4,000 characters)
+#: the readers would compare 133 million characters, hours of work; bounded, a claim past the bound is named, never shown
+#: as compared.
+LEDGER_READ_BOUND = 400_000
+
+#: Quotation searches of :func:`check_synthesis_ledger` in one synthesis, as quotations times the characters of the texts
+#: each is searched in (integration gate 4, rule ``quote-bound``): every quotation of a synthesized claim is located in
+#: the claims it cites, the responses of the reports in scope, their supplied texts and the request's texts. A claim of
+#: 300 quotations searched in four responses of 400,000 characters took 4.8 s, so at the caps (a claim holds up to about
+#: 660 quotations, a corpus of 16 responses and their texts tens of millions of characters) one claim took minutes and a
+#: synthesis hours. About 9 ns per unit: the bound is about 5 s of searching per synthesis, hundreds of times what an
+#: ordinary synthesis needs (a few dozen quotations in a corpus of a few hundred thousand characters).
+QUOTE_SCAN_BOUND = 500_000_000
+
+
+def _quotation_count(text: str) -> int:
+    """The quotations of ``text`` the quotation readers search for (spans holding a letter)."""
+    from ..adapters.markdown import find_quotation_spans
+    return sum(1 for _s, _e, inner in find_quotation_spans(text) if re.search(r"[^\W\d_]", inner))
+
+
+class _AlignBoundReached(Exception):
+    """The aligned reading's steps are spent (:class:`_AlignBudget`)."""
+
+
+class _AlignBudget:
+    """The steps the aligned reading may still spend, and which bound they come from (one synthesized claim's or one
+    synthesis's), so the notice of a reading that stopped names its bound."""
+    __slots__ = ("left", "bound", "scope", "noticed")
+
+    def __init__(self, steps: int, *, bound: Optional[int] = None, scope: str = "one synthesized claim") -> None:
+        self.left = steps
+        self.bound = steps if bound is None else bound
+        self.scope = scope
+        self.noticed = ""
+
+    def spend(self, steps: int) -> None:
+        self.left -= steps
+        if self.left < 0:
+            raise _AlignBoundReached
+
+    @property
+    def spent_out(self) -> bool:
+        return self.left < 0
+
+    def notice(self, syn_words: int, src_words: int) -> str:
+        """The description of a reading that stopped at this bound (kept as ``noticed``)."""
+        self.noticed = (f"its wording was not compared word for word with its cited sources: the aligned reading stopped at its bound of "
+                        f"{self.bound:,} steps for {self.scope} ({syn_words} words against {src_words}; rule align-bound), so a word, count "
+                        "or date it changes in a statement it copies is not named here")
+        return self.noticed
+
+
+def _common_runs(a: list[str], b: list[str], budget: _AlignBudget) -> list[tuple[int, int, int]]:
+    """The common runs the aligned reading keeps between ``a`` and ``b``: the longest run of equal tokens the two ranges
+    share (the one starting first in ``a``, then first in ``b``, among the longest), then the same on each side of it,
+    recursively, as ``(i, j, size)`` in order, touching runs joined, closed by ``(len(a), len(b), 0)``: the decomposition
+    of a ``difflib.SequenceMatcher`` without junk heuristics, computed here with a step budget (integration gate 4: the
+    search for each run walks every pair of equal tokens of its ranges, and on text of few distinct words with many runs
+    the decomposition is quadratic, times the number of runs). Raises :class:`_AlignBoundReached` when ``budget`` is
+    spent."""
+    where: dict[str, list[int]] = {}
+    for j, t in enumerate(b):
+        where.setdefault(t, []).append(j)
+    runs: list[tuple[int, int, int]] = []
+    ranges = [(0, len(a), 0, len(b))]
+    while ranges:
+        alo, ahi, blo, bhi = ranges.pop()
+        best_i, best_j, best_k = alo, blo, 0
+        ending: dict[int, int] = {}  # the length of the common run ending at each position of b, for the previous token of a
+        for i in range(alo, ahi):
+            here: dict[int, int] = {}
+            pos = where.get(a[i])
+            walked = 0
+            if pos:
+                p = start = bisect_left(pos, blo)
+                n = len(pos)
+                while p < n:
+                    j = pos[p]
+                    if j >= bhi:
+                        break
+                    k = here[j] = ending.get(j - 1, 0) + 1
+                    if k > best_k:
+                        best_i, best_j, best_k = i - k + 1, j - k + 1, k
+                    p += 1
+                walked = p - start
+            ending = here
+            budget.spend(walked + 1)
+        if best_k:
+            runs.append((best_i, best_j, best_k))
+            if alo < best_i and blo < best_j:
+                ranges.append((alo, best_i, blo, best_j))
+            if best_i + best_k < ahi and best_j + best_k < bhi:
+                ranges.append((best_i + best_k, ahi, best_j + best_k, bhi))
+    runs.sort()
+    joined: list[tuple[int, int, int]] = []
+    for i, j, k in runs:
+        if joined and joined[-1][0] + joined[-1][2] == i and joined[-1][1] + joined[-1][2] == j:
+            joined[-1] = (joined[-1][0], joined[-1][1], joined[-1][2] + k)
+        else:
+            joined.append((i, j, k))
+    joined.append((len(a), len(b), 0))
+    return joined
+
+
+def _align_opcodes(a: list[str], b: list[str], budget: _AlignBudget) -> list[tuple[str, int, int, int, int]]:
+    """``(tag, i1, i2, j1, j2)`` edits that turn ``a`` into ``b`` around the common runs of :func:`_common_runs`: "equal"
+    over a run, "replace", "delete" or "insert" over the gap before it (the opcodes of ``difflib.SequenceMatcher(None, a,
+    b, autojunk=False)``, which this reading used until integration gate 4; the test suite holds them equal)."""
+    ops: list[tuple[str, int, int, int, int]] = []
+    i = j = 0
+    for ai, bj, size in _common_runs(a, b, budget):
+        if i < ai and j < bj:
+            ops.append(("replace", i, ai, j, bj))
+        elif i < ai:
+            ops.append(("delete", i, ai, j, bj))
+        elif j < bj:
+            ops.append(("insert", i, ai, j, bj))
+        i, j = ai + size, bj + size
+        if size:
+            ops.append(("equal", ai, i, bj, j))
+    return ops
+
+
+def _aligned_ops(syn: tuple[tuple[str, str], ...], src: tuple[tuple[str, str], ...], src_numerals: set[str], *, anchored: bool = False,
+                 budget: Optional[_AlignBudget] = None) -> tuple[list[str], list[str]]:
     """The changes :func:`aligned_changes` reads between two token lists. With ``anchored`` (two sentences), the start and
-    the end of the source sentence count as one copied word each."""
-    from difflib import SequenceMatcher
-    ops = SequenceMatcher(None, [k for k, _s in syn], [k for k, _s in src], autojunk=False).get_opcodes()
+    the end of the source sentence count as one copied word each. Raises :class:`_AlignBoundReached` when ``budget`` (by
+    default :data:`ALIGN_STEP_BOUND`) is spent."""
+    ops = _align_opcodes([k for k, _s in syn], [k for k, _s in src], budget if budget is not None else _AlignBudget(ALIGN_STEP_BOUND))
     figures: list[str] = []
     meaning: list[str] = []
     for n, (tag, i1, i2, j1, j2) in enumerate(ops):
@@ -1770,18 +2153,29 @@ def _fmt_value(v: float) -> str:
     return str(int(v)) if v == int(v) else str(v)
 
 
-def aligned_differences(synthesized_text: str, source_texts: list[str]) -> tuple[list[str], list[str]]:
+def aligned_differences(synthesized_text: str, source_texts: list[str], *, budget: Optional[_AlignBudget] = None) -> tuple[list[str], list[str]]:
     """:func:`aligned_changes` against every cited source text, and :func:`day_month_differences` against all of them,
     deduplicated. A claim of several cited sources is first aligned against them joined in their cited order: when that
     alignment finds no change, every word the claim carries is a cited source's own, in order, so the per-source pass,
     which reads the words one source carries as an edit of another (a merge of "σ = 12, not the variance" and "sigma = 12,
-    P = 0.04779" read as a negation added to the second), is not run (integration gate, round 1)."""
+    P = 0.04779" read as a negation added to the second), is not run (integration gate, round 1). Every alignment of the
+    claim spends one ``budget`` (by default :data:`ALIGN_STEP_BOUND` steps; rule ``align-bound``, integration gate 4): once
+    it is spent the reading stops, and the notice of :class:`_AlignBudget` stands among the meaning changes."""
+    if budget is None:
+        budget = _AlignBudget(ALIGN_STEP_BOUND)
     figures: list[str] = []
     meaning: list[str] = []
     texts = [t for t in source_texts if t]
-    joined_clean = len(texts) >= 2 and aligned_changes(synthesized_text, " ".join(texts)) == ([], [])
-    for t in ([] if joined_clean else source_texts):
-        f, m = aligned_changes(synthesized_text, t)
+    joined = aligned_changes(synthesized_text, " ".join(texts), budget=budget) if len(texts) >= 2 else None
+    joined_clean = joined == ([], [])
+    if budget.spent_out:
+        # the joined alignment stopped at the bound: it decides nothing, and its notice stands for the claim (the per-source
+        # alignments would stop at once)
+        meaning.append(budget.noticed)
+    for t in ([] if joined_clean or budget.spent_out else source_texts):
+        if budget.spent_out:
+            break  # the notice stands already: the claim's other alignments would stop at once
+        f, m = aligned_changes(synthesized_text, t, budget=budget)
         figures += f
         meaning += m
     figures += day_month_differences(synthesized_text, source_texts)
@@ -1829,7 +2223,8 @@ def day_month_differences(synthesized_text: str, source_texts: list[str]) -> lis
     return list(dict.fromkeys(out))
 
 
-def meaning_differences(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
+def meaning_differences(synthesized_text: str, source_texts: list[str], transformation: str, *,
+                        aligned: Optional[tuple[list[str], list[str]]] = None) -> list[str]:
     """How a synthesized claim says something other than its cited sources beyond its figures, as plain descriptions:
     the direction of a change reversed (a fall where every source states a rise, or the reverse), a statement copied
     from a cited source with one word exchanged for its opposite (a degree verdict, a comparative or superlative, an
@@ -1840,7 +2235,8 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     aligned statement already says so (rule ``unaligned-polarity``: the overseer branch's polarity reading, kept beside the
     aligned one by the translator merge; a claim that negates words its source never states says something else, and the
     error for a negated source statement is :func:`meaning_inversions`'). Lexical, not a proof: the findings built on it
-    are warnings."""
+    are warnings. ``aligned`` is :func:`aligned_differences` of the same texts when the caller has read it already (the
+    ledger check reads it once per claim; integration gate 4: it was read twice)."""
     out: list[str] = []
     syn_words = set(_words(synthesized_text))
     src_words = set().union(*(set(_words(t)) for t in source_texts)) if source_texts else set()
@@ -1850,10 +2246,13 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
         out.append(f"it states a fall ({sorted(syn_words & _FALL_WORDS)}) where its cited sources state a rise ({sorted(src_words & _RISE_WORDS)})")
     elif syn_rise and not syn_fall and src_fall and not src_rise:
         out.append(f"it states a rise ({sorted(syn_words & _RISE_WORDS)}) where its cited sources state a fall ({sorted(src_words & _FALL_WORDS)})")
-    _figs, aligned = aligned_differences(synthesized_text, source_texts)
+    _figs, aligned = aligned if aligned is not None else aligned_differences(synthesized_text, source_texts)
+    aligned = list(aligned)
     if out and any(a.startswith("it reverses the direction") for a in aligned):
         aligned = [a for a in aligned if not a.startswith("it reverses the direction")]
     out += aligned
+    if not any("a change or its absence" in a for a in aligned):
+        out += no_change_differences(synthesized_text, source_texts)
     # rule unaligned-polarity (the overseer branch's polarity reading, kept beside the aligned one by the translator merge):
     # a claim under an equivalence label ('carried', 'paraphrased') promises its sources' content unchanged, so a negation it
     # adds where none of its cited sources states one, or drops where they state one, is a changed meaning even when no
@@ -1866,7 +2265,13 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     out += reversed_comparisons(synthesized_text, source_texts)
     out += reversed_voices(synthesized_text, source_texts)
     out += dropped_hedges(synthesized_text, source_texts)
-    out += dropped_qualifiers(synthesized_text, source_texts)
+    out += dropped_attributions(synthesized_text, source_texts)
+    qualifiers = dropped_qualifiers(synthesized_text, source_texts)
+    if any("the scope of a quantity" in d or "a minority or a majority" in d for d in out + qualifiers):
+        # the aligned or the minority reading already names the quantifier exchanged ("Some" -> "All"): the widening rule
+        # would name the same exchange twice
+        qualifiers = [d for d in qualifiers if not d.startswith(_WIDENING_PREFIXES)]
+    out += qualifiers
     # Figures in words are read as digits first, so "roughly fifteen" is an approximate 15 and "exactly fifteen" an exact one.
     approx = {m.group(1) for t in source_texts for m in _APPROX_RE.finditer(_words_as_digits(_ungroup(t)))}
     syn_plain = _ungroup(synthesized_text)
@@ -1880,6 +2285,60 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
         where = f"'{src_shown[0]}'" if src_shown else f"{fig} as an approximate figure"
         out.append(f"it states '{written.strip(' .,;:')}' where its cited sources give {where}" + ("" if not src_shown else " (an approximate figure)"))
     return out
+
+
+#: A statement of no change (integration gate 4): "unchanged", "unaffected", "stayed / remained / held the same", "steady",
+#: "stable", "constant", "flat", "did not change", "no change", "was not affected", and "continued" used intransitively
+#: ("the flow continued once the route was sealed", "continued as before"; never "continued to fall", "continued falling",
+#: "continued the policy"). Every run is possessive and every repetition bounded.
+_NO_CHANGE_RE = re.compile(
+    r"\b(?:unchanged|unaffected|unaltered|undiminished|stagnant|stagnated|stagnating)\b"
+    r"|\b(?:stay|stays|stayed|staying|remain|remains|remained|remaining|held|hold|holds|holding|kept|keep|keeps)\s++"
+    r"(?:(?:roughly|largely|broadly|much|about|essentially|virtually|practically)\s++)?(?:the\s++same|steady|stable|constant|flat|level|static)\b"
+    r"|\b(?:did|does|do)\s++not\s++change\b|\bno\s++(?:change|effect|impact|difference)\b|\b(?:was|were)\s++not\s++affected\b"
+    r"|\bcontinu(?:ed|es|e|ing)\b(?!\s++(?:to|on|with|into|its|their|his|her|the|a|an|this|that|these|those)\b)(?!\s++[^\W\d_]*?ing\b)",
+    re.IGNORECASE)
+_CHANGE_WORDS = _RISE_WORDS | _FALL_WORDS
+
+
+def no_change_differences(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """A change of a cited source restated as no change (integration gate 4): a synthesized sentence that states no change
+    (:data:`_NO_CHANGE_RE`: "Emigration was unaffected after 1961.", "the flow continued unchanged", "stayed the same")
+    and no change of its own (no word of :data:`_RISE_WORDS` or :data:`_FALL_WORDS`: "continued to fall" carries the
+    change) restates a cited source sentence that states a change ("Emigration fell sharply after 1961."): half or more of
+    its content words, three at least, or a short statement whole (:func:`_restates`), the change words and the adverbs of
+    degree ("sharply") aside. A source sentence that states an absence of change itself ("With supply unchanged, the price
+    rises") is not read: a restatement keeping it is faithful. Quotations are not read. Lexical (INT-LEDGER-026); the
+    aligned reading names the same exchange in a copied statement, and :func:`meaning_differences` keeps one of the two."""
+    from ..adapters.markdown import mask_quotations
+    sources: list[tuple[str, frozenset[str], list[str]]] = []
+    for t in source_texts:
+        for sentence in _ALIGN_SENTENCE_RE.split(t or ""):
+            masked = mask_quotations(sentence)
+            if _NO_CHANGE_RE.search(masked):
+                continue  # the source states an absence of change itself ("With supply unchanged, the price ... rises"): a
+                # restatement that keeps it is the source's own
+            words = _words(masked)
+            changes = [w for w in words if w in _CHANGE_WORDS]
+            if changes:
+                rest = " ".join(w for w in words if w not in _CHANGE_WORDS and not (w.endswith("ly") and len(w) >= 5))
+                sources.append((" ".join(sentence.split())[:160], frozenset(_restating_keys(rest)), changes))
+    if not sources:
+        return []
+    out: list[str] = []
+    for y in _ALIGN_SENTENCE_RE.split(synthesized_text or ""):
+        ym = mask_quotations(y)
+        hit = _NO_CHANGE_RE.search(ym)
+        if hit is None or any(w in _CHANGE_WORDS for w in _words(ym)):
+            continue
+        own = _restating_keys(ym)  # read once per sentence (the rule of :func:`_restates`)
+        for shown, keys, changes in sources:
+            shared = keys & own
+            if keys and ((len(keys) >= 3 and len(shared) >= 3 and len(shared) * 2 >= len(keys)) or _restates_short(set(keys), own)):
+                out.append(f"it states no change ('{' '.join(hit.group(0).split())}') where its cited sources state a change "
+                           f"({', '.join(repr(w) for w in dict.fromkeys(changes))} in '{shown}')")
+                break
+    return list(dict.fromkeys(out))
 
 
 #: Comparison words that bound a figure from above (the figure is a maximum, an end or a later limit) and from below.
@@ -2103,6 +2562,92 @@ def dropped_hedges(synthesized_text: str, source_texts: list[str]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+#: Verbs that credit a view to its holder ("argue", "claim", "believe", "contend", "maintain", "assert", "insist", "hold",
+#: "think", "allege", "speculate", "propose", "posit", "consider", "feel", "doubt"): a frame "<party> argues that ..." states
+#: the party's view, not an established statement. "suggest" is a hedge and :func:`dropped_hedges` reads it.
+_VIEW_FRAME_VERBS = (r"(?:argue[sd]?|claim(?:s|ed)?|believe[sd]?|contend(?:s|ed)?|maintain(?:s|ed)?|assert(?:s|ed)?|insist(?:s|ed)?|hold|holds|held|think|thinks"
+                     r"|thought|allege[sd]?|speculate[sd]?|propose[sd]?|posit(?:s|ed)?|consider(?:s|ed)?|feel|feels|felt|doubt(?:s|ed)?|deny|denies|denied)")
+#: A clause-initial attribution frame of a cited source (integration gate 4), read at a sentence's start past an opening
+#: adverbial of up to four words and a comma ("However, some historians argue that ..."): "<party> argue(s) that" (a party
+#: of up to five words that opens with a capital: "Some historians", "Taylor", "A. J. P. Taylor", "Marxist historians"),
+#: "It is said / claimed / argued / believed / thought / alleged that", "According to <party>," and "In <party>'s view,". The
+#: party "I", "We" and the writer's own text ("This essay", "My answer") are the writer's frame, never another party's. A
+#: possessive run per word, a bounded number of words: read once per sentence.
+_ATTRIBUTION_FRAME_RE = re.compile(
+    r"\W{0,8}+(?:[A-Z][\w'’-]*+(?:[ \t]++[\w'’-]++){0,3}+,[ \t]++)?(?P<frame>"
+    r"(?P<party>[A-Z][\w'’.-]*+(?:[ \t]++[\w'’.-]++){0,4}?)[ \t]++(?:(?:have|has|had|would|still|now|also|often|generally|long|themselves|himself|herself)[ \t]++){0,2}"
+    + _VIEW_FRAME_VERBS + r"[ \t]++that\b"
+    r"|[Ii]t[ \t]++(?:is|was|has[ \t]++been|had[ \t]++been)[ \t]++(?:(?:widely|often|sometimes|commonly|generally|frequently|long|also)[ \t]++)?"
+    r"(?:said|claimed|argued|believed|thought|alleged|rumou?red|asserted|contended|maintained|supposed|assumed)[ \t]++that\b"
+    r"|[Aa]ccording[ \t]++to[ \t]++(?P<party2>[^,;:.!?\n]{1,80}?),"
+    r"|[Ii]n[ \t]++(?P<party3>[^,;:.!?\n]{1,60}?)['’]s?[ \t]++(?:view|opinion|reading|judge?ment|interpretation),)")
+_WRITER_PARTY_RE = re.compile(r"^(?:I|We|This|My|Our|The\s+(?:essay|answer|report|response|paragraph))\b")
+#: What keeps an attribution in a restatement: a view verb, an attribution noun ("Taylor's thesis"), "according to", "in
+#: the view of", "it is said", "reportedly" and the like, anywhere in the restating sentence.
+_ATTRIBUTION_KEPT_RE = re.compile(
+    _VIEW_FRAME_VERBS + r"\b|\b(?:view|views|opinion|opinions|thesis|theses|argument|arguments|contention|interpretation|interpretations|belief|beliefs"
+    r"|hypothesis|theory|theories|claim|claims|according\s++to|in\s++the\s++(?:view|words|opinion)\s++of|reportedly|allegedly|supposedly|purportedly"
+    r"|reputedly|is\s++said|are\s++said|was\s++said|were\s++said|say|says|said|suggest|suggests|suggested|for\s++(?:some|many|most|several)"
+    r"|expect|expects|expected|hope|hopes|hoped|fear|fears|feared|assume|assumes|assumed|suppose|supposes|supposed|perceive|perceives|perceived"
+    r"|regard|regards|regarded|seen\s++as|saw\s++as|viewed\s++as)\b", re.IGNORECASE)
+#: A factive frame: what a party "shows", "proves", "demonstrates", "establishes", "confirms" or "reveals" is presented as
+#: established ("Taylor shows that ..." for "Taylor argues that ...").
+_FACTIVE_FRAME_RE = re.compile(r"\b(?:shows?|showed|shown|proves?|proved|proven|demonstrates?|demonstrated|establishe[sd]|establish|confirms?|confirmed"
+                               r"|reveals?|revealed|makes?\s++clear|made\s++clear)\s++that\b", re.IGNORECASE)
+
+
+def dropped_attributions(synthesized_text: str, source_texts: list[str]) -> list[str]:
+    """An attributed view of a cited source restated as fact (integration gate 4): a cited source sentence opens with an
+    attribution frame (:data:`_ATTRIBUTION_FRAME_RE`: "Some historians argue that the Peace of Amiens was only a truce.",
+    "Taylor argues that ...", "It is said that the king fled at night.", "According to Taylor, ...") and a synthesized
+    sentence restates what the frame credits (half or more of its content words, three at least, or a short statement
+    whole: :func:`_restates`) with no attribution at all (:data:`_ATTRIBUTION_KEPT_RE`, the party's own words, or a hedge):
+    one party's view reads as an established statement, whatever the transformation label. A restatement that makes the
+    view a demonstration ("Taylor shows that ..." for "Taylor argues that ...", :data:`_FACTIVE_FRAME_RE`) is named too. A
+    frame whose verb is a hedge ("suggests") is :func:`dropped_hedges`'s. Quotations are not read. Lexical (INT-LEDGER-026)."""
+    from ..adapters.markdown import mask_quotations
+    frames: list[tuple[str, str, frozenset[str], frozenset[str]]] = []
+    for t in source_texts:
+        for sentence in _ALIGN_SENTENCE_RE.split(t or ""):
+            masked = mask_quotations(sentence)
+            m = _ATTRIBUTION_FRAME_RE.match(masked)
+            if m is None or _HEDGE_RE.search(m.group("frame")):
+                continue
+            party = m.group("party") or m.group("party2") or m.group("party3") or ""
+            if party and _WRITER_PARTY_RE.match(party.strip()):
+                continue
+            keys = frozenset(_restating_keys(masked[m.end():]))
+            if not keys:
+                continue
+            party_words = frozenset(w.casefold() for w in _WORD_RE.findall(party) if len(w) >= 3 and w.casefold() not in _ALIGN_STOP and w.casefold() not in _PARTNER_STOP)
+            frames.append((" ".join(m.group("frame").split()), " ".join(sentence.split())[:160], keys, party_words))
+    if not frames:
+        return []
+    out: list[str] = []
+    # each distinct synthesized sentence is read once, and each distinct framed statement compared once with each
+    syn: dict[str, tuple[str, set[str], set[str]]] = {}
+    for y in _ALIGN_SENTENCE_RE.split(synthesized_text or ""):
+        if y.strip() and y not in syn:
+            ym = mask_quotations(y)
+            syn[y] = (ym, _restating_keys(ym), {w.casefold() for w in _WORD_RE.findall(ym)})
+    for frame, shown, keys, party_words in dict.fromkeys(frames):
+        restating = []
+        for ym, own, words in syn.values():
+            shared = keys & own
+            if (len(keys) >= 3 and len(shared) >= 3 and len(shared) * 2 >= len(keys)) or _restates_short(set(keys), own):
+                restating.append((ym, words))
+        if not restating:
+            continue
+        factive = next((f for ym, _w in restating if (f := _FACTIVE_FRAME_RE.search(ym)) is not None and not _ATTRIBUTION_KEPT_RE.search(ym[:f.start()])), None)
+        if factive is not None:
+            out.append(f"it states as shown ('{' '.join(factive.group(0).split())}') what its cited sources state as a view ('{frame}' in '{shown}')")
+            continue
+        if any(_ATTRIBUTION_KEPT_RE.search(ym) or _HEDGE_RE.search(ym) or (party_words & words) for ym, words in restating):
+            continue
+        out.append(f"it drops the attribution '{frame}' its cited sources state (in '{shown}'), so one party's view reads as an established statement")
+    return list(dict.fromkeys(out))
+
+
 #: A restricting qualifier (the combinator's instructions, rule 4: "only"): "only", "merely", "solely", "exclusively", and
 #: "just" before a quantity or an article ("just one victim", "just a few", "just 5 per cent"; never "just after", "just
 #: over", "a just war"). "not only ... but also" adds rather than restricts, and "if only" wishes.
@@ -2184,10 +2729,42 @@ _PART_QUANTIFIER_RE = re.compile(r"\b(?:a\s+(?:small\s+|tiny\s+)?minority\s+of|a
 #: What keeps a part quantifier in a restatement: any word of part or restriction.
 _PART_KEPT_RE = re.compile(r"\b(?:minority|few|handful|small\s+(?:number|share|proportion|fraction|part)|fraction|some|only|part\s+of|not\s+all|limited)\b", re.IGNORECASE)
 #: A bound in front of a figure ("at least 6 million", "up to 30 per cent", "no more than 12", "a minimum of 40"): the figure
-#: is a limit, not the quantity, so the same figure stated with no bound reads as exact. "More than" and "over" compare and
-#: are not read here (`_APPROXIMATOR`'s note: their figure may be exact).
+#: is a limit, not the quantity, so the same figure stated with no bound reads as exact. The comparative bounds are
+#: :data:`_COMPARATIVE_BOUND` (integration gate 4).
 _BOUND = r"(?:at\s+least|at\s+most|up\s+to|no\s+more\s+than|no\s+fewer\s+than|no\s+less\s+than|not\s+more\s+than|not\s+less\s+than|a\s+minimum\s+of|a\s+maximum\s+of)"
 _BOUND_BEFORE_RE = re.compile(rf"(?:^|(?<=[\s(]))(?P<b>{_BOUND})\s+(?:[$£€¥]\s?)?$", re.IGNORECASE)
+#: A comparative bound in front of a figure (integration gate 4): "more than twelve years", "over 3 million", "fewer than
+#: 300", "less than 10 per cent", "under two weeks", "above", "below", "upwards of", "in excess of". The figure is a limit
+#: too, and "had run for twelve years" for "had run for more than twelve years" delivers the limit as the quantity. Not
+#: read as a bound: a comparison with an intensifier or a negation before it ("far fewer than 1,000", "much more than", "well
+#: over", "no more than" is :data:`_BOUND`'s), whose figure may be an exact one of something else ("20 comparisons, far
+#: fewer than 1,000"); "just over" and "just under", which are approximations (:data:`_APPROXIMATOR`); "over", "under",
+#: "above" or "below" before a four-digit year ("over 1913 levels"); and "over" or "under" before a duration unless a word
+#: of length stands before them ("for over 12 years", "in under two weeks", "took under two weeks"; "spread over 3 years" and
+#: "repaid over 10 years" state a period, no bound). Read in the same 40-character window as :data:`_BOUND`.
+_COMPARATIVE_BOUND = r"(?:more\s+than|fewer\s+than|less\s+than|over|under|above|below|upwards\s+of|in\s+excess\s+of)"
+_COMPARATIVE_BOUND_BEFORE_RE = re.compile(rf"(?:^|(?<=[\s(]))(?P<b>{_COMPARATIVE_BOUND})\s+(?:[$£€¥]\s?)?$", re.IGNORECASE)
+_BOUND_INTENSIFIER_RE = re.compile(r"(?:^|\s)(?:far|much|many|well|considerably|significantly|substantially|vastly|way|just|slightly|somewhat|rather|lot|little|bit"
+                                   r"|no|not|even|still)\s*$", re.IGNORECASE)
+_DURATION_BOUND_LEAD_RE = re.compile(r"(?:^|\s)(?:for|in|within|took|take|takes|taking|lasted|last|lasts|lasting|after|of|ran|run|runs|running|spanned|spanning)\s*$",
+                                     re.IGNORECASE)
+
+
+def _bound_before(plain: str, before: str, figure: re.Match) -> Optional[re.Match]:
+    """The bound in front of ``figure`` (a match in ``plain``), read in ``before`` (the 40 characters before it): one of
+    :data:`_BOUND`, or a comparative bound (:data:`_COMPARATIVE_BOUND`) with the exceptions stated there; None otherwise."""
+    b = _BOUND_BEFORE_RE.search(before)
+    if b is not None:
+        return b
+    c = _COMPARATIVE_BOUND_BEFORE_RE.search(before)
+    if c is None or _BOUND_INTENSIFIER_RE.search(before, 0, c.start()):
+        return None
+    word = c.group("b").split()[0].casefold()
+    if word in ("over", "under", "above", "below") and _FULL_YEAR_RE.match(figure.group(0)):
+        return None
+    if word in ("over", "under") and _DURATION_AFTER_RE.match(plain, figure.end()) and not _DURATION_BOUND_LEAD_RE.search(before, 0, c.start()):
+        return None
+    return c
 #: The two sides of a minority or a majority: "Only a minority of deputies ..." restated as "Most deputies ..." reverses it.
 _MINORITY_RE = re.compile(r"\b(?:a\s+)?minority\b|\b(?:a\s+)?few\b(?!\s+(?:years?|months?|weeks?|days?))|\ba\s+small\s+(?:number|share|proportion|fraction)\b", re.IGNORECASE)
 #: "most" as a quantifier only, before "of" or a plural noun ("Most deputies", "most Reichstag deputies", "most of the
@@ -2243,6 +2820,7 @@ def dropped_qualifiers(synthesized_text: str, source_texts: list[str]) -> list[s
     from ..adapters.markdown import mask_quotations
     out: list[str] = []
     syn_clauses = [c for c in _ALIGN_SENTENCE_RE.split(synthesized_text or "") if c.strip()]
+    views: Optional[list[_QuantifierView]] = None  # the widening rule's reading of the synthesized clauses, made once when needed
     for t in source_texts:
         for clause in _ALIGN_SENTENCE_RE.split(t or ""):
             if not clause.strip():
@@ -2299,6 +2877,9 @@ def dropped_qualifiers(synthesized_text: str, source_texts: list[str]) -> list[s
                     words = ", ".join(repr(" ".join(m.group(0).split())) for m in parts[:3])
                     out.append(f"it drops the qualifier {words} its cited sources state (in '{shown}'): the statement is made of a wider group than its sources")
             out += _reversed_majorities(clause, masked, shown, syn_clauses)
+            if views is None:
+                views = [_QuantifierView(y) for y in syn_clauses]
+            out += _widened_quantifiers(clause, masked, shown, views)
     out += _dropped_approximations(synthesized_text, source_texts)
     out += _dropped_bounds(synthesized_text, source_texts)
     return list(dict.fromkeys(out))
@@ -2339,17 +2920,171 @@ def _reversed_majorities(clause: str, masked: str, shown: str, syn_clauses: list
     return []
 
 
+# --- quantifier widening (INT-LEDGER-026; integration gate 4) --------------------------------------------------------
+#: How much of a group a quantifier states, in order: a part ("some", "several", "a number of"; the minority family, "a
+#: minority of", "a few", "a handful of", is read by the part-quantifier and minority rules), many ("many", "numerous", "a
+#: large number of"), half, a majority ("most", "the majority of", "the bulk of", "nearly all") and the whole group ("all",
+#: "every", "each"). The combinator's rule: never turn a minority into a majority, never make a claim wider than its source.
+_QUANTIFIER_RANK_NAMES = {1: "a part of the group", 2: "many of the group", 3: "half of the group", 4: "a majority of the group", 5: "the whole group"}
+#: How the widening rule's descriptions start (:func:`meaning_differences` drops them where another reading names the same
+#: exchange).
+_WIDENING_PREFIXES = ("it widens the quantifier ", "it drops the quantifier ")
+_GROUP_QUANTIFIER_RE = re.compile(
+    r"(?<![\w'’-])(?:(?P<r1>some|several|a\s++number\s++of|a\s++few|few|a\s++(?:small\s++|tiny\s++)?minority\s++of|a\s++handful\s++of"
+    r"|a\s++small\s++(?:number|share|proportion|fraction|part)\s++of|a\s++fraction\s++of)"
+    r"|(?P<r2>many|numerous|a\s++(?:large|great|considerable|significant)\s++number\s++of|a\s++great\s++many|large\s++numbers\s++of|a\s++lot\s++of|lots\s++of"
+    r"|(?:hundreds|thousands|millions|dozens|scores)\s++of|in\s++(?:large|great|vast|huge)\s++numbers|in\s++(?:their|the)\s++(?:hundreds|thousands|millions))"
+    r"|(?P<r3>half(?:\s++of)?)"
+    r"|(?P<r4>(?<!the\s)(?<!at\s)most|(?:the|a)\s++(?:(?:vast|great|overwhelming|large|clear)\s++)?majority(?:\s++of)?|the\s++bulk\s++of"
+    r"|(?:nearly|almost|virtually|practically)\s++(?:all|every|each))"
+    r"|(?P<r5>all|every|each|the\s++whole\s++of))(?![\w'’-])", re.IGNORECASE)
+#: The source quantifiers the widening rule reads: a part that is not of the minority family (which the part-quantifier
+#: and minority rules read), many, half and a majority. "nearly all" made "all" is the approximation rule's.
+_WIDENABLE_RE = re.compile(
+    r"(?<![\w'’-])(?:(?P<r1>some|several|a\s++number\s++of)|(?P<r2>many|numerous|a\s++(?:large|great|considerable|significant)\s++number\s++of|a\s++great\s++many)"
+    r"|(?P<r3>half(?:\s++of)?)|(?P<r4>(?<!the\s)(?<!at\s)most|(?:the|a)\s++(?:(?:vast|great|overwhelming|large|clear)\s++)?majority\s++of|the\s++bulk\s++of))"
+    r"(?![\w'’-])", re.IGNORECASE)
+#: The group a quantifier counts: up to three words after it (past "of" and a determiner), the first of them a plural
+#: noun ("Some historians", "most German workers", "half of the deputies"); "some time", "most decisive", "some 9,000" and
+#: "half an hour" count no group.
+_GROUP_AFTER_RE = re.compile(
+    r"\s++(?:of\s++)?(?:(?:the|these|those|its|their|his|her|our|my|your)\s++)?(?:(?P<w1>[^\W\d_][\w'’-]*+)\s++)?(?:(?P<w2>[^\W\d_][\w'’-]*+)\s++)?"
+    r"(?P<w3>[^\W\d_][\w'’-]*+)")
+_GROUP_NOUNS = frozenset("people men women children folk staff police clergy youth".split())
+#: Words of a count or a definite measure before a group noun ("two historians", "12 deputies"): a count, which the figure
+#: rules read, never a bare plural.
+_COUNT_BEFORE_RE = re.compile(r"(?:\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|both|no|none"
+                              r"|neither|either|those|these|other|such)\b)", re.IGNORECASE)
+
+
+def _group_word(text: str, end: int) -> Optional[tuple[int, str]]:
+    """``(start, word)`` of the plural noun a quantifier ending at ``end`` counts (:data:`_GROUP_AFTER_RE`), or None."""
+    m = _GROUP_AFTER_RE.match(text, end, min(len(text), end + 120))
+    if m is None:
+        return None
+    for g in ("w1", "w2", "w3"):
+        w = m.group(g)
+        if w is None:
+            continue
+        low = w.casefold()
+        if low in _GROUP_NOUNS or (len(low) >= 4 and low.endswith("s") and not low.endswith("ss")):
+            return m.start(g), w
+    return None
+
+
+def _quantifier_rank(m: re.Match) -> int:
+    return next(int(name[1]) for name, value in m.groupdict().items() if value is not None)
+
+
+def _rank_before(text: str, start: int) -> tuple[int, Optional[str]]:
+    """``(rank, quantifier)`` of the quantifier that counts the group word at ``start`` of ``text`` (the last quantifier
+    within three words before it, :data:`_GROUP_QUANTIFIER_RE`); ``(0, None)`` for a count ("two historians"), which no
+    rank compares; ``(5, None)`` for a bare or definite plural ("historians", "the historians": the whole group). A bounded
+    window, read once per word."""
+    window = text[max(0, start - 60):start]
+    best: Optional[re.Match] = None
+    for q in _GROUP_QUANTIFIER_RE.finditer(window):
+        best = q
+    if best is not None and len(window[best.end():].split()) <= 3:
+        return _quantifier_rank(best), " ".join(best.group(0).split())
+    if any(_COUNT_BEFORE_RE.match(w) for w in window.split()[-2:]):
+        return 0, None
+    return 5, None
+
+
+class _QuantifierView:
+    """What the widening rule reads of one synthesized clause, read once per call (:func:`dropped_qualifiers`): its
+    restating keys, the lowest rank of a quantifier that counts no group or each group word ("left the land in large
+    numbers"; "some reforms"), and for each group word the lowest rank it stands with (:func:`_rank_before`) and that
+    quantifier's words."""
+    __slots__ = ("keys", "free_rank", "rank_by_group", "word_rank")
+
+    def __init__(self, clause: str) -> None:
+        from ..adapters.markdown import mask_quotations
+        ym = mask_quotations(clause)
+        self.keys = _restating_keys(ym)
+        self.free_rank = 99
+        self.rank_by_group: dict[str, int] = {}
+        for q in _GROUP_QUANTIFIER_RE.finditer(ym):
+            rank = _quantifier_rank(q)
+            g = _group_word(ym, q.end())
+            gk = next(iter(_restating_keys(g[1])), None) if g is not None else None
+            if gk is None:
+                self.free_rank = min(self.free_rank, rank)
+            else:
+                self.rank_by_group[gk] = min(self.rank_by_group.get(gk, 99), rank)
+        self.word_rank: dict[str, tuple[int, Optional[str]]] = {}
+        for w in _WORD_RE.finditer(ym):
+            low = w.group(0).casefold()
+            key = _loose_key(_akey(_IRREGULAR_FORMS.get(low, low)))
+            rank, word = _rank_before(ym, w.start())
+            held = self.word_rank.get(key)
+            if held is None or rank < held[0]:
+                self.word_rank[key] = (rank, word)
+
+
+def _widened_quantifiers(clause: str, masked: str, shown: str, views: list["_QuantifierView"]) -> list[str]:
+    """A quantifier of a cited source widened by the synthesized clause that restates it (integration gate 4): a part
+    ("Some historians argue that ...") restated as many, a majority, the whole group or a bare plural ("Most historians",
+    "Many historians", "Historians argue that ..."), many or half made a majority or the whole group, a majority made the
+    whole group ("Most observers agreed" -> "All observers agreed", "Every observer agreed"). The restating clause holds
+    half or more of the source clause's content words (three at least; :func:`_restates`), the quantifiers aside, and the
+    group word the quantifier counts; it widens when no quantifier in it states as little as the source's (of the same
+    group, or of none) and the group word stands with a wider one, or with none. A count ("two historians") and the same
+    quantifier kept in another word order ("... is argued by some historians") are no widening. ``views`` are the
+    synthesized clauses read once (:class:`_QuantifierView`); the source clause's keys are read once, so a clause of many
+    quantifiers costs its length, never its square."""
+    matches = [(m, g) for m in _WIDENABLE_RE.finditer(masked) if (g := _group_word(masked, m.end())) is not None]
+    if not matches:
+        return []
+    quantifier_keys = {k for m, _g in matches for k in _restating_keys(m.group(0))}
+    keys = _restating_keys(masked) - quantifier_keys
+    restating = [v for v in views if (len(keys) >= 3 and len(keys & v.keys) >= 3 and len(keys & v.keys) * 2 >= len(keys))
+                 or _restates_short(keys, v.keys)]
+    if not restating:
+        return []
+    out: list[str] = []
+    for m, group in matches:
+        rank = _quantifier_rank(m)
+        group_key = next(iter(_restating_keys(group[1])), None)
+        if group_key is None:
+            continue
+        widened: list[tuple[int, Optional[str]]] = []
+        for v in restating:
+            if group_key not in v.keys:
+                continue
+            if min(v.free_rank, v.rank_by_group.get(group_key, 99)) <= rank:
+                widened = []
+                break  # the clause keeps a quantifier stating as little as the source's
+            r, word = v.word_rank.get(group_key, (0, None))
+            if r <= rank:
+                widened = []
+                break  # a count, or the group word stands with a quantifier stating as little as the source's
+            widened.append((r, word))
+        if widened:
+            r, word = min(widened, key=lambda rw: rw[0])
+            q = " ".join(m.group(0).split())
+            what = f"{_QUANTIFIER_RANK_NAMES[rank]} made {_QUANTIFIER_RANK_NAMES[r]}"
+            if word is None:
+                out.append(f"it drops the quantifier {q!r} its cited sources state (in '{shown}'), so the statement is made of the whole group "
+                           f"(a bare plural): {what}")
+            else:
+                out.append(f"it widens the quantifier {q!r} its cited sources state to {word!r} (in '{shown}'): {what}")
+    return list(dict.fromkeys(out))
+
+
 def _bounded_figures(text: str) -> tuple[dict[tuple[str, Optional[str]], str], set[tuple[str, Optional[str]]]]:
     """``(bounded, unbounded)`` figures of ``text`` (figures in words read as digits, thousands separators removed): the
-    figures stated with a bound in front (:data:`_BOUND`), each with its phrase as the reader sees it, and the figures
-    stated with neither a bound nor an approximation in front. A figure is ``(value, unit or scale word)``."""
+    figures stated with a bound in front (:data:`_BOUND`, and the comparative bounds of :func:`_bound_before`), each with
+    its phrase as the reader sees it, and the figures stated with neither a bound nor an approximation in front. A figure
+    is ``(value, unit or scale word)``."""
     plain = _words_as_digits(_ungroup(text or ""))
     bounded: dict[tuple[str, Optional[str]], str] = {}
     unbounded: set[tuple[str, Optional[str]]] = set()
     for m in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?![\w]|\.\d)", plain):
         key = (m.group(0), _figure_unit(plain, m.end()))
         before = plain[max(0, m.start() - 40):m.start()]
-        b = _BOUND_BEFORE_RE.search(before)
+        b = _bound_before(plain, before, m)
         if b is not None:
             lead = " ".join(b.group(0).split())
             bounded.setdefault(key, lead + ("" if lead.endswith(("$", "£", "€", "¥")) else " ") + _shown_figure(*key))
@@ -2695,13 +3430,27 @@ def _blank_union(text: str, spans: list[tuple[int, int]]) -> str:
     return "".join(parts)
 
 
-def _figures(text: str) -> list[_Figure]:
+def _figures(text: str) -> tuple[_Figure, ...]:
     """Every figure and date of ``text``: numerals (thousands separators removed) with any scale word after them,
     figures in scientific notation (one figure each, :func:`_scientific_figures`), whole-number powers ("10³", "10^6":
     one figure each, :func:`_power_figures`), figures written in words (:func:`_word_figures`), and month-year dates. A
     minus written as U+2212 or a figure or en dash before a digit is the ASCII sign, and LaTeX's ``\\ldots`` is no part
-    of a figure."""
+    of a figure. Kept per text (:data:`_KEPT_TEXT_CHARS`; integration gate 4: a cited claim's figures were read again for
+    every synthesized claim citing it)."""
     text = text or ""
+    if len(text) <= _KEPT_TEXT_CHARS:
+        return _figures_kept(text)
+    return _read_figures(text)
+
+
+_FIGURES_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _figures_kept(text: str) -> tuple[_Figure, ...]:
+    return _kept(_FIGURES_KEPT, text, text, lambda: _read_figures(text))
+
+
+def _read_figures(text: str) -> tuple[_Figure, ...]:
     if not text.isascii():
         text = _MINUS_GLYPH_RE.sub("-", text)
     if "\\" in text:
@@ -2738,7 +3487,7 @@ def _figures(text: str) -> list[_Figure]:
         sc = _SCALE_AFTER_RE.match(masked, m.end())
         out.append(_Figure(tok, sc.group(1).casefold() if sc else None, tok))
     out += [_Figure(f"{m.group(1).casefold()} {m.group(2)}", None, f"{m.group(1).casefold()} {m.group(2)}") for m in _MONTH_YEAR_RE.finditer(plain)]
-    return out
+    return tuple(out)
 
 
 def figure_spellings(text: str, *, with_scale: bool = False) -> list[tuple[str, frozenset[str]]]:
@@ -2884,8 +3633,22 @@ _FOREIGN_NUMBER_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(map(re.escape, 
 
 def foreign_number_values(text: str) -> set[str]:
     """The values of the number words of ``text`` written in Spanish, French, German, Italian or Portuguese ("doce" ->
-    "12"), as figure keys: a synthesis that gives a source's "doce vecinos" as "twelve neighbours" states no new figure."""
-    return {str(_FOREIGN_NUMBER_WORDS[m.group(1).casefold()]) for m in _FOREIGN_NUMBER_RE.finditer(text)} if text else set()
+    "12"), as figure keys: a synthesis that gives a source's "doce vecinos" as "twelve neighbours" states no new figure.
+    Read once per text (:data:`_KEPT_TEXT_CHARS`; a new set each call)."""
+    if not text:
+        return set()
+    return set(_foreign_number_values_kept(text) if len(text) <= _KEPT_TEXT_CHARS else _read_foreign_number_values(text))
+
+
+_FOREIGN_NUMBER_VALUES_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _foreign_number_values_kept(text: str) -> frozenset[str]:
+    return _kept(_FOREIGN_NUMBER_VALUES_KEPT, text, text, lambda: _read_foreign_number_values(text))
+
+
+def _read_foreign_number_values(text: str) -> frozenset[str]:
+    return frozenset(str(_FOREIGN_NUMBER_WORDS[m.group(1).casefold()]) for m in _FOREIGN_NUMBER_RE.finditer(text))
 
 
 def magnitude_keys(keys: Iterable[str]) -> set[str]:
@@ -2923,7 +3686,21 @@ _RELATIVE_DATE_RE = re.compile(r"\b(?P<n>a|an|one|two|three|four|five|six|seven|
 _RELATIVE_VALUES = {"a": "1", "an": "1", "a few": "few", "several": "several", **{w: str(v) for w, v in _CARDINAL_WORDS.items() if isinstance(v, int)}}
 
 
-def _count_figures(text: str) -> list[_Figure]:
+def _count_figures(text: str) -> tuple[_Figure, ...]:
+    """:func:`_read_count_figures`, kept per text (:data:`_KEPT_TEXT_CHARS`; integration gate 4)."""
+    if len(text or "") <= _KEPT_TEXT_CHARS:
+        return _count_figures_kept(text)
+    return tuple(_read_count_figures(text))
+
+
+_COUNT_FIGURES_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _count_figures_kept(text: str) -> tuple[_Figure, ...]:
+    return _kept(_COUNT_FIGURES_KEPT, text, text, lambda: tuple(_read_count_figures(text)))
+
+
+def _read_count_figures(text: str) -> list[_Figure]:
     """The counts and relative dates of ``text`` written in words that :func:`_figures` leaves to prose (:data:`_COUNT_WORD_RE`,
     :data:`_RATIO_WORDS_RE`, :data:`_VAGUE_COUNT_RE`, :data:`_RELATIVE_DATE_RE`), quotations masked; for the introduced-figure
     rule only (integration gate 3). One pass per pattern."""
@@ -2984,10 +3761,16 @@ def _figure_differences(synthesized_text: str, source_texts: list[str]) -> tuple
     introduced = _sorted_tokens({f.label for f in syn + syn_counts if not (f.keys & (src_known | foreign))})
     dropped = _sorted_tokens({f.label for f in src if not (magnitude_keys(f.keys) & syn_keys)})
     rescaled: list[str] = []
+    # the scale words the sources state each numeral with, read once (integration gate 4: the sources' figures were read
+    # again for every scaled figure of the claim, quadratic on a claim and sources of one repeated scaled figure)
+    scales_of: dict[str, set[str]] = {}
+    for g in src:
+        if g.scale:
+            scales_of.setdefault(g.mantissa, set()).add(g.scale)
     for f in syn:
         if not f.scale or not (f.keys & src_keys) or (f.keys - {f.mantissa}) & src_keys:
             continue
-        scales = sorted({g.scale for g in src if g.mantissa == f.mantissa and g.scale})
+        scales = sorted(scales_of.get(f.mantissa, ()))
         if scales and f.scale not in scales:
             shown = f.label if f.label != f.mantissa else f"{f.mantissa} {f.scale}"
             rescaled.append(f"'{shown}' where the cited sources state {f.mantissa} {' or '.join(scales)} (a changed scale word)")
@@ -3127,7 +3910,22 @@ def _mask_spans(text: str, spans: list[tuple[int, int]]) -> str:
     return "".join(parts)
 
 
-def _unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]]:
+def _unit_figures(text: str) -> tuple[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]], ...]:
+    """:func:`_read_unit_figures`, kept per text (:data:`_KEPT_TEXT_CHARS`; integration gate 4: a cited claim's units were
+    read again for every synthesized claim citing it)."""
+    if len(text or "") <= _KEPT_TEXT_CHARS:
+        return _unit_figures_kept(text)
+    return tuple(_read_unit_figures(text))
+
+
+_UNIT_FIGURES_KEPT = BoundedLRU(_KEPT_MAX_ENTRIES, _KEPT_MAX_CHARS)
+
+
+def _unit_figures_kept(text: str) -> tuple[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]], ...]:
+    return _kept(_UNIT_FIGURES_KEPT, text, text, lambda: tuple(_read_unit_figures(text)))
+
+
+def _read_unit_figures(text: str) -> list[tuple[str, Optional[frozenset[str]], str, Optional[str], Optional[str]]]:
     """``(value, unit kinds, as written, era, next word)`` for every figure in digits of ``text`` (figures in words with a
     scale read as digits, thousands separators removed): its exact value (a scale word applied: "6 million" and "6000000"
     are one value), the unit after it (:func:`_unit_after`; a currency sign before it is its unit), and for a figure that
@@ -3204,27 +4002,31 @@ def unit_differences(synthesized_text: str, source_texts: list[str]) -> list[str
     for t in source_texts:
         for value, unit, shown, era, _nxt in _unit_figures(t):
             src.setdefault(value, []).append((unit, shown, era))
+    # each value's eras, distinct units and spellings in the sources, read once (integration gate 4: every occurrence of the
+    # value in the sources was read again for every figure of the claim, quadratic on a claim and sources of one repeated
+    # figure: 4.5 s at 20,000 characters, 16.6 s at 40,000)
+    held: dict[str, tuple[set[Optional[str]], list[Optional[frozenset[str]]], str]] = {
+        value: ({e for _u, _s, e in stated}, list(dict.fromkeys(u for u, _s, _e in stated)), " or ".join(sorted({s for _u, s, _e in stated})))
+        for value, stated in src.items()}
     out: list[str] = []
     for value, unit, shown, era, nxt in syn:
-        stated = src.get(value)
-        if not stated:
+        if value not in held:
             continue  # an introduced figure: the figure rule's
-        eras = {e for _u, _s, e in stated}
+        eras, units, stated_shown = held[value]
         if era == "BC" and "BC" not in eras:
             out.append(f"'{shown}' where its cited sources state {value} without an era (a year moved into BC)")
             continue
         if era is None and eras == {"BC"}:
-            out.append(f"'{shown}' where its cited sources state {' or '.join(sorted({s for _u, s, _e in stated}))} (the era BC is dropped)")
+            out.append(f"'{shown}' where its cited sources state {stated_shown} (the era BC is dropped)")
             continue
-        units = [u for u, _s, _e in stated]
         if unit is None:
             if nxt and len(nxt) >= 3 and nxt.endswith("s") and nxt not in _ALIGN_STOP and all(u is not None and u <= {"per cent"} for u in units):
-                out.append(f"'{shown} {nxt}' where its cited sources state {' or '.join(sorted({s for _u, s, _e in stated}))} (the per cent is "
+                out.append(f"'{shown} {nxt}' where its cited sources state {stated_shown} (the per cent is "
                            "dropped: a share stated as a count)")
             continue
         if any(u is None or (u & unit) for u in units):
             continue
-        out.append(f"'{shown}' where its cited sources state {' or '.join(sorted({s for _u, s, _e in stated}))} (a changed unit)")
+        out.append(f"'{shown}' where its cited sources state {stated_shown} (a changed unit)")
     return list(dict.fromkeys(out))
 
 
@@ -3453,14 +4255,44 @@ def _party_credit(text: str, known: list[ClaimRecord]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+#: What may stand before a credit that opens a claim: "According to", "As", "In", "For", "Per", "In the view of", and "the".
+_HEAD_CREDIT_LEAD_RE = re.compile(r"\W{0,8}+(?:(?:according\s++to|as|in|for|per|in\s++the\s++(?:view|words|opinion)\s++of)\s++)?(?:the\s++)?", re.IGNORECASE)
+#: How far into a claim its opening credit may name the colleague.
+_HEAD_CREDIT_REACH = 40
+
+
+def _credits_at_head(text: str, named: list[str]) -> bool:
+    """A source claim opens with its credit to a colleague of ``named`` (integration gate 4): the first name of a named
+    specialist (``adapters.sources.specialist_names``, read outside quotations) stands within the claim's first
+    :data:`_HEAD_CREDIT_REACH` characters with nothing before it but :data:`_HEAD_CREDIT_LEAD_RE` ("The History specialist
+    supplies the frame: ...", "According to the History specialist, ...", "In the History specialist's view, ...", "History
+    specialist: ..."). Such a claim states the colleague's view; a credit inside a claim ("..., bearing out the English
+    specialist's claim that ...") reports agreement beside the claim's own statement."""
+    from ..adapters.markdown import mask_quotations
+    from ..adapters.sources import specialist_names
+    head = mask_quotations(text or "")[:_HEAD_CREDIT_REACH + 80]
+    first: Optional[int] = None
+    for agent in named:
+        for n in specialist_names(agent):
+            m = re.search(r"(?<![\w-])" + r"\s+".join(map(re.escape, n.split())) + r"(?![\w-])", head, re.IGNORECASE)
+            if m is not None and (first is None or m.start() < first):
+                first = m.start()
+    if first is None or first > _HEAD_CREDIT_REACH:
+        return False
+    lead = _HEAD_CREDIT_LEAD_RE.match(head, 0, first)
+    return lead is not None and lead.end() == first
+
+
 def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list[str]:
     """A synthesized claim that credits a view to a specialist (named with a possessive or as the subject of a crediting
     verb: "The English specialist dates the war ..."; or in the forms a combinator writes, :func:`_combinator_credits`: "...
     (Economics specialist).", "Economics specialist: ...", "In the Economics answer, ...") while none of its cited source
     claims holds that specialist's view: a source claim holds its own agent's view and the views it credits to a colleague
     itself, except a 'perspective' claim, which holds only the view of the specialist it names ("The English specialist's
-    paragraph identifies ..." in the History report). A credit to every specialist ("Both specialists agree that ...") is
-    named when a specialist in scope holds none of the cited views."""
+    paragraph identifies ..." in the History report), and a claim that opens with its credit to a colleague
+    (:func:`_credits_at_head`: "The History specialist supplies the frame: ...", "According to the History specialist,
+    ..."), which states that colleague's view and holds it only (integration gate 4). A credit to every specialist ("Both
+    specialists agree that ...") is named when a specialist in scope holds none of the cited views."""
     from ..adapters.markdown import mask_quotations
     from ..adapters.sources import credited_agents
     if len(agents) < 1:
@@ -3474,6 +4306,12 @@ def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list
         named = list(dict.fromkeys(credited_agents(c.claim_text, agents) + _combinator_credits(c.claim_text, agents)))
         if c.claim_role == "perspective":
             holders |= set(named) if named else {c.agent_id}
+        elif named and _credits_at_head(c.claim_text, named):
+            # the claim opens with its credit ("The History specialist supplies the frame: the closure ...", "According to
+            # the History specialist, ...") and reports the colleague's view as its statement: the colleague holds it, not
+            # the claim's own agent (integration gate 4: the History specialist's words re-credited to the English
+            # specialist who reported them were not named)
+            holders |= set(named)
         else:  # its own agent's view, and any colleague's view it reports itself ("bearing out the English specialist's claim")
             holders |= {c.agent_id, *named}
     out: list[str] = []
@@ -3865,6 +4703,71 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
     return f
 
 
+# --- self-reports carried in the ledger's own fields (INT-LEDGER-029; integration gate 4) ----------------------------
+#: This system's checks named as the subject or agent of a verdict, in the combinator's own words about its choices (a
+#: ledger entry's reason, a conflict record's description and basis): the Overseer, Z3, the logic, verification or Z3
+#: engine, "the engine" (never "the steam engine": "the" stands right before it), the solver, the verifier, the checker,
+#: the hub, the router, the translator, formal checks, signed results. A combinator cannot know a verdict of any of them,
+#: and a ledger field is no place a check result could come from, so the words are a self-report.
+_LEDGER_CHECK_NAME = (r"(?:(?:the|this|its|our)\s++(?:(?:logic|verification|formal|reasoning|z3|smt)\s++)?engine"
+                      r"|(?:logic|verification|formal|reasoning|z3|smt)\s++engine|z3(?:\s++solver)?|smt\s++solver"
+                      r"|(?:the|this|its|our)\s++(?:solver|verifier|checker|hub|router|translator|overseer(?:\s++agents?)?|auditor)"
+                      r"|overseers?|(?:the\s++)?formal\s++(?:checks?|verification)|(?:the\s++)?signed\s++(?:engine\s++)?results?)")
+_LEDGER_VERDICT = (r"(?:confirm(?:s|ed)?|prove[sdn]?|proven|verif(?:y|ies|ied)|validate[sd]?|check(?:s|ed)?|show(?:s|ed|n)?|finds?|found|establish(?:es|ed)?"
+                   r"|decide[sd]?|approve[sd]?|clear(?:s|ed)?|certif(?:y|ies|ied)|accept(?:s|ed)?|reject(?:s|ed)?|refute[sd]?|pass(?:es|ed)?|entail(?:s|ed)?"
+                   r"|rule[sd]?)")
+_LEDGER_VERDICT_PAST = (r"(?:confirmed|proved|proven|verified|validated|checked|shown|found|established|decided|approved|cleared|certified|accepted"
+                        r"|rejected|refuted|passed|entailed|ruled)")
+_LEDGER_CHECK_CLAIM_RE = re.compile(
+    rf"\b{_LEDGER_CHECK_NAME}(?:['’]s\s++(?:results?|verdicts?|checks?|audits?|proofs?|runs?|outputs?|decisions?))?\s++"
+    rf"(?:(?:has|have|had|was|were|is|are|now|already|also|formally|clearly|independently|itself)\s++){{0,2}}{_LEDGER_VERDICT}\b"
+    rf"|\b{_LEDGER_VERDICT_PAST}\s++by\s++{_LEDGER_CHECK_NAME}\b|\baccording\s++to\s++{_LEDGER_CHECK_NAME}\b"
+    r"|\bformally\s++(?:verified|proved|proven|confirmed|checked|established)\b", re.IGNORECASE)
+
+
+def ledger_field_self_reports(text: Optional[str]) -> list[str]:
+    """The sentences of a ledger field (a ledger entry's reason, a conflict record's description or basis) that state a
+    check result (integration gate 4): the synthesis readers' self-reports and verification labels
+    (:func:`_self_report_sentences`: "Checked by the logic engine: both are verified and agree.") and this system's checks
+    named as the subject or agent of a verdict (:data:`_LEDGER_CHECK_CLAIM_RE`: "The overseer confirmed the March 1802
+    date, ...", "The Z3 engine proved that March 1802 is correct.", "verified by Z3", "according to the overseer"). A
+    negated or modal statement ("The overseer has not confirmed ...") states no result. Each sentence is read once, on its
+    first :data:`_SELF_REPORT_SENTENCE_CHARS` characters."""
+    if not text:
+        return []
+    out = list(_self_report_sentences(text))
+    for sentence in _SELF_REPORT_SENTENCE_RE.split(text):
+        s = sentence.strip()
+        if s and s[:200] not in out and _LEDGER_CHECK_CLAIM_RE.search(s[:_SELF_REPORT_SENTENCE_CHARS]):
+            out.append(s[:200])
+    return list(dict.fromkeys(out))
+
+
+def _ledger_field_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
+    """INT-LEDGER-029 for every ledger entry reason, conflict description and conflict basis that states a check result
+    (:func:`ledger_field_self_reports`; integration gate 4): the self-report reading of the synthesized claims and the
+    synthesis text, applied to the combinator's own words about its choices, naming the record. Advisory, as every
+    self-report is: only a signed engine result is a check."""
+    f: list[IntegrityFinding] = []
+    tail = ("a self-report of the combinator, advisory only; no check in this process stands behind it, so it is no evidence that anything was "
+            "checked (only a signed engine result is)")
+    for k, entry in enumerate(synthesis.ledger):
+        found = ledger_field_self_reports(entry.reason)
+        if found:
+            ids = list(dict.fromkeys(list(entry.source_claim_ids) + ([entry.synthesized_claim_id] if entry.synthesized_claim_id else [])))
+            f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+                f"ledger entry {k} ('{entry.transformation}', source claims {list(entry.source_claim_ids)[:8]}): its recorded reason states a check result: "
+                f"{found[:3]}: {tail}"), claim_ids=ids[:64], agent_ids=[synthesis.combinator_agent_id]))
+    for conf in synthesis.conflicts:
+        for field, text in (("description", conf.description), ("basis", conf.basis)):
+            found = ledger_field_self_reports(text)
+            if found:
+                f.append(IntegrityFinding(code="INT-LEDGER-029", severity="warning", message=(
+                    f"conflict record {conf.conflict_id} ({conf.status}, claims {list(conf.claim_ids)[:8]}): its {field} states a check result: "
+                    f"{found[:3]}: {tail}"), claim_ids=[conf.conflict_id] + list(conf.claim_ids)[:63], agent_ids=[synthesis.combinator_agent_id]))
+    return f
+
+
 def _report_context(reports: list[SpecialistReport], known: list[ClaimRecord]) -> tuple[str, ...]:
     """The other claim texts of the reports a synthesized claim cites (what the name-partner rule reads besides the
     cited claims: a report that states "the Ten Hours Act of 1847" in a claim the synthesized claim does not cite still
@@ -3971,6 +4874,12 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
     credit_docs = _credit_documents(reports, tuple(extra_texts))
     ref_problems = evidence_ref_problems(synthesis, reports, document_texts=document_texts, allowed_document_ids=allowed_document_ids)
     agents = sorted({r.agent_id for r in reports})
+    # The aligned reading's steps for the whole synthesis (rule align-bound, integration gate 4): each claim spends at most
+    # ALIGN_STEP_BOUND of what is left, so one synthesis of many long claims is bounded too, and a claim the reading could
+    # not compare is named (INT-LEDGER-026), never read as compared.
+    align_left = ALIGN_CHECK_STEP_BOUND
+    read_used = 0  # the characters of claim text the lexical readers have compared so far (rule read-bound)
+    quote_used = 0  # quotations times characters searched for them so far (rule quote-bound)
     memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and _MEMORY_LABEL_RE.search(c.claim_text) for c in r.claims)}
 
     for sc in synthesis.claims:
@@ -4007,70 +4916,103 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         if bad_refs:
             f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') gives evidence the task's texts do not hold: " + "; ".join(bad_refs[:8]),
                                       claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({r.document_id for r in sc.evidence_refs})))
-        introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
-        dropped_figures = _sorted_tokens({f.label for c in known for figures, incidental in (source_figures(c),) for f in figures
-                                          if not (magnitude_keys(f.keys) & carried_by_source.get(c.claim_id, set())) and f.label not in incidental})
-        repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
-        word_counts, _meaning = aligned_differences(sc.text, [c.claim_text for c in known])
-        reunited = unit_differences(sc.text, [c.claim_text for c in known])
-        if introduced or rescaled or repaired or word_counts or reunited:
-            # One finding per synthesized claim: the figures no source states, the figures stated with another scale word,
-            # and the figures every source states but with another event (a swap passes a token-set comparison, so the
-            # pairing is compared too). Figures written in words count like figures in digits.
-            parts: list[str] = []
-            if introduced:
-                parts.append(f"states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date")
-            if rescaled:
-                parts.append(f"changes the scale of figures of its cited sources {known_ids}: " + "; ".join(rescaled))
-            if repaired:
-                parts.append(f"re-pairs figures or dates between events relative to its cited sources {known_ids}: " + "; ".join(repaired))
-            if word_counts:
-                parts.append(f"changes a count or a date of a statement it copies from its cited sources {known_ids}: " + "; ".join(word_counts))
-            if reunited:
-                parts.append(f"states figures of its cited sources {known_ids} in another unit or era: " + "; ".join(reunited))
-            f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') " + ", and ".join(parts) + ", whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        corpus = _quotation_corpus(reports, known, tuple(extra_texts))
-        invented = unlocated_quotations(sc.text, corpus)
-        misspelt = quotation_form_differences(sc.text, corpus)
-        if misspelt:
-            f.append(IntegrityFinding(code="INT-LEDGER-028", severity="warning", message=f"synthesized claim ('{sc.transformation}') quotes {misspelt[:8]}: the words occur in a text in scope, but with other diacritics, so the quotation is not reproduced exactly", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        if invented:
-            f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') quotes {[q[:80] for q in invented[:8]]}, which occur in none of the supplied texts, the cited reports or its cited source claims {known_ids}: an altered or invented quotation", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        miscredited = misattributed_quotations(sc.text, credit_docs, skip=set(invented))
-        if miscredited:
-            f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') credits quotations to a source that does not hold them: " + "; ".join(miscredited[:8]) + " (misattributed: the words are genuine, the credit is not)",
-                                      claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({d for d in credit_docs if any(d in m for m in miscredited)})))
-        inverted = meaning_inversions(sc.text, [c.claim_text for c in known], sc.transformation)
-        if inverted:
-            f.append(IntegrityFinding(code="INT-LEDGER-030", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
-                                      + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        substituted = substituted_names(sc.text, [c.claim_text for c in known], sc.transformation, context_texts=_report_context(reports, known))
-        named_in = {n for d in substituted for n in re.findall(r"it names '([^']+)'", d)}
-        substituted += [f"it names '{n}', which none of its cited sources, the reports in scope, their supplied texts or the request states (an introduced name)"
-                        for n in introduced_names(sc.text, [c.claim_text for c in known], sc.transformation, stated_elsewhere=exchange_words(),
-                                                  context_texts=_report_context(reports, known)) if n not in named_in]
-        if substituted:
-            rules = "rule name-substitution" if not any(d.endswith("(an introduced name)") for d in substituted) else (
-                "rule name-introduction" if all(d.endswith("(an introduced name)") for d in substituted) else "rules name-substitution and name-introduction")
-            f.append(IntegrityFinding(code="INT-LEDGER-032", severity="error", message=f"synthesized claim ('{sc.transformation}') names an actor its cited sources {known_ids} do not "
-                                      f"name ({rules}): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
-                                      "cites does not state", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
-        changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation)
-                           if not (neg_error and d.startswith("it adds a negation"))]
-        changed_meaning += _view_credit(sc.text, known, agents)
-        changed_meaning += _text_credit(sc.text, known, reports, agents)
-        changed_meaning += _party_credit(sc.text, known)
-        if changed_meaning:
-            f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):
-            how = "content was dropped under an equivalence label" if sc.transformation in _EQUIVALENCE_LABELS else "the dated or quantified content of those sources was left out of the combined claim"
-            f.append(IntegrityFinding(code="INT-LEDGER-024", severity="warning", message=f"figures or dates {dropped_figures} of the cited sources {known_ids} do not appear in the '{sc.transformation}' synthesized claim or in any other synthesized claim citing those sources; {how}", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
-        unlabelled = _dropped_memory_labels(sc.text, known, {c.claim_id for c in known if report_of.get(c.claim_id) in memory_reports})
-        if unlabelled:
-            items, labelled_ids, labels = unlabelled
-            f.append(IntegrityFinding(code="INT-LEDGER-027", severity="warning", message=f"synthesized claim ('{sc.transformation}') states dated or quantified items {items} of source claims {labelled_ids} that the specialist labelled from memory ({labels}), without the label: the qualification was dropped, so the router reads those items as unqualified",
-                                      claim_ids=[sc.claim_id] + labelled_ids, agent_ids=[synthesis.combinator_agent_id]))
+        # The claim's comparison with its cited sources (rule read-bound, integration gate 4): the lexical readers below read
+        # the claim and every claim it cites, so one synthesis of many claims citing many long claims read hundreds of millions
+        # of characters (512 claims x 64 cited claims of 4,000 characters). They compare at most LEDGER_READ_BOUND characters
+        # per synthesis, in claim order; a claim past the bound is named (INT-LEDGER-026), never shown as compared, and the
+        # structural rules (citations, certainty, evidence references, labels, materiality) still read it.
+        volume = len(sc.text) + sum(len(c.claim_text) for c in known)
+        compare = read_used + volume <= LEDGER_READ_BOUND
+        if compare:
+            read_used += volume
+            introduced, _dropped_here, rescaled = _figure_differences(sc.text, [c.claim_text for c in known])
+            dropped_figures = _sorted_tokens({f.label for c in known for figures, incidental in (source_figures(c),) for f in figures
+                                              if not (magnitude_keys(f.keys) & carried_by_source.get(c.claim_id, set())) and f.label not in incidental})
+            repaired = figure_pairing_differences(sc.text, [c.claim_text for c in known], context_texts=_report_context(reports, known))
+            claim_steps = min(ALIGN_STEP_BOUND, max(align_left, 0))
+            align_budget = (_AlignBudget(claim_steps) if claim_steps == ALIGN_STEP_BOUND
+                            else _AlignBudget(claim_steps, bound=ALIGN_CHECK_STEP_BOUND, scope="the whole synthesis"))
+            word_counts, aligned_meaning = aligned_differences(sc.text, [c.claim_text for c in known], budget=align_budget)
+            align_left -= claim_steps - max(align_budget.left, 0)
+            reunited = unit_differences(sc.text, [c.claim_text for c in known])
+            if introduced or rescaled or repaired or word_counts or reunited:
+                # One finding per synthesized claim: the figures no source states, the figures stated with another scale word,
+                # and the figures every source states but with another event (a swap passes a token-set comparison, so the
+                # pairing is compared too). Figures written in words count like figures in digits.
+                parts: list[str] = []
+                if introduced:
+                    parts.append(f"states figures or dates {introduced} that occur in none of its cited sources {known_ids}: a changed or introduced figure or date")
+                if rescaled:
+                    parts.append(f"changes the scale of figures of its cited sources {known_ids}: " + "; ".join(rescaled))
+                if repaired:
+                    parts.append(f"re-pairs figures or dates between events relative to its cited sources {known_ids}: " + "; ".join(repaired))
+                if word_counts:
+                    parts.append(f"changes a count or a date of a statement it copies from its cited sources {known_ids}: " + "; ".join(word_counts))
+                if reunited:
+                    parts.append(f"states figures of its cited sources {known_ids} in another unit or era: " + "; ".join(reunited))
+                f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"synthesized claim ('{sc.transformation}') " + ", and ".join(parts) + ", whatever the transformation label", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            corpus = _quotation_corpus(reports, known, tuple(extra_texts))
+            # Each quotation is searched for in every text of the corpus (rule quote-bound, integration gate 4): the searches
+            # of one synthesis are bounded by QUOTE_SCAN_BOUND (quotations times the characters searched), and a claim past it
+            # is named (INT-LEDGER-026, below), its quotations never shown as located.
+            quote_count = _quotation_count(sc.text)
+            quote_scan = quote_count * sum(len(t) for t in corpus)
+            located_here = quote_used + quote_scan <= QUOTE_SCAN_BOUND
+            if located_here:
+                quote_used += quote_scan
+            invented = unlocated_quotations(sc.text, corpus) if located_here else []
+            misspelt = quotation_form_differences(sc.text, corpus) if located_here else []
+            if misspelt:
+                f.append(IntegrityFinding(code="INT-LEDGER-028", severity="warning", message=f"synthesized claim ('{sc.transformation}') quotes {misspelt[:8]}: the words occur in a text in scope, but with other diacritics, so the quotation is not reproduced exactly", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            if invented:
+                f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') quotes {[q[:80] for q in invented[:8]]}, which occur in none of the supplied texts, the cited reports or its cited source claims {known_ids}: an altered or invented quotation", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            miscredited = misattributed_quotations(sc.text, credit_docs, skip=set(invented)) if located_here else []
+            if miscredited:
+                f.append(IntegrityFinding(code="INT-LEDGER-025", severity="error", message=f"synthesized claim ('{sc.transformation}') credits quotations to a source that does not hold them: " + "; ".join(miscredited[:8]) + " (misattributed: the words are genuine, the credit is not)",
+                                          claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id], document_ids=sorted({d for d in credit_docs if any(d in m for m in miscredited)})))
+            inverted = meaning_inversions(sc.text, [c.claim_text for c in known], sc.transformation)
+            if inverted:
+                f.append(IntegrityFinding(code="INT-LEDGER-030", severity="error", message=f"synthesized claim ('{sc.transformation}') states the opposite of its cited source {known_ids}: "
+                                          + "; ".join(inverted) + ", whatever its formal conclusion", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            substituted = substituted_names(sc.text, [c.claim_text for c in known], sc.transformation, context_texts=_report_context(reports, known))
+            named_in = {n for d in substituted for n in re.findall(r"it names '([^']+)'", d)}
+            substituted += [f"it names '{n}', which none of its cited sources, the reports in scope, their supplied texts or the request states (an introduced name)"
+                            for n in introduced_names(sc.text, [c.claim_text for c in known], sc.transformation, stated_elsewhere=exchange_words(),
+                                                      context_texts=_report_context(reports, known)) if n not in named_in]
+            if substituted:
+                rules = "rule name-substitution" if not any(d.endswith("(an introduced name)") for d in substituted) else (
+                    "rule name-introduction" if all(d.endswith("(an introduced name)") for d in substituted) else "rules name-substitution and name-introduction")
+                f.append(IntegrityFinding(code="INT-LEDGER-032", severity="error", message=f"synthesized claim ('{sc.transformation}') names an actor its cited sources {known_ids} do not "
+                                          f"name ({rules}): " + "; ".join(substituted) + ", whatever its formal conclusion: who acted is content the claim it "
+                                          "cites does not state", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            neg_error = any(d.startswith("it adds a negation") for d in inverted)  # the warning's description is the error's
+            changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation,
+                                                              aligned=(word_counts, aligned_meaning))
+                               if not (neg_error and d.startswith("it adds a negation"))]
+            changed_meaning += _view_credit(sc.text, known, agents)
+            changed_meaning += _text_credit(sc.text, known, reports, agents)
+            changed_meaning += _party_credit(sc.text, known)
+            if not located_here:
+                changed_meaning.append(f"its {quote_count} quotations were not located in the texts in scope: searching {sum(len(t) for t in corpus):,} characters "
+                                       f"for them would bring this synthesis's quotation searches past the ledger's bound of {QUOTE_SCAN_BOUND:,} "
+                                       "(quotations times characters searched; rule quote-bound), so an altered, invented or misattributed quotation "
+                                       "in it is not named here")
+            if changed_meaning:
+                f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') may say something other than its cited sources {known_ids}: " + "; ".join(changed_meaning) + " (lexical comparison; not formally checked)", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            if dropped_figures and (sc.transformation in _EQUIVALENCE_LABELS or sc.transformation in _COMBINING_LABELS):
+                how = "content was dropped under an equivalence label" if sc.transformation in _EQUIVALENCE_LABELS else "the dated or quantified content of those sources was left out of the combined claim"
+                f.append(IntegrityFinding(code="INT-LEDGER-024", severity="warning", message=f"figures or dates {dropped_figures} of the cited sources {known_ids} do not appear in the '{sc.transformation}' synthesized claim or in any other synthesized claim citing those sources; {how}", claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
+            unlabelled = _dropped_memory_labels(sc.text, known, {c.claim_id for c in known if report_of.get(c.claim_id) in memory_reports})
+            if unlabelled:
+                items, labelled_ids, labels = unlabelled
+                f.append(IntegrityFinding(code="INT-LEDGER-027", severity="warning", message=f"synthesized claim ('{sc.transformation}') states dated or quantified items {items} of source claims {labelled_ids} that the specialist labelled from memory ({labels}), without the label: the qualification was dropped, so the router reads those items as unqualified",
+                                          claim_ids=[sc.claim_id] + labelled_ids, agent_ids=[synthesis.combinator_agent_id]))
+        else:
+            f.append(IntegrityFinding(code="INT-LEDGER-026", severity="warning", message=f"synthesized claim ('{sc.transformation}') was not compared with its cited sources {known_ids}: "
+                                      f"its comparison would bring the claim text this synthesis compares to {read_used + volume:,} characters, over the ledger's "
+                                      f"bound of {LEDGER_READ_BOUND:,} for one synthesis (rule read-bound), so its figures, dates, units, names, quotations and "
+                                      "wording were not read against its sources and it is not shown as compared (lexical comparison; not formally checked)",
+                                      claim_ids=[sc.claim_id] + known_ids, agent_ids=[synthesis.combinator_agent_id]))
         if sc.transformation == "carried":
             if len(known) != 1 or len(sc.source_claim_ids) != 1:
                 f.append(IntegrityFinding(code="INT-LEDGER-010", severity="warning", message=f"claim marked 'carried' cites {len(sc.source_claim_ids)} sources; 'carried' requires exactly one source with identical text, use 'merged'", claim_ids=[sc.claim_id] + known_ids))
@@ -4084,6 +5026,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
 
     notes, flagged = report_notes(reports, colliding)
     f += _self_report_findings(synthesis, sources, notes, flagged)
+    f += _ledger_field_findings(synthesis)
     for entry in synthesis.ledger:
         unknown = [s for s in entry.source_claim_ids if s not in sources and s not in colliding]
         if unknown:
@@ -4095,7 +5038,11 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             else:
                 material = [s for s in entry_ids if s in sources and sources[s].materiality == "material"]
                 if material:
-                    f.append(IntegrityFinding(code="INT-LEDGER-019", severity="warning", message=f"MATERIAL source claims {material} were dropped from the answer; recorded reason: {entry.reason!r}", claim_ids=material, agent_ids=[synthesis.combinator_agent_id]))
+                    # the reason is the combinator's own words, quoted: one that states a check result is said to be a
+                    # self-report, so the hub's message never reads as the hub confirming it (integration gate 4)
+                    said = (" (the combinator's own words: the reason states a check result, a self-report that is advisory only and no "
+                            "evidence of a check; INT-LEDGER-029)") if ledger_field_self_reports(entry.reason) else ""
+                    f.append(IntegrityFinding(code="INT-LEDGER-019", severity="warning", message=f"MATERIAL source claims {material} were dropped from the answer; recorded reason: {entry.reason!r}{said}", claim_ids=material, agent_ids=[synthesis.combinator_agent_id]))
             accounted.update(entry_ids)
             continue
         target = next((s for s in synthesis.claims if s.claim_id == entry.synthesized_claim_id), None) if entry.synthesized_claim_id else None

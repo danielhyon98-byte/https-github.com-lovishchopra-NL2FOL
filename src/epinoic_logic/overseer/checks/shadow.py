@@ -25,6 +25,25 @@ hook is a model call) and coverage says so.
   environment's nondeterminism never becomes an accusation. Only a run under the channel's pinned configuration (or
   the same with unsat cores on) explains anything: an undecided run under a configuration swapped in later is the
   fault itself.
+* Rule ``budget-cut`` (integration gate round 4, decision 87): the channel decides a report's STEM checks under a
+  wall-clock budget (``channel.bus.STEM_CHECK_BUDGET_S``, or the smaller per-channel ``stem_budget_s`` the integration
+  checks port sets from what its deadline leaves); every STEM check left when it is spent is stated not run
+  (``satisfied`` null, no result, INT-SUBJ-002 "check budget"), never success. No replay can reproduce where a clock ran
+  out, so the comparison replays the receipt's cut instead of accusing it: each check the receipt states not run under
+  its budget is compared in that form (the shadow's findings on that check's run give way to the INT-SUBJ-002 the
+  channel writes for a check its budget left), and everything else is compared as before, so a cut whose INT-SUBJ-002
+  was dropped is still RCPT-004. The receipt's cut is replayed only when it is the image of the channel's budget rule:
+  every check it names is a STEM check the branch packs derive from the journaled report, of the kind they derive; it is
+  the end of the report's STEM checks in the packs' order (no STEM check after the first one it names was decided); its
+  checks state one budget, written as the channel writes it, at most the module budget; and the journal does not put
+  the whole transfer within less time of the transfer before it than that budget. A cut that is not is compared as the
+  shadow decides it (a hidden failure stays RCPT-004) and a note says why; a not-run statement in no form the channel
+  writes (a budget above the module's, or written otherwise than ``{:g}``) is not read as a cut at all and is compared the
+  same way. A cut under the module budget, or under a smaller one the plan's deadline accounts for, is a note (the audit
+  verdict does not depend on machine load); a cut under a smaller budget the plan's deadline does not account for is
+  RES-008, never an accusation (the journal does not record a channel's budget, so a budget starved between transfers
+  cannot be told apart). Checks the shadow's own budget left undecided that the receipt decided are compared in the
+  not-run form too, with RES-008 (the auditor's environment).
 
 Limit (stated, not hidden): this shadow runs in the auditor's process with the repository's channel code. It catches
 channel STATE corrupted between transfers, dropped or added findings, and environment nondeterminism; a patch to the
@@ -34,15 +53,18 @@ a shadow in a separate process (the design's section 15 mitigation) is not built
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ...channel.contracts import Constraint, RequestItem
+from ...channel.bus import _DETAIL_MAX, STEM_CHECK_BUDGET_S
+from ...channel.contracts import Constraint, RequestItem, TransmissionStatus
 from ...engine.results import VerificationResult
 from ...engine.runner import verify
 from ...engine.sink import capture_results
 from ...engine.statuses import VerificationStatus as S
-from ...integrity.contracts import AgentRole, Synthesis
+from ...integrity.contracts import AgentRole, Synthesis, parse_rfc3339
 from ...translate.contracts import SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from ...translate.outcome import compose_outcome
 from ..keys import RUN_KEY_ID
@@ -50,10 +72,31 @@ from ..faithful import faithful
 from ..view import Transfer
 from . import CheckContext
 
-__all__ = ["run_shadow", "SHADOW_EXCLUDED"]
+__all__ = ["run_shadow", "SHADOW_EXCLUDED", "budget_cut_checks"]
 
 SHADOW_EXCLUDED = frozenset({"INT-HANDOFF-005", "INT-HANDOFF-016", "INT-HANDOFF-017", "INT-STALE-011", "INT-REQ-006", "INT-SYNTH-013"})
 _UNDECIDED = (S.TIMEOUT.value, S.UNKNOWN.value)
+
+# ------------------------------------------------------------------ rule budget-cut (integration gate round 4)
+#: How the channel states a branch check its report's STEM check budget left undecided (``TranslatorChannel._branch_checks``):
+#: the check's ``detail`` is "<kind><where>: <clause><description>" followed by the first pair below around the budget, and
+#: the INT-SUBJ-002 naming it is "<kind> check<where>" followed by the second pair around the budget; the budget is written
+#: ``{:g}``. Held equal to the channel's text by the tests (a channel run under a budget of 0 s).
+_CUT_DETAIL = ("; not run: the report's STEM check budget (", " s) was spent")
+_CUT_MESSAGE = (" undecided (check budget: the report's STEM checks ran past ", " s; not run): ")
+#: The module's STEM check budget, bound at import: the upper bound of every channel's budget (``channel.bus.stem_budget_s``),
+#: so a budget a receipt states above it is none the channel can have used.
+_MODULE_BUDGET_S = float(STEM_CHECK_BUDGET_S)
+#: The codes of the findings the channel derives from one decided branch check's signed run, each naming that run's result
+#: id (``_decide_branch_check``: INT-SUBJ-001, -002, -004; ``_encoding_disagreements``: INT-XENC-001).
+_CHECK_CODES = frozenset({"INT-SUBJ-001", "INT-SUBJ-002", "INT-SUBJ-004", "INT-XENC-001"})
+#: The channel times its budget with ``time.perf_counter``, the journal stamps events with ``time.monotonic_ns``.
+_CLOCK_TOLERANCE_S = 0.05
+#: The plan's ``deadline_at`` is written to the second by the integration checks port, and a wall clock may step.
+_DEADLINE_TOLERANCE_S = 2.0
+#: A check kind at the start of a branch check's ``detail`` (``stem_arithmetic``, ``chronology``): anchored and bounded.
+_KIND_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_BUDGET_TEXT_MAX = 32
 
 
 def _tuples(findings) -> Counter:
@@ -63,8 +106,239 @@ def _tuples(findings) -> Counter:
     for f in findings:
         if f.code in SHADOW_EXCLUDED:
             continue
-        out[(f.code, f.severity, tuple(sorted(f.claim_ids)), tuple(sorted(f.report_ids)))] += 1
+        out[_tuple(f)] += 1
     return out
+
+
+def _tuple(f) -> tuple:
+    return (f.code, f.severity, tuple(sorted(f.claim_ids)), tuple(sorted(f.report_ids)))
+
+
+def _where(claim_ids) -> str:
+    """The channel's statement of where a branch check's statement is (``TranslatorChannel._check_claims_named``)."""
+    cids = [str(c) for c in claim_ids]
+    return (f" in claim {', '.join(cids)}" if len(cids) == 1 else f" in claims {', '.join(cids)}") if cids else ""
+
+
+def _kind(cr) -> Optional[str]:
+    """The kind a branch check's ``detail`` starts with (every form the channel writes starts with it), or None."""
+    m = _KIND_RE.match(cr.detail or "")
+    return m.group(0) if m else None
+
+
+def _budget_value(text: Optional[str]) -> Optional[float]:
+    """The budget a cut states, when it is one the channel can have used and is written as the channel writes it (``{:g}``):
+    at least 0 s and at most the module budget. None otherwise."""
+    if not text or len(text) > _BUDGET_TEXT_MAX:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if not (0.0 <= value <= _MODULE_BUDGET_S) or format(value, "g") != text:
+        return None
+    return value
+
+
+def _cut_statements(findings) -> dict[str, list[tuple[str, tuple]]]:
+    """``"<kind> check<where>"`` -> ``[(budget text, finding tuple)]`` for every INT-SUBJ-002 in the channel's form for a
+    check its report's STEM check budget left undecided (one pass over the findings; each message is searched once, and the
+    budget only within the few characters after the marker)."""
+    out: dict[str, list[tuple[str, tuple]]] = {}
+    head, tail = _CUT_MESSAGE
+    for f in findings:
+        if f.code != "INT-SUBJ-002" or f.formal_result_id:
+            continue
+        msg = f.message or ""
+        i = msg.find(head)
+        if i <= 0:
+            continue
+        start = i + len(head)
+        j = msg.find(tail, start, start + _BUDGET_TEXT_MAX + len(tail))
+        if j < 0:
+            continue
+        out.setdefault(msg[:i], []).append((msg[start:j], _tuple(f)))
+    return out
+
+
+def budget_cut_checks(receipt) -> dict[str, tuple[str, str]]:
+    """Rule ``budget-cut``: check id -> ``(kind, budget text)`` for every branch check ``receipt`` states, in the channel's
+    form, as not run because its report's STEM check budget was spent: ``satisfied`` null, method ``formal``, no result id
+    and no status, a ``stem_*`` kind, its claims as the detail names them, and the budget read from the end of the detail
+    (or, when the detail was cut at the contract length, from the INT-SUBJ-002 naming the check), one the channel can have
+    used (:func:`_budget_value`)."""
+    out: dict[str, tuple[str, str]] = {}
+    statements: Optional[dict] = None
+    head, tail = _CUT_DETAIL
+    for cr in receipt.formal_checks:
+        if cr.satisfied is not None or cr.method != "formal" or cr.formal_result_id or cr.formal_status:
+            continue
+        kind = _kind(cr)
+        if kind is None or not kind.startswith("stem_"):
+            continue
+        where = _where(cr.claim_ids)
+        detail = cr.detail or ""
+        if not detail.startswith(f"{kind}{where}: "):
+            continue
+        budget: Optional[str] = None
+        if detail.endswith(tail):
+            i = detail.rfind(head)
+            if i >= 0:
+                budget = detail[i + len(head):len(detail) - len(tail)]
+        elif len(detail) >= _DETAIL_MAX and detail.endswith("..."):
+            if statements is None:
+                statements = _cut_statements(receipt.findings)
+            found = statements.get(f"{kind} check{where}")
+            budget = found[0][0] if found else None
+        if _budget_value(budget) is not None:
+            out[cr.constraint_id] = (kind, budget)
+    return out
+
+
+@dataclass
+class _BudgetCut:
+    """What the comparison of one transfer replays of the two sides' STEM check budgets (rule ``budget-cut``)."""
+    #: the checks the receipt states not run under its budget, when that cut is the channel's budget rule's image
+    receipt_cut: list = field(default_factory=list)
+    budget: Optional[str] = None
+    #: why a cut under a reduced budget is not accounted for by the plan's deadline (RES-008), or None
+    unexplained: Optional[str] = None
+    #: why the receipt's cut is not the image of the channel's budget rule (compared as the shadow decides it), or None
+    refused: Optional[str] = None
+    refused_checks: int = 0
+    #: the checks the shadow's own budget left undecided that the receipt decided (RES-008)
+    shadow_cut: list = field(default_factory=list)
+    shadow_budget: Optional[str] = None
+    #: what the journal bounds the transfer's duration by
+    timing: str = ""
+
+
+def _replay_cut(counter: Counter, findings, result_ids: set, adds: list) -> None:
+    """State, in ``counter`` (one side's finding tuples), the checks whose runs are ``result_ids`` as the channel states a
+    check its budget left undecided: the findings the channel derives from those runs give way to ``adds``."""
+    for f in findings:
+        if f.formal_result_id and f.formal_result_id in result_ids and f.code in _CHECK_CODES and f.code not in SHADOW_EXCLUDED:
+            k = _tuple(f)
+            if counter.get(k, 0) > 0:
+                counter[k] -= 1
+                if not counter[k]:
+                    del counter[k]
+    for k in adds:
+        counter[k] += 1
+
+
+def _cut_tuple(claim_ids, report_id: Optional[str], statements: dict, kind: str) -> tuple:
+    """The finding tuple of the INT-SUBJ-002 the channel writes for a check its budget left undecided: the claims holding its
+    statement and the report. A check whose statement no delivered claim holds is named by the pack's own claim ids, which
+    only the side that cut it states: its next such statement of that kind (``statements``, the side's
+    :func:`_cut_statements`, consumed in order)."""
+    cids = tuple(sorted(str(c) for c in claim_ids))
+    if cids:
+        return ("INT-SUBJ-002", "warning", cids, (report_id,) if report_id else ())
+    found = statements.get(f"{kind} check")
+    return found.pop(0)[1] if found else ("INT-SUBJ-002", "warning", (), ())
+
+
+def _deadline_unexplained(ctx: CheckContext, t: Transfer, value: float) -> Optional[str]:
+    """Why a cut under a budget ``value`` below the module budget is not what the plan's deadline left (None when it is).
+    The integration checks port sets a channel's budget to ``min(STEM_CHECK_BUDGET_S, time left)`` before the transfer, so
+    at the transfer's end (its journaled ``created_at``) the plan's ``deadline_at`` leaves at most that budget, within the
+    tolerance of the second the deadline is written to."""
+    plan = ctx.view.plan
+    deadline = parse_rfc3339(getattr(plan, "deadline_at", None)) if plan is not None else None
+    if deadline is None:
+        return "the plan states no deadline"
+    end = parse_rfc3339(t.event.created_at)
+    if end is None:
+        return "the transfer's journaled time cannot be read against the plan's deadline"
+    left = max(0.0, (deadline - end).total_seconds())
+    if value + _DEADLINE_TOLERANCE_S < min(_MODULE_BUDGET_S, left):
+        return f"the plan's deadline left {left:.1f} s at the end of the transfer"
+    return None
+
+
+def _budget_cuts(ctx: CheckContext, t: Transfer, prev: Optional[Transfer], rc, ours: Counter, theirs: Counter) -> tuple[_BudgetCut, Any, Any]:
+    """Rule ``budget-cut`` for one transfer (module docstring): replays the receipt's cut on the shadow's finding tuples
+    (``ours``) when it is the image of the channel's budget rule, and the shadow's own cut on the receipt's (``theirs``),
+    both in place. Returns the record and the shadow's and the receipt's statuses as compared: a status ACCEPTED on a side
+    the replay gave a not-run check is ACCEPTED_WITH_FINDINGS, as the channel's status rule makes it for any finding."""
+    out = _BudgetCut()
+    receipt = t.receipt
+    s_status, r_status = rc.status, receipt.status
+    cut_r, cut_h = budget_cut_checks(receipt), budget_cut_checks(rc)
+    if not cut_r and not cut_h:
+        return out, s_status, r_status
+    shadow_by: dict[str, Any] = {}
+    for c in rc.formal_checks:
+        shadow_by.setdefault(c.constraint_id, c)
+    receipt_by: dict[str, Any] = {}
+    for c in receipt.formal_checks:
+        receipt_by.setdefault(c.constraint_id, c)
+    order = list(shadow_by)  # the packs' order: the order the channel decides a report's checks in
+    position = {cid: n for n, cid in enumerate(order)}
+    rid = t.report_id
+    if cut_r:
+        why: Optional[str] = None
+        budgets = sorted({b for _k, b in cut_r.values()})
+        stray = [cid for cid in cut_r if cid not in shadow_by]
+        other_kind = [cid for cid, (k, _b) in cut_r.items() if cid in shadow_by and _kind(shadow_by[cid]) != k]
+        if len(budgets) != 1:
+            why = f"its checks state different budgets ({', '.join(b + ' s' for b in budgets[:4])})"
+        elif stray:
+            why = f"it names checks the branch packs do not derive from the journaled report ({', '.join(stray[:4])})"
+        elif other_kind:
+            why = f"it names checks of another kind than the packs derive ({', '.join(other_kind[:4])})"
+        else:
+            first = min(position[cid] for cid in cut_r)
+            after = [cid for cid in order[first:] if cid not in cut_r and cid in receipt_by and (_kind(shadow_by[cid]) or "").startswith("stem_")]
+            if after:
+                why = (f"STEM checks after the first one it names are stated otherwise ({', '.join(after[:4])}), and the budget leaves every STEM check after "
+                       "the first one it leaves undecided")
+        value = _budget_value(budgets[0]) if budgets else None
+        if why is None and prev is not None:
+            elapsed = (t.event.monotonic_ns - prev.event.monotonic_ns) / 1e9
+            out.timing = f"; the journal puts the transfer within {elapsed:.2f} s of the transfer before it"
+            if value is None or elapsed + _CLOCK_TOLERANCE_S < value:
+                why = f"the journal puts the whole transfer within {elapsed:.2f} s of the transfer before it, less than the {budgets[0]} s budget it states spent"
+        elif why is None:
+            out.timing = "; no earlier transfer is journaled, so the transfer's duration is not bounded"
+        if why is not None:
+            out.refused, out.refused_checks = why, len(cut_r)
+        else:
+            out.budget = budgets[0]
+            out.receipt_cut = [cid for cid in order if cid in cut_r]
+            if value is not None and value < _MODULE_BUDGET_S:
+                out.unexplained = _deadline_unexplained(ctx, t, value)
+            statements = _cut_statements(receipt.findings)
+            result_ids, adds = set(), []
+            for cid in out.receipt_cut:
+                scr = shadow_by[cid]
+                if cid in cut_h or not scr.formal_result_id:
+                    continue  # the shadow cut it too (the same statement on both sides), or decided it in no run (compared as it is)
+                result_ids.add(scr.formal_result_id)
+                adds.append(_cut_tuple(scr.claim_ids, rid, statements, cut_r[cid][0]))
+            if adds:
+                _replay_cut(ours, rc.findings, result_ids, adds)
+                if s_status is TransmissionStatus.ACCEPTED:
+                    s_status = TransmissionStatus.ACCEPTED_WITH_FINDINGS
+    if cut_h:
+        statements = _cut_statements(rc.findings)
+        result_ids, adds = set(), []
+        for cid in order:
+            if cid not in cut_h or cid in cut_r:
+                continue
+            rcr = receipt_by.get(cid)
+            if rcr is None or not rcr.formal_result_id:
+                continue  # absent from the receipt, or decided in no run there: compared as it is
+            kind, out.shadow_budget = cut_h[cid]
+            result_ids.add(rcr.formal_result_id)
+            adds.append(_cut_tuple(shadow_by[cid].claim_ids, rid, statements, kind))
+            out.shadow_cut.append(cid)
+        if adds:
+            _replay_cut(theirs, receipt.findings, result_ids, adds)
+            if r_status is TransmissionStatus.ACCEPTED:
+                r_status = TransmissionStatus.ACCEPTED_WITH_FINDINGS
+    return out, s_status, r_status
 
 
 def _structured(rc) -> dict[str, list]:
@@ -159,9 +433,10 @@ def run_shadow(ctx: CheckContext) -> str:
     def m(x: Optional[str]) -> Optional[str]:
         return mid_map.get(x, x) if x else x
 
-    for t in view.transfers:
+    for i, t in enumerate(view.transfers):
         if t.receipt is None or t.payload is None:
             continue
+        prev = view.transfers[i - 1] if i else None  # the journaled transfer before this one: rule budget-cut's timing bound
         call = t.call
         try:
             with capture_results() as cap:
@@ -194,11 +469,30 @@ def run_shadow(ctx: CheckContext) -> str:
         undecided = _undecided(t.event.captured, allowed) or _undecided(cap.items, allowed)
         ours, theirs = _tuples(rc.findings), _tuples(t.receipt.findings)
         ids = t.ids()
+        # rule budget-cut: the checks a STEM check budget left undecided are compared as the channel states them, on both sides
+        cut, shadow_status, receipt_status = _budget_cuts(ctx, t, prev, rc, ours, theirs)
+        if cut.refused:
+            ctx.note(f"shadow replay (rule budget-cut): {t.kind} {t.message_id} states {cut.refused_checks} STEM check(s) not run under its STEM check budget, but "
+                     f"{cut.refused}: that is not the channel's budget rule, so the shadow compares those checks as it decides them")
+        if cut.receipt_cut:
+            what = (f"{t.kind} {t.message_id} left {len(cut.receipt_cut)} STEM check(s) undecided under a STEM check budget of {cut.budget} s"
+                    f" ({', '.join(cut.receipt_cut[:4])}{', ...' if len(cut.receipt_cut) > 4 else ''}){cut.timing}")
+            if cut.unexplained:
+                ctx.ovs(t.seq, "OVS-RES-008", f"{what}; that budget is below the module's {_MODULE_BUDGET_S:g} s and {cut.unexplained}, and the journal does not record a "
+                        "channel's budget, so a budget starved between transfers cannot be told from one a deadline set: the shadow compares those checks as "
+                        "not run, as the receipt states them, and vouches for nothing about them (rule budget-cut)", **ids)
+            else:
+                ctx.note(f"shadow replay (rule budget-cut): {what}; no replay reproduces where a clock ran out, so the shadow compared those checks as not "
+                         "run, as the receipt states them, and everything else as it decides it")
+        if cut.shadow_cut:
+            ctx.ovs(t.seq, "OVS-RES-008", f"the shadow channel's own STEM check budget ({cut.shadow_budget} s) left {len(cut.shadow_cut)} check(s) of {t.kind} {t.message_id} "
+                    f"undecided that its receipt decided ({', '.join(cut.shadow_cut[:4])}{', ...' if len(cut.shadow_cut) > 4 else ''}): the auditor's environment, so "
+                    "those checks are not compared (rule budget-cut)", **ids)
         # every finding the shadow raises more often than the receipt (an error or a warning: a deleted warning hides as much
         # from the router as a deleted error), and every receipt finding the shadow raises less often
         missing = [(k, ours[k] - theirs.get(k, 0)) for k in ours if ours[k] > theirs.get(k, 0) and k[1] in ("error", "warning")]
         extra = [k for k in theirs if theirs[k] > ours.get(k, 0)]
-        status_differs = rc.status is not t.receipt.status
+        status_differs = shadow_status is not receipt_status
         mine, journaled = _structured(rc), _structured(t.receipt)
         fields = [name for name in mine if mine[name] != journaled[name]]
         if undecided and (missing or extra or status_differs or fields):

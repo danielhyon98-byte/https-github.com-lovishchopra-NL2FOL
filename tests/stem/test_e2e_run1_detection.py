@@ -304,7 +304,11 @@ def test_hi_e1a_genuine_quotations_of_the_mathematics_specialist_stay_clean():
 
 def test_a_relayed_specialist_is_named_by_its_subject_word():
     assert specialist_names("mathematics-aa-specialist") == ["mathematics aa specialist", "mathematics specialist", "maths specialist", "math specialist"]
-    assert specialist_names("english-a-lang-lit-specialist") == ["english a lang lit specialist", "english specialist"]
+    # integration gate 4: an English A specialist is also named by its course's words (the exact list, the two names this
+    # test pinned before still first and in order: rewritten to the new rule, not relaxed)
+    assert specialist_names("english-a-lang-lit-specialist") == ["english a lang lit specialist", "english specialist", "lang lit specialist",
+                                                                 "language and literature specialist", "english language and literature specialist",
+                                                                 "english a specialist"]
     assert specialist_names("history-specialist") == ["history specialist"]   # one word: unchanged
     assert specialist_names("Thomas Hardy") == [] and specialist_names("") == []
     docs = {d.document_id: d for d in _docs("hi-e1a")}
