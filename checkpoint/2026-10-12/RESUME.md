@@ -1,3 +1,81 @@
+# Resume after the weekly limit of 2 Nov 2026 (limit expected ~17:00-18:00 UTC Mon 2 Nov; it resets Fri 6 Nov 16:00 UTC)
+
+S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad, R = /home/user/https-github.com-lovishchopra-NL2FOL,
+dev branch = claude/z3-verification-engine-plan-nk3luq (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL),
+main repository = Epinoic-AI/Epinoic-Logic-Translator (remote "epinoic"; the old Bruno-ios URL redirects; uploads only via the S publishers).
+
+## Daniel's latest instruction (2 Nov ~14:40 UTC): "finish round 8 then create handoff for yourself"
+This section is that handoff. Order from here: (1) FINISH ROUND 8 (its fix round, verification, commit, push check, upload,
+README note, prototype docs and their commit and upload); (2) update this section and KNOWLEDGE/01-STATE.md, push a checkpoint;
+(3) then the governing order continues unless Daniel says otherwise: the architecture step after round 8 (his budget choice 1/2/3
+is still unanswered; default option 1 = do it; options 2/3 = write S/wf/phase2/DECISION.json {"skip_architecture": true}), arena
+rounds 9 and 10 with their fixes (Daniel 31 Oct), then the handoff protocol (KNOWLEDGE/05-HANDOFF-PROTOCOL.md) with a handoff
+refresh on docs/final-z3-handoff after each verified upload. No optimisation work, no website work, no new repositories.
+
+## Done and verified (2 Nov)
+- verified-updates carries the code of development commit 16d5a4a (upload commit 7a939fd, 10:52 UTC; later commits there are the
+  publisher's hourly notes). 16d5a4a = 6947c2d's code + documentation; 6947c2d = the gate-fixed integrated translator (gate commits
+  35f1be1, 7f9ec18, 5c8577e, 1965f07: five rounds, 206 findings fixed incl. all 38 critical) + the fix of the gate-round-1 regression
+  that failed the contained gate stem_fault_classes_named (a correct 50.0 cm3 -> 0.0000500 m3 conversion flagged as introduced).
+  Simulation (SIMULATION OK, cached in S/simcache/translator-16d5a4a...txt): suite 16,876 passed, 45 deselected, 0 failed (run on
+  exactly 16d5a4a; evidence S/sim-evidence/16d5a4a-run1-cut-at-2h.txt), harness r1 30/30, r1-adv 150/151, r2-r6 46/46, r7 177/177,
+  contained run r2-r5 46/46 and r7 177/177 with 358/358 tamperings. Read back: src/ tests/ integration/ scripts/ pyproject.toml identical.
+- docs/final-z3-handoff d3af9f3 (report, website launch steps, instructions for Bruno; refreshed for 16d5a4a; read back).
+- Checkpoints: origin checkpoint/2026-10-12, pushed hourly (S/make_checkpoint.sh build && ... commit).
+
+## Round 8 state (phase 2 run wf_eee12853-0ae)
+- Script S/wf-scripts/phase2-cont.js, args = the JSON in S/wf/phase2-cont-args.json (continueAfterRound8 true). Journal:
+  /root/.claude/projects/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/subagents/workflows/wf_eee12853-0ae/journal.jsonl.
+- Done: relay, translators, combinator, harness:c1, overseer prep, scalability:c1, the greenlight judges, the five overseer lenses
+  (results-audit, communication-fidelity, adversarial-live, stem-integration, translation-fidelity). Fix round "clearance-c1" since
+  ~10:20: fix:parsers returned ~14:2x; fix:stem (since ~10:20) and fix:core (since ~14:2x) were still running when this was written.
+- R holds the fixers' UNCOMMITTED edits (38 paths at 14:07). Never commit them by hand (the stop hook asks; decline): the pipeline
+  commits after a green verification as "Fix the c1 clearance findings".
+- STOP BEFORE THE LIMIT: I stop phase 2 (TaskStop) at about 98% weekly usage so no step runs into the limit and records a null
+  result. The time of the stop and the agents it killed are recorded in KNOWLEDGE/01-STATE.md (last entries).
+- TO RESUME (after the reset, same container): check `uptime` (a VM restart kills background jobs and monitors but keeps the disk);
+  Workflow({scriptPath: "S/wf-scripts/phase2-cont.js", resumeFromRunId: "wf_eee12853-0ae", args: <exact JSON of
+  S/wf/phase2-cont-args.json>}). Completed agents replay from cache; killed fixers re-run and find their partial edits in R. Then check
+  the journal: no completed label may be restarted under a new key (a changed prompt). If some step after the stop recorded a null or
+  error result, dry-run first with S/dryrun-crit/dry_resume4.mjs (args: script, argsfile, cached.json, out.json, run|skip).
+- Remaining round-8 steps in the script: fix round -> verify (full suite ~85 min; the pipeline's verify runs WITHOUT
+  EPINOIC_ARENA_ROUNDS, so round-dependent tests and STEM probes are skipped there) -> commit + push origin -> push-check:c1 (writes
+  S/push-check/<sha>.json; the publisher uploads a "Fix the c1 clearance findings" commit only with hold=false) -> push:c1 ->
+  readme:c1 -> prototype docs + their own verify and commit ("Prototype: integrated translator after round 8") -> decision:architecture.
+- THE ROUND-8 UPLOAD WILL NEED HELP: push:c1's agent runs presim.sh as one background command; a full simulation now takes ~2.2 h and
+  background commands die at 2 h, so expect "NOT PUSHED" (phase 2 then continues). Then from the main session: copy
+  S/run_sim_16d5a4a.sh to run_sim_<sha>.sh with T = the round-8 final commit and FLOOR = T if its "Harness after the change" line
+  records r1, r1-adv, r2..r7 (else the newest commit that does); do NOT set SIM_SKIP_SUITE unless the suite already passed on exactly
+  T; start it with `setsid nohup bash ... > log 2>&1 < /dev/null &`; it caches like presim.sh and runs event_push.sh (uploads only on
+  SIMULATION OK). Read back verified-updates (Source-Commit = T; code paths identical). Before any upload, run the STEM probes and the
+  round-dependent tests yourself if the fixers touched translate/ or stem/ (S/repro-sim/probe.sh SHA): the gate's regression showed
+  the pipeline's verify cannot see them.
+- After the prototype commit: upload it the same way, then S/release_prototype.sh (branch "prototype" + tag "prototype-round8";
+  read the script first), then refresh the handoff: copy S/wf-scripts/handoff-refresh-1nov.js (phases Write, Check, Fix, Amend; args
+  in S/handoff/refresh-1nov-args.json as the model), then S/handoff/fill.py and S/handoff/push_handoff.sh, then read back.
+
+## Machinery and 2 Nov lessons (details in KNOWLEDGE/04-PROCEDURES.md)
+- Hourly routine: trigger trig_018DjeNCSCGD5yGC4WwaWxDz fires ~:58 (steps A-D in its prompt; A only when R is clean). It may fire up
+  to ~13 min late: run S/hourly_push.sh --now then.
+- Watchdog: a 30-min Monitor running `python3 -I S/watchdog.py | grep -vE <filters>` plus a df check every 120 s; re-arm on expiry.
+- publish_final.sh reads the FINAL commit's message: it needs "Harness after the change: <rN a/b ...>" and "Suite: N passed ... 0 failed".
+  A commit without them is held ("records no harness counts"); add a documentation commit that records them (precedent 16d5a4a).
+- simulate.sh replays only the rounds the SOURCE commit's harness line records; a final commit must record every round.
+- A workflow agent's background job dies when the agent ends; long jobs belong to the main session, detached.
+- Keep >= 5 GB free disk (df -Pm /); the watchdog alarms below 3 GB.
+
+## Open items and known defects
+- Daniel's budget choice 1/2/3 (unanswered; default 1).
+- MAJOR known defect: the synthesis ledger's read and quotation bounds are spent in claim order, so padding can push a changed date or
+  an invented quotation past them: only an INT-LEDGER-026 warning, release allowed, delivered "not verified" instead of withheld.
+- KIT-HS-007: the integration service does not start with its default overseer port (epinoic_overseer.port is missing); the
+  architecture step builds it.
+- Website main moved to b2ffbcc (merges PR #23, carries src/chat/pilot.js): the kit reads it as base P, which has no patch set.
+- overseer-prototype held at 9547fc9 (its candidates fail the contained run: 235 of 254 faults named, 3 false alarms).
+
+---------------------------------------------------------------------------------------------------------------------------------
+Older sections below (25-31 Oct) are history; where they disagree with the section above, the section above wins.
+
 > 25 Oct 20:46 UTC (weekly limit): DONE: upload 869bf84 (= dev 404aee2), handoff docs/final-z3-handoff d4028c9 (verified).
 > Port of argument diagnostics: UNVERIFIED step-1 work on origin argdiag-port 32842ec; continue after the reset per
 > KNOWLEDGE/01-STATE.md (entry 25 Oct 20:46). Round 8 only after the reset (Daniel).
