@@ -95,6 +95,8 @@ this section. NEVER relaunch phase 2 from scratch; always resume wf_eee12853-0ae
   without them is held ("records no harness counts"): add a documentation commit that records them (precedent 16d5a4a).
 - simulate.sh replays only the rounds the SOURCE commit's harness line records; its suite cap is now 7200 s.
 - Background commands die at 2 h; a workflow agent's background job dies when the agent ends: long jobs run detached from the main session.
+- 3 Nov: the VM restarted at the 21:00 and 22:00 wakes (uptime 0-1 min, disk kept) after idle hours. A detached job does not
+  survive a restart: at every wake check uptime and the detached simulation's log; re-start a killed simulation.
 - Keep >= 5 GB free disk; the watchdog Monitor (S/watchdog_monitor.sh) alarms below 3 GB.
 - Fresh container (the disk is gone): follow 04-PROCEDURES "Restore next week" and the older sections below (checkpoint branch:
   branches.bundle, wip.tar.xz, tools.tar.xz with the scratchpad tools and KNOWLEDGE). The workflow journals are not on origin, so
