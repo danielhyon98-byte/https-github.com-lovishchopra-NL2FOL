@@ -97,6 +97,9 @@ this section. NEVER relaunch phase 2 from scratch; always resume wf_eee12853-0ae
 - Background commands die at 2 h; a workflow agent's background job dies when the agent ends: long jobs run detached from the main session.
 - 3 Nov: the VM restarted at the 21:00 and 22:00 wakes (uptime 0-1 min, disk kept) after idle hours. A detached job does not
   survive a restart: at every wake check uptime and the detached simulation's log; re-start a killed simulation.
+- 3-5 Nov: publish_final.sh takes 7-98 s per run (bimodal, cause not measured; 98 s at 11:00 on 5 Nov). Both
+  hourly_push.sh and event_push.sh cut it at 100 s. If the round-8 upload is cut, run event_push.sh again outside
+  hh:56-hh:03 (same route; a cut leaves each ref either old or new, never half-written), then read back.
 - Keep >= 5 GB free disk; the watchdog Monitor (S/watchdog_monitor.sh) alarms below 3 GB.
 - Fresh container (the disk is gone): follow 04-PROCEDURES "Restore next week" and the older sections below (checkpoint branch:
   branches.bundle, wip.tar.xz, tools.tar.xz with the scratchpad tools and KNOWLEDGE). The workflow journals are not on origin, so
