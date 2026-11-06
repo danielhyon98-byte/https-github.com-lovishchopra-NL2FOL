@@ -1,5 +1,5 @@
-refs/checkpoint/2026-10-12/main-staged ad048b4755a90bb6b9eb1efb3aad7595b3c8a30a
-refs/checkpoint/2026-10-12/probe-staged fb96c143560e7daa844ba8ffe009b2a88c97ac57
+refs/checkpoint/2026-10-12/main-staged c1393649d7fd27e04aedb67117d0497427ed6a23
+refs/checkpoint/2026-10-12/probe-staged 1b509274488a164143b4657af9c7c0f0eecf7aed
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-accfix-before 4267cb3c6b99f833ec7fa0ac84c6351a563e0d8c
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
