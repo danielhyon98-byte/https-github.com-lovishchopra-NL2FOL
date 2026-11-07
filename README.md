@@ -4,6 +4,10 @@ Proprietary. See `LICENSE` and `THIRD_PARTY_NOTICES.md`. Status of every compone
 (planned / implemented / tested / deployed) is in `docs/STATUS.md`. Nothing in this
 repository is deployed.
 
+The integrated prototype as it stands after arena round 8 and its fixes (what it is, how to install, test, serve and
+replay it, what round 8 measured lens by lens, and what is not yet shown) is described from measured results in
+[`docs/PROTOTYPE.md`](docs/PROTOTYPE.md).
+
 ## What this program does, in plain language
 
 Epinoic AI's tutor is a set of subject-specialist agents (English, Mathematics,
