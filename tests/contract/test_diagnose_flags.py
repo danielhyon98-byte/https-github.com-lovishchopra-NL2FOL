@@ -34,7 +34,10 @@ def _diagnose_kw(call: ast.Call):
 @pytest.mark.parametrize("module, names, count", [
     ("translate/precision.py", {"engine_verify"}, 3),
     ("translate/pipeline.py", {"engine_verify"}, 1),
-    ("integrity/cross_check.py", {"verify"}, 9),  # ported: this tree's cross checks make nine code-built runs
+    # ported: this tree's cross checks made nine code-built runs; the round-8 clearance (c1) adds a tenth, the re-check of a
+    # pool read apart at the precision its figures are written to (cross_check._glossary_only_at_stated_precision), with
+    # diagnose=False like the others (every call site is still required to pass it)
+    ("integrity/cross_check.py", {"verify"}, 10),
     ("channel/bus.py", {"verify"}, 3),
 ])
 def test_every_internal_and_code_built_run_passes_diagnose_false(module, names, count):

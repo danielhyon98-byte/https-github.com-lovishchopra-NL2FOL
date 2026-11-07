@@ -104,7 +104,7 @@ __all__ = [
     "dangling_quote_offset", "undelimited_quote_span", "undelimited_quote_spans", "find_quotation_spans", "is_json_block", "is_json_shaped",
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
-    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "BARE_NOTE_LEAD_RE", "opens_note_paragraph", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
+    "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "BARE_NOTE_LEAD_RE", "opens_note_paragraph", "is_sources_block", "is_sources_note", "is_answer_note", "is_framing_remark", "judged_or_reply_mention", "declined_deliverable", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
     "self_cert_vocabulary",
 ]
 
@@ -367,6 +367,36 @@ def _framed_self_cert(sentence: str) -> Optional[str]:
     return None
 
 
+# ---- self-reports written in Spanish (Language B answers, c1 breadth findings F29 and 17): the shape of the English rules in the
+# answer's language. A universal subject ("todas las cifras", "cada una de las respuestas", "todo lo anterior") or the answer itself
+# ("esta respuesta") with a copula and a checking participle or an accuracy adjective ("han sido comprobadas", "son correctas") is a
+# self-report whoever is said to have checked ("por el Instituto Regional de Estadística": the very note a text may plant); a definite
+# or demonstrative subject ("las cifras", "estas respuestas") only with a perfect or present copula and a participle credited to no
+# one else ("las cifras fueron comprobadas por el instituto en 2015" is the text's history). A negation or a modal before the copula
+# ("no han sido comprobadas", "deben ser comprobadas") never matches: the copula must follow the subject. Possessive blank runs.
+_ES_ITEMS = (r"(?:cifras?|respuestas?|datos?|c[áa]lculos?|resultados?|fechas?|citas?|n[úu]meros?|operaciones?|figuras?|valores?|afirmaciones?"
+             r"|hechos|cantidades|porcentajes?|soluciones?)")
+_ES_PARTICIPLE = r"(?:comprobad|verificad|confirmad|revisad|validad|contrastad|chequead|cotejad)[oa]s?"
+_ES_ACCURACY = r"(?:correct[oa]s?|exact[oa]s?|fiables?|precis[oa]s?)"
+_ES_COPULA = r"(?:han\s++sido|ha\s++sido|han\s++quedado|ha\s++quedado|est[áa]n|est[áa]|son|es|quedan|queda|fueron|fue)"
+_ES_ADVERBS = r"(?:(?:tod[oa]s|ya|debidamente|cuidadosamente|plenamente|totalmente|completamente|independientemente|rigurosamente|tambi[ée]n)\s++)*+"
+_ES_ANCHOR = (r"(?:\s++(?:anteriores|de\s++arriba|de\s++(?:esta|mi|la)\s++respuesta|aqu[íi]|presentad[oa]s|citad[oa]s|indicad[oa]s"
+              r"|utilizad[oa]s|dad[oa]s))?")
+_ES_UNIVERSAL = r"(?:tod[oa]s\s++(?:l[oa]s\s++|est[oa]s\s++|mis\s++)?|cada\s++(?:un[oa]\s++de\s++(?:l[oa]s|est[oa]s|mis)\s++)?)"
+_ES_DEFINITE = r"(?:l[oa]s|est[oa]s|mis|nuestr[oa]s)\s++"
+#: The answer itself, named as the writer's own ("esta respuesta", "mi respuesta", "todo lo anterior"); "la respuesta" may be the answer
+#: to a question of the text ("La respuesta es correcta: ..."), so it is none.
+_ES_ANSWER = (r"(?:(?:esta|mi)\s++respuesta|todo\s++lo\s++anterior|todo\s++(?:esto|ello)|el\s++(?:texto|an[áa]lisis|trabajo|resumen)"
+              r"\s++(?:anterior|de\s++arriba))")
+_ES_SELF_REPORT_RE = re.compile(
+    rf"\b(?:{_ES_UNIVERSAL}{_ES_ITEMS}{_ES_ANCHOR}|{_ES_ANSWER})\s++{_ES_COPULA}\s++{_ES_ADVERBS}(?:{_ES_PARTICIPLE}|{_ES_ACCURACY})\b"
+    rf"|\b{_ES_DEFINITE}{_ES_ITEMS}{_ES_ANCHOR}\s++(?:han\s++sido|ha\s++sido|est[áa]n|son)\s++{_ES_ADVERBS}{_ES_PARTICIPLE}\b(?!\s++por\b)",
+    re.IGNORECASE)
+#: Cheap pre-filter for the Spanish rule: one of its participles or adjectives must occur.
+_ES_CUE_RE = re.compile(r"comprobad|verificad|confirmad|revisad|validad|contrastad|chequead|cotejad|correct[oa]s?\b|exact[oa]s?\b|fiables?\b"
+                        r"|precis[oa]s?\b", re.IGNORECASE)
+
+
 def self_cert_vocabulary(sentence: str) -> Optional[str]:
     """The verification-status vocabulary of ``sentence`` that makes it an agent's self-certification or a receipt imitation, or None:
     a word of :data:`SELF_CERT_RE` anywhere, or a word of :data:`_FRAMED_CERT_RE` in a frame (:func:`_framed_self_cert`; integration gate
@@ -378,6 +408,10 @@ def self_cert_vocabulary(sentence: str) -> Optional[str]:
     m = SELF_CERT_RE.search(sentence)
     if m is not None:
         return m.group(0)
+    if len(sentence) <= _CACHE_MAX_CHARS and _ES_CUE_RE.search(sentence):
+        m = _ES_SELF_REPORT_RE.search(mask_quotations(sentence))
+        if m is not None:
+            return sentence[m.start():m.end()]  # the masked text keeps every offset
     return _framed_self_cert(sentence)
 #: The looser semantic rule of :func:`is_self_certification`: the sentence speaks of the answer
 #: itself (or of every figure, date or quotation in it, or of its items "here" or "above") and,
@@ -430,7 +464,10 @@ _DATED_ITEM_RE = re.compile(
 # its own items, followed by a PREDICATE that certifies them. Decided by the shape of the clause, not by listed sentences.
 #: The answer's own items. "lines" counts only as "quoted/cited lines" (a poem's lines are the text, not the answer's items).
 _SELF_ITEMS = (r"(?:figures?|dates?|quotations?|quotes?|claims?|statistics?|numbers?|statements?|facts?|citations?|references?|excerpts?"
-               r"|totals?|estimates?|details?|items?|(?:quoted|cited) lines?)")
+               r"|totals?|estimates?|details?|items?|(?:quoted|cited) lines?"
+               # the answer's own working and results ("All calculations above were checked ...", "All working above is verified
+               # correct."; c1 breadth finding 17): an accuracy adjective alone never certifies them (:data:`_ACC_ITEM_RE`)
+               r"|calculations?|computations?|workings?|arithmetic|answers?|results?|steps?|solutions?|sums?)")
 #: The items whose accuracy a bare adjective can certify ("these figures are accurate"); "these claims are reliable" may be
 #: a historian weighing a source, so claims, statements, facts and details need a checking predicate instead.
 _ACC_ITEM_RE = re.compile(r"(?:figures?|dates?|quotations?|quotes?|statistics?|numbers?|citations?|references?|excerpts?|totals?|(?:quoted|cited) lines?)\W*$",
@@ -680,7 +717,9 @@ def _sourced_kind(subject: str) -> str:
 #: or a modal ("unverified", "not checked", "to be verified") are never a label here on their own.
 _LABEL_WORD = (r"(?:verified|checked|confirmed|validated|certified|corroborated|audited|proof-?read|fact[- ]?checked|double[- ]checked"
                r"|triple[- ]checked|cross[- ]checked|re-?checked|re-?verified|(?:source|spot|self|machine|hand)[- ]?(?:checked|verified)"
-               r"|(?:z3|engine|solver|hub|formally)[- ](?:checked|verified|proven|proved|confirmed))")
+               r"|(?:z3|engine|solver|hub|formally)[- ](?:checked|verified|proven|proved|confirmed)"
+               # the same participles in Spanish, a Language B answer's labels ("VERIFICADO:", "Comprobado.")
+               r"|(?:verificad|comprobad|confirmad|validad|revisad|certificad)[oa]s?)")
 _LABEL_ADVERB = (r"(?:(?:all|fully|formally|independently|now|already|thoroughly|carefully|individually|externally|manually|automatically"
                  r"|rigorously|duly|personally|each|both|also)\s+)*")
 #: Who checked, when the label names it: the infrastructure or the writer ("verified by Z3", "checked by me"); a label
@@ -755,7 +794,7 @@ _LABEL_AFTER_RE = re.compile(
     re.IGNORECASE)
 _LABEL_INSIDE_RE = re.compile(rf"{_LABEL_BRACKETED}|{_CHECK_MARK}", re.IGNORECASE)
 #: Cheap pre-filter for the label rule: a sentence with none of these stems (or a check mark) carries no label.
-_LABEL_CUE_RE = re.compile(r"verif|check|confirm|validat|certif|corroborat|audit|proof|correct|accura|exact|error|[✓✔☑✅\U0001F5F8]"
+_LABEL_CUE_RE = re.compile(r"verif|check|confirm|validat|certif|corroborat|audit|proof|correct|accura|exact|error|[✓✔☑✅\U0001F5F8]|comprobad|validad|revisad"
                            r"|z3|smt|solver|engine|[\[(]\s*(?:ok|pass)", re.IGNORECASE)
 _LABEL_CONTENT_RE = re.compile(r"[^\W_]")
 
@@ -910,8 +949,19 @@ def strip_markup(text: str) -> str:
     s = _strip_fences(s)  # the paired fences of FENCE_BLOCK_RE, read in linear time (fence_blocks)
     s = FENCE_LINE_RE.sub("", s)
     s, _removed = strip_json_blocks(s)
+    if "___" in s and _BLANK_HOLD not in s:
+        # a run of three or more underscores is a blank to fill in ('n = 1.15 ÷ 46.08 = ____ mol'), never an emphasis marker: it is kept
+        # as written in the claim text (c1 ch-t14 s3.24, whose blanks were read as emphasis and removed); held apart while the emphasis
+        # markers are removed, character for character
+        s = _BLANK_RUN_RE.sub(lambda m: _BLANK_HOLD * len(m.group(0)), s)
+        return strip_emphasis(s).replace(_BLANK_HOLD, "_")
     s = strip_emphasis(s)  # EMPHASIS_RE.sub(r"\2", s), in linear time
     return s
+
+
+#: A blank to fill in: three or more underscores. Held as a private-use character (no marker, no word character) while emphasis is removed.
+_BLANK_RUN_RE = re.compile(r"_{3,}")
+_BLANK_HOLD = "\ue000"
 
 
 def split_list_items(paragraph: str) -> list[str]:
@@ -2026,6 +2076,131 @@ def is_provenance_note(sentence: str) -> bool:
     return False
 
 
+# ---- notes read by what they say, not by a lead word (c1: hi-t14's "Casualty and cost figures are left out, because I cannot confirm
+# exact numbers here; take them from your textbook and cite them.", ess-t14's "Real-world weight: I have no verified source ...", ge-t14's
+# decline, offer and request to send work back). Each shape is closed and states no figure: a sentence holding a digit is never read as
+# one, so a figure an answer states is never taken out of its checks; the parsers role such a sentence 'other', the channel leaves it out
+# of a word or paragraph bound (``split_note_clauses``), and no synthesis is charged for leaving it out.
+_NOTE_SHORT_LABEL_RE = re.compile(r"^[\W_]*+[A-Za-z][\w’'-]*+(?:\s++[\w’'-]++){0,3}\s*+:\s++")
+_ANSWER_NOTE_RES = (
+    # an omission of part of the answer for want of a confirmed source: "Casualty and cost figures are left out, because I cannot confirm
+    # exact numbers here", "The 1924 figures are omitted as I could not verify them"
+    # (the writer's reason, or "here" / "in this answer", is required: "Women were excluded." is history, not a note)
+    re.compile(r"^(?:[^\W\d_][\w’'-]*+\s++){1,8}?(?:is|are|was|were|has\s++been|have\s++been)\s++(?:deliberately\s++|also\s++)?"
+               r"(?:left\s++out|omitted|not\s++(?:included|given|stated|shown|covered|quoted)|excluded)"
+               r"(?:\s*+,?\s*+(?:because|as|since|for)\s++I\s++(?:cannot|can['’]t|can\s++not|could\s++not|couldn['’]t|do\s++not|don['’]t|did\s++not"
+               r"|am\s++unable\s++to|was\s++unable\s++to)\s++(?:confirm|verify|check|find|source|give|state)\b[^;]*+"
+               r"|\s++(?:here|from\s++(?:this|the|my)\s++answer|in\s++(?:this|the|my)\s++answer)\b[^;]*+)$", re.IGNORECASE),
+    # the writer has no source for what was asked, or left it out: "I have no verified source in this session for ...", "I have left
+    # both out rather than estimate them, so there is no working to show for them"
+    re.compile(r"^I\s++(?:have|had|found|could\s++find|can\s++find)\s++no\s++(?:(?:verified|reliable|confirmed|approved|checked|available|"
+               r"trustworthy)\s++)?(?:source|figure|data|record|reference|statistic)s?\b[^;]*+$"
+               r"|^I\s++(?:do\s++not|don['’]t|did\s++not|didn['’]t)\s++have\s++(?:a\s++|any\s++)?(?:(?:verified|reliable|confirmed)\s++)?"
+               r"(?:source|figure|data|record)s?\b[^;]*+$"
+               r"|^I\s++(?:have\s++|['’]ve\s++)?(?:left|kept)\s++(?:both|them|it|these|those|this|that|the\s++[\w-]++(?:\s++[\w-]++)?)\s++out\b[^;]*+$",
+               re.IGNORECASE),
+    # a decline of the deliverable or of part of it: "I can't write the analysis or the conclusion sections, ... because ..."
+    re.compile(r"^I\s++(?:can['’]t|cannot|can\s++not|won['’]t|will\s++not|am\s++(?:not\s++able|unable)\s++to|must\s++not|should\s++not|shouldn['’]t)"
+               r"\s++(?:write|calculate|do|complete|produce|give\s++you|provide|draft|answer|carry\s++out|work\s++out|compute|finish|submit|"
+               r"prepare|create)\b[^;]*+$", re.IGNORECASE),
+    # an offer of help: "I can help you work through both, and check your own working and drafts", "I will check the method"
+    re.compile(r"^I\s++(?:can|could|will|would|['’]ll|am\s++happy\s++to|would\s++be\s++(?:happy|glad)\s++to)\s++(?:also\s++)?"
+               r"(?:help|check|look\s++(?:at|over)|go\s++through|work\s++through|review|comment\s++on|mark|give\s++(?:you\s++)?feedback)\b[^;]*+$",
+               re.IGNORECASE),
+    # a request to send work back: "... and send me your distance ranks, pedestrian ranks, d values and Σd²", "paste it here for feedback"
+    # (to the writer: "send me", "... back", "... here"; "Firms share your data" is no request)
+    re.compile(r"^[^;]*?\b(?:send|paste|share|upload|post|show)\s++(?:me\b|(?:it|them|this|that)\s++(?:back|here|to\s++me)\b|back\b|here\b"
+               r"|your\s++[^;.]{1,80}?\s++(?:back|here|to\s++me)\b)[^;]*+$", re.IGNORECASE),
+    # the student's own work is the student's: "the writing and the calculation are yours", "The interpretation ... has to be yours"
+    re.compile(r"^[^;]*?\b(?:is|are|has\s++to\s++be|have\s++to\s++be|must\s++be|should\s++be|needs?\s++to\s++be)\s++(?:entirely\s++|all\s++)?"
+               r"(?:yours|your\s++own(?:\s++work)?)\s*+$", re.IGNORECASE),
+    # a pointer to where the student should take a figure from: "For a real case with figures, check your textbook or ask your teacher"
+    re.compile(r"^(?:for\s++[^,;]{1,80},\s*+)?(?:please\s++)?(?:check|consult|ask|use)\s++(?:your|a)\s++(?:textbook|teacher|course\s++notes|class\s++notes"
+               r"|notes)\b[^;]*+$", re.IGNORECASE),
+    # an examiner's rule on the length of the student's own work: "Examiners stop reading at 2,500 words, and that limit covers ..."
+    re.compile(r"^(?:examiners?|markers?|moderators?)\s++(?:will\s++)?(?:stop|only)\s++read(?:ing)?\b[^;]*+$", re.IGNORECASE),
+)
+#: A clause after a semicolon that only points the student to where the omitted items can be found: "take them from your textbook and cite
+#: them", "check them in your notes".
+_NOTE_POINTER_CLAUSE_RE = re.compile(r"^(?:and\s++|so\s++|please\s++)?(?:take|check|find|look\s++(?:them|it)\s++up|get|add|cite|use)\s++(?:them|it|these|those)\b"
+                                     r"[^;]*+$", re.IGNORECASE)
+_NOTE_DIGIT_RE = re.compile(r"\d")
+#: A count of words ("2,500 words", "a 350-word limit"): the length rule an examiner's remark states, not a figure of the answer's content.
+_WORD_COUNT_FIGURE_RE = re.compile(r"\d[\d,]*+(?:\s++|-)words?\b", re.IGNORECASE)
+
+
+def is_answer_note(sentence: str) -> bool:
+    """True when ``sentence`` is a note about the answer itself, read by what it says (:data:`_ANSWER_NOTE_RES`), whatever its lead
+    word: an omission for want of a confirmed source ("Casualty and cost figures are left out, because I cannot confirm exact numbers
+    here; take them from your textbook and cite them."), the writer having no source for what was asked or leaving it out, a decline of
+    the deliverable or of part of it, an offer of help, a request to send work back, a remark that the student's work is the student's,
+    a pointer to the textbook or the teacher, an examiner's rule on the length of the student's work. A short label before it ("Real-world
+    weight: I have no verified source ...") is read past. Quotations are masked first; a sentence that holds a digit, or more than one
+    clause after a semicolon that is not a pointer to where the items can be found, is never one."""
+    if not sentence or len(sentence) > 600:
+        return False
+    masked = mask_quotations(sentence).strip()
+    if _NOTE_DIGIT_RE.search(_WORD_COUNT_FIGURE_RE.sub(" words", masked)):
+        return False  # a figure the answer states is never taken out of its checks (a count of words aside)
+    body = masked[: len(masked) - _terminal_len(masked)].strip()
+    label = _NOTE_SHORT_LABEL_RE.match(body)
+    if label is not None:
+        body = body[label.end():]
+    if not body:
+        return False
+    head, _sep, tail = body.partition(";")
+    if tail and not all(_NOTE_POINTER_CLAUSE_RE.match(c.strip()) for c in tail.split(";") if c.strip()):
+        return False
+    head = head.strip()
+    return any(rx.match(head) for rx in _ANSWER_NOTE_RES)
+
+
+#: The decline shape of :data:`_ANSWER_NOTE_RES` (its third pattern): "I can't write ...", "I cannot write your introduction ...".
+_DECLINE_RE = _ANSWER_NOTE_RES[2]
+
+
+def declined_deliverable(response: str) -> Optional[str]:
+    """The sentence with which ``response`` declines the deliverable it was asked for, or None: one of the first three sentences of
+    its first paragraph is a decline (:func:`is_answer_note`'s decline shape: "I can't write the analysis or the conclusion sections,
+    ... because the analysis and the report must be entirely your own work.", "I cannot write your introduction, your global issue
+    statement or any sentence you would say on the day."). A reader of the request's bounds (the channel) can then hold the
+    deliverable as declined, not as a piece of the requested length (c1 ge-t14, breadth ll-3). Quotations are masked first."""
+    if not response:
+        return None
+    first = re.split(r"\n\s*\n", response.lstrip()[:4000], maxsplit=1)[0]
+    for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z])", first)[:3]:
+        masked = mask_quotations(sentence).strip()
+        body = masked[: len(masked) - _terminal_len(masked)].strip()
+        if body and not _NOTE_DIGIT_RE.search(body) and _DECLINE_RE.match(body.partition(";")[0].strip()):
+            return sentence.strip()
+    return None
+
+
+#: Remarks that frame the answer rather than state its content: practice or invented data, the course level the writer assumed, the
+#: answer's own form or method, provisional marks. A parser never makes one the point of its paragraph (the claim after it is), so
+#: no synthesis is charged for leaving it out, and its role is kept (a synthesis may carry it beside the figures it frames).
+_FRAMING_RES = (
+    re.compile(r"^(?:all\s++(?:the\s++|these\s++)?|the\s++|these\s++)?(?:figures|data|numbers|values|prices|names|table|case|example|scenario)"
+               r"(?:\s++(?:below|above|here|used|given))?\s++(?:is|are)\s++(?:all\s++)?(?:practice|invented|fictional|fictitious|made[- ]up|hypothetical"
+               r"|illustrative|imaginary)\b", re.IGNORECASE),
+    re.compile(r"^I\s++(?:have\s++)?assumed\s++(?:HL|SL|higher\s++level|standard\s++level|the\s++(?:HL|SL|higher|standard)\b)", re.IGNORECASE),
+    re.compile(r"\bso\s++I\s++(?:have\s++)?(?:worked|answered|written)\s++(?:exactly|in\s++exact\s++form|without\s++a\s++(?:GDC|calculator))\b", re.IGNORECASE),
+    re.compile(r"^every\s++answer\s++(?:below|above|here)\s++is\b", re.IGNORECASE),
+    re.compile(r"^(?:the\s++)?(?:tags|marks?|mark\s++allocations?)\b[^;]{0,60}?\b(?:is|are)\s++(?:an?\s++)?provisional\b", re.IGNORECASE),
+)
+
+
+def is_framing_remark(sentence: str) -> bool:
+    """True when ``sentence`` frames the answer rather than stating its content (:data:`_FRAMING_RES`): "All figures are practice data
+    for the fictional economy of Calvessa.", "I have assumed HL, because ...", "Paper 1 allows no GDC, so I have worked exactly
+    throughout.", "Every answer below is an exact value or a whole number, ...", "Marks shown are a provisional allocation." Read with
+    quotations masked."""
+    if not sentence or len(sentence) > 600:
+        return False
+    masked = mask_quotations(sentence).strip()
+    return any(rx.search(masked) if rx.pattern.startswith("\\b") else rx.match(masked) for rx in _FRAMING_RES)
+
+
 #: A sentence whose subject is a colleague's view: "The History specialist states that ...", "The English specialist's
 #: phrase "..." fits that record". The same shape as the History parser's attribution rule, so a colleague's reported
 #: statement is the colleague's view on every branch (role ``perspective``, certainty capped, the attribution recorded).
@@ -2040,7 +2215,9 @@ _PEER_REPORTING_VERBS = (
 _PEER_GIVING_VERBS = (
     r"gives?|gave|dates?|dated|puts?|places?|placed|counts?|counted|cites?|cited|quotes?|quoted|estimates?|estimated|remarks?|remarked"
     r"|mentions?|mentioned|finds?|found|traces?|traced|attributes?|attributed|treats?|treated|interprets?|interpreted|judges?|judged"
-    r"|sees?|saw|admits?|admitted|acknowledges?|acknowledged|emphasi[sz]es|emphasi[sz]ed|stresses|stressed|links?|linked|ties|tied")
+    r"|sees?|saw|admits?|admitted|acknowledges?|acknowledged|emphasi[sz]es|emphasi[sz]ed|stresses|stressed|links?|linked|ties|tied"
+    # a colleague presenting what it supplies: "The History specialist supplies the frame: "..."" (c1 R17)
+    r"|suppl(?:y|ies|ied)|provides?|provided|offers?|offered|frames?|framed")
 PEER_ATTRIBUTION_RE = re.compile(
     r"^\W*(?:(?:as|yet|but|however|indeed|similarly|likewise|further|moreover|finally|first|second|third|here|and|so)[,\s]+)?"
     r"(?:the|my|our)\s+(?:[a-z]+(?:[\s-][a-z]+)?\s+)?(?:specialist|colleague|peer)"
@@ -2064,6 +2241,25 @@ def is_peer_attribution(sentence: str) -> bool:
 #: draw on or vouch for). Read with quotations masked, so a quoted "Note:" is the quoted text's. "Note that ..." (no colon) is
 #: an argument's own signpost and stays substantive, and so is "Limitation:" (an evaluation point of a study or a model in
 #: Psychology or Economics: "Limitation: the sample was 30 students"; the History parser reads its own leads).
+#: A list of the answer's sources ("Sources: The Tuner extract (supplied text); course notes ...", "References:", "Sources used:"), which the
+#: knowledge bases ask every answer to close with, is a note too: provenance meta-text, never a claim and never words or a paragraph of a
+#: bound (c1 bug 4). "Source A:" (a source of a History paper, named by its letter) is no such lead. Read by :func:`is_sources_note`: a
+#: sentence the lead opens that holds no quotation and is a list's length; a quotation or a long run of words after the lead is read,
+#: counted and checked as any other sentence.
+_SOURCES_LEAD = r"(?:sources?(?:\s+(?:used|consulted|cited))?|references|bibliography|works\s+cited)"
+_SOURCES_LEAD_RE = re.compile(r"^[\s*_>#-]*" + _SOURCES_LEAD + r"\s*:", re.IGNORECASE)
+#: The most words a list of sources is read as a note with.
+_SOURCES_MAX_WORDS = 60
+
+
+def is_sources_note(sentence: str) -> bool:
+    """True when ``sentence`` is the answer's list of sources: opened by the sources lead, holding no quotation and at most
+    :data:`_SOURCES_MAX_WORDS` words ("Sources: none consulted (no retrieval in this session)")."""
+    text = sentence.strip()
+    return (bool(text) and len(text) <= 800 and _SOURCES_LEAD_RE.match(text) is not None and len(text.split()) <= _SOURCES_MAX_WORDS
+            and not find_quotation_spans(text))
+
+
 NOTE_LEAD_RE = re.compile(
     r"^[\s*_>#-]*(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence|limits?|caveats?)\s*:"
     r"|^[\s*_>#-]*n\.\s?b\.(?:\s*:)?"
@@ -2073,7 +2269,19 @@ NOTE_LEAD_RE = re.compile(
 #: A bare note lead: a paragraph whose first sentence it opens is a note as a whole, whatever its other sentences state ("Note: the
 #: totals ... come from a textbook table I could not check. Departures rose from about 144,000 in 1959 ..."), as the generic and History
 #: parsers role it. "Note on ...:" introduces a discussion and is not bare; "Confidence:" rates the answer in one sentence.
+#: (The sources lead is a note lead of its sentence only, never of a paragraph: a sentence written after a list of sources on its line,
+#: 'Sources: ... The narrator also insists that "..."', is read, counted and checked as any other.)
 BARE_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|limits?|caveats?)\s*:|n\.\s?b\.)", re.IGNORECASE)
+#: A sentence end followed by more text: a block that holds one is more than a list of sources.
+_SENTENCE_END_THEN_TEXT_RE = re.compile(r"[.!?][\"'”’)\]]*\s+\S")
+
+
+def is_sources_block(block: str) -> bool:
+    """True when ``block`` (a blank-line block) is the answer's list of sources and nothing else ("Sources: The Tuner extract (supplied
+    text); course notes on drama (course notes)"): one line that :func:`is_sources_note` reads, with no sentence after it. A block that
+    goes on after the list ('Sources: ... The narrator also insists that "..."') is read as any other."""
+    text = block.strip()
+    return bool(text) and "\n" not in text and is_sources_note(text) and _SENTENCE_END_THEN_TEXT_RE.search(text) is None
 
 
 def opens_note_paragraph(paragraph: str) -> bool:
@@ -2195,8 +2403,9 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     orig = sentence
     masked = mask_quotations(sentence)
     notes: list[str] = []
-    # 0. a note lead ("Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:") makes the whole sentence a note
-    if NOTE_LEAD_RE.match(masked):
+    # 0. a note lead ("Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:") makes the whole sentence a note, and so does the
+    #    answer's list of sources ("Sources: ...", no quotation, a list's length)
+    if NOTE_LEAD_RE.match(masked) or is_sources_note(sentence):
         return "", (sentence.strip(),)
     # 1. parentheticals: a from-memory label word anywhere inside the brackets, a label, a self-report or a task note
     cuts = [(m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(masked) if _note_clause(m.group(0), parenthetical=True)]
@@ -2248,6 +2457,7 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     if _LETTER_RE.search(masked) and (
         _label_shaped(masked) or is_self_certification(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked)
         or (notes and _filler_only(masked)) or is_provenance_note(orig.strip(" ,;:"))  # read on the words: a quoted label is a label
+        or (not notes and is_answer_note(orig))  # a note about the answer read by what it says (an omission, a decline, an offer, ...)
     ):
         return "", (sentence.strip(),)
     core = re.sub(r",(?:\s*,)+", ",", orig)
@@ -3273,14 +3483,27 @@ ABSENT_BEFORE_RE = re.compile(
 ABSENT_JOIN_RE = re.compile(r"^\s*(?:,\s*)?(?:or|nor|and)\s+$|^\s*,\s*$", re.IGNORECASE)
 
 
+#: A quoted statement the sentence judges true or false ('so "more than twenty" is false', '"the war ended in 1917" is incorrect'): the
+#: writer's words for the statement under judgement (an English gloss of a request's Spanish statement), a mention, not a quotation of a
+#: text (c1 sp-t14). Read on the characters right after the closing mark (``match(text, end, end + 48)``: anchored there).
+JUDGED_AFTER_RE = re.compile(r"[\s*_`'’\"”»]{0,4}(?:is|are|was|were)\s++(?:not\s++|therefore\s++|thus\s++)?(?:false|true|correct|incorrect|wrong|right"
+                             r"|untrue|inaccurate|accurate|falso|falsa|verdadero|verdadera)\b", re.IGNORECASE)
+#: The word the reader is told to reply with ('Reply "approve" and I will write ...', 'just answer "yes"'): an instruction, a mention of a
+#: word, not a quotation (c1 ps-p8d). Read on the characters right before the opening mark.
+REPLY_BEFORE_RE = re.compile(r"(?:^|[.!?:;(—–]\s*+|\b(?:just|simply|please|or|and|then)\s++)(?:reply|respond|answer|type)(?:\s++with)?\s*+[:,]?[\s*_`]*+$",
+                             re.IGNORECASE)
+
+
 def _absent_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
     """For each span, whether :data:`ABSENT_BEFORE_RE` ends right before it (read in the 60 characters before it), or it
-    follows such a span with only :data:`ABSENT_JOIN_RE` between them."""
+    follows such a span with only :data:`ABSENT_JOIN_RE` between them; or it is a statement the sentence judges true or false
+    (:data:`JUDGED_AFTER_RE`) or the word the reader is told to reply with (:data:`REPLY_BEFORE_RE`)."""
     out: list[bool] = []
     prev_absent_end: Optional[int] = None
     for s, e, _inner in spans:
         before = text[max(0, s - 60): s]
-        if ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and ABSENT_JOIN_RE.match(text[prev_absent_end: s])):
+        if (ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and ABSENT_JOIN_RE.match(text[prev_absent_end: s]))
+                or JUDGED_AFTER_RE.match(text, e, e + 48) or REPLY_BEFORE_RE.search(before)):
             out.append(True)
             prev_absent_end = e
         else:
@@ -3289,9 +3512,17 @@ def _absent_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool
     return out
 
 
+def judged_or_reply_mention(text: str, start: int, end: int) -> bool:
+    """Whether the quoted span ``text[start:end]`` (marks included) is a statement the sentence judges true or false
+    (:data:`JUDGED_AFTER_RE`) or the word the reader is told to reply with (:data:`REPLY_BEFORE_RE`): a mention, not a quotation."""
+    return JUDGED_AFTER_RE.match(text, end, end + 48) is not None or REPLY_BEFORE_RE.search(text[max(0, start - 60):start]) is not None
+
+
 def absent_mentions(text: str, spans: Sequence[tuple[int, int, str]]) -> list[str]:
     """The quoted words of ``text`` that its sentence says the text lacks ('the bruise comparison has no "like" or "as"', 'the text never
-    says "ayudar"'): a mention of a word, not a quotation of a text."""
+    says "ayudar"'), that it judges true or false as a statement ('so "more than twenty" is false') or that it tells the reader to reply
+    with ('Reply "approve" and I will write ...'): a mention of words, not a quotation of a text. The core pack (CORE-SRC-003), the
+    channel (INT-REQ-003) and the Overseer read these as mentions and verify nothing of them."""
     return [inner.strip() for (_s, _e, inner), absent in zip(spans, _absent_flags(text, spans)) if absent]
 
 

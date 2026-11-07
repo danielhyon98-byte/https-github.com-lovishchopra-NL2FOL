@@ -99,6 +99,10 @@ class ExactNumber:
     power_of_ten: bool = False
     #: written with a base marker (``FF₁₆``, ``0b1010``, ``255₁₀``, ``(255)₁₀``): an exact integer
     based: bool = False
+    #: round-8 clearance (rule cut-decimal): a decimal written with its digits cut by an ellipsis right after it (``7045.59…``,
+    #: ``0.309017\ldots``): the value lies in [w, w + u), u a unit in its last written digit, or, read as rounded, within u/2 of w; its
+    #: half-width is a whole unit u, so every band and interval that reads it covers both
+    cut: bool = False
 
     @property
     def is_zero(self) -> bool:
@@ -115,7 +119,7 @@ class ExactNumber:
             return Fraction(0)
         if not self.has_point and not self.scientific:
             return Fraction(1, 2) * Fraction(10) ** self.trailing_zeros
-        return Fraction(1, 2) * Fraction(10) ** self.last_place
+        return (Fraction(1) if self.cut else Fraction(1, 2)) * Fraction(10) ** self.last_place
 
     def half_width_for(self, min_sig_figs: Optional[int]) -> Fraction:
         """The half-width under the integer trailing-zero rule (section 5.1): the trailing zeros

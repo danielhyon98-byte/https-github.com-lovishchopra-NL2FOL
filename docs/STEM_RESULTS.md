@@ -785,3 +785,28 @@ of round 7 gives 177 of 177; the five round-dependent test files with fresh copi
 0 failed; the default suite gives 16,864 passed, 12 skipped, 45 deselected, 0 failed; and the changed readers stay linear (hostile
 inputs of 40,000 characters at most 1.12 s through the figure reader, with time growing in proportion to the length). Measured
 2026-11-02. These are replays of recorded answers: no specialist was called.
+
+### 10.15 The round-8 arena's STEM findings, measured on the recorded round
+
+The fixes of `docs/STEM_DESIGN.md` section 39, measured on fresh copies of the integrated round c1 (arena round 8) and on the round's
+recorded STEM answers (`tests/fixtures/stem/round8/c1_answers.json`):
+
+- False errors on correct work: the 14 false INT-SUBJ-001 on five of the nine genuine STEM answers (ph-p8b 3, ph-t14 3, maa-t14 2,
+  maa-p8b 5, cs-t14 1) and the five on the breadth probe's Computer Science answer are gone; no recorded STEM answer of the round carries
+  INT-SUBJ-001, in the tests or in the harness run (the error-level findings left on genuine records come from no STEM check:
+  INT-CONFLICT-001 on maa-t14, INT-REQ-005 on two humanities answers, INT-LEDGER-031 on one synthesis).
+- Injected faults: the harness counts 201 of 203 functional transmissions (192 before the fixes; 153 of 155 mutation records named).
+  The two left are a mutation inside a quotation of the request (maa-p8b, wrong unit: a quoted relation is no working of the answer)
+  and a mutated term inside a parenthetical sum, which the STEM pack now names at warning severity, the bracket's role being a reading
+  (ch-t14); both are recorded for the harness owner.
+- The adversarial lens's own STEM variants: the period restated as π/4, the cost restated as $6435, the percentage error restated as
+  1.64%, the density over a count noun, the wrong truth-table row and the wrong Boolean factorisation are each named INT-SUBJ-001, the
+  cardiac cycle stated in kg ST-DIM-001, and the correct conversion of the period to hours carries no error.
+- Bounds: every new reading is linear; on 25 hostile shapes of about 20,000 characters under four profiles the slowest document with
+  its checks took about 1.1 s of CPU on a machine other runs kept loaded (the test bound is 8 s).
+- The default suite: 17,231 passed, 12 skipped, 45 deselected and 2 failed. The two failures are overseer tests outside the STEM
+  paths that pin the reading of decimals cut by an ellipsis before this clearance: the count of formal checks on round 7's mai-t13
+  (13; now 15, the two added comparisons '5939.95… < 6000' and '6157.36… > 6000' both holding) and the dossier sentence D32 with
+  its test ('0.333… × 3 = 1' named undecided; now decided and holding). Both are handed to the overseer's owner with the exact change.
+
+Measured 2026-11-02. These are replays of recorded answers: no specialist was called.

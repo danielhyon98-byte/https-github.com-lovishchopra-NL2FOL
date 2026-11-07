@@ -212,7 +212,9 @@ validated before it is used; an out-of-contract message is never acted on.
 - **Fixture provider** (development and `sim`): `FixtureCorpus` serves a corpus in the arena round format, each item
   found by the SHA-256 of its recorded answer and each fixture bound to its claim by claim id and claim-text digest
   (a fixture bound by claim id only is refused at load time). It serves exactly what `scripts/arena/run_arena.py`
-  serves for the same item, called as `fn(claim, report)` without a task, as the arena calls its verifier. A fixture
+  serves for the same item, called as `fn(claim, report, task=...)` with the task record of the request, as the arena
+  calls its verifier (since round 8's clearance: a task_setting or arithmetic_fact premise is validated against the
+  request in both, so their encoded problems and result digests agree). A fixture
   recorded under the arena's request id of its item (`req-<item>`, or `req-<group>`) is served under the request id
   of the claim it translates (`RekeyingFixtureProvider`; a no-op in the arena); a fixture recorded for another request
   is served as it is, and the pipeline refuses it as the arena does (INVALID_FORMALIZATION). A fixture recorded under

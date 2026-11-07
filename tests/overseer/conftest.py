@@ -313,8 +313,20 @@ def without_the_translators_circularity_gate(monkeypatch) -> None:
     Everything else of the pipeline runs, and the engine's own E112 on an ENTAILED proof whose core restates the
     conclusion stays. The merged translator never delivers such an encoding (asserted beside every use)."""
     from epinoic_logic.translate.pipeline import Translator
-    # the merged pipeline passes the grounding checks too (``_circularity(problem, tag, checks)``): the no-op takes them
-    monkeypatch.setattr(Translator, "_circularity", staticmethod(lambda problem, tag, checks=None: None))
+    # the merged pipeline passes the grounding checks too (``_circularity(problem, tag, checks)``), and since round-8 clearance c1
+    # the claim's text (``claim_text=``, read by its semantic rule): the no-op takes them, so the gate is bypassed as before
+    # rather than failing the call (which the channel reads as an internal error, never a delivered encoding)
+    monkeypatch.setattr(Translator, "_circularity", staticmethod(lambda problem, tag, checks=None, **_kw: None))
+
+
+def without_the_translators_semantic_gate(monkeypatch) -> None:
+    """A translation that reaches the receipt past the translator's SEMANTIC circularity gate (round-8 clearance c1:
+    ``Translator._semantic_circularity``, the pipeline's step 4c beyond a restatement as written, which withholds a
+    conclusion restated in another form or by an unverified label, E112 at translation): the pipeline runs as it did
+    before c1, its rule as written kept. Every use asserts first that the current translator withholds the encoding."""
+    from epinoic_logic.translate.pipeline import Translator
+    if hasattr(Translator, "_semantic_circularity"):
+        monkeypatch.setattr(Translator, "_semantic_circularity", staticmethod(lambda *a, **k: None))
 
 
 def withheld_as_circular_by_the_translator(outcome) -> bool:

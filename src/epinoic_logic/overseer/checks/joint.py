@@ -18,7 +18,14 @@
      auditor's signed joint run and its attribution runs;
   4. each channel-named set T is re-run alone at the versions it had when it was named (that event's pool snapshot
      after the call, which is what the receipt named; a claim id the call did not touch keeps its earlier version);
-     a CONSISTENT result is JOINT-003 (a false conflict);
+     a CONSISTENT result is JOINT-003 (a false conflict). Rule ``pooled-only-conflict`` (round-8 clearance c1): a set the
+     re-run still finds inconsistent is re-run once more with its symbols READ APART as the channel reads them before it
+     charges a conflict (``integrity.cross_check``: a symbol whose glosses name different quantities in two claims,
+     ``split_by_gloss``, and a candidate value a claim tests and rejects, ``rename_candidates_apart``, each renamed apart
+     per claim). When that reading is CONSISTENT the conflict exists only through pooling one name for two things (maa-t14:
+     "x = −5 is rejected because it does not satisfy x > 4" pooled with the domain x > 4 of another claim), so it is
+     JOINT-003 too; when it cannot be built or decided, JOINT-002 (warning), so an agent's false_conflict accusation of it
+     is left unresolved, never refuted by a re-run that could not see the pooling;
   5. a joint check that is undecided, cannot be built, or breaches ``JOINT_LIMITS`` is JOINT-002 (warning).
 """
 from __future__ import annotations
@@ -26,12 +33,22 @@ from __future__ import annotations
 from typing import Optional
 
 from ...engine.statuses import VerificationStatus as S
-from ...integrity.cross_check import JOINT_LIMITS, check_cross_report_consistency, joint_problem
+from ...integrity.cross_check import JOINT_LIMITS, check_cross_report_consistency, joint_problem, split_by_gloss
+
+try:  # the channel's candidate reading (round-8 clearance c1); without it only the glosses are read apart
+    from ...integrity.cross_check import rename_candidates_apart as _rename_candidates_apart
+except ImportError:  # pragma: no cover - an older channel
+    _rename_candidates_apart = None
+
 from ...ir.canonical import canonical_json, problem_digest, sha256_hex
 from ...engine.runner import verify
 from ..view import REPORT_KINDS, Transfer
 from . import CheckContext
 from .synthesis import named_conflict_sets
+
+#: Rule ``pooled-only-conflict`` (module docstring, step 4): a named conflict that exists only through pooling one name for two
+#: quantities or for a rejected candidate is a false conflict.
+POOLED_ONLY_RULE = "pooled-only-conflict"
 
 __all__ = ["check_pool", "check_live_pool", "independent_joint", "JointOutcome", "derived_pool", "PooledClaim"]
 
@@ -268,3 +285,56 @@ def _false_conflicts(ctx: CheckContext, named) -> None:
         elif status is None or status != S.INCONSISTENT_PREMISES.value:
             ctx.ovs(seq, "OVS-JOINT-002", f"the re-check of the conflict {sorted(claims)} named by {code} could not be decided ({status or codes})",
                     claim_ids=sorted(claims), message_ids=mids, report_ids=rids, agent_ids=aids, formal_result_id=res_id)
+        elif len(probs) >= 2:
+            # rule pooled-only-conflict: the same set with its symbols read apart as the channel reads them
+            apart_id, apart_status, how = _apart_recheck(ctx, probs, request_id=request_id, cfg=cfg, seq=seq)
+            if not how:
+                continue  # nothing to read apart: the conflict is the claims' own, as encoded
+            if apart_status == S.CONSISTENT.value:
+                ctx.ovs(seq, "OVS-JOINT-003", f"{code} names {sorted(claims)} (receipt of {t.message_id}), but the conflict exists only through pooling: with "
+                        f"{how} read apart, as the channel reads them before it charges a conflict, the engine finds the claims consistent at the versions "
+                        f"they had then: a false conflict (rule {POOLED_ONLY_RULE})", claim_ids=sorted(claims),
+                        message_ids=[t.message_id] + mids if t.message_id else mids, report_ids=rids, agent_ids=aids, formal_result_id=apart_id,
+                        related_result_ids=[x for x in (res_id, rid) if x])
+            elif apart_status != S.INCONSISTENT_PREMISES.value:
+                ctx.ovs(seq, "OVS-JOINT-002", f"the re-check of the conflict {sorted(claims)} named by {code} with {how} read apart could not be decided "
+                        f"({apart_status or 'not buildable'}; rule {POOLED_ONLY_RULE}): whether it exists only through pooling is undecided",
+                        claim_ids=sorted(claims), message_ids=mids, report_ids=rids, agent_ids=aids, formal_result_id=apart_id or res_id)
+
+
+def _apart_recheck(ctx: CheckContext, probs: list, *, request_id: str, cfg, seq: int) -> tuple[Optional[str], Optional[str], str]:
+    """Rule ``pooled-only-conflict``: ``(result id, status, what was read apart)`` of the auditor's run of ``probs`` pooled
+    with its symbols read apart (glosses naming different quantities, candidates a claim rejects); ``what`` is empty when
+    nothing is read apart (the run is then not made). Memoised in the store like every auditor run."""
+    try:
+        apart, splits = split_by_gloss(list(probs))
+        candidates: dict = {}
+        if _rename_candidates_apart is not None:
+            apart, candidates = _rename_candidates_apart(apart)
+    except Exception as exc:  # noqa: BLE001 - a reading that fails cannot clear a conflict: undecided
+        return None, None, f"the symbols (the reading failed: {type(exc).__name__})"
+    parts = []
+    if splits:
+        parts.append("the symbol(s) " + ", ".join(sorted(splits)[:6]) + " (glossed as different quantities)")
+    if candidates:
+        named = sorted({n for v in candidates.values() for n, _new, _aid in v})
+        parts.append("the candidate value(s) of " + ", ".join(named[:6]) + " that claim(s) " + ", ".join(sorted(candidates)[:6]) + " test and reject")
+    if not parts:
+        return None, None, ""
+    how = " and ".join(parts)
+    memo_key = "J3A|" + sha256_hex(canonical_json([[problem_digest(p) for p in apart], cfg.model_dump(mode="json"), request_id]))
+    memo = ctx.store.memo_get(memo_key)
+    if memo is None:
+        def run():
+            joint, f, _jm = joint_problem(apart, request_id=request_id, joint_id="overseer-recheck-apart")
+            if joint is None:
+                return None, [x.code for x in f]
+            return verify(joint, cfg, JOINT_LIMITS), []
+        (res, _codes), run_ids = ctx.auditor_run(run, seq=seq)
+        memo = (res.result_id if res is not None else None, res.status.value if res is not None else None, run_ids)
+        ctx.store.memo_put(memo_key, memo)
+    else:
+        for r in memo[2]:
+            if r not in ctx.auditor_result_ids:
+                ctx.auditor_result_ids.append(r)
+    return memo[0], memo[1], how

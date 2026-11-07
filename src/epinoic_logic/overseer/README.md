@@ -502,8 +502,8 @@ translation of a delivered claim from the journal (design section 18):
 | `OVS-TRN-002` | error | status, eligibility and engine run re-derived from the validation: a problem under a status that forbids one, ambiguity flags under TRANSLATED (an ambiguity resolved silently), an eligibility the policy does not re-derive (a claim forced into IR), whoever proposed the translation, and a problem with no provider or under another policy version from a translator not declared hand-built |
 | `OVS-TRN-003` | error | a `verified` grounding the re-run of the translator's grounding check does not reproduce |
 | `OVS-TRN-004` | warning | a quotation excerpt absent from the supplied text it names (disclosed as unverified) |
-| `OVS-TRN-005` | warning | a quotation or number of a translation (whoever proposed it) that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test; in a STEM answer no factor of 100 is read, rule `stem-exact-scale`) |
-| `OVS-TRN-006` | error | circular: the conclusion, or part of it, is restated by premises that are the writer's own for the overseer (rule `circularity-agreement`: never looser than the translator's E112; rule `semantic-restatement`: as written or in another form, by Boolean structure, the order of numbers or the arithmetic of the conjunct's own symbols (rule `arithmetic-restatement`), never by the arithmetic of numbers alone; rule `grounded-transcription`: every grounding but a located excerpt the deterministic grounding check verified (its figures stated, none only as a target); a kind label or a number match alone is the writer's own; rule `receipt-disclosure`: a premise restating only part of the conclusion counts when the receipt presents it as given with the task), at least one of them SHOWN not to be data (rule `data-standing`: the writer's own by its grounding, refuted by its source, rule `same-quantity`, or by the translation's own declarations, naming no source the overseer holds, or presented as data on a kind label alone: a `task_setting` or `supplied_text` with no located excerpt whose content no check reads in its source, such as Boolean content, a relation, a structural figure or a figure stated there only bare, decision 56, or only where the source asks, denies, offers alternatives, puts up for examination or requires it, rule `statement-context`, decision 57), and the auditor's own signed engine run of the problem without the shown ones, keeping the undecided ones, does not give ENTAILED, or could not decide (rules `restatement-necessity` and `engine-shown`); a restatement the overseer upholds is a transcription (a coverage note), and a translation the translator withheld as circular gets no finding |
+| `OVS-TRN-005` | warning | a quotation or number of a translation (whoever proposed it) that the specialist's report never states (fixed spelling rules, each extension a named rule with its own test; in a STEM answer no factor of 100 is read, rule `stem-exact-scale`; since the round-8 clearance rule `derived-figures` traces a figure the texts state with its stated precision, in spaced thousands, at another scale, through an SI prefix, a written product or quotient, a multiple of π, a root, a function value, a reciprocal or an exact quotient a text writes, and any figure of the task text or a supplied table, each read once per translation and bounded) |
+| `OVS-TRN-006` | error | circular: the conclusion, or part of it, is restated by premises that are the writer's own for the overseer (rule `circularity-agreement`: never looser than the translator's E112; rule `semantic-restatement`: as written or in another form, by Boolean structure, the order of numbers or the arithmetic of the conjunct's own symbols (rule `arithmetic-restatement`), never by the arithmetic of numbers alone; rule `grounded-transcription`: every grounding but a located excerpt the deterministic grounding check verified (its figures stated, none only as a target); a kind label or a number match alone is the writer's own; rule `receipt-disclosure`: a premise restating only part of the conclusion counts when the receipt presents it as given with the task), at least one of them SHOWN not to be data (rule `data-standing`: the writer's own by its grounding, refuted by its source, rule `same-quantity`, or by the translation's own declarations, naming no source the overseer holds, or presented as data on a kind label alone: a `task_setting` or `supplied_text` with no located excerpt whose content no check reads in its source, such as Boolean content, a relation, a structural figure or a figure stated there only bare, decision 56, or only where the source asks, denies, offers alternatives, puts up for examination or requires it, rule `statement-context`, decision 57), and the auditor's own signed engine run of the problem without the shown ones, keeping the undecided ones, does not give ENTAILED, or could not decide (rules `restatement-necessity` and `engine-shown`); a restatement the overseer upholds is a transcription (a coverage note), and a translation the translator withheld as circular gets no finding. Round-8 clearance: the translator's own semantic rule (`translate.restatement`) is the overseer's floor (every premise it names is the writer's own here too); the claim's stated step input (rule `stated-step`) and a definition the conclusion is an identity of (rule `definitional-identity`) are no restatement, nor is a premise's own link (rule `packed-link`: "b and (b implies e)" argues for e) |
 | `OVS-TRN-007` | error | the outcome's summary is not the deterministic statement of its translation and its signed result |
 | `OVS-TRN-008` | warning | a display ENTAILED or CONSISTENT whose premises assert supporting claims whose own outcomes in the same receipt are not successful (rule `sibling-status`) |
 | `OVS-TRN-009` | warning | one fact asserted as a premise in one translation of a receipt and left an unsupported conjunct in another's own check (rule `same-fact-premise`) |
@@ -585,7 +585,7 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 ## The knowledge pack
 
-`knowledge/overseer-knowledge-docs-1.4/` is the overseer agent's whole configuration, laid out like the specialists'
+`knowledge/overseer-knowledge-docs-1.5/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
 evidence rule, the verdict format, the kinds and codes, 32 worked examples, what never to do, what to do when unsure,
@@ -597,7 +597,9 @@ it withholds itself, the engine's withheld verdicts, the merged rules for word b
 channel raises them; since the STEM completion, a STEM receipt: the ST codes with their severities, a STEM check's
 detail, the tolerance rule and enclosures, the engine's values in a failure finding, and the receipt held to its
 results; since pack 1.4, the argument diagnosis and every code the translator and the channel emit: D33 to D37, I99, K8,
-the kinds-and-codes §8 table and N14),
+the kinds-and-codes §8 table and N14; since pack 1.5, the round-8 clearance's reading of a decimal cut by an ellipsis inside
+an expression, which the STEM pack now decides: D32, and the §8 row of CORE-SRC-008, the core pack's warning on a near miss
+of a name the supplied case states; 1.0 to 1.4 stay pinned),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -608,7 +610,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-1.4/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-1.5/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text
@@ -670,8 +672,11 @@ instances never certify anything or change a status. Design section 19.
 monotonic clock) every material eligible claim clean (translated, definitive, the release rule re-derived from the journal
 and the signed result, no `OVS-TRN-*` finding naming it, the clearance actionable), every branch formal check holding, no
 working the receipt names as not checked (`NOT_CHECKED_CODES`: a STEM relation outside the grammar or the encodings, a value
-not stated, a unit checked as written only, a pack that failed, a check undecided) and no agent self-report on the answer
-(`SELF_REPORT_CODES`, at any severity, and the task audit's FID-005 and FID-009). Otherwise the fallback: the policy's
+not stated, a unit checked as written only, a pack that failed, ES-INTERNAL-001 included, a check undecided, and since the
+round-8 clearance the prose branches' undecided arithmetic and chronology, CORE-QNT-001 and CORE-CHR-001) and no agent
+self-report on the answer (`SELF_REPORT_CODES`, at any severity, and the task audit's FID-005 and FID-009; an English
+"Next step:" or "Note:" paragraph that reports no check and no assurance is a note, not a self-report: rule `meta-note`,
+`meta_notes.py`). Otherwise the fallback: the policy's
 `OverseerPool` reviews the task through `hub.review_pool`, every verdict validated as in production; a verdict that
 contradicts a signed result is rejected; each candidate's accuracy is the share of its material claims counted verdicts
 examined with no fault pinned down, no check naming them and no signed refutation; the best acceptable candidate is

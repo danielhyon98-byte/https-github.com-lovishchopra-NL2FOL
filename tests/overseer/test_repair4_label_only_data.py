@@ -30,7 +30,7 @@ from epinoic_logic.ir.schema import Problem
 from epinoic_logic.overseer.checks import translation as T
 from epinoic_logic.translate.contracts import SuppliedText
 
-from .conftest import DOC, english_report, make_auditor
+from .conftest import DOC, english_report, make_auditor, withheld_as_circular_by_the_translator, without_the_translators_semantic_gate
 from .test_protocol_validate import review
 from .test_repair3_same_quantity import _run_on
 from .test_translation_agents import outcome_of, tr_acc
@@ -64,13 +64,28 @@ def _declared_throughout(p: dict, g: dict, *, keep_quotations: bool = False) -> 
     ("the link replaced, endless and the conclusion task_setting", TS, True),
     ("p proves p, every grounding supplied_text naming doc-mill with no excerpt", ST, False),
 ])
-def test_p_proves_p_on_a_kind_label_alone_is_trn_006_and_the_transfer_fails(label, g, keep):
+def test_p_proves_p_on_a_kind_label_alone_is_trn_006_and_the_transfer_fails(label, g, keep, monkeypatch):
     """The review's probe. The merged translator delivers the encoding (its rule reads the label as a transcription) and
     the engine gives ENTAILED, displayed ENTAILED. No check reads Boolean content against the request or the extract, so
     the label is the only evidence the premise is data: it is shown not to be data (uncheckable), the result rests on it,
     and the grade is OVS-TRN-006 (an error), the transfer AUDIT_FAILED, an agent's translation_circular accusation
     CONFIRMED. The third repair graded it OVS-TRN-011, the transfer AUDIT_PASSED_WITH_FINDINGS and the accusation
-    unresolved."""
+    unresolved.
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept: the translator's own semantic
+    circularity rule (``translate.restatement``) now withholds the circle itself where it reads the label as the writer's
+    own (E112 at translation, no problem, no OVS-TRN finding), which is asserted first; the original assertions are then
+    made on the encoding delivered past that gate, as the translator before c1 delivered it."""
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(_declared_throughout(genuine_problem(), g, keep_quotations=keep))}, auditor=a0)
+        o0 = next(x for x in rc0.outcomes if x.claim_id == POINT)
+        if o0.translation.problem is None:
+            audit0 = a0.audit(ch0.uid)
+            assert withheld_as_circular_by_the_translator(o0) and trn(audit0, "OVS-TRN-006") == [] and trn(audit0, "OVS-TRN-011") == []
+            without_the_translators_semantic_gate(monkeypatch)
+    finally:
+        a0.close()
     aud = make_auditor(shadow="off")
     try:
         aud, ch, rc = run({POINT: proposal(_declared_throughout(genuine_problem(), g, keep_quotations=keep))}, auditor=aud)
@@ -214,9 +229,21 @@ def test_control_a_premise_whose_figures_the_source_states_for_its_quantity_stay
     """Control: a premise that states only values of quantities, each figure stated by its held source for the quantity
     its statement names, as it states it (and in a table in its column and row), is still undecided: data presented as
     given, never a transcription (no located excerpt: a number match is no evidence), and a result resting on it alone is
-    OVS-TRN-011 (a data conjunct needs its data premise)."""
-    rs = T.restatement(problem, english_report(docs=(DOC,) + tuple(docs)), request_texts, request_documents=docs)
+    OVS-TRN-011 (a data conjunct needs its data premise).
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept on the overseer's own rules
+    (``translator_floor=False``): where the translator's own semantic rule, re-grounded with the request's task record,
+    reads the premise as assumed (it withholds the encoding: a figure its task-authority check does not validate, such as
+    "monthly" for 12), the overseer is never looser and reads it as the writer's own (rule circularity-agreement);
+    elsewhere the default reading is the original one."""
+    rs = T.restatement(problem, english_report(docs=(DOC,) + tuple(docs)), request_texts, request_documents=docs, translator_floor=False)
     assert rs.holds and rs.own == ("P",) and rs.standings == (("P", "undecided"),) and rs.undecided == ("P",) and rs.shown == (), (case, rs.why_own)
+    floored = T.restatement(problem, english_report(docs=(DOC,) + tuple(docs)), request_texts, request_documents=docs)
+    if floored.translator_floor:
+        assert floored.translator_floor == ("P",) and floored.standings == (("P", "own_kind"),) and floored.shown == ("P",), case
+        assert "translator's own semantic circularity rule" in dict(floored.why_own)["P"], case
+    else:
+        assert floored.standings == rs.standings and floored.undecided == rs.undecided, case
     reason = dict(rs.why_own)["P"]
     assert "a number match is no evidence" in reason and "a quantity the premise's own statement names" in reason, (case, reason)
     obj = json.loads(problem.model_dump_json(exclude_none=True))
@@ -298,12 +325,25 @@ def _question_problem(with_bool: bool = True) -> dict:
             "conclusion": {"id": "C", "expr": concl, "label": "the question wants the value after 5 years, to the nearest euro", "grounding": _g(TS)}}
 
 
-def test_the_question_restated_with_a_bool_task_setting_conjunct_is_trn_006_naming_that_premise_only():
+def test_the_question_restated_with_a_bool_task_setting_conjunct_is_trn_006_naming_that_premise_only(monkeypatch):
     """The shape of r7 mai-t13 m1.1 and m7.1 (and of pack Example 27): every conjunct restated by a task setting, one a
     figure the request states for the years (undecided), one a Boolean statement of what the question asks (only the
     label presents it as data: uncheckable). The run without the shown premise, keeping the undecided one, is not
     ENTAILED: OVS-TRN-006 naming t_wants alone and saying t_years was kept; AUDIT_FAILED. Control: without the Boolean
-    conjunct the result rests on t_years alone, undecided: OVS-TRN-011 and AUDIT_PASSED_WITH_FINDINGS (unchanged)."""
+    conjunct the result rests on t_years alone, undecided: OVS-TRN-011 and AUDIT_PASSED_WITH_FINDINGS (unchanged).
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept: the translator's own semantic
+    rule now withholds the encoding with the Boolean conjunct itself (E112 at translation, naming t_wants alone), which is
+    asserted first, and still delivers the control; the original assertions are made on the encodings delivered past that
+    gate."""
+    a0, ch0, rc0 = _run_on(MAI_INPUT, _question_problem())
+    try:
+        o0 = next(x for x in rc0.outcomes if x.claim_id == POINT)
+        assert withheld_as_circular_by_the_translator(o0) and trn(a0.audit(ch0.uid), "OVS-TRN-006") == []
+        assert any("t_wants" in d and "t_years" not in d for d in o0.translation.diagnostics)
+    finally:
+        a0.close()
+    without_the_translators_semantic_gate(monkeypatch)
     aud, ch, rc = _run_on(MAI_INPUT, _question_problem())
     try:
         o = next(x for x in rc.outcomes if x.claim_id == POINT)

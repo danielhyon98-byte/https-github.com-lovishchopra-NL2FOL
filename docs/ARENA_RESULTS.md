@@ -82,7 +82,8 @@ recorded rounds):
 
 Every run is qualified in its summary: each lost recorded translations (claims not eligible under the current policy,
 and in r7 the 200 claim ids that changed), and every served translation is bound by claim id only, since no round
-recorded `claim_text_sha256`. On every round the receipts, verdicts and per-record functional flags are identical to a
+recorded `claim_text_sha256` (since round 8's clearance `scripts/arena/bind_translations.py` records it as a step of
+recording a round). On every round the receipts, verdicts and per-record functional flags are identical to a
 replay with the harness before the change. The 13 of 22 is not comparable with the 143 of 224: it covers the 22
 translations the current parse still serves. On the tree that integrates every fix of the same review, the transport,
 coverage and claim counts above are unchanged on every round (section 'Replays after the fixes of the external review
@@ -1129,7 +1130,8 @@ release: a replay calls no fidelity reviewer, and release also needs established
 check. The formal statuses are reported as before; permission to release is a separate record. The harness keeps its
 injected verifier at the two-argument signature, so a replay translates on the recorded path (task-authority premises
 are validated against the supplied texts, not against the router's question). Passing the task record is a methodology
-change for a new round.
+change for a new round. (Round 8's clearance made that change, production's configuration: section "Round 8 clearance:
+the harness's own fix".)
 
 The reviewer's reproduction scripts, re-run on copies, now show: the exact claim keeps its COUNTEREXAMPLE (x = 1/3) with
 no retry, the contradictory exact facts stay INCONSISTENT_PREMISES, and the old widening repair no longer earns ENTAILED;
@@ -1525,6 +1527,68 @@ assumptions naming other STEM checks than the delivered report's (the checks the
 Round 7 replayed on fresh copies before and after: 177 of 177 both,
 every record identical apart from the fixture coverage's new, empty `served_under_other_id_form`, 22 of 224 fixtures
 served both; rounds 1 to 6 hold no STEM report, so nothing of this applies to them.
+
+## Round 8 clearance: the harness's own fix (the replay configuration)
+
+One finding of round 8 (the integrated round c1) was in the harness (translation-fidelity lens, minor; the synthesis
+timestamp also in the results audit's harness finding): the replay measured a configuration different from production.
+Changes (`scripts/arena/run_arena.py`, the new `scripts/arena/bind_translations.py`; rules in `scripts/arena/README.md`,
+"Replay configuration"; tests in `scripts/arena/test_arena_rules.py`), each reported in results.json (`metrics.replay`)
+and on summary.md's "Replay configuration" line, none moving the transport measure:
+
+- **The task record.** The replay's claim verifier kept the two-argument signature, so no task-authority premise
+  (`task_setting`, `arithmetic_fact`, `rubric_rule`) was validated against the router's question, where production's
+  task-aware verifier validates it. It now declares a `task` parameter; the channel passes the record and the delivery
+  pass's deadline verifier passes it on. `--without-task-record` replays as before, for comparison.
+- **Fixtures bound to their claim text.** No round has recorded `claim_text_sha256` with its translations, so every served
+  translation was bound by claim id only (round 8: all 469). `bind_translations.py` records the digests as a step of
+  recording a round, from the `list_claims.py --json` listings the translation agents were given (or, run as that step,
+  from the current parse).
+- **Retries.** A recorded translation is one output, so a retry the pipeline asks for is served the same output. Each
+  outcome now carries `attempts` and `retry_not_exercised`, and the configuration names every genuine claim whose retry
+  was not exercised.
+- **Synthesis timestamps.** Every synthesis was stamped 2026-10-11T15:00:00Z, before the reports it cites, so the
+  time-order rule (INT-HANDOFF-016, which the overseer's audit runs over the journaled transfers, OVS-DIV-002) named every
+  synthesis of every later replay. A synthesis is now stamped when it is relayed; the record carries the stamp. The rule
+  was tested on the relayed synthesis (no INT-HANDOFF-016; the old stamp still draws it); the overseer wave was not re-run.
+
+Measured on round 8, replayed on three fresh copies of its recorded material at once on the same tree (the other fixers'
+changes of the same clearance in progress): the harness before the fix, after it, and after it with
+`--without-task-record`. Transport is 201 of 203 in all three, and no record changes its functional flag (the recorded
+run's 192 of 203 rose with the same clearance's STEM fixes, not with this one). The delivery pass's receipts equal the
+genuine records' in all three (24 of 24). Without the task record the replay is the old harness's record for record
+(status, functional flag, codes, every finding and every claim outcome). With it, as production computes it:
+
+- 10 genuine claims change their displayed status. bi-t14 s1.2 and s4.7 and ph-p8b s1.1 go from INVALID_FORMALIZATION
+  (E112: a task figure no check had verified restating part of the conclusion) to ENTAILED, the record validating the
+  figure; bi-t14 s1.3, ph-p8b s5.2 and ph-t14 s2.5 go from AMBIGUOUS_TRANSLATION to ENTAILED; ph-p8b s2.4 and s7.2
+  (AMBIGUOUS_TRANSLATION) and ph-t14 s2.3 and s2.4 (ENTAILED) become INVALID_FORMALIZATION under the exactness rule, a
+  figure the task gives ('4.0 cm', '2.0 cm', '3400 km', '1600 km') being encoded as an interval, which the replay could
+  not see as given without the record. Approved claims 195 to 199; encodings given no verdict: E112 9 to 6, exactness 12 to 16.
+- Dependencies: the unverified dependencies of 82 genuine claims fall (ps-t14's seven ENTAILED claims among them, each to
+  0) and the ungrounded dependencies of 63 rise: a task-authority premise is now validated, or refuted when the task
+  material does not state it, and a refuted premise is an ungrounded dependency.
+- Findings on genuine receipts: 13 new INT-ARG-001 warnings (11 EVD-SRC-005, a premise whose task-authority label the
+  task material does not hold, on cs-t14, ec-p8a, ec-t14, ess-t14, mai-t14 and ps-t14; 2 EVD-LACK-001 on en-t14); the
+  INT-REQ-006 "no verdict" warnings follow the displayed statuses; ph-p8b's INT-GLOSSARY-005 (s2.4 against s7.2) goes,
+  those claims no longer being pooled, and with it the same warning on the maa-p8b synthesis.
+- Retries not exercised: 23 genuine claims (175 records over every variant), among them the lens's ten correct
+  calculations rejected by the exactness rule on both attempts. The outcome of each is what the recorded output gives
+  on its own.
+- FIXTURES_UNBOUND stands for this round (451 of 451 served translations bound by claim id only): its translations were
+  recorded without digests and the recorded round is read-only. (18 more recorded translations are not served, their
+  claims not eligible after the same clearance's eligibility changes: TRANSLATIONS_LOST in all three runs, before and
+  after this fix alike.) The round's workflow kept the listings it briefed the translation agents of seven tasks with
+  (bi-p8d, bi-t14, ec-p8a, ec-t14, en-p8c, en-t14, sp-t14); bound with them by `bind_translations.py --listings` on
+  another copy, 98 fixtures carry the digest of the text they were produced for, 95 of them are served bound (the other
+  3 belong to claims no longer eligible), none is refused as stale (those claims' texts are unchanged), and every record
+  is as on the unbound copy (transport 201 of 203).
+
+The kit's fixture path (`integration.verifier.FixtureCorpus`, PROTOCOL.md section 5.3) was built to call its verifier as
+the arena did, without the task record. Measured on the simulation's synthetic corpus, the arena's result digests now
+differ from that path's on the two items whose fixtures carry task-authority premises (ph-s1, ph-s2), which the
+simulation's equality gate (G-EQ-ARENA) compares; with that path passing the record too, none differs. That change is
+the integration owner's (`tests/integration/test_fixture_parity.py`, whose fields leave the digests out, passes either way).
 
 ## Summary of the overseer verdicts, rounds 1 to 7
 

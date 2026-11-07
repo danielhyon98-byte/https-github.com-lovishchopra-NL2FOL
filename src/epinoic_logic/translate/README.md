@@ -31,7 +31,30 @@ check (`precision.added_premise_support`); anything else makes the translation A
 (`retry_added_premise`), never a verdict, and the release assessment names it → circularity: an
 encoding whose premises restate its conclusion from the writer's own assertions (the engine's `E112`; an
 `arithmetic_fact` no record validates, or a grounding a check refuted, counts as the writer's own) is
-INVALID_FORMALIZATION, fed back once → stated precision and exactness (`precision.py`, read from the
+INVALID_FORMALIZATION, fed back once; since the round-8 clearance (c1) so is one that restates it in another form
+(`restatement.py`, the transfer auditor's rules simplified and never looser than the translator's own: a conjunct of the
+conclusion that follows from one premise by its Boolean structure, every comparison an opaque atom and every implication of
+the premise too, so a link packed with its antecedent in one premise is an argument the engine decides, or that a conjunct of
+a premise writing the same figures states by the arithmetic of its own symbols, "x − 4 > 0" for "x > 4", each arithmetic
+of numbers alone one opaque value, so "p = 1.60" beside "p × 100 = 160" and a line of working stay derivations; the
+restating premises the writer's own when no check verified or located them: an inferential kind, an unverified
+`arithmetic_fact` or quotation, or a task label on Boolean content, a relation or a structural figure 0 or 1, while a task
+label on other figures or a source label stays an unverified dependency; and without them the conclusion does not follow),
+or that rests on a task figure no check verified ("k = 50" under `arithmetic_fact`) restating part of the conclusion. A premise
+that only names an expression the conclusion is an identity of (a definition, "X ↔ (A ∧ B) ∨ (¬A ∧ C)" beside the claim's case
+analysis) and a premise the claim writes before its own step marker ("Domain: x + 4 > 0 and x − 4 > 0, so x > 4") are no
+restatement (the transfer auditor's rules definitional-identity and stated-step; the round's translation-fidelity lens judged
+those c1 encodings faithful step checks). Two more rules read the
+claim's own text beside its encoding (the translation-fidelity lens of c1): a premise of the writer's own that asserts the
+result of a calculation the claim writes as a value, where the conclusion only checks that figure's band (ph-t14 s4.4, "r³ =
+(5.000 × 10⁶ m)³ = 1.250 × 10²⁰ m³" with the cube asserted as an `arithmetic_fact`: the engine never computed it; rule
+`result-asserted`), and a premise of the writer's own step (no grounding, `specialist_inference` or `assumption`) that states,
+as a fact and not as a link, the consequence the claim draws by "so", "therefore", "thus", "hence", "because" and the like,
+when the conclusion needs it (hi-t14 h1.12, the main clause reached by "therefore" asserted as 'h1.12-reason'; ph-p8b s6.2,
+"so the total energy is elastic potential energy" asserted under the claim's link label; rule `consequence-asserted`). A
+value used to compute a further quantity, a further bound drawn from a value, a stated figure of the consequence the
+engine computes with, a law stated from subject knowledge and a premise the other premises derive anyway are untouched →
+stated precision and exactness (`precision.py`, read from the
 wording by `quantities.py`, never from the solver): every figure the encoding compares is tied to the span
 that states it (`TranslationResult.figure_readings`). A figure stated exactly ("exactly", "without
 rounding") or given by the task is encoded with `eq` and never widened (an interval in its place is
@@ -234,9 +257,9 @@ inputs. Each unresolved item is listed; the formal status is never changed by it
 channel or hub releases answers automatically today: the assessment is reported on every outcome and in its
 summary for the application that does.
 
-Eligibility counts figures on `eligibility.figure_text`: mark annotations ("[2]", "[2 marks]"), part
-labels ("(a)", "(iii)", "Part (b)") and named items ("Paper 1") are not figures, so a heading is not
-a quantitative claim. Evidence is a QUANTITATIVE_CLAIM only with two related figures or a
+Eligibility counts figures on `eligibility.figure_text`: mark annotations ("[2]", "[2 marks]"), mark-scheme
+codes ("M1", "A1", "B2", "A1ft", "M1A1"; round-8 clearance c1), part labels ("(a)", "(iii)", "Part (b)") and named
+items ("Paper 1") are not figures, so a heading or a mark annotation is not a quantitative claim. Evidence is a QUANTITATIVE_CLAIM only with two related figures or a
 comparative; a single date or figure is not (its only encoding would restate it).
 
 `review.py` runs an independent, advisory semantic-fidelity review. Its request carries the evidence the
@@ -280,7 +303,11 @@ an assignment's figures, each stated so that it establishes the comparison (the 
 0, ±1, 10, 100 and 1000 aside unless the premise assigns one): a premise `it1 = 3` grounded in "scores = [12, 19, 23" is not verified
 (`GroundingCheck.method` `figures_in_excerpt`), while `0.325 <= x < 0.335` grounded in "x is 0.33 to 2 decimal places" is (the
 interval that rounded figure states, its derivation in the check's detail); a relation only when the located span states that same formula as a given (`relation_in_source`),
-never because its figures occur there. A form difference never verifies a
+never because its figures occur there. A figure a text states as a number word of its own language ("con catorce alumnos"
+states 14; the ledger's Spanish, French, German, Italian and Portuguese table) grounds the premise exactly, and a capital
+letter a quotation names after a word ("Just the A") is content of the quotation, never a placeholder (round-8 clearance
+c1, sp-t14 g3.1 and en-t14 p2-point). A quotation whose sentence punctuation sits inside its closing mark is located with
+that punctuation set aside (`locate_excerpt`, as `adapters.sources.check_excerpt` locates it). A form difference never verifies a
 grounding but is reported as one ("differs in form", the channel's INT-REQ-010), never as an
 invented quotation; accents encoded differently (precomposed against combining) are the same
 letters and a normalised match. Each supplied text's normalised forms and offset maps are

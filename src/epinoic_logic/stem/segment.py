@@ -42,7 +42,7 @@ from .layout import CONTINUATION_RE, SOFT_WRAP_NEXT_RE, TABLE_ROW_RE, TABLE_SEPA
 from .limits import DEFAULT_LIMITS, StemLimits
 from .normalize import blank_ranges, prose_view
 from .spans import Span, SpanSet
-from .units import parse_unit
+from .units import stem_parse_unit as parse_unit  # rule count-noun: the STEM readings
 
 __all__ = ["Segmentation", "Statement", "TAIL_ID", "segment_statements"]
 

@@ -576,6 +576,13 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 emit("PERCENT", "%", i, i + 2)
                 i += 2
                 continue
+            if nxt == "$":
+                # round-8 clearance: an escaped dollar sign is the currency sign before an amount ('Cost $= \$6345$ (nearest dollar)'):
+                # read as a blank, so the amount is the bare number it states. It had been an unknown command, which left the line, and
+                # a wrong restated cost on it, undecided (ST-PARSE-001)
+                space = True
+                i += 2
+                continue
             if nxt in "()[]":
                 # \( \) \[ \] delimit LaTeX spans; inside a span they are an error the span finder should have consumed
                 emit("ERROR", "\\" + nxt, i, i + 2, value=f"a math delimiter \\{nxt} inside math")

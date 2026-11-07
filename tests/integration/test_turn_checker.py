@@ -382,7 +382,12 @@ def _load_compare():
 
 @pytest.mark.parametrize("name", ["hi-s1", "hi-s2", "ph-s1"])
 def test_prefetch_does_not_change_the_receipts(name):
+    """Round 8's clearance (handoff fixer) made the fixture corpus's verifier task-aware, as the arena's is: the channel passes
+    it the task record of the request, so the pipeline's first-attempt request carries that record, and the prefetch is
+    now made after the request is dispatched, with the record the channel builds for it (``TranslatorChannel._task_record``);
+    the assertions are unchanged."""
     from epinoic_logic.branches import RouterHub, default_registry
+    from epinoic_logic.channel.bus import TranslatorChannel
     from epinoic_logic.integrity import WorkPlan
     from epinoic_logic.translate.contracts import sha256_text
     from epinoic_logic.integration.runtime import solver_config_for
@@ -395,16 +400,18 @@ def test_prefetch_does_not_change_the_receipts(name):
     receipts, hits = [], []
     for prefetch in (False, True):
         fn, provider = corpus.verifier_for(sha256_text(item["response_text"]), config=cfg, signing_key=key, prefetch=prefetch)
+        hub = RouterHub(signing_key=key, config=cfg, verify_claim_fn=fn)
+        hub.open_task(WorkPlan(plan_id=f"plan-{name}", request_id=f"req-{name}", task_id=name, subject=item["subject"], task_type=item["task_type"],
+                               selected_agent_ids=[item["agent_id"]]))
+        msg, _req, _rc = hub.dispatch(name, item["agent_id"], item["question"], [])
         if prefetch:
             branch, _ = default_registry().for_subject(item["subject"])
             report = branch.parser().parse_response(item["response_text"], request_id=f"req-{name}", task_id=name, report_id=f"rep-{name}",
                                                     subject=item["subject"], task_type=item["task_type"], supplied_texts=[], agent_id=item["agent_id"])
             from epinoic_logic.translate.prompts import TRANSLATE_PROMPT_VERSION as PROMPT_VERSION
-            provider.prefetch([first_attempt_request(c, report, prompt_version=PROMPT_VERSION) for c in report.claims], deadline=time.monotonic() + 60)
-        hub = RouterHub(signing_key=key, config=cfg, verify_claim_fn=fn)
-        hub.open_task(WorkPlan(plan_id=f"plan-{name}", request_id=f"req-{name}", task_id=name, subject=item["subject"], task_type=item["task_type"],
-                               selected_agent_ids=[item["agent_id"]]))
-        msg, _req, _rc = hub.dispatch(name, item["agent_id"], item["question"], [])
+            record = TranslatorChannel._task_record(_req)
+            assert record is not None
+            provider.prefetch([first_attempt_request(c, report, prompt_version=PROMPT_VERSION, task=record) for c in report.claims], deadline=time.monotonic() + 60)
         _reply, rc = hub.receive(name, msg.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{name}")
         receipts.append(compare.receipt_projection(rc.model_dump(mode="json")))
         hits.append(getattr(provider, "hits", 0))

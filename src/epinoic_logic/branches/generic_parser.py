@@ -36,6 +36,17 @@ paragraph is nothing but notes or JSON (then every sentence is a note); every de
 unresolved issue. A line of working (an equation, an arithmetic expression, a relation, an arrow chain) or a bare value
 ("(-1, 3)") is never a note for having no letters: it is ``quantitative`` and supporting unless it is an answer.
 
+Notes are also read by what they say, whatever their lead word (``markdown.is_answer_note``; round 8, c1): an omission for want of a
+confirmed source, the writer having no source for what was asked, a decline of the deliverable, an offer of help, a request to send work
+back, a remark that the student's work is the student's, a pointer to the textbook or the teacher, an examiner's rule on the length of the
+student's work; a paragraph such a note opens has no point. A list of sources ("Sources: ...", no quotation) is a note sentence
+(``markdown.is_sources_note``). A framing remark (practice data, the
+level assumed, the answer's own form, provisional marks: ``markdown.is_framing_remark``) keeps its role but is never the point; a short
+title over labelled lines ("Unit 1, causality. Claim: ...") and a part's title on its label line over the part's answer ("(d) Explanation
+with an AD/AS diagram [4]") are not material; a table set out without its outer pipes is line-structured; and a short answer (at most
+three claims) with no point of its own whose last claim states a value ("The mean is 42 pedestrians per 10 minutes.", "rs = −0.89") has
+that claim as its material answer, while one that states no value of its own keeps its materiality (repair round 4's controls).
+
 A substantive sentence that carries an inline label ("(figures from memory; check your notes)", a sentence-initial "From
 memory,", a comma-bounded ", from memory", a trailing ", a figure I give from memory" or ", though this date is from
 memory") keeps its role with the label recorded once as an assumption; labels are read outside quotations, and only a
@@ -102,18 +113,21 @@ from ..adapters.english_specialist.parser import documents_named
 from ..adapters.history_specialist.parser import is_source_caveat
 from ..adapters.markdown import (
     BARE_NOTE_LEAD_RE,
-    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_note_sentence, is_self_certification, mask_quotations,
+    NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_answer_note, is_framing_remark, is_note_sentence,
+    is_self_certification, mask_quotations,
     parser_quotation_spans,
     split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
-from ..adapters.sources import attribute_excerpt
+from ..adapters.sources import attribute_excerpt, strip_trailing_punctuation
 from ..ir.schema import SourceRef
 from ..stem.layout import ANNOTATION_RUN_CONTINUATION_RE, JoinedLine, strip_trailing_annotations, trailing_annotation_span
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 #: A sentence ends at ``.``, ``?`` or ``!`` (a closing quotation mark may follow: '."', '.”', '.»', ".’") or at the ``}`` /
-#: ``]`` closing a pasted JSON fragment, before a capital, a digit, an opening mark or an opening bracket.
-_SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))\s+(?=[A-Z0-9\"'(“‘«„{\[])")
+#: ``]`` closing a pasted JSON fragment, before a capital, a digit, an opening mark or an opening bracket. The stop of the
+#: citation abbreviations "et al." and "cf." ends no sentence ("Halvorsen et al. (2019) found ...", "cf. Smith"): split there, a
+#: study's authors and its year fell into two claims and no study attribution was read.
+_SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))(?<!\bet\sal\.)(?<!\bcf\.)\s+(?=[A-Z0-9\"'(“‘«„{\[])")
 _NUM_RE = re.compile(r"\d")
 _LETTER_RE = re.compile(r"[^\W\d_]")
 _MIN_QUOTE_CHARS = 4
@@ -204,6 +218,32 @@ _COPULA_RE = re.compile(r"\b(?:is|are|was|were|be|been|has|have|had|gives?|equal
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?…][\"'”’»)\]]*\s*$")
 _QUESTION_RE = re.compile(r"\?[\"'”’»)\]]*\s*$")
 _CONTINUATION_RE = re.compile(r"^\s*+\$?\s*+[=≈]")  # blank runs possessive: linear, the same lines (stem.layout)
+#: A line of a table set out without its outer pipes: at least two cell separators ('Site | Distance from square (m) | Pedestrians').
+_TABLE_CELLS_RE = re.compile(r"[^|\n]\|[^|\n]*+\|")
+#: A title: a short phrase with no verb ("Unit 1, causality.", "Explanation with an AD/AS diagram"); see :func:`_is_title`.
+_TITLE_MAX_WORDS = 12
+_FUNCTION_WORD_RE = re.compile(r"\b(?:with|of|and|the|in|from|on|to|by|for|who|how|why|what|using)\b", re.IGNORECASE)
+
+
+def _is_part_title(text: str) -> bool:
+    """A part's title on its label's line ("Explanation with an AD/AS diagram", "Who gains and who loses, with a tariff diagram"): a
+    title (:func:`_is_title`) of three to :data:`_TITLE_MAX_WORDS` words with no closing stop, holding a function word, so a short
+    answer on the label's line ("Primary consumer", "3.5 million tonnes") is never read as one."""
+    masked = mask_quotations(text).strip()
+    return (len(masked.split()) >= 3 and not _TERMINAL_PUNCT_RE.search(masked) and _FUNCTION_WORD_RE.search(masked) is not None
+            and _is_title(text, max_words=_TITLE_MAX_WORDS))
+
+
+def _is_title(text: str, max_words: int = 6) -> bool:
+    """A title rather than a sentence of the answer: at most ``max_words`` words, no working, no quotation, no copula or verb of
+    :data:`_COPULA_RE`, no question mark, no figure but a numbering ('Unit 1'), and at most one closing stop."""
+    masked = mask_quotations(text).strip()
+    words = masked.split()
+    if not words or len(words) > max_words or _is_working(masked) or find_quotation_spans(text) or "?" in masked:
+        return False
+    if re.search(r"\d", re.sub(r"^\W*(?:unit|part|section|step|question|task|point|area|theme)\s+\d{1,2}\b", "", masked, flags=re.IGNORECASE)):
+        return False
+    return not _COPULA_RE.search(masked) and masked.count(".") <= 1
 _CONNECTIVE_END_RE = re.compile(r"(?:,|\b(?:so|and|or|but|then|because|since|that|which|where|whereas|hence|thus|therefore|giving))\s*$", re.IGNORECASE)
 _SOFT_WRAP_NEXT_RE = re.compile(r"^\s*[a-z][a-z]")
 
@@ -451,8 +491,16 @@ class _Unit:
     accuracy: bool = False    # closes a line that carried an accuracy mark ("A1"): a result the markscheme credits
 
 
+#: The most claims of a short answer whose last claim is its material answer when no rule made any claim material.
+_SHORT_ANSWER_CLAIMS = 3
+#: A stated value, the answer to a 'state' or 'calculate' item: a subject of at most 80 characters with no figure, a copula or '=', and a
+#: figure ('The mean is 42 pedestrians per 10 minutes.', 'The total cost was about $11,300.', 'rs = −0.89'). Anchored and bounded.
+_STATED_VALUE_RE = re.compile(
+    r"^[^\d,;:=]{1,80}?\s(?:is|was|are|were|equals|comes\s+to|works\s+out\s+(?:at|to))\s+(?:about\s+|approximately\s+|roughly\s+|around\s+"
+    r"|exactly\s+|only\s+)?[-−+]?(?:US)?[$£€¥]?\s?\d"
+    r"|^[^\d,;:=]{1,40}?=\s*[-−+]?(?:US)?[$£€¥]?\s?\d", re.IGNORECASE)
 #: Lines that never open a part's answer: diagram description, headings, notes and questions.
-_NOT_OPENING = frozenset({"diagram", "heading", "note", "bare_note", "question"})
+_NOT_OPENING = frozenset({"diagram", "heading", "note", "bare_note", "question", "answer_note"})
 
 
 @dataclass
@@ -525,6 +573,10 @@ def _classify(u: _Unit, heading: bool) -> _Unit:
         u.lead = "bare_note"
     elif NOTE_LEAD_RE.match(masked):
         u.lead = "note"
+    elif not u.working and is_answer_note(u.text):
+        u.lead = "answer_note"  # a note read by what it says: an omission, a decline, an offer, a request to send work back (c1 bug 4)
+    elif not u.working and is_framing_remark(u.text):
+        u.lead = "frame"  # practice data, the level assumed, the answer's own form: never its paragraph's point
     elif heading or (masked.rstrip().endswith(":") and len(masked.split()) <= 4 and not u.working) or _DIAGRAM_TITLE_RE.match(masked) \
             or (_MEASURE_LEAD_RE.match(masked) and not u.working):
         u.lead = "heading"  # "Measure: ..." stating no working, "Working for (b):", "Diagram 1: ...", "Ask yourself:"
@@ -777,6 +829,13 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
         GenericTextParser._paragraph_points(units, start, roles, material, supports, consequence, caveat)
     GenericTextParser._part_answers(flat, roles, material, supports, answer, consequence, caveat)
     GenericTextParser._backward_conclusions(flat, para_ranges, roles, supports, answer, consequence)
+    live = [i for i in range(n) if roles[i] != "other"]
+    if (live and len(live) <= _SHORT_ANSWER_CLAIMS and not any(material[i] or roles[i] in ("point", "judgement") for i in live)
+            and _STATED_VALUE_RE.match(mask_quotations(split_note_clauses(flat[live[-1]].text)[0] or flat[live[-1]].text).strip())):
+        # a short answer with no point of its own whose last claim states the value asked for ("The mean is 42 pedestrians per 10
+        # minutes."): that claim is the answer, material, so a synthesis that drops it is named (breadth item 10); a short answer that
+        # states no value of its own ("River pollution in the town fell in 2016.") keeps its materiality (repair round 4)
+        material[live[-1]] = True
     return RoleAssignment(roles, material, supports, consequence, caveat, answer, unresolved)
 
 
@@ -816,7 +875,9 @@ class GenericTextParser:
             for ex in excerpts:
                 doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
                 if doc:
-                    refs_of[i].append(SourceRef(document_id=doc, excerpt=ex[:2000]))
+                    # sentence punctuation written inside the closing mark ('... paid in Calvessa."' where the source goes on ', so ...') is
+                    # the quoting sentence's, not the quoted words (as the English parser records it; c1 bm-p8a g2.2)
+                    refs_of[i].append(SourceRef(document_id=doc, excerpt=(strip_trailing_punctuation(ex) or ex)[:2000]))
                 assumptions_of[i].extend(notes_for_excerpt)
             if not u.is_json and dangling_quote_offset(sent) is not None:
                 assumptions_of[i].append("the sentence has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")
@@ -882,7 +943,7 @@ class GenericTextParser:
     def _is_note(u: _Unit, core: str, self_report: bool) -> bool:
         """A note: a self-report, a note lead, a heading, a question, or a sentence whose core is empty once its labels are
         set aside. A line of working or a bare value is never a note for having no letters."""
-        if self_report or u.lead in ("note", "bare_note", "heading", "question"):
+        if self_report or u.lead in ("note", "bare_note", "heading", "question", "answer_note"):
             return True
         if not u.is_json and (not _NUM_RE.search(u.text) or _NEGATIVE_CAVEAT_RE.search(u.text)) and is_source_caveat(u.text):
             return True  # 'My sources do not confirm the exact total, so the figure is given as "millions".': the History parser's caveat
@@ -909,11 +970,23 @@ class GenericTextParser:
                 material[live[0]] = True
         if len(units) < 2 or not live:
             return
+        if units[0].lead == "answer_note":
+            return  # a paragraph opened by a note about the answer (a decline, an omission, a request) has no point of its own (c1 bug 4)
         lines = {u.line for u in units}
         structured = len(lines) > 1 and any(u.working or u.lead or u.value for u in units)
-        if structured:
-            return
+        if structured or (len(lines) > 1 and all(_TABLE_CELLS_RE.search(u.text) for u in units)):
+            return  # a table set out without its outer pipes ('Site | Distance (m) | Count') is line-structured too: its header is no point
         leads = {start + k: u.lead for k, u in enumerate(units)}
+        # a framing remark (practice data, the level assumed) is never the point: the claim after it is
+        live = [i for i in live if leads[i] != "frame"]
+        if not live:
+            return
+        if len(live) >= 2 and leads[live[1]] == "label" and leads[live[0]] != "label" and _is_title(units[live[0] - start].text):
+            # a title sentence over labelled lines ('Unit 1, causality. Claim: ... Evidence: ...'): the first labelled line is the point
+            first = live[1]
+            roles[first], material[first] = "point", True
+            supports[first] = [i for i in live[2:] if roles[i] not in ("judgement",) and not consequence[i] and not caveat[i] and leads[i] not in ("assumption",)]
+            return
         labelled = [i for i in live[:2] if leads[i] == "label"]
         if len(labelled) == 2:
             for i in live:
@@ -964,7 +1037,10 @@ class GenericTextParser:
                         opening_answers = on_line
                     elif len(on_line) > 1 and all(leads[i] == "label" for i in on_line[:2]):  # "Binary search: ... Linear search: ..."
                         opening_answers = list(itertools.takewhile(lambda i: leads[i] == "label", on_line))
-                    else:
+                    elif not (len(on_line) == 1 and _is_part_title(flat[on_line[0]].text) and any(flat[j].para > flat[on_line[0]].para for j in live)
+                              and not any(flat[j].para == flat[on_line[0]].para for j in live if j != on_line[0])):
+                        # a title on the label's line, alone in its paragraph ("(d) Explanation with an AD/AS diagram [4]"), over the part's
+                        # answer in later paragraphs names the part and answers nothing: it is no answer (c1 notes finding: ec-t14, ec-p8a)
                         opening_answers = on_line[:1]
             elif opening and flat[opening[0]].value:
                 opening_answers = [opening[0]]

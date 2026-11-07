@@ -88,7 +88,7 @@ from ..generic_structured import generic_source_findings
 from ..markdown import split_note_clauses
 from ..sources import check_excerpt, document_mentions, quotation_credit, strip_trailing_punctuation
 from .parser import (
-    _TEXT_CUE_RE, Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
+    _TEXT_KIND_CUE_RE, Paragraph, Sentence, documents_named, excerpt_located, is_meta_sentence, is_peer_document, long_elision_of, segment, strip_quotations,
 )
 
 __all__ = [
@@ -363,6 +363,9 @@ def source_findings(report: SpecialistReport, paragraphs: Optional[tuple[Paragra
 
 
 _CLAUSE_BREAK_RE = re.compile(r"[:;](?=\s|$)")
+#: The end of a clause after a quotation: a sentence stop before a blank, a comma before a conjunction ("..., and the Psychology
+#: specialist explains ..."), a spaced dash. A name in a later clause credits nothing of the clause that holds the quotation.
+_LATER_CLAUSE_RE = re.compile(r"[.!?](?=\s)|,\s++(?:and|but|while|whereas|although|though|yet|so)\b|\s[-–—]\s")
 
 
 class _SentenceMarks:
@@ -384,6 +387,9 @@ class _SentenceMarks:
         # a ':' or ';' followed by a blank: a clause break wherever it stands in a span (``_CLAUSE_BREAK_RE``); a ':' or ';' just before a
         # span's end is one too, as the span's own end (the pattern's '$')
         self.breaks = [m.start() for m in re.finditer(r"[:;](?=\s)", self.text)]
+        # where a clause ends (a full stop, a comma before a conjunction, a spaced dash: ``sources`` credit clause ends): a name after a
+        # quotation in a later clause (', and the Psychology specialist explains ...') does not credit the quotation
+        self.clause_ends = [m.start() for m in _LATER_CLAUSE_RE.finditer(self.text)]
         self._outside: dict[str, tuple[list[tuple[int, int]], list[int], list[tuple[int, int]], list[int]]] = {}
 
     def inside_quotation(self, a: int) -> bool:
@@ -398,7 +404,7 @@ class _SentenceMarks:
         if found is None:
             spans = list(document_mentions(self.text, doc))
             if not is_peer_document(doc):
-                spans += [(m.start(), m.end()) for m in _TEXT_CUE_RE.finditer(self.text)]
+                spans += [(m.start(), m.end()) for m in _TEXT_KIND_CUE_RE.finditer(self.text)]
             spans = [(a, b) for a, b in spans if not self.inside_quotation(a)]
             by_end = sorted(spans, key=lambda x: (x[1], x[0]))
             by_start = sorted(spans)
@@ -409,6 +415,10 @@ class _SentenceMarks:
     def opens_between(self, lo: int, hi: int) -> bool:
         """A quotation opens in ``[lo, hi)``."""
         return bisect_left(self.starts, lo) < bisect_left(self.starts, hi)
+
+    def clause_end_between(self, lo: int, hi: int) -> bool:
+        """A clause end (:data:`_LATER_CLAUSE_RE`) at a position in ``[lo, hi)``."""
+        return bisect_left(self.clause_ends, lo) < bisect_left(self.clause_ends, hi)
 
     def strict_break_between(self, lo: int, hi: int) -> bool:
         """A ':' or ';' followed by a blank at a position in ``[lo, hi)``."""
@@ -453,7 +463,7 @@ def _governing_document(sentence: Sentence, quote_index: int, named: list[str], 
     # between the quotation's end and a name stands before every name further on; a ':' or ';' just before the name ends only its span
     for j in range(bisect_left(starts, q.end), len(starts)):
         a = starts[j]
-        if marks.opens_between(q.end, a) or marks.strict_break_between(q.end, a - 1):
+        if marks.opens_between(q.end, a) or marks.strict_break_between(q.end, a - 1) or marks.clause_end_between(q.end, a):
             break
         if not (a > q.end and sentence.text[a - 1] in ":;"):
             return named[0]

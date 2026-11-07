@@ -20,9 +20,19 @@ stretch a finding's claim must carry) stays inside one statement: it stops at th
 label ("(b) ") and a closing mark annotation ("  M1", "(A1)", "[2]") out, as every claim does. Nothing here evaluates
 text, and nothing here decides whether an injection counts: run_arena.py counts every injection no finding names as a
 miss.
+
+Sites (round-8 clearance c1, STEM-integration finding 25; the STEM fixer's handoff item 4). A figure inside code (a fenced
+block or an inline code span: the specialist's program, which the design never checks as working, ST-CODE-001), inside a
+mark annotation ("M1", "(A1)", "[2]") or on a line that states a mark ("Provisional mark: 1–5 / 4") is never a site: the
+mutation takes the next one. Two sites keep their mutation, and the code the design names the fault with there is accepted
+beside the mutation's own (``StemInjection.site_codes``; ``expected`` itself never changes): a site inside a quotation of
+another text, where the change is an altered quotation the hub refutes (INT-REQ-003; rule quoted-relation: a relation in
+quotation marks is quoted text, no root and no step), and a term of a sum in brackets right after the value it forms
+('7 on the left (1 + 6)'), which the STEM pack checks at warning severity (INT-SUBJ-004; rule parenthetical-sum, a reading).
 """
 from __future__ import annotations
 
+import bisect
 import re
 from typing import NamedTuple, Optional
 
@@ -131,10 +141,143 @@ def _relations(text: str):
 
 
 class StemInjection(NamedTuple):
-    """A mutated answer, the codes that must name the fault, and the mutated text a finding's claim must carry."""
+    """A mutated answer, the codes that must name the fault, and the mutated text a finding's claim must carry.
+    ``site_codes``: the codes that name the fault at this site by design (module docstring, "Sites"), accepted by the arena
+    beside ``expected``; empty for a site the mutation's own check reads."""
     text: str
     expected: tuple[str, ...]
     marker: str
+    site_codes: tuple[str, ...] = ()
+
+
+#: The longest body a quotation site is read in (one line; a mark with no closer on its line opens no quotation).
+_QUOTE_BODY_MAX = 2000
+#: Opening double marks and the marks that close each.
+_QUOTE_CLOSERS = {'"': '"', "“": "”", "«": "»", "„": "“”"}
+#: A mark annotation ("M1", "A1", "(A1)", "[2]", "[1 mark]"): marking furniture, never working.
+_MARK_ANNOTATION_RE = re.compile(r"(?<![\w.])\(?[MARN]\d{1,2}\)?(?![\w.])|\[[ \t]*\d{1,2}(?:[ \t]*(?:marks?|spare))?[ \t]*\]")
+#: A line that states a mark ("Provisional mark: 1–5 / 4", "Mark for (b): 2/4", "Marks: 3"): the marking, never working.
+_MARK_LINE_RE = re.compile(r"^[ \t>*_-]*(?:provisional[ \t]+)?(?:marks?|score)(?:[ \t]+for[ \t]+[^:\n]{1,20})?[ \t]*:[^\n]*", re.IGNORECASE | re.MULTILINE)
+#: A bracket holding a sum of figures right after the value it forms, at most four words before it ('7 on the left (1 + 6)').
+_PAREN_SUM_RE = re.compile(r"\d(?:[ \t]+[^\W\d][\w'’-]*){0,4}[ \t]*\((?P<body>[ \t]*\d+(?:\.\d+)?(?:[ \t]*[+−-][ \t]*\d+(?:\.\d+)?){1,5}[ \t]*)\)")
+
+
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    """Fenced code blocks (a line opening with three backticks or tildes to the next such line, or the end) and inline code
+    spans (a backtick run to the next run of the same length on its line). One pass over the text."""
+    n = min(len(text), _MAX_SCAN)
+    out: list[tuple[int, int]] = []
+    pos = 0
+    fence_start = -1
+    while pos < n:
+        end = text.find("\n", pos, n)
+        end = n if end < 0 else end
+        line = text[pos:end]
+        stripped = line.lstrip(" \t")
+        if stripped.startswith(("```", "~~~")):
+            if fence_start < 0:
+                fence_start = pos
+            else:
+                out.append((fence_start, end))
+                fence_start = -1
+        elif fence_start < 0 and "`" in line:
+            i = 0
+            while True:
+                i = line.find("`", i)
+                if i < 0:
+                    break
+                k = i
+                while k < len(line) and line[k] == "`":
+                    k += 1
+                close = line.find(line[i:k], k)
+                if close < 0:
+                    break
+                out.append((pos + i, pos + close + (k - i)))
+                i = close + (k - i)
+        pos = end + 1
+    if fence_start >= 0:
+        out.append((fence_start, n))
+    return out
+
+
+def _quoted_spans(text: str) -> list[tuple[int, int]]:
+    """The bodies of double quotations, each on one line (at most ``_QUOTE_BODY_MAX`` characters): one pass per line, each
+    opening mark looking for its closer once."""
+    n = min(len(text), _MAX_SCAN)
+    out: list[tuple[int, int]] = []
+    pos = 0
+    while pos < n:
+        end = text.find("\n", pos, n)
+        end = n if end < 0 else end
+        i = pos
+        while i < end:
+            ch = text[i]
+            closers = _QUOTE_CLOSERS.get(ch)
+            if closers is None:
+                i += 1
+                continue
+            k = i + 1
+            stop = min(end, i + 1 + _QUOTE_BODY_MAX)
+            while k < stop and text[k] not in closers:
+                k += 1
+            if k < stop:
+                out.append((i + 1, k))
+                i = k + 1
+            else:
+                i += 1
+        pos = end + 1
+    return out
+
+
+def _disjoint(spans: list[tuple[int, int]]) -> tuple[list[int], list[int]]:
+    """``spans`` merged into disjoint intervals, as their starts and ends in order."""
+    starts: list[int] = []
+    ends: list[int] = []
+    for s0, e0 in sorted(spans):
+        if starts and s0 <= ends[-1]:
+            ends[-1] = max(ends[-1], e0)
+        else:
+            starts.append(s0)
+            ends.append(e0)
+    return starts, ends
+
+
+class _Sites:
+    """Where a site may not be (code, mark annotations, mark lines) and where its fault is named by design with another code
+    (a quotation, a bracketed sum after its value): the spans, found once per answer and merged into disjoint intervals, each
+    looked up by binary search."""
+
+    def __init__(self, text: str):
+        n = min(len(text), _MAX_SCAN)
+        self.excluded = _disjoint(_code_spans(text) + [m.span() for m in _MARK_ANNOTATION_RE.finditer(text, 0, n)]
+                                  + [m.span() for m in _MARK_LINE_RE.finditer(text, 0, n)])
+        self.quoted = _disjoint(_quoted_spans(text))
+        self.sums = _disjoint([m.span("body") for m in _PAREN_SUM_RE.finditer(text, 0, n)])
+
+    @staticmethod
+    def _last_before(spans: tuple[list[int], list[int]], b: int) -> Optional[tuple[int, int]]:
+        """The interval with the greatest start below ``b`` (in disjoint intervals the only one that can reach past any point before b)."""
+        starts, ends = spans
+        k = bisect.bisect_left(starts, b) - 1
+        return (starts[k], ends[k]) if k >= 0 else None
+
+    def excluded_at(self, a: int, b: int) -> bool:
+        """True when the changed stretch ``[a, b)`` overlaps code, a mark annotation or a mark line."""
+        hit = self._last_before(self.excluded, b)
+        return hit is not None and a < hit[1]
+
+    @classmethod
+    def _inside(cls, spans: tuple[list[int], list[int]], a: int, b: int) -> bool:
+        hit = cls._last_before(spans, b)
+        return hit is not None and hit[0] <= a and b <= hit[1]
+
+    def codes_at(self, a: int, b: int, kind: str) -> tuple[str, ...]:
+        """The codes that name the fault at ``[a, b)`` by design (module docstring)."""
+        if self._inside(self.quoted, a, b):
+            return ("INT-REQ-003",)
+        if kind == "stem_substitution" and self._inside(self.sums, a, b):
+            return ("INT-SUBJ-004",)
+        return ()
 
 
 def leading_digit_slip(number: str) -> str:
@@ -195,14 +338,15 @@ def _link_marker(text: str, a: int, b: int, *, through_next_relation: bool = Fal
 
 def arithmetic_slip(text: str) -> Optional[StemInjection]:
     """The first stated result of a worked chain (an operator between figures before ``=``) with its leading digit moved."""
+    sites = _Sites(text)
     for lo, _sign, a, b in _relations(text):
         if not _has_operator_between_figures(text[lo:_sign]):
             continue
         num = text[a:b]
-        if not any(c in "123456789" for c in num):
+        if not any(c in "123456789" for c in num) or sites.excluded_at(a, b):
             continue
         mutated = text[:a] + leading_digit_slip(num) + text[b:]
-        return StemInjection(mutated, STEM_EXPECTED["stem_arithmetic_slip"], _link_marker(mutated, a, b))
+        return StemInjection(mutated, STEM_EXPECTED["stem_arithmetic_slip"], _link_marker(mutated, a, b), sites.codes_at(a, b, "stem_arithmetic_slip"))
     return None
 
 
@@ -211,14 +355,16 @@ def wrong_unit(text: str) -> Optional[StemInjection]:
     unit of another dimension (the left side's units fix the dimension, so the mismatch is visible to a dimension check)."""
     swaps = dict(_UNIT_SWAPS)
     n = min(len(text), _MAX_SCAN)
+    sites = _Sites(text)
     for lo, sign, _a, b in _relations(text):
         k = b + (1 if b < n and text[b] == " " else 0)
         unit = _unit_at(text, k, n)
         lhs = text[lo:sign]
-        if not unit or not _has_quantity(lhs) or not any(c in _OPERATOR_CHARS for c in lhs):
+        if not unit or not _has_quantity(lhs) or not any(c in _OPERATOR_CHARS for c in lhs) or sites.excluded_at(k, k + len(unit)):
             continue
         mutated = text[:k] + swaps[unit] + text[k + len(unit):]
-        return StemInjection(mutated, STEM_EXPECTED["stem_wrong_unit"], _link_marker(mutated, k, k + len(swaps[unit])))
+        return StemInjection(mutated, STEM_EXPECTED["stem_wrong_unit"], _link_marker(mutated, k, k + len(swaps[unit])),
+                             sites.codes_at(k, k + len(unit), "stem_wrong_unit"))
     return None
 
 
@@ -247,9 +393,10 @@ def substitution(text: str, question: str) -> Optional[StemInjection]:
     givens = _given_values(question)
     if not givens:
         return None
+    sites = _Sites(text)
     for a, b in _numbers(text):
         num = text[a:b]
-        if num not in givens:
+        if num not in givens or sites.excluded_at(a, b):
             continue
         before = text[max(0, a - 40):a]
         before = before[before.rfind("\n") + 1:].rstrip(" (")
@@ -266,7 +413,8 @@ def substitution(text: str, question: str) -> Optional[StemInjection]:
         if "=" not in text[a:(line_end if line_end >= 0 else b + _WINDOW)] and "=" not in before:
             continue
         mutated = text[:a] + leading_digit_slip(num) + text[b:]
-        return StemInjection(mutated, STEM_EXPECTED["stem_substitution"], _link_marker(mutated, a, b, through_next_relation=True))
+        return StemInjection(mutated, STEM_EXPECTED["stem_substitution"], _link_marker(mutated, a, b, through_next_relation=True),
+                             sites.codes_at(a, b, "stem_substitution"))
     return None
 
 

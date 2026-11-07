@@ -80,7 +80,7 @@ TABLE_SEPARATOR_RE = re.compile(r"^\s*+\|?\s*+:?-{2,}+:?\s*+(?:\|\s*+:?-{2,}+:?\
 TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 #: A sentence ends at ``.``, ``?`` or ``!`` (a closing quotation mark may follow) or at the ``}`` / ``]`` closing a
 #: bracket, before a capital, a digit, an opening mark or an opening bracket.
-SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))\s+(?=[A-Z0-9\"'(“‘«„{\[])")
+SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))(?<!\bet\sal\.)(?<!\bcf\.)\s+(?=[A-Z0-9\"'(“‘«„{\[])")
 #: A relation or an arithmetic expression: the shape of a line of working.
 RELATION_RE = re.compile(r"(?<![=<>!])(?:=|≈|≠|≤|≥|⇒|→|<=|>=)(?!=)|\s[<>]\s")
 ARITHMETIC_RE = re.compile(r"\d\s*[×÷*^]\s*[\d($]|\d\s+[+−-]\s+[\d$(]|\d\s*/\s*\d")

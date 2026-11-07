@@ -66,7 +66,7 @@ from ..base import AdapterError
 from ..english_specialist.parser import documents_named
 from ..markdown import (MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification,
                         parser_quotation_spans, split_note_clauses)
-from ..sources import attribute_excerpt
+from ..sources import attribute_excerpt, strip_trailing_punctuation
 from ...stem.layout import ANNOTATION_ONLY_RE, LABEL_ONLY_REST_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, plain_line
 
 __all__ = ["StemTextParser", "MODE_PROFILES", "ID_PREFIXES", "claim_id_for", "stem_profile_key", "TAIL_CLAIM_ID", "CHECKS_ASSUMPTION"]
@@ -358,7 +358,8 @@ class StemTextParser:
                 for _s, _e, excerpt in quotes:
                     doc_id, notes_for_excerpt = attribute_excerpt(excerpt, named, docs, sentence=text_st)
                     if doc_id:
-                        refs.append(SourceRef(document_id=doc_id, excerpt=excerpt[:2000]))
+                        # sentence punctuation inside the closing mark is the quoting sentence's, not the quoted words (c1 bm-p8a g2.2)
+                        refs.append(SourceRef(document_id=doc_id, excerpt=(strip_trailing_punctuation(excerpt) or excerpt)[:2000]))
                     assumptions.extend(notes_for_excerpt)
             if kind not in ("code", "table") and dangling_quote_offset(view[a:b]) is not None:
                 assumptions.append("the statement has an unbalanced quotation mark; the span it opens or closes was not treated as a quotation and was not checked")

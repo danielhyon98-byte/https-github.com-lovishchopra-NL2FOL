@@ -61,7 +61,7 @@ __all__ = [
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
     "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
-    "UnquotedCredit", "unquoted_credits",
+    "UnquotedCredit", "unquoted_credits", "OWN_MODEL_NOTE", "own_model_words",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -238,7 +238,10 @@ def uncredited_excerpt(assumption: str) -> Optional[str]:
 _REPORTING_VERB_RE = re.compile(r"^\W*(?:\w+\W+){0,3}?(?:argues?|argued|writes?|wrote|notes?|noted|says?|said|claims?|claimed|suggests?|suggested|describes?|described|calls?|called|"
                                 r"observes?|observed|states?|stated|contends?|contended|reports?|reported|gives?|gave|records?|recorded|explains?|explained|remarks?|remarked|"
                                 r"quotes?|quoted|cites?|cited|insists?|insisted|maintains?|maintained|puts? it|points? out|dates?|dated|reads?|"
-                                r"suppl(?:y|ies|ied)|provides?|provided|offers?|offered)\b", re.IGNORECASE)
+                                r"suppl(?:y|ies|ied)|provides?|provided|offers?|offered|"
+                                # a colleague's figure reported with 'puts ... at', 'estimates', 'calculates' (c1: 'The Economics specialist puts the
+                                # tariff revenue at $552 million', where the peer says $525 million, was credited to no one)
+                                r"puts?|estimates?|estimated|calculates?|calculated|reckons?|values?|valued|sets?)\b", re.IGNORECASE)
 #: Possessive runs (integration gate 2): the two blank runs around the optional mark were k² steps on a gap of blanks.
 _POSSESSIVE_GAP_RE = re.compile(r"^['’]s?\s*+[\"'“”‘’«»„]?\s*+$")
 
@@ -506,6 +509,7 @@ _GENERIC_LITERARY_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrat
 #: bread price table", "the case study", "the council leaflet" (a capital or a possessive before it is another source's: "the History
 #: specialist's table" is not the supplied table).
 _GENERIC_SOURCE_RE = re.compile(r"\b(?:[Tt]he|[Tt]his)\s+(?:[a-z][a-z-]*\s+){0,2}?(?:leaflet|textbook|table|case\s+study|worksheet|booklet|article|"
+                                r"text|advertisement|advert|infographic|poster|cartoon|brochure|editorial|website|photograph|"
                                 r"document|source|report\s+card|data\s+table|chart|graph)s?\b")
 _LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IGNORECASE)
 #: Verbs that present what their subject supplies ("The History specialist supplies the frame: ...") and the noun phrase
@@ -892,6 +896,11 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
     if sentence and says_text_lacks(sentence, excerpt):
         return None, [uncredited_assumption(excerpt, "the sentence says the text lacks these words, a mention of a word rather than a quotation, "
                                                      f"and they occur in none of [{searched}]")]
+    if sentence and own_model_words(sentence, excerpt, docs):
+        return None, [OWN_MODEL_NOTE]
+    if sentence and _judged_or_reply(sentence, excerpt):
+        return None, [uncredited_assumption(excerpt, "the sentence judges these words true or false as a statement, or tells the reader to reply "
+                                                     f"with them: a mention of words rather than a quotation, and they occur in none of [{searched}]")]
     if len(named) == 1:
         return named[0], [f"excerpt found in none of the supplied texts [{searched}]; attributed to {named[0]} because the sentence names it"]
     if len(named) > 1 and sentence:
@@ -908,26 +917,101 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
     return None, [uncredited_assumption(excerpt, f"{why} and the words occur in none of [{searched}]")]
 
 
+#: A sentence that opens with the writer's own model or rewrite label right before the quotation's opening mark ("Model:", "Model
+#: sentence:", "Rewrite:", "Improved version:"): the quoted words are the writer's own, offered for the student to use. Possessive
+#: blank runs: what follows each is a word, a colon, a mark or the end.
+_OWN_MODEL_LABEL_RE = re.compile(
+    r"[\s>*_#-]*+(?:model(?:\s++(?:answer|sentence|version|paragraph|opening|line|thesis|introduction|conclusion|topic\s++sentence))?"
+    r"|rewrite|rewritten(?:\s++version)?|(?:improved|revised|suggested|stronger)\s++(?:version|sentence|wording|opening|thesis))\s*+:[\s*_]*+",
+    re.IGNORECASE)
+#: Shortest model sentence read as the writer's own words (a shorter span is a phrase the writer may have taken from a text).
+_OWN_MODEL_MIN_WORDS = 4
+#: A run of this many consecutive words a supplied text also holds makes the span possibly quoted: it stays a quotation.
+_OWN_MODEL_SHARED_RUN = 4
+#: The assumption a model sentence the writer offers as its own words carries (no source reference, nothing to verify).
+OWN_MODEL_NOTE = ("the writer's own model sentence, under a 'Model:' or 'Rewrite:' label: its words occur in none of the supplied texts, no "
+                  "supplied text holds all of its words but one or two, and none holds four of its words in a row, so it is not a quotation "
+                  "of a supplied text and is not checked as one")
+
+
+def _judged_or_reply(sentence: str, excerpt: str) -> bool:
+    """Whether ``sentence`` quotes ``excerpt`` as a statement it judges true or false ('so "more than twenty" is false') or as the word
+    the reader is told to reply with ('Reply "approve" ...'): ``markdown.judged_or_reply_mention`` on the span with these words."""
+    from .markdown import find_quotation_spans, judged_or_reply_mention
+    key = _mention_key(excerpt)
+    if not key or len(sentence) > 4000:
+        return False
+    return any(_mention_key(inner) == key and judged_or_reply_mention(sentence, a, b) for a, b, inner in find_quotation_spans(sentence))
+
+
+def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText]) -> bool:
+    """True when ``sentence`` gives the quoted ``excerpt`` as the writer's own model or rewrite ('Model: "Both novels exclude ..."'):
+    the sentence opens with a model label (:data:`_OWN_MODEL_LABEL_RE`) right before the quotation's opening mark, the span holds at
+    least :data:`_OWN_MODEL_MIN_WORDS` words, and it is no altered quotation of a supplied text: none holds all its words but one or
+    two (:func:`nearest_text`) and none holds :data:`_OWN_MODEL_SHARED_RUN` of its words in a row. A model label before words taken
+    from a text, altered or not, leaves them a quotation, checked as any other (repair round 4, INV-Q1)."""
+    import unicodedata
+    from .markdown import find_quotation_spans
+    key = strip_trailing_punctuation(excerpt).casefold()
+    if not key or len(sentence) > 4000:
+        return False
+    span = next((sp for sp in find_quotation_spans(sentence) if strip_trailing_punctuation(sp[2]).casefold() == key), None)
+    if span is None or _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, span[0]) is None:
+        return False
+    words = _WORD_RE.findall(excerpt)
+    if len(words) < _OWN_MODEL_MIN_WORDS:
+        return False
+
+    def fold(w: str) -> str:
+        return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
+    folded = [fold(w) for w in words]
+    runs = {tuple(folded[i:i + _OWN_MODEL_SHARED_RUN]) for i in range(len(folded) - _OWN_MODEL_SHARED_RUN + 1)}
+    for doc_id, doc in docs.items():
+        _near, missing = nearest_text(excerpt, {doc_id: doc})
+        if len(missing) <= 2:
+            return False  # all its words but one or two: an altered quotation of this text
+        text_words = [fold(w) for w in _WORD_RE.findall(doc.text)]
+        if any(tuple(text_words[i:i + _OWN_MODEL_SHARED_RUN]) in runs for i in range(len(text_words) - _OWN_MODEL_SHARED_RUN + 1)):
+            return False  # four of its words in a row stand in this text: possibly quoted
+    return True
+
+
 #: A from-memory label in a quotation's sentence ("as I recall it", "quoted from memory"): an unverifiable quotation.
 _FROM_MEMORY_RE = re.compile(r"\bfrom memory\b|\bas I recall\b|\bI recall\b|\bif I remember\b|\bquoting from memory\b", re.IGNORECASE)
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+#: The tokens :func:`nearest_text` compares: words and figures ('2019', '4.5', '1,000').
+_NEAR_TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*|\d+(?:[.,]\d+)*")
+
+
+def _fold_word(w: str) -> str:
+    """A word as :func:`nearest_text` compares it: case and diacritics folded, no thousands separator."""
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch)).replace(",", "")
+
+
+@functools.lru_cache(maxsize=64)
+def folded_vocabulary(text: str) -> frozenset[str]:
+    """The folded words of ``text`` (:func:`_fold_word`), read once per text: :func:`nearest_text` is asked about every
+    quotation of an answer against the same supplied texts, and re-reading each text for every quotation made the hub's
+    quotation checks quadratic in an answer of many short quotations (round-8 clearance c1, handoff fixer: 2,000 quotations
+    against a 21,000-character text took 10 s to receive)."""
+    return frozenset(_fold_word(w) for w in _NEAR_TOKEN_RE.findall(text))
 
 
 def nearest_text(excerpt: str, docs: Mapping[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
     """The supplied text that holds the most of ``excerpt``'s words (as words, case and diacritics folded), with the words
     of the excerpt it does not hold; a non-relayed text before a relayed specialist's report on a tie, then the order
     given. ``(None, [])`` when no text was supplied. Used to name the text an altered quotation was taken from ("could
-    mean that shely has been hurt": all its words but 'shely')."""
-    import unicodedata
-
-    def fold(w: str) -> str:
-        return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
-    words = [w for w in _WORD_RE.findall(excerpt)]
+    mean that shely has been hurt": all its words but 'shely'). Each text's words are read once (:func:`folded_vocabulary`)."""
+    fold = _fold_word
+    # figures are words of the comparison too (c1: 'its lowest level since 2019' where the text says 2020 is a quotation with one figure
+    # altered, not one whose every word occurs); a thousands separator is no part of a figure's value ('1,000' and '1000')
+    words = [w for w in _NEAR_TOKEN_RE.findall(excerpt)]
     if not docs or not words:
         return (next(iter(docs), None), []) if docs else (None, [])
     best: Optional[tuple[int, int, int, str, list[str]]] = None
     for order, (doc_id, doc) in enumerate(docs.items()):
-        vocab = {fold(w) for w in _WORD_RE.findall(doc.text)}
+        vocab = folded_vocabulary(doc.text)
         missing = [w for w in words if fold(w) not in vocab]
         key = (len(words) - len(missing), 0 if not is_peer_text(doc) else -1, -order)
         if best is None or key > best[:3]:

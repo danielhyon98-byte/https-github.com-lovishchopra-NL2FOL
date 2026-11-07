@@ -901,7 +901,7 @@ class Translator:
         checks = checks + evidence_checks
         notes += self._stated_figures(grounded, tag, interpretation, coverage, checks)
         notes += label_beyond_expression(grounded)
-        self._circularity(grounded, tag, checks)
+        self._circularity(grounded, tag, checks, claim_text=claim.claim_text)
         readings = read_sites(grounded, sources)
         decision = decide_precision(grounded, readings, self.config, tag)
         if decision.reject is not None:
@@ -1085,17 +1085,19 @@ class Translator:
         return flags
 
     @staticmethod
-    def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None) -> None:
+    def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None) -> None:
         """Reject a problem whose conclusion (or each of its conjuncts) is asserted by premises the writer supplies itself:
         the solver would prove the claim from the claim (the engine's ``E112``; ``engine.authority.assumed_grounding`` decides
         which premises are the writer's own). Premises that contradict each other (``engine.runner.premises_inconsistent``) are
         no circle: the engine names the contradiction first (consistency before entailment); neither is a conclusion that
-        holds with no premise at all (``engine.runner.conclusion_valid_alone``): it is vacuous, and the engine names that."""
+        holds with no premise at all (``engine.runner.conclusion_valid_alone``): it is vacuous, and the engine names that.
+        ``claim_text`` (the claim encoded) lets the semantic rules read the claim's stated result and its consequence."""
         if problem.query != "entailment" or problem.conclusion is None:
             return
         restating = circular_premises(problem)
         by_id = {pr.id: pr for pr in problem.premises}
         if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
+            Translator._semantic_circularity(problem, tag, checks, claim_text=claim_text)
             return
         if premises_inconsistent(problem):
             # premises that contradict each other prove nothing: the engine decides INCONSISTENT_PREMISES first (consistency
@@ -1113,6 +1115,40 @@ class Translator:
             "arithmetic_fact no supplied text or task record validates, or a grounding a check refuted), so the claim would be proved from itself; "
             "encode what the claim rests on (its evidence and its stated links), or return problem null when it states a bare fact with no "
             "relation to check"], retryable=True, reason="circular", problem=problem, checks=checks)
+
+    @staticmethod
+    def _semantic_circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None) -> None:
+        """Step 4c beyond a restatement as written (``translate.restatement``, round-8 clearance c1): a conclusion restated
+        in another form (by Boolean structure, or by the arithmetic of its own symbols) by premises no check verified, or
+        part of it restated by a task-given premise no check verified, on which the result rests, is assumed, not derived:
+        INVALID_FORMALIZATION with the engine's ``E112`` diagnostic (fed back once), so its verdict is withheld instead of
+        displayed ENTAILED and refuted by the transfer audit afterwards (OVS-TRN-006). With ``claim_text`` the same holds for
+        a calculation's stated result asserted as a value (rule result-asserted) and for the consequence the claim draws
+        asserted as a fact instead of derived from its stated reason (rule consequence-asserted). Premises that contradict
+        each other and a conclusion that holds alone are the engine's to name, as for the restatement as written."""
+        from .restatement import semantic_restatement
+        located = {c.target_id for c in (checks or []) if c.verified is True and c.method in ("verbatim_match", "normalized_match")}
+        found = semantic_restatement(problem, located, claim_text=claim_text)
+        if found is None or premises_inconsistent(problem) or conclusion_valid_alone(problem):
+            return
+        by_id = {pr.id: pr for pr in problem.premises}
+        named = ", ".join(f"{pid} ({by_id[pid].grounding.kind if pid in by_id and by_id[pid].grounding is not None else 'none'})" for pid in found.premises[:8])
+        if found.kind == "consequence":
+            clause = truncate(found.how[0][2], 160) if found.how else ""
+            raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
+                f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {named} restate the consequence the claim draws "
+                f"({clause!r}) as a fact instead of deriving it from the reason the claim states, with no check verifying them, and without "
+                "them the conclusion does not follow (rule consequence-asserted), so the claim's own inference is assumed; encode the "
+                "claim's stated reason and its link to the consequence, or return problem null when it states a bare fact with no relation "
+                "to check"], retryable=True, reason="circular", problem=problem, checks=checks)
+        ways = sorted({way for _pid, way, _k in found.how})
+        what = ("the conclusion (each of its conjuncts that needs a premise)" if found.kind == "full"
+                else "part of the conclusion, under a task-given label no supplied text or task record validates,")
+        raise _Rejected(TranslationStatus.INVALID_FORMALIZATION, [
+            f"{tag}: {DiagnosticCode.CIRCULAR_PREMISES.value}: circular: premise(s) {named} restate {what} in another form "
+            f"({'; '.join(ways)}; rule semantic-restatement) with no check verifying them, and without them the conclusion does not "
+            "follow, so the claim would be proved from itself; encode what the claim rests on (its evidence and its stated links), "
+            "or return problem null when it states a bare fact with no relation to check"], retryable=True, reason="circular", problem=problem, checks=checks)
 
     def _result(
         self,

@@ -196,18 +196,22 @@ def test_accepted_identities_are_the_pinned_ones_plus_explicit_trust():
     older11 = PackIdentity(name=PACK_NAME, version="1.1", sha256=PACK_DIGESTS[(PACK_NAME, "1.1")])
     older12 = PackIdentity(name=PACK_NAME, version="1.2", sha256=PACK_DIGESTS[(PACK_NAME, "1.2")])
     older13 = PackIdentity(name=PACK_NAME, version="1.3", sha256=PACK_DIGESTS[(PACK_NAME, "1.3")])
+    # round-8 clearance c1: 1.4, the pack the round ran with, stays pinned beside the installed 1.5 (its D32 correction)
+    older14 = PackIdentity(name=PACK_NAME, version="1.4", sha256=PACK_DIGESTS[(PACK_NAME, "1.4")])
     other = PackIdentity(name=PACK_NAME, version="9.9", sha256="cd" * 32)
     override = PackIdentity(name=PACK_NAME, version=PACK_VERSION, sha256="ef" * 32)
-    assert pinned.version == PACK_VERSION == "1.4"
+    assert pinned.version == PACK_VERSION == "1.5"
     assert older13.sha256 == "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67"
-    assert accepted_identities() == frozenset({pinned, older, older11, older12, older13}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
-    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, older13, other})  # trust never overrides a pinned version
+    assert older14.sha256 == "a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc"
+    assert accepted_identities() == frozenset({pinned, older, older11, older12, older13, older14}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
+    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, older13, older14, other})  # trust never overrides a pinned version
     in_place = PackIdentity(name=PACK_NAME, version="1.3", sha256="0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb")
     assert in_place not in accepted_identities([in_place])  # the in-place correction of 1.3 is never accepted, trusted or not
     assert load_pack(installed_pack_dir("1.0")).identity == older  # the older pinned packs still load, unchanged
     assert load_pack(installed_pack_dir("1.1")).identity == older11
     assert load_pack(installed_pack_dir("1.2")).identity == older12
     assert load_pack(installed_pack_dir("1.3")).identity == older13
+    assert load_pack(installed_pack_dir("1.4")).identity == older14
 
 
 def test_pack_error_reasons_are_closed():
@@ -239,14 +243,15 @@ def test_t20c_a_file_added(scratch):
 
 
 def test_t20d_the_version_string_changed(scratch):
-    remanifest(scratch, version="1.5")
+    # a version this code does not pin (1.6 since round-8 clearance c1 pinned 1.5, the installed pack)
+    remanifest(scratch, version="1.6")
     refused(scratch, "unknown_pack")
-    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.5")
-    remanifest(scratch, version="1.5")
+    edit(scratch, "master_prompt.txt", f"PACK: overseer-knowledge-docs {PACK_VERSION}", "PACK: overseer-knowledge-docs 1.6")
+    remanifest(scratch, version="1.6")
     refused(scratch, "unknown_pack")
     # an operator may trust it explicitly, by its exact identity only
-    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.5"
-    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.5", sha256="ab" * 32)])
+    assert load_pack(scratch, trusted=[identity_of(scratch)]).identity.version == "1.6"
+    refused(scratch, "digest_mismatch", trusted=[PackIdentity(name=PACK_NAME, version="1.6", sha256="ab" * 32)])
 
 
 def test_a_refused_pack_yields_nothing_to_configure_an_agent_with(scratch):

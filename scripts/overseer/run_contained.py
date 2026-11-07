@@ -76,6 +76,7 @@ exact transfers it was issued from and a fresh replay issues new message ids.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import shutil
@@ -84,7 +85,7 @@ import time
 import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Iterator, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -121,7 +122,7 @@ _REKEYED_FIELDS = ("recorded_claim_id",)
 _SOURCE_FIELDS = ("recorded_answer", "recorded_plan", "recorded_proposal")
 #: Codes by which the shadow re-derivation disagrees with a receipt.
 SHADOW_DISAGREE = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
-OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.5", sha256="cd" * 32)  # a version other than the installed one (1.4)
+OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.6", sha256="cd" * 32)  # a version other than the installed one (1.5)
 
 
 class Stopped(RuntimeError):
@@ -356,7 +357,10 @@ def review_channel(hub: Any, key: str, pack: Any) -> dict:
 #: rule engine-shown: the engine shows nothing beyond a data conjunct needing its data premise). Record version 6 (rule
 #: data-standing corrected, decision 56) restored the three entries version 5 retired that way: their restating premises
 #: were "undecided" on labels alone, and the corrected rule shows them not to be data (:func:`_restoration_faults`).
-RETIREMENT_KINDS = ("translator_withholds", "overseer_rules")
+#: Record version 8 (round-8 clearance c1) adds ``translator_semantic``: the translator's pipeline now withholds the encoding by
+#: its SEMANTIC circularity rule (``translate.restatement``, its step 4c beyond a restatement as written: E112 at translation),
+#: where its rule as written (``engine.runner.circular_premises`` with ``assumed_grounding``) and the engine alone do not.
+RETIREMENT_KINDS = ("translator_withholds", "overseer_rules", "translator_semantic")
 #: The ``OVS-TRN`` codes a retirement's replay is read for (rule engine-shown grades a restatement with these three).
 RESTATEMENT_CODES = ("OVS-TRN-006", "OVS-TRN-010", "OVS-TRN-011")
 
@@ -494,7 +498,21 @@ def _unsourced_shown(prob: dict) -> tuple[list[str], list[str], list[str]]:
     return restating, shown, needs
 
 
-def _evidence_faults(entry: dict, *, rules_superseded: bool = False) -> list[str]:
+@contextlib.contextmanager
+def _without_the_semantic_rule() -> Iterator[None]:
+    """The translator's pipeline as it was before round-8 clearance c1: its SEMANTIC circularity rule
+    (``Translator._semantic_circularity``, step 4c beyond a restatement as written) names nothing, its rule as written kept.
+    Used only to re-derive what a ``translator_semantic`` retirement supersedes (the pipeline run its entry records); every
+    other run of the harness uses the translator as it is."""
+    from epinoic_logic.translate.pipeline import Translator
+    if vars(Translator).get("_semantic_circularity") is None:
+        yield
+        return
+    with H.patched((Translator, "_semantic_circularity", staticmethod(lambda *a, **k: None))):
+        yield
+
+
+def _evidence_faults(entry: dict, *, rules_superseded: bool = False, pipeline_superseded: bool = False) -> list[str]:
     """Why an entry's engine evidence does not reproduce (empty when it does): the embedded IR's digest, its restating
     premises, and the engine's status on it as recorded and without the restating premises (``engine.runner.verify`` on
     the IR as untrusted JSON, default limits and configuration); for an OVS-TRN-006 entry, rule ``engine-shown``
@@ -502,7 +520,13 @@ def _evidence_faults(entry: dict, *, rules_superseded: bool = False) -> list[str
     re-keyed entry, and any genuine-pass entry of record version 4) has the merged parse, the pipeline's run and the
     overseer's rules re-derived from them (:func:`_sourced_evidence_faults`). ``rules_superseded``: a retirement of kind
     ``overseer_rules`` supersedes the record's reading of the overseer's rules (the corrected rules no longer give it); every
-    other part of the original evidence must still reproduce, and the retirement's own evidence is re-derived instead."""
+    other part of the original evidence must still reproduce, and the retirement's own evidence is re-derived instead.
+    ``pipeline_superseded``: a retirement of kind ``translator_semantic`` supersedes what the pipeline delivers (it now
+    withholds the encoding, which the retirement re-derives): the entry's recorded pipeline run and the overseer's reading of
+    the problem it delivered are re-derived on the pipeline WITHOUT its semantic circularity rule (its rule as written
+    kept, :func:`_without_the_semantic_rule`) and the overseer's own rules (their reading before the translator's floor,
+    ``translator_floor=False``), so the only difference the record states is the rule the retirement names; the IR, the
+    merged parse, the served proposal and the engine evidence on the IR must reproduce as they always did."""
     from epinoic_logic.engine.results import SolverConfig
     from epinoic_logic.engine.runner import verify
     from epinoic_logic.ir.canonical import canonical_json, problem_digest
@@ -525,7 +549,7 @@ def _evidence_faults(entry: dict, *, rules_superseded: bool = False) -> list[str
         restating = [pid for pid in (ev.get("restating_premises") or []) if any(pr.get("id") == pid for pr in prob.get("premises") or [])]
         if restating != list(ev.get("restating_premises") or []):
             out.append(f"the restating premises {ev.get('restating_premises')} are not all premises of the embedded IR")
-        out += _sourced_evidence_faults(entry, rules_superseded=rules_superseded)
+        out += _sourced_evidence_faults(entry, rules_superseded=rules_superseded, pipeline_superseded=pipeline_superseded)
     elif entry.get("pass", "genuine") == "rekeyed":
         return out + ["a re-keyed entry embeds no recorded answer, plan and proposal to re-derive its evidence from"]
     else:
@@ -618,7 +642,7 @@ def _pipeline_record(o: Any) -> dict:
     return rec
 
 
-def _sourced_evidence_faults(entry: dict, *, rules_superseded: bool = False) -> list[str]:
+def _sourced_evidence_faults(entry: dict, *, rules_superseded: bool = False, pipeline_superseded: bool = False) -> list[str]:
     """Why the evidence of an entry that embeds its sources does not reproduce (empty when it does). From the recorded
     answer, its plan and the recorded proposal the harness re-derives everything the record states: the merged parse
     delivers the recorded claim (``recorded_claim_id``, else the entry's claim id) under the entry's claim id with the
@@ -652,7 +676,23 @@ def _sourced_evidence_faults(entry: dict, *, rules_superseded: bool = False) -> 
         return out + [f"no outcome of claim {did} was delivered"]
     got = _pipeline_record(o)
     want = ev.get("pipeline_on_the_recorded_proposal") or {}
-    if got != want:
+    if pipeline_superseded:
+        # record version 8: the pipeline now withholds the encoding by its semantic rule (the retirement re-derives that); what
+        # the entry records is the run of the pipeline without that rule, re-derived here, and the overseer reads that run
+        if got == want:
+            out.append(f"the pipeline still gives {got} on the recorded proposal, as the entry records: nothing is superseded")
+        try:
+            with _without_the_semantic_rule():
+                d = _delivery(ev, recorded_id)
+        except Exception as exc:
+            return out + [f"the recorded answer cannot be delivered without the semantic rule ({type(exc).__name__}: {str(exc)[:160]})"]
+        o = d.outcomes.get(d.delivered_id(recorded_id))
+        if o is None:
+            return out + [f"no outcome of claim {did} was delivered without the semantic rule"]
+        before = _pipeline_record(o)
+        if before != want:
+            out.append(f"the pipeline without its semantic circularity rule gives {before} on the recorded proposal, not {want}")
+    elif got != want:
         out.append(f"the pipeline on the recorded proposal gives {got}, not {want}")
     served = H.rekeyed_fixture(ev["recorded_proposal"], did, d.report.request_id).get("problem")
     try:
@@ -682,7 +722,9 @@ def _sourced_evidence_faults(entry: dict, *, rules_superseded: bool = False) -> 
         if o.translation.problem is None:
             return out + ["the pipeline delivered no problem, so no circular encoding reached the receipt"]
         texts, docs = _request_of(ev)
-        rs = restatement(o.translation.problem, d.report, texts, request_documents=docs)
+        # on a superseded pipeline run the overseer's own rules read it, as they did then (the translator's floor, round-8
+        # clearance c1, is the translator's semantic rule, which withholds the encoding now: the retirement's to re-derive)
+        rs = restatement(o.translation.problem, d.report, texts, request_documents=docs, translator_floor=not pipeline_superseded)
         rule = ev.get("translator_rule") or {}
         if not rs.holds or list(rs.own) != list(ev.get("restating_premises") or []):
             out.append(f"the overseer's rules name {list(rs.own)} (holding: {rs.holds}), not {ev.get('restating_premises')}")
@@ -714,7 +756,57 @@ def _retirement_faults(entry: dict) -> list[str]:
         return [f"a retirement of kind {kind!r} has no rule to re-derive it"]
     if entry.get("code") != "OVS-TRN-006":
         return [f"a retirement of a {entry.get('code')} entry has no rule to re-derive it"]
+    if kind == "translator_semantic":
+        return _semantic_retirement_faults(entry)
     return _withheld_retirement_faults(entry) if kind == "translator_withholds" else _rules_retirement_faults(entry)
+
+
+def semantic_rule_on(entry: dict, sources: dict) -> dict:
+    """What the translator's semantic circularity rule (``translate.restatement.semantic_restatement``) names on the
+    entry's embedded IR as the pipeline grounds it for the recorded answer (its supplied texts; the arena's verifier
+    passes no task record) with the merged claim's text: ``{"kind", "premises"}``, or ``{}`` when it names nothing. The
+    rule's own guards hold too (no inconsistent premises, no conclusion valid alone), as in the pipeline."""
+    from epinoic_logic.engine.runner import conclusion_valid_alone, premises_inconsistent
+    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.translate.grounding import check_problem_grounding
+    from epinoic_logic.translate.restatement import semantic_restatement
+    prob = Problem.model_validate((entry.get("translation") or {}).get("problem"))
+    recorded_id = entry.get("recorded_claim_id") or entry["claim_id"]
+    d = _delivery(sources, recorded_id)
+    did = d.delivered_id(recorded_id)
+    claim = next((c for c in d.report.claims if c.claim_id == did), None)
+    grounded, checks = check_problem_grounding(prob, list(d.report.supplied_texts))
+    located = {c.target_id for c in checks if c.verified is True and c.method in ("verbatim_match", "normalized_match")}
+    found = semantic_restatement(grounded, located, claim_text=claim.claim_text if claim is not None else None)
+    if found is None or premises_inconsistent(grounded) or conclusion_valid_alone(grounded):
+        return {}
+    return {"kind": found.kind, "premises": list(found.premises)}
+
+
+def _semantic_retirement_faults(entry: dict) -> list[str]:
+    """Retirement kind ``translator_semantic`` (record version 8, round-8 clearance c1): the translator no longer delivers
+    the encoding because its SEMANTIC circularity rule withholds it. On the embedded IR, as the pipeline grounds it for the
+    recorded answer, ``translate.restatement.semantic_restatement`` names exactly the premises
+    ``translator_semantic_rule`` states (with its kind); and the real pipeline, served the recorded proposal under the
+    merged id, delivers no problem (INVALID_FORMALIZATION with E112, :func:`_merged_retirement_faults`). A translator that
+    would deliver the encoding again makes the retirement fail, so the entry must be restored."""
+    ev = entry.get("retirement_evidence") or {}
+    out = _source_faults(ev)
+    if out:
+        return [f"{x}, so the translator's semantic rule cannot be re-derived" for x in out]
+    try:
+        got = semantic_rule_on(entry, ev)
+    except Exception as exc:  # noqa: BLE001 - a rule that cannot run cannot support a retirement
+        return [f"the translator's semantic rule cannot be run on the recorded IR ({type(exc).__name__}: {str(exc)[:160]})"]
+    want = ev.get("translator_semantic_rule") or {}
+    if not got:
+        out.append("the translator's semantic circularity rule no longer names a restatement on the recorded IR")
+    elif got != want:
+        out.append(f"the translator's semantic rule gives {got}, not {want}")
+    pipe = ev.get("pipeline_on_the_recorded_proposal") or {}
+    if pipe.get("translation_status") != "INVALID_FORMALIZATION" or pipe.get("translation_diagnostic") != "E112" or pipe.get("problem_delivered"):
+        out.append("the retirement does not state a pipeline run that withholds the encoding as circular (INVALID_FORMALIZATION, E112, no problem)")
+    return out + _merged_retirement_faults(entry)
 
 
 def _withheld_retirement_faults(entry: dict) -> list[str]:
@@ -975,7 +1067,7 @@ def load_adjudications(path: Optional[Path] = None) -> dict:
         if kind not in RETIREMENT_KINDS:
             raise H.HarnessError(f"the retirement of the entry {e['id']!r} names the kind {kind!r}, which is not one of {RETIREMENT_KINDS}; restore the entry")
         # both the entry's own evidence and its retirement are re-derived, and every reason either fails is named
-        faults = _evidence_faults(e, rules_superseded=kind == "overseer_rules") + _same_sources_faults(e)
+        faults = _evidence_faults(e, rules_superseded=kind == "overseer_rules", pipeline_superseded=kind == "translator_semantic") + _same_sources_faults(e)
         rfaults = _retirement_faults(e)
         if faults or rfaults:
             raise H.HarnessError(" | ".join(x for x in (

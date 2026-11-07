@@ -56,6 +56,24 @@ The listing now parses a file after the members of its group delivered before it
 parses it with; a fixture recorded under either form of one agent's STEM claim id serves that claim, named on the
 record; and a mutation, delivered on a hub task of its own with the unqualified ids, is compared with its genuine record
 in its own id form. None of these tests was rewritten.
+
+Round 8 (integrated round c1), translation-fidelity lens and results audit (minor): the replay measured a configuration
+different from production. Its claim verifier took no task record, so no task-authority premise was validated against
+the router's question (seven of the round's outcomes were not production's); the round's 469 translations were recorded
+without claim-text digests and matched by claim id only; a retry was served the same recorded output and nothing said so;
+and every synthesis was stamped 2026-10-11, before the reports it cites (INT-HANDOFF-016 in the overseer's audit,
+OVS-DIV-002). The verifier now declares a task parameter (the channel passes the record; --without-task-record replays as
+before), bind_translations.py records the digests when the translations are recorded, every retry served the same output
+is reported as not exercised (metrics.replay), and a synthesis is stamped when it is relayed. None of these tests was
+rewritten.
+
+Round 8 (integrated round c1), the clearance's handoff fixer (STEM-integration finding 25, minor): two STEM mutations were
+counted as misses although a finding named each injected claim, with the code the design names the fault with at its site:
+maa-p8b's wrong unit inside a quotation of the Physics specialist (INT-REQ-003, the altered quotation) and ch-t14's
+substitution in a bracketed sum after its value (INT-SUBJ-004, rule parenthetical-sum, a reading); and the breadth re-run
+placed mutations in a Python block and a mark range, which the design never checks as working. A STEM mutation's expected
+codes are now its own and its site's (stem_mutations.StemInjection.site_codes), and code, mark annotations and mark lines
+are no site. None of these tests was rewritten.
 """
 from __future__ import annotations
 
@@ -1574,3 +1592,240 @@ def test_the_listing_refuses_a_group_run_arena_cannot_plan(tmp_path):
                          capture_output=True, text=True, env=env, timeout=110)
     assert run.returncode == 2 and run.stdout == "" and "the plan of group g cannot be built as run_arena.py builds it" in run.stderr
     assert "Traceback" not in run.stderr
+
+
+# --- round 8 (integrated round c1): the replay runs what production runs, and names what a recording cannot -------------
+#
+# Translation-fidelity lens (minor): the replay measured a configuration different from production. Its verifier took no
+# task record, so no task_setting or arithmetic_fact premise was ever validated against the router's question (seven of
+# the round's outcomes differed from production's, ps-t14's unverified dependency 'cr-obs' among them); every one of the
+# round's 469 translations was matched by claim id only (FIXTURES_UNBOUND), no digest having been recorded with them; a
+# retry was served the same recorded output and nothing said so; and every synthesis was stamped 2026-10-11, before the
+# reports it cites, which the overseer's audit named as INT-HANDOFF-016 (OVS-DIV-002) on every synthesis transfer.
+
+K1 = "ph-k1"
+
+
+def _task_given_fixture(claim_id: str) -> dict:
+    """A translation of 'F = ma = 2.0 × 3.0 = 6.0 N.' whose mass premise claims the task's authority (task_setting, no
+    excerpt): only the task record (the question states 'A 2.0 kg mass') can validate it."""
+    m, f = {"op": "var", "name": "m"}, {"op": "var", "name": "f"}
+    return {"problem": {"ir_version": "1.0", "problem_id": f"{K1}-s1.2", "request_id": f"req-{K1}", "claim_id": claim_id, "query": "entailment",
+                        "symbols": [{"name": "m", "sort": "Real", "meaning": "mass in kg"}, {"name": "f", "sort": "Real", "meaning": "net force in N"}],
+                        "premises": [{"id": "P_m", "expr": {"op": "eq", "left": m, "right": {"op": "real", "value": "2.0"}},
+                                      "label": "the mass is 2.0 kg (the question)", "grounding": {"kind": "task_setting", "certainty": "established"}},
+                                     {"id": "P_f", "expr": {"op": "eq", "left": f, "right": {"op": "mul", "args": [{"op": "real", "value": "3.0"}, m]}},
+                                      "label": "F = ma with a = 3.0 m/s^2", "grounding": {"kind": "specialist_inference"}}],
+                        "conclusion": {"id": "C", "expr": {"op": "eq", "left": f, "right": {"op": "real", "value": "6.0"}}, "label": "F = 6.0 N"}},
+            "interpretation": {"reading": "F from the given mass and acceleration", "glossary": [{"symbol": "f", "meaning": "net force"}], "ambiguity_flags": []},
+            "ambiguous": False, "unsupported_reason": None}
+
+
+def _k1_fixture(claim_id: str) -> dict:
+    """_force_fixture's translation of 'F = ma = 2.0 × 3.0 = 6.0 N.' for the task ph-k1 (its own request, req-ph-k1)."""
+    fx = _force_fixture(K1, claim_id)
+    fx["problem"]["request_id"] = f"req-{K1}"
+    return fx
+
+
+def _k1_round(rd: Path, fixtures: dict, digests: dict | None = None) -> Path:
+    """The Physics answer FORCE_ANSWER to FORCE_QUESTION as a task of its own (request req-ph-k1), with ``fixtures``."""
+    (rd / "specialists").mkdir(parents=True)
+    (rd / "specialists" / f"{K1}.json").write_text(json.dumps({"task_id": K1, "subject": "Physics", "agent_id": "physics-specialist", "task_type": "calculation",
+                                                                "question": FORCE_QUESTION, "supplied_texts": [], "response_text": FORCE_ANSWER},
+                                                               ensure_ascii=False), encoding="utf-8")
+    (rd / "translations").mkdir()
+    body = {"report_id": f"rep-{K1}-0", "claims": fixtures, **({"claim_text_sha256": digests} if digests is not None else {})}
+    (rd / "translations" / f"{K1}.json").write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+    return rd
+
+
+def _genuine_outcome(out: dict, claim_id: str) -> dict:
+    [rec] = [r for r in out["records"] if r["variant"] == "genuine"]
+    [o] = [o for o in rec["outcomes"] if o["claim_id"] == claim_id]
+    return o
+
+
+def _replay_line(rd: Path) -> str:
+    return next(x for x in (rd / "summary.md").read_text().split("\n") if x.startswith("- Replay configuration"))
+
+
+def test_the_replay_passes_the_task_record_to_the_translator_as_production_does(tmp_path):
+    """Round 8, translation-fidelity lens: the replay's verifier took no task record, so a premise claiming the task's
+    authority was never validated against the router's question, where production's verifier (task-aware) validates it.
+    The verifier now declares a task parameter: the channel hands it the record and the translator validates the mass the
+    question states, so the claim rests on no unvalidated premise. --without-task-record replays as before (the premise
+    unvalidated, an unverified dependency) and both configurations say which they ran. The delivery pass passes the record
+    on as the round's own pass does (its receipt is the genuine record's), and transport does not move."""
+    fixtures = {"s1.2": _task_given_fixture("s1.2")}
+    with_task = ra.run_round(_k1_round(tmp_path / "task", fixtures))
+    without = ra.run_round(_k1_round(tmp_path / "none", fixtures), task_record=False)
+    o, b = _genuine_outcome(with_task, "s1.2"), _genuine_outcome(without, "s1.2")
+    assert o["task_record_given"] is True and o["unverified_dependencies"] == 0 and o["display_status"] == "ENTAILED", o
+    assert b["task_record_given"] is False and b["unverified_dependencies"] == 1, b
+    assert with_task["metrics"]["replay"]["task_record"]["passed"] is True and without["metrics"]["replay"]["task_record"]["passed"] is False
+    assert (with_task["metrics"]["replay"]["task_record"]["genuine_translations_validated_against_it"],
+            with_task["metrics"]["replay"]["task_record"]["genuine_translations"]) == (1, 1)
+    assert "the task record of each request is passed to the translator, as production passes it (1 of 1 genuine translations validated" in _replay_line(tmp_path / "task")
+    assert "the task record is NOT passed to the translator (--without-task-record" in _replay_line(tmp_path / "none")
+    for out in (with_task, without):
+        assert out["functional"] == out["transmissions"]
+        assert out["deliveries"]["receipts_matching_genuine_records"] == out["deliveries"]["decided"] == 1
+    # every mutation of the answer is verified with the task record too (a hub task of its own, the same request)
+    assert all(o["task_record_given"] for r in with_task["records"] for o in r.get("outcomes", []) if o["attempts"])
+    assert ra.main([str(tmp_path / "none"), "--without-task-record"]) == 0
+    assert _genuine_outcome(json.loads((tmp_path / "none" / "results.json").read_text()), "s1.2")["task_record_given"] is False
+
+
+def test_a_replaced_verifier_without_a_task_parameter_is_called_as_before(tmp_path, monkeypatch):
+    """The task record goes on to verify_claim only when the verifier declares it (the channel's own rule, accepts_task): a
+    harness's replacement of verify_claim with a fixed signature is called exactly as before and is never sent a keyword
+    it does not take; its outcomes then say no task record was given, and the configuration counts them."""
+    real = ra.verify_claim
+    calls: list[str] = []
+
+    def fixed(claim, report, translator, *, config, signing_key):
+        calls.append(claim.claim_id)
+        return real(claim, report, translator, config=config, signing_key=signing_key)
+    monkeypatch.setattr(ra, "verify_claim", fixed)
+    out = ra.run_round(_k1_round(tmp_path / "fixed", {"s1.2": _task_given_fixture("s1.2")}))
+    assert "s1.2" in calls and out["functional"] == out["transmissions"]
+    assert _genuine_outcome(out, "s1.2")["task_record_given"] is False
+    assert out["metrics"]["replay"]["task_record"]["genuine_translations_validated_against_it"] == 0
+    assert ra.accepts_task(real) and ra.accepts_task(lambda claim, report, translator, **kw: None) and not ra.accepts_task(fixed)
+
+
+def test_a_retry_served_the_same_recorded_output_is_reported_as_not_exercised(tmp_path):
+    """A recorded translation is one provider output: when the pipeline rejects the first attempt with a retryable
+    diagnostic (here a conclusion naming a symbol the problem never declares, E101) and asks again, the fixture provider
+    serves the same output and it fails the same way. That retry is not what production runs (a new output, made with the
+    diagnostics), so it is reported as not exercised: on the outcome (attempts 2, retry_not_exercised), in
+    metrics.replay.retries with the claim named, and on summary.md's Replay configuration line. A claim translated at the
+    first attempt is not counted. It is neither a qualification nor a transport failure: the record was delivered and
+    decided."""
+    bad = _k1_fixture("s1.2")
+    bad["problem"]["conclusion"]["expr"]["left"] = {"op": "var", "name": "g"}
+    good = _k1_fixture("s1.3")
+    out = ra.run_round(_k1_round(tmp_path / "r", {"s1.2": bad, "s1.3": good}))
+    o, g = _genuine_outcome(out, "s1.2"), _genuine_outcome(out, "s1.3")
+    assert (o["display_status"], o["attempts"], o["retry_not_exercised"]) == ("INVALID_FORMALIZATION", 2, True), o
+    assert [d.split(": ", 1)[1] for d in o["translation_diagnostics"][:2]] == [o["translation_diagnostics"][0].split(": ", 1)[1]] * 2, "the same output, the same rejection"
+    assert (g["attempts"], g["retry_not_exercised"]) == (1, False)
+    rt = out["metrics"]["replay"]["retries"]
+    assert rt["not_exercised_genuine_claims"] == 1 and rt["claims"] == [f"{K1}.json s1.2"] and rt["not_exercised_all_variants"] >= 1
+    assert f"retries NOT exercised (a recorded translation is one output, so a retry is served the same output and the outcome is the first attempt's) on 1 genuine claim(s): {K1}.json s1.2" in _replay_line(tmp_path / "r")
+    assert out["functional"] == out["transmissions"] and [q["code"] for q in out["qualifications"]] == ["FIXTURES_UNBOUND"]
+
+
+def test_a_synthesis_is_stamped_when_relayed_so_it_never_precedes_the_reports_it_cites(tmp_path):
+    """Round 8, results audit and translation-fidelity lens: every relayed synthesis was stamped 2026-10-11T15:00:00Z,
+    before the reports it cites, so the time-order rule (INT-HANDOFF-016, run over the journaled transfers by the
+    overseer's audit, OVS-DIV-002) named every synthesis of every replay, a warning that depended on the day. A synthesis
+    is now stamped by the relay clock when it is built: the record carries the stamp, and the rule names nothing on the
+    relayed synthesis, where the old stamp still draws it (control)."""
+    from datetime import datetime, timezone
+
+    from epinoic_logic.integrity import Synthesis, run_integrity_checks
+    from epinoic_logic.translate.contracts import SpecialistReport
+    start = datetime.now(timezone.utc).replace(microsecond=0)
+    got = _history_round(tmp_path / "arena", json.dumps(CLEAN_HI))
+    stamped = datetime.fromisoformat(got["rec"]["synthesis_created_at"].replace("Z", "+00:00"))
+    assert start <= stamped <= datetime.now(timezone.utc), got["rec"]["synthesis_created_at"]
+    # the rule itself, on the group's delivered report and the synthesis the harness relays
+    rd = _history_specialist(tmp_path / "direct")
+    items = ra.load_items(rd / "specialists")
+    plan = ra.group_plan(items, TASK)
+    hub = ra.RouterHub(signing_key=ra.KEY, config=ra.CFG)
+    hub.open_task(plan)
+    m, _req, _rq = hub.dispatch(TASK, HISTORY_ITEM["agent_id"], HISTORY_ITEM["question"], [])
+    reply, _rc = hub.receive(TASK, m.message_id, HISTORY_ITEM["response_text"], agent_id=HISTORY_ITEM["agent_id"], report_id=f"rep-{TASK}-0")
+    report = SpecialistReport.model_validate(reply.payload)
+
+    def handoff_016(created_at=None) -> list:
+        payload = ra.group_synthesis(items, TASK, {TASK: ra.SynthesisFile(CLEAN_HI)}, {TASK: reply}, plan, created_at=created_at)
+        return [f for f in run_integrity_checks(plan, [report], Synthesis.model_validate(payload)).findings if f.code == "INT-HANDOFF-016"]
+    assert handoff_016() == [], "stamped by the relay clock: never before the report it cites"
+    assert [f.severity for f in handoff_016("2026-10-11T15:00:00Z")] == ["warning"], "control: the old fixed stamp precedes the report"
+
+
+def _listing_of(rd: Path) -> dict[str, dict]:
+    """Each specialists file's listing as list_claims.py --json prints it (its claim ids and claim-text digests), built
+    from the claims the hub delivers (_hub_delivered: the listing prints the delivered claims, as tested above)."""
+    out = {}
+    for name, payload in _hub_delivered(rd).items():
+        out[name[:-5]] = {"report_id": payload["report_id"], "claims": [{"claim_id": c["claim_id"], "claim_text_sha256": ra.sha256_text(c["claim_text"]),
+                                                                          "text": c["claim_text"]} for c in payload["claims"]]}
+    return out
+
+
+def test_bind_translations_records_each_fixtures_claim_text_digest_and_the_replay_is_then_bound(tmp_path):
+    """Round 8, translation-fidelity lens: all of the round's 469 translations were recorded without the claim-text digest
+    the listing prints, so the replay could bind each only by claim id (FIXTURES_UNBOUND). bind_translations.py records,
+    beside each fixture, the digest of the claim text its listing printed under the fixture's id (or the other form of a
+    claim id the hub may qualify); a fixture the listing does not hold stays unbound and named. The replay then serves
+    every fixture bound to its recorded digest and is not qualified, a mutation that changes the claim is refused the
+    fixture as stale, and the fixtures themselves (and so an adjudication's translation digest) are unchanged. A recorded
+    digest that differs from the listing's is a conflict (nothing written; --force replaces it), and a listing of another
+    report is never bound, --force or not."""
+    import bind_translations as bt
+    rd = _k1_round(tmp_path / "r", {"s1.2": _k1_fixture("s1.2"), "s1.3@physics-specialist": _k1_fixture("s1.3@physics-specialist"),
+                                    "s9.9": _k1_fixture("s9.9")})
+    tr_path = rd / "translations" / f"{K1}.json"
+    fixtures_before = {cid: ra.fixture_sha256(v) for cid, v in json.loads(tr_path.read_text())["claims"].items()}
+    listings = tmp_path / "listings"
+    listings.mkdir()
+    listed = _listing_of(rd)[K1]
+    (listings / f"{K1}.json").write_text(json.dumps(listed))
+    texts = {c["claim_id"]: c["claim_text_sha256"] for c in listed["claims"]}
+    assert bt.main([str(rd), "--listings", str(listings)]) == 0
+    written = json.loads(tr_path.read_text())
+    assert written["claim_text_sha256"] == {"s1.2": texts["s1.2"], "s1.3@physics-specialist": texts["s1.3"]}, "s9.9 is in no listing: left unbound"
+    assert {cid: ra.fixture_sha256(v) for cid, v in written["claims"].items()} == fixtures_before and written["report_id"] == f"rep-{K1}-0"
+    out = ra.run_round(rd)
+    cov = out["metrics"]["fixture_coverage"]
+    assert (cov["served"], cov["served_with_recorded_digest"], cov["served_by_claim_id_only"]) == (2, 2, 0)
+    assert cov["by_file"][f"{K1}.json"]["served_under_other_id_form"] == {"s1.3@physics-specialist": "s1.3"}
+    assert "FIXTURES_UNBOUND" not in [q["code"] for q in out["qualifications"]]
+    binding = out["metrics"]["replay"]["fixture_binding"]
+    assert (binding["served_with_recorded_digest"], binding["served_by_claim_id_only"]) == (2, 0)
+    assert "2 served translations bound to a recorded claim-text digest, 0 by claim id only" in _replay_line(rd)
+    slip = next(r for r in out["records"] if r["variant"] == "stem_arithmetic_slip")
+    assert slip["stale_fixtures_refused"] == ["s1.2"], "the changed claim is refused the fixture recorded for the genuine text"
+    # a second run changes nothing
+    assert bt.main([str(rd), "--listings", str(listings)]) == 0 and json.loads(tr_path.read_text()) == written
+    # a recorded digest that differs from the listing's: nothing written without --force
+    tr_path.write_text(json.dumps({**written, "claim_text_sha256": {**written["claim_text_sha256"], "s1.2": "0" * 64}}))
+    assert bt.main([str(rd), "--listings", str(listings)]) == 2 and json.loads(tr_path.read_text())["claim_text_sha256"]["s1.2"] == "0" * 64
+    assert bt.main([str(rd), "--listings", str(listings), "--force"]) == 0 and json.loads(tr_path.read_text()) == written
+    # a listing of another report: never bound, even with --force
+    (listings / f"{K1}.json").write_text(json.dumps({**listed, "report_id": "rep-other-0"}))
+    tr_path.write_text(json.dumps({**written, "claim_text_sha256": {}}))
+    assert bt.main([str(rd), "--listings", str(listings), "--force"]) == 2 and json.loads(tr_path.read_text())["claim_text_sha256"] == {}
+    with pytest.raises(SystemExit):
+        bt.main([str(rd)])  # the source of the digests is always named: --listings or --current-parse
+
+
+def test_bind_translations_from_the_current_parse_takes_the_digests_list_claims_prints(tmp_path):
+    """--current-parse (the recording step, run before any change to the code) binds each fixture to the digest
+    list_claims.py --json prints now for its claim, which is the digest of the claim text the hub delivers."""
+    import bind_translations as bt
+    rd = _k1_round(tmp_path / "r", {"s1.2": _k1_fixture("s1.2")})
+    assert bt.main([str(rd), "--current-parse"]) == 0
+    delivered = {c["claim_id"]: c["claim_text"] for c in _hub_delivered(rd)[f"{K1}.json"]["claims"]}
+    assert json.loads((rd / "translations" / f"{K1}.json").read_text())["claim_text_sha256"] == {"s1.2": ra.sha256_text(delivered["s1.2"])}
+    out = ra.run_round(rd)
+    assert out["metrics"]["fixture_coverage"]["served_with_recorded_digest"] == 1 and not out["qualified"]
+
+
+def test_a_stem_mutation_at_a_quotation_or_a_bracketed_sum_is_also_named_by_the_code_of_its_site():
+    """The expected codes of a STEM mutation are its own and, after them, the code that names the fault at its site by design;
+    a figure in code is no site (the mutation takes the next one, with its own code only)."""
+    q = "A runner covers 120 m in 8.0 s. Calculate the average speed."
+    quoted = 'It matches the Physics specialist\'s "v = 120 m / 8.0 s = 15 m s⁻¹".'
+    assert ra.stem_variant(quoted, q, "stem_wrong_unit")[1] == "ST-DIM-001|ST-DIM-002|INT-REQ-003"
+    assert ra.stem_variant(quoted.replace('"', ""), q, "stem_wrong_unit")[1] == "ST-DIM-001|ST-DIM-002"
+    summed = "Oxygen: 7 on the left (1 + 6), so 4 + 3 = 7 on the right."
+    assert ra.stem_variant(summed, "Balance it: 1 O₂ and 6 H₂O.", "stem_substitution")[1] == "INT-SUBJ-001|INT-SUBJ-004"
+    coded = "```\nn = 120 / 8.0 // 5\n```\nv = 120 m / 8.0 s = 15 m s⁻¹"
+    text, codes = ra.stem_variant(coded, q, "stem_substitution")
+    assert codes == "INT-SUBJ-001" and text.startswith("```\nn = 120 / 8.0 // 5\n```\n") and "5.0 s" in text

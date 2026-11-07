@@ -50,6 +50,7 @@ from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
+from .conftest import without_the_translators_semantic_gate  # noqa: E402
 from .conftest import (CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, findings, make_auditor, make_plan, new_channel, ovs_errors,
                        withheld_as_circular_by_the_translator)
 from .test_hook_hub import audited_hub
@@ -731,14 +732,27 @@ def _restated_by_label(kind: str, *, keep_link: bool = False, grounding: Optiona
 
 
 @pytest.mark.parametrize("kind", LABEL_ONLY_KINDS)
-def test_a_load_bearing_restatement_grounded_by_a_kind_label_alone_is_delivered_entailed_and_is_trn_006(kind):
+def test_a_load_bearing_restatement_grounded_by_a_kind_label_alone_is_delivered_entailed_and_is_trn_006(kind, monkeypatch):
     """The independent test's case (the repair of the translator merge, decision 49): the merged translator's rule reads a
     restating premise grounded ``supplied_text``, ``rubric_rule``, ``knowledge_document`` or ``library_source`` as a
     transcription on the label alone, so it DELIVERS the circular encoding, the engine finds it ENTAILED with no E112, and
     the router is shown ENTAILED. The overseer upholds no such grounding (no located excerpt; no check verifies a premise
     against a rubric, knowledge document or library source): OVS-TRN-006, an error citing the auditor's signed run
-    (COUNTEREXAMPLE without the premise), and the transfer fails: a non-success is never cleared as a success."""
+    (COUNTEREXAMPLE without the premise), and the transfer fails: a non-success is never cleared as a success.
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept: where the translator's own
+    semantic rule now withholds the encoding itself (E112 at translation, no OVS-TRN finding: a rubric_rule label), that
+    is asserted first and the original assertions are made on the encoding delivered past that gate."""
     from epinoic_logic.overseer.policy import may_act
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(_restated_by_label(kind))}, auditor=a0)
+        o0 = next(x for x in rc0.outcomes if x.claim_id == POINT)
+        if o0.translation.problem is None:
+            assert withheld_as_circular_by_the_translator(o0) and trn(a0.audit(ch0.uid), "OVS-TRN-006") == []
+            without_the_translators_semantic_gate(monkeypatch)
+    finally:
+        a0.close()
     aud = make_auditor(shadow="off")
     try:
         aud, ch, rc = run({POINT: proposal(_restated_by_label(kind))}, auditor=aud)
@@ -959,7 +973,6 @@ ENGINE_READS = (
     ({"op": "or", "args": [_E, _E]}, _E, {"endless": "Bool"}, "boolean"),
     ({"op": "implies", "left": {"op": "bool", "value": True}, "right": _E}, _E, {"endless": "Bool"}, "boolean"),
     ({"op": "not", "arg": {"op": "not", "arg": _E}}, _E, {"endless": "Bool"}, "syntactic"),  # as written once negation is pushed inward
-    ({"op": "and", "args": [_B, {"op": "implies", "left": _B, "right": _E}]}, _E, {"endless": "Bool", "bell": "Bool"}, "boolean"),
     ({"op": "iff", "left": _E, "right": {"op": "bool", "value": True}}, _E, {"endless": "Bool"}, "boolean"),
     ({"op": "eq", "left": _n("105"), "right": _Q}, {"op": "eq", "left": _Q, "right": _n("105")}, {"q": "Int"}, "boolean"),
     ({"op": "lt", "left": _n("3"), "right": _Q}, {"op": "gt", "left": _Q, "right": _n("3")}, {"q": "Int"}, "boolean"),
@@ -991,7 +1004,10 @@ def test_rule_semantic_restatement_reads_a_restatement_in_another_form(premise, 
     translator's rule reads the expression as written and in its normal form (``engine/README.md``; the round-7 core fix,
     fidelity-4), so it flags exactly the forms of ``ENGINE_READS`` and delivers the others; the Overseer's rule reads every
     one, and under a writer's-own grounding each is the conclusion assumed. (Rewritten to the stricter rule: the
-    translator's reading of each form is pinned, where before the test pinned that it read none.)"""
+    translator's reading of each form is pinned, where before the test pinned that it read none.) Round-8 clearance c1:
+    ``b and (b implies e)``, a link packed with its antecedent, moved to the controls below (rule packed-link): it argues for
+    the conclusion, as the translator's own semantic rule and the argument rules read it, so the overseer read a packed
+    modus ponens the translator delivers as OVS-TRN-006 (receipt and audit disagreed); ``true implies e`` is still read here."""
     from epinoic_logic.engine.runner import circular_premises as translator_circular_premises
     prob = _form(premise, conclusion, symbols)
     assert translator_circular_premises(prob) == (["P"] if premise in ENGINE_READS else [])
@@ -1021,6 +1037,11 @@ def test_rule_semantic_restatement_reads_a_restatement_in_another_form(premise, 
      V("y12"), {"y12": "Bool"}),
     # an implication whose antecedent no premise gives
     ({"op": "implies", "left": _B, "right": _E}, _E, {"endless": "Bool", "bell": "Bool"}),
+    # round-8 clearance c1 (rule packed-link): a link packed with its antecedent in one premise is an argument the engine decides, as
+    # the same link and antecedent in two premises are (before, it stood among the restatements above)
+    ({"op": "and", "args": [_B, {"op": "implies", "left": _B, "right": _E}]}, _E, {"endless": "Bool", "bell": "Bool"}),
+    ({"op": "and", "args": [{"op": "implies", "left": {"op": "and", "args": [_B, V("coal")]}, "right": _E}, _B, V("coal")]}, _E,
+     {"endless": "Bool", "bell": "Bool", "coal": "Bool"}),
 ])
 def test_control_rule_semantic_restatement_reads_no_computation_or_derivation_as_a_restatement(premise, conclusion, symbols):
     """Controls: arithmetic of numbers alone is never a restatement (a line of working, ``1 * 10`` beside ``10``: a
@@ -1122,16 +1143,28 @@ def test_a_part_of_the_conclusion_assumed_under_a_task_setting_label_is_trn_006_
             aud2.close()
 
 
-def test_a_conjoined_transcription_never_hides_an_assumed_premise():
+def test_a_conjoined_transcription_never_hides_an_assumed_premise(monkeypatch):
     """The other laundering the re-test found: the claim conjoined with a fact a verified quotation restates, the claim
     itself in place of the specialist's link under a ``task_setting`` label. The translator's rule reads both restating
     premises as transcriptions and delivers it; the overseer reads the conclusion as restated as a whole, P_coal a
-    transcription and P_assumed the writer's own: OVS-TRN-006 naming P_assumed beside the transcription."""
+    transcription and P_assumed the writer's own: OVS-TRN-006 naming P_assumed beside the transcription.
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept: the translator's own semantic
+    rule now withholds the encoding itself (E112 at translation, no OVS-TRN finding), which is asserted first; the
+    end-to-end assertion is made on the encoding delivered past that gate."""
     p = genuine_problem()
     p["conclusion"] = {"id": "C", "expr": {"op": "and", "args": [V("endless"), V("coal")]}, "label": "work is endless, counted in coal"}
     p["premises"] = [x for x in p["premises"] if x["id"] != "P_link"] + [{"id": "P_assumed", "expr": V("endless"), "grounding": {"kind": "task_setting"}}]
     rs = restatement(Problem.model_validate(p), english_report(), [EN_INPUT])
     assert rs.holds and rs.own == ("P_assumed",) and rs.grounded == ("P_coal",)
+    a0 = make_auditor(shadow="off")
+    try:
+        a0, ch0, rc0 = run({POINT: proposal(p)}, auditor=a0)
+        o0 = next(x for x in rc0.outcomes if x.claim_id == POINT)
+        assert withheld_as_circular_by_the_translator(o0) and trn(a0.audit(ch0.uid), "OVS-TRN-006") == []
+    finally:
+        a0.close()
+    without_the_translators_semantic_gate(monkeypatch)
     aud = make_auditor(shadow="off")
     try:
         aud, ch, rc = run({POINT: proposal(p)}, auditor=aud)

@@ -4,7 +4,8 @@
 Inputs (one round directory):
   <round>/specialists/*.json   {task_id, subject, agent_id, task_type?, question, supplied_texts:[{document_id,title?,author?,text}], response_text}
   <round>/translations/*.json  optional: {report_id, claims: {claim_id: <translator JSON object>}, claim_text_sha256?: {claim_id: sha256}}
-                               The optional claim_text_sha256 map (list_claims.py --json prints the digest of every claim) binds each
+                               The optional claim_text_sha256 map (list_claims.py --json prints the digest of every claim;
+                               bind_translations.py records it with each fixture when the translations are recorded) binds each
                                fixture to the claim text it was produced for; without it the harness captures the digest of each
                                fixture's claim from the genuine transmission. Either way the fixture provider refuses to serve a
                                fixture for a claim whose text changed (a mutation that alters the sentence, ids that shift when a
@@ -72,6 +73,29 @@ Inputs (one round directory):
 Outputs: <round>/results.json and <round>/summary.md. ``python run_arena.py <round> [--fail-on-qualification]``: with the flag
 the exit status is 1 when the run is qualified (below), so a translation-regression run that lost expected translations fails.
 
+Replay configuration (results.json ``metrics.replay``; summary.md 'Replay configuration', in the Measures section). The replay
+runs what production runs wherever a recording allows it, and names what it cannot run:
+  - the task record: the claim verifier declares a ``task`` parameter, so the channel hands it the task record of the
+    request each report answers (``channel.bus._accepts_task``) and the translator validates task-authority premises
+    against the router's question as well as the supplied texts, as production's verifier does
+    (``integration.runtime.live_verifier``). Round 8's translation-fidelity lens: the replay's two-argument verifier
+    checked a task_setting or arithmetic_fact premise against the supplied texts only, never against the question, so
+    seven outcomes of the round differed from what production computes for the same translations (an unverified
+    dependency, an E112 withheld verdict). Each outcome
+    says whether its translation was validated against a task record (``task_record_given``). ``--without-task-record``
+    (``run_round(..., task_record=False)``) replays as the harness did before, for a comparison with the replays recorded
+    then, and the configuration says so;
+  - the binding of each fixture to its claim text: by the digest recorded with the fixture (``claim_text_sha256``,
+    written when the translations are recorded: bind_translations.py), else by claim id only (FIXTURES_UNBOUND, below);
+  - retries: a recorded translation is one provider output, so a retry the pipeline asks for (a rejected first attempt
+    with a retryable diagnostic) is served the same output and fails the same way. It is never shown as a retry that
+    ran: each outcome carries its ``attempts`` and ``retry_not_exercised``, and the configuration counts and names the
+    genuine claims whose retry was not exercised (production retries with the diagnostics and a new provider output);
+  - the synthesis timestamp: a synthesis is stamped when it is relayed (the relay clock, as the deployed combinator path
+    stamps it), so it never precedes the reports it cites. Round 8's results audit and translation-fidelity lens: a
+    timestamp fixed in the past put a time-dependent INT-HANDOFF-016 warning on every synthesis (OVS-DIV-002 in the
+    overseer's audit).
+
 Measures. The harness reports separate measures, each with its own numerator and denominator, and never combines two into
 one rate (results.json ``metrics``; summary.md 'Measures', under the headline):
   - transport: the functional count defined below (genuine traffic delivered and decided; injected faults named). It does
@@ -110,8 +134,11 @@ STEM mutations (stem_mutations.py), applied in addition and only to answers of S
 sciences, mathematics or computer_science branch): stem_arithmetic_slip (one stated result of a worked chain changed;
 INT-SUBJ-001), stem_wrong_unit (a stated result's unit replaced by one of another dimension; ST-DIM-001 or ST-DIM-002),
 stem_substitution (a value the request gives, substituted into a calculation, written as another value; INT-SUBJ-001).
-Each is skipped when the answer has no site for it. The injection is named when a finding of its code names a claim
-that carries the mutated text. An injection no finding names is a miss, whatever the reason, and is never excused: when
+Each is skipped when the answer has no site for it. A figure in code, in a mark annotation or on a line stating a mark is
+no site; a site inside a quotation of another text is also named by INT-REQ-003 (the altered quotation the hub refutes)
+and a term of a sum in brackets after its value by INT-SUBJ-004 (the STEM pack reads that sum at warning severity), the
+codes the design names the fault with there (stem_mutations.py, "Sites"; round-8 clearance c1). The injection is named
+when a finding of its code names a claim that carries the mutated text. An injection no finding names is a miss, whatever the reason, and is never excused: when
 the receipt itself names the injected claim of a STEM mutation undecided (an ST-UNDEC finding: a relation outside the
 encodings, a symbol with no stated value), the failure reason quotes that finding, so a miss that comes from a limit of
 the encodings is shown as one, and it stays a failure of the transport measure. Every other subject's round is unchanged.
@@ -191,6 +218,7 @@ claims.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import math
 import re
@@ -199,6 +227,7 @@ import sys
 import time
 import traceback
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -248,6 +277,24 @@ STALE_BUCKET = "STALE_FIXTURE_REFUSED"
 DEFINITIVE_NON_ENTAILED = frozenset(s.value for s in DEFINITIVE) - {VerificationStatus.ENTAILED.value}
 #: How many assignments of a counterexample or witness a record keeps.
 MODEL_KEPT = 16
+
+
+def accepts_task(fn) -> bool:
+    """Whether a claim verifier declares a ``task`` parameter (or ``**kwargs``), the rule the channel applies before it
+    passes the task record (``channel.bus._accepts_task``): the replay passes the record on to ``verify_claim`` (or a
+    harness's replacement of it) only then."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any((p.name == "task" and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)) or p.kind is p.VAR_KEYWORD for p in params)
+
+
+def relay_clock() -> str:
+    """The time a synthesis is relayed, as an RFC 3339 UTC timestamp to the second (the channel stamps a report the same
+    way): the deployed combinator path stamps a synthesis when it is built from the delivered reports, so it never
+    precedes a report it cites (INT-HANDOFF-016)."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 #: What each appending mutation adds to the specialist's text (altered_quotation changes a real quotation instead).
@@ -373,9 +420,12 @@ def paragraph_count(text: str) -> int:
 
 
 def stem_variant(text: str, question: str, kind: str) -> tuple[str, str]:
-    """``(mutated_text, expected codes joined by '|')`` of a STEM mutation, or ``(text, 'SKIP')`` when the answer has no site."""
+    """``(mutated_text, expected codes joined by '|')`` of a STEM mutation, or ``(text, 'SKIP')`` when the answer has no site.
+    The codes are the mutation's own and, after them, those that name the fault at its site by design (``site_codes``: a
+    site inside a quotation of another text, INT-REQ-003; a term of a sum in brackets after its value, INT-SUBJ-004;
+    stem_mutations.py, "Sites"; round-8 clearance c1, STEM-integration finding 25)."""
     inj = mutate_stem(text, question, kind)
-    return (text, "SKIP") if inj is None else (inj.text, "|".join(inj.expected))
+    return (text, "SKIP") if inj is None else (inj.text, "|".join(inj.expected + tuple(c for c in inj.site_codes if c not in inj.expected)))
 
 
 def undecided_on(rc, claim_ids) -> list[str]:
@@ -821,7 +871,8 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else [] if value is None else [value]
 
 
-def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None):
+def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None,
+                    created_at: str | None = None):
     """The dummy combinator's synthesis for a hub task, as the JSON the router receives (a mapping of the synthesis/1.0
     shape), citing every delivered report of the group (a peer exchange is one task with two reports). The group's
     syntheses files are those of its delivered members: one combined output (the combinator's one answer for the whole
@@ -851,7 +902,12 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     material source claims whose excerpts its text reproduces word for word (``reproduced_evidence_refs``, over the
     claims of every delivered member, the file's own member's first): the combinator quoted the evidence, and the format
     had no field to cite it by. ``notes`` (when given) receives ``evidence_refs_copied``: {synthesized claim id: the
-    references copied, each with its source claim}."""
+    references copied, each with its source claim}.
+
+    ``created_at`` is the synthesis's timestamp, by default the relay clock when the synthesis is built (``relay_clock``),
+    as the deployed combinator path stamps it, so it never precedes a report it cites. Round 8's results audit: a
+    timestamp fixed in the past (2026-10-11) put INT-HANDOFF-016 ('synthesis created at ... precedes report ...') on
+    every synthesis receipt, a warning that depended on the day of the replay."""
     reporting = [it for it in items if group_of(it) == group and it["_path"].stem in delivered]  # delivered members, in group order
     members = [it for it in reporting if it["_path"].stem in syntheses]
     if not members:
@@ -900,7 +956,7 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
     out = {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
-           "created_at": "2026-10-11T15:00:00Z"}
+           "created_at": created_at if created_at is not None else relay_clock()}
     if conflicts:  # a round whose combinator disclosed none relays exactly the mapping it always did
         out["conflicts"] = conflicts
     return out
@@ -1040,7 +1096,7 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
         if not isinstance(synthesis, dict):
             rec["synthesis_unreadable"] = "a syntheses file of the group is not JSON: its text was relayed as the payload"
         rec.update(functional=not reasons, synthesis_id=shape.get("synthesis_id", f"syn-{group}"), source_report_ids=list(shape.get("source_report_ids") or []),
-                   synthesized_claims=len(shape.get("claims") or []),
+                   synthesized_claims=len(shape.get("claims") or []), synthesis_created_at=shape.get("created_at"),
                    status=rr.status.value, branch=rr.branch, delivered=relayed is not None,
                    codes=sorted({f["code"] for f in findings} | {sf["code"] for sf in subject}), findings=findings, subject_findings=subject,
                    formal_result_ids=list(rr.formal_result_ids), latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rr.summary[:400])
@@ -1059,15 +1115,33 @@ def stale_fixture(o: ClaimVerificationOutcome) -> bool:
     return o.translation.status is TranslationStatus.TRANSLATION_FAILED and any(STALE_FIXTURE_MARK in d for d in o.translation.diagnostics)
 
 
+def provider_attempts(o: ClaimVerificationOutcome) -> int:
+    """How many provider calls the pipeline made for the claim's translation (0 when it never asked: not eligible)."""
+    p = o.translation.provider
+    return int(p.attempts) if p is not None else 0
+
+
+def retry_not_exercised(o: ClaimVerificationOutcome) -> bool:
+    """True when the pipeline retried the claim's translation (a rejected first attempt with a retryable diagnostic) and
+    the retry was served the recorded output again. A recorded translation is one provider output, and the fixture
+    provider serves it on every attempt (``FixtureTranslationProvider``), so in a replay every retry is this one: the
+    second attempt fails as the first did, where production would retry with the diagnostics and get a new output. The
+    outcome is the first attempt's, and is reported as such, never as a retry that ran."""
+    return provider_attempts(o) > 1
+
+
 def outcome_record(o: ClaimVerificationOutcome) -> dict:
-    """What a record keeps per claim outcome: enough to see why a claim is AMBIGUOUS and what a verdict rests on."""
+    """What a record keeps per claim outcome: enough to see why a claim is AMBIGUOUS and what a verdict rests on, how many
+    provider calls the translation took (``attempts``; ``retry_not_exercised``: a retry served the same recorded output)
+    and whether the translation was validated against a task record (``task_record_given``)."""
     t, v = o.translation, o.verification
     flags = t.interpretation.ambiguity_flags if t.interpretation is not None else []
     rec = {"claim_id": o.claim_id, "display_status": o.display_status.value, "translation_status": t.status.value,
            "ambiguity_flags": [{"code": f.code, "message": f.message[:300], "alternatives": [a[:200] for a in f.alternatives]} for f in flags],
            "translation_diagnostics": [d[:300] for d in t.diagnostics][:8], "stale_fixture_refused": stale_fixture(o),
            # the pipeline's own eligibility decision for the claim (the claim counts compare it with the harness's)
-           "eligible": t.eligibility.eligible}
+           "eligible": t.eligibility.eligible,
+           "attempts": provider_attempts(o), "retry_not_exercised": retry_not_exercised(o), "task_record_given": t.task_sha256 is not None}
     if o.release is not None:
         # the release assessment (permission to release the answer on this claim's checks), kept apart from the formal status
         rec.update(release_permitted=o.release.permitted, release_unresolved=[u[:200] for u in o.release.unresolved][:6])
@@ -1777,6 +1851,56 @@ def transport_measure(records: list[dict]) -> dict:
             "injected_faults": {"functional": sum(1 for r in inj if r.get("functional")), "total": len(inj)}}
 
 
+def replay_configuration(records: list[dict], coverage: dict, *, task_record: bool = True) -> dict:
+    """``metrics.replay``: what this replay runs as production does and what it cannot run, each named.
+
+    - ``task_record``: whether the claim verifier received the task record of the request each report answers (production
+      does), with how many genuine outcomes' translations were validated against one;
+    - ``fixture_binding``: the served translations bound to the claim text they were produced for by a recorded digest,
+      and those bound by claim id only (the FIXTURES_UNBOUND qualification);
+    - ``retries``: a recorded translation is one provider output, so a retry the pipeline asks for is served the same
+      output (``retry_not_exercised``): the genuine claims whose retry was not exercised, by name, and the total over every
+      variant. Their outcomes are first-attempt outcomes; production retries with the diagnostics and a new output;
+    - ``synthesis_created_at``: syntheses are stamped when relayed (``relay_clock``)."""
+    genuine = [(r, o) for r in records if r["variant"] == "genuine" for o in r.get("outcomes", [])]  # the genuine pass: each claim once
+    retried = [f"{r['file']} {o['claim_id']}" for r, o in genuine if o.get("retry_not_exercised")]
+    every = sum(1 for r in records for o in r.get("outcomes", []) if o.get("retry_not_exercised"))
+    asked = [o for _r, o in genuine if o.get("attempts", 0) > 0]  # the translations the provider was asked for
+    given, translated = sum(1 for o in asked if o.get("task_record_given")), len(asked)
+    return {"note": "what this replay runs as production does, and what a recording cannot run; none of it is a measure of the hub",
+            "task_record": {"passed": bool(task_record), "genuine_translations_validated_against_it": given, "genuine_translations": translated,
+                            "definition": ("the claim verifier declares a task parameter, so the channel hands the translator the task record of the request "
+                                           "each report answers and task-authority premises are validated against the router's question, as production does"
+                                           if task_record else
+                                           "NOT passed (--without-task-record): task-authority premises are validated against the supplied texts only, as in "
+                                           "the replays before round 8's clearance; production passes the task record")},
+            "fixture_binding": {"served_with_recorded_digest": coverage.get("served_with_recorded_digest", 0),
+                                "served_by_claim_id_only": coverage.get("served_by_claim_id_only", 0),
+                                "definition": ("a served translation is bound to the claim text it was produced for by the digest recorded with it "
+                                               "(claim_text_sha256, written by bind_translations.py when the translations are recorded); without one it is "
+                                               "bound to whatever text its claim id carries in this run (FIXTURES_UNBOUND)")},
+            "retries": {"not_exercised_genuine_claims": len(retried), "claims": retried, "not_exercised_all_variants": every,
+                        "definition": ("a recorded translation is one provider output: a retry the pipeline asks for (a first attempt rejected with a "
+                                       "retryable diagnostic) is served the same output and fails as the first attempt did, so the outcome is the first "
+                                       "attempt's; production retries with the diagnostics and a new provider output")},
+            "synthesis_created_at": "the relay clock: each synthesis is stamped when it is relayed, after the reports it cites"}
+
+
+def replay_line(rp: dict) -> str:
+    """summary.md's line on the replay configuration (in the Measures section, after the measures)."""
+    tr, fb, rt = rp["task_record"], rp["fixture_binding"], rp["retries"]
+    task = (f"the task record of each request is passed to the translator, as production passes it ({tr['genuine_translations_validated_against_it']} of "
+            f"{tr['genuine_translations']} genuine translations validated against it)" if tr["passed"] else
+            "the task record is NOT passed to the translator (--without-task-record: task-authority premises are validated against the supplied texts "
+            "only, unlike production)")
+    named = f": {', '.join(rt['claims'])}" if rt["claims"] else ""
+    return (f"- Replay configuration (what a recording cannot run as production does is named, never counted as run): {task}; "
+            f"{fb['served_with_recorded_digest']} served translations bound to a recorded claim-text digest, {fb['served_by_claim_id_only']} by claim id "
+            f"only; retries NOT exercised (a recorded translation is one output, so a retry is served the same output and the outcome is the first "
+            f"attempt's) on {rt['not_exercised_genuine_claims']} genuine claim(s){named} ({rt['not_exercised_all_variants']} over every variant); "
+            "syntheses stamped at relay time.")
+
+
 def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
     """Why this run's translation figures cannot stand for the recorded round: expected translations lost, served
     translations bound by claim id only, adjudications that could not be applied. Empty when none applies."""
@@ -1789,22 +1913,25 @@ def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
     if coverage["served_by_claim_id_only"]:
         out.append({"code": "FIXTURES_UNBOUND", "message": (f"{coverage['served_by_claim_id_only']} of the {coverage['served']} served translations carry no recorded "
                                                             "claim-text digest: each is bound to the text its claim id carries in this run, which may not be the "
-                                                            "sentence it was produced for")})
+                                                            "sentence it was produced for (record the digests with the translations when they are recorded: "
+                                                            "scripts/arena/bind_translations.py)")})
     if fidelity.get("not_applied"):
         out.append({"code": "ADJUDICATIONS_NOT_APPLIED", "message": (f"{len(fidelity['not_applied'])} of {fidelity['recorded']} adjudications do not apply to this "
                                                                      f"run (see translation_fidelity.not_applied); fidelity is measured on the {fidelity['adjudicated']} applied")})
     return out
 
 
-def round_measures(records: list[dict], translations: dict[str, dict], adjudications: dict | None) -> dict:
+def round_measures(records: list[dict], translations: dict[str, dict], adjudications: dict | None, *, task_record: bool = True) -> dict:
     """results.json ``metrics``: transport, fixture coverage, translation fidelity, the claim counts and latency, each
-    with its own definition and denominator, and the qualifications they raise."""
+    with its own definition and denominator, the qualifications they raise, and the replay's configuration
+    (``replay_configuration``: what it runs as production does and what it cannot)."""
     coverage = round_fixture_coverage(records, translations)
     fidelity = adjudicate(adjudications, records, translations)
     return {"note": "separate measures, each with its own denominator; none is combined with another into one rate",
             "transport": transport_measure(records), "fixture_coverage": coverage, "translation_fidelity": fidelity,
             "claims": round_claim_measures(records, fidelity), "latency": latency_measures(records),
-            "cost": "no translation provider was called (recorded fixtures only)", "qualifications": run_qualifications(coverage, fidelity)}
+            "cost": "no translation provider was called (recorded fixtures only)", "qualifications": run_qualifications(coverage, fidelity),
+            "replay": replay_configuration(records, coverage, task_record=task_record)}
 
 
 def _pct(n: int, d: int) -> str:
@@ -1860,6 +1987,8 @@ def measure_lines(m: dict) -> list[str]:
                          for name, v in (("genuine traffic", g), ("injected faults", i)) if v["n"])
     lines.append(f"- Latency (hub processing per transmission in this run, on this machine; not a stress measurement): {lat_text or 'none recorded'}.")
     lines.append(f"- Cost: {m['cost']}.")
+    if m.get("replay"):
+        lines.append(replay_line(m["replay"]))
     for q in m["qualifications"]:
         lines.append(f"- QUALIFIED ({q['code']}): {q['message']}.")
     return lines
@@ -2043,9 +2172,11 @@ def delivery_lines(d: dict) -> list[str]:
     return lines
 
 
-def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict:
+def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_record: bool = True) -> dict:
     """Run one recorded round (module docstring). ``delivery_overseer`` configures the delivery pass's overseer agents
-    (``delivery_pass``); the command line passes none."""
+    (``delivery_pass``); the command line passes none. ``task_record`` (default True, as production): the claim verifier
+    receives the task record of the request each report answers and hands it to the translator; False replays with the
+    two-argument verifier of the replays before round 8's clearance (``--without-task-record``), for comparison only."""
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
     syntheses = load_syntheses(syn_dir)  # the combinator's output as written: a file that is not JSON is relayed as text, never raised on
@@ -2079,14 +2210,24 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
     def make_verify_fn(stem: str, capture: bool, verify=None):
         """Translator agent output -> fixture provider; verify eligible claims of the task ``stem`` through the real
         pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for.
-        ``verify`` replaces the module's ``verify_claim`` (the delivery pass passes the one bound at import)."""
+        ``verify`` replaces the module's ``verify_claim`` (the delivery pass passes the one bound at import).
+
+        The verifier declares a ``task`` parameter, as production's does (``integration.runtime.live_verifier``): the
+        channel then calls it ``fn(claim, report, task=<TaskRecord>)`` with the task record of the request the report
+        answers (``channel.bus._accepts_task``; the delivery policy's deadline verifier passes it on), and the translator
+        validates task-authority premises against the router's question as well as the supplied texts. With
+        ``task_record`` False (``--without-task-record``) the record is not passed on, as in the replays before round 8's
+        clearance. Round 8's translation-fidelity lens: the two-argument verifier checked a task_setting or
+        arithmetic_fact premise against the supplied texts only, never against the question, so seven outcomes of the
+        round were not the ones production computes for the same translations (ps-t14's unverified dependency 'cr-obs';
+        E112 on a task figure no check had verified)."""
         tr = translations.get(stem)
         if not tr:
             return None
         digests = fixture_digests.setdefault(stem, {})
         provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in tr["claims"].items()}, claim_text_sha256=digests)
 
-        def verify_fn(claim, report, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None,
+        def verify_fn(claim, report, task=None, *, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None,
                       _tag=qualification_tags.get(stem), _agent=agents_by_stem.get(stem)):
             # the recorded translation of this claim: under its own id, or, for this specialist's own report, under the other
             # form of its STEM id (the hub qualifies a report's ids after another agent's report holding them, which a
@@ -2110,7 +2251,12 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
                 # (fixture_for_claim), bound to the claim text by the recorded or captured digest of its recorded id
                 translator = Translator(FixtureTranslationProvider({claim.claim_id: fixture_for_claim(tr["claims"][key], key, claim.claim_id)},
                                                                    claim_text_sha256={claim.claim_id: digests[key]} if key in digests else None))
-            return (verify or verify_claim)(claim, report, translator, config=CFG, signing_key=KEY)
+            # the task record goes on when there is one, the replay passes it and the claim verifier declares it (the
+            # channel's own rule, accepts_task): a verifier that replaces verify_claim without a task parameter is called
+            # exactly as before, and its outcomes then say no task record was given (task_record_given)
+            verifier = verify or verify_claim
+            with_task = {"task": task} if (task is not None and task_record and accepts_task(verifier)) else {}
+            return verifier(claim, report, translator, config=CFG, signing_key=KEY, **with_task)
         return verify_fn
 
     # Two passes: every genuine reply (with peer relays and the combinator's synthesis) first, then the fault
@@ -2337,7 +2483,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
            "deliveries": deliveries,
            "failures": [r for r in records if not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
-    out["metrics"] = round_measures(records, translations, adjudications)
+    out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record)
     out["qualifications"] = out["metrics"]["qualifications"]
     out["qualified"] = bool(out["qualifications"])
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
@@ -2390,14 +2536,18 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None) -> dict
 def main(argv: list[str] | None = None) -> int:
     """Run one round and print its measures. Exit status 0, or 1 with ``--fail-on-qualification`` when the run is
     qualified (expected translations lost, served translations bound by claim id only, or adjudications that do not
-    apply), so a translation-regression run fails instead of reporting figures for a different set of translations."""
+    apply), so a translation-regression run fails instead of reporting figures for a different set of translations.
+    ``--without-task-record`` replays without the task record (``run_round(..., task_record=False)``)."""
     ap = argparse.ArgumentParser(description="Feed a recorded arena round through the hub and write results.json and summary.md.")
     ap.add_argument("round_dir", type=Path, help="the round directory (specialists/, translations/, syntheses/, relayed/, adjudications/)")
     ap.add_argument("--fail-on-qualification", action="store_true",
                     help="exit with status 1 when the run is qualified, for a translation-regression run that must use every recorded translation")
+    ap.add_argument("--without-task-record", action="store_true",
+                    help="do not pass the task record to the translator (production passes it): the configuration of the replays before round 8's "
+                         "clearance, for a comparison with them only; results.json and summary.md say so")
     args = ap.parse_args(argv)
     rd = args.round_dir.resolve()
-    res = run_round(rd)
+    res = run_round(rd, task_record=not args.without_task_record)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
     dl = res.get("deliveries") or {}

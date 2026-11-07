@@ -39,6 +39,8 @@ DESIGN_CODES = {
     "T5b": ["OVS-FORM-001", "OVS-FORM-002"], "T5c": ["OVS-FORM-003"], "T5d": ["OVS-FORM-004"], "T6": [], "T6b": ["OVS-SYN-002"], "T6c": ["OVS-CUST-001"],
     "T7": [], "T7b": ["OVS-PEER-002"], "T7c": ["OVS-PEER-002"], "T8": ["OVS-FID-009"], "T8b": ["OVS-FID-005"], "T8c": [], "T9": ["OVS-FID-002"],
     "T9b": ["OVS-FID-004"], "T10": ["OVS-JOINT-001", "OVS-SYN-003"], "T10b.disclosed": [], "T10b.named": [], "T10c": ["OVS-JOINT-003"],
+    # round-8 clearance c1 (rule pooled-only-conflict): a conflict that exists only through pooling a rejected candidate (maa-t14)
+    "T10d": ["OVS-JOINT-003"],
     "T11": ["OVS-RES-007"], "T11.external": ["OVS-RES-007"], "T12": ["OVS-CUST-005"], "T13": ["OVS-CUST-003"], "T14": [], "T15": ["OVS-CUST-006"],
     "T15b": ["OVS-CUST-006"], "T17": ["OVS-AUDIT-003"], "T18": ["OVS-DIV-001"], "T18.clock": ["OVS-DIV-002"], "T19": ["OVS-JOINT-004", "OVS-RCPT-004"],
     "T16d": ["OVS-FID-001"], "T22a": ["OVS-TRN-001"], "T22b": ["OVS-TRN-002"], "T22c": ["OVS-TRN-002"], "T22d": ["OVS-TRN-003"], "T22e": ["OVS-TRN-004"],

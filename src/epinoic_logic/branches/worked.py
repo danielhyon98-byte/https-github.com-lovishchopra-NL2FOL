@@ -19,6 +19,17 @@ The reading (closed; anything outside it is not read, and the equation stays nam
   whole power ``^n`` or ``ⁿ`` from 0 to 12; a hyphen between two digits (``15-64``) is a range label, not read;
 * label words before the first figure of the first link (``The tax is $0.40 × ...``), unless their last word is one that takes part
   in the arithmetic (``half of``, ``twice``, ``the sum of``): then the line is not read;
+* the formula written in symbols at the head of the working (``rs = 1 − (6 × Σd²) ÷ (n³ − n) = 1 − (6 × 66) ÷ (6³ − 6) = ...``,
+  ``PV = 1000 ÷ (1 + r)^n = 1000 ÷ 1.05^3 = ...``): leading links that hold a letter the reading does not read are its statement,
+  set aside when links of figures follow them; a letter in a later link refuses the line;
+* a bracketed comment inside a link that holds words and no operator (``4.00% − 5.20% (inflation from paragraph [2])``) is set
+  aside, and so is a restatement in brackets that holds an '=' (``0.762 million ÷ 12.70 million × 100 (762 thousand = 0.762 million)
+  = 6.50%``: :func:`~epinoic_logic.branches.quant.worked_equations` cuts no link at it); a stated result written with its sign
+  (``= +$53,900``) is read as its value;
+* a relative change stated right after the result of a difference of two amounts (``Change = $4,125 million − $2,400 million =
+  +$1,725 million per year (an increase of 71.88%)``) is a second problem of the line: ``(A − B) ÷ B`` against the stated per cent, a
+  fall a negative change; it is read only when the stated difference has the direction's sign, so working written old minus new is
+  never read the wrong way round;
 * the stated result is the figure that opens the last link, with its scale word, per cent sign and unit words.
 
 A line is not read when its figures carry two different units of measurement (the STEM unit table, or a unit of time such as
@@ -31,6 +42,19 @@ written (``(31 − 11) ÷ 10 = 2.0%`` is the demographers' rate per cent from ra
 sign and no figure of the line carries a currency sign, every per cent sign as written (``12.5% − 10.0% = 2.5 percentage points``;
 ``5% × $200 = $1,000`` has no such reading). The check fails only when the stated value lies outside its band under every reading
 (the conclusion is the disjunction of the readings' bands), so an ambiguous per cent is never an error.
+
+Scale words. A scale word governs the figure it follows (``105 million litres``), so a line whose operands carry their own
+(``$600 × 4.0 million = $2,400 million``) is read as written. A specialist often writes the line's scale once, after the stated
+result, for figures it reads from a table in that unit (``10.0 − 4.0 = 6.0 million tonnes per year`` for imports of 10.0 and 4.0
+million tonnes): when the stated result carries a scale word and no operand does, the line is also read in that scale (the
+operands and the result in the result's written units, ``h`` half a unit in its last written digit), beside the reading as
+written (``$1,500,000 + $500,000 = $2 million``), and the check fails only when the stated value lies outside its band under both
+readings (``10.0 − 4.0 = 7.0 million tonnes per year`` fails; ``10.0 million − 4.0 million = 7.0 million`` fails as written). A
+correct line in one consistent scale is therefore never an error.
+
+Parts in brackets. A figure stated with the sum or difference of its parts in brackets ('$11,300 (5,200 + 4,000 + 1,500 + 600)',
+'$1,237.50 million per year in total ($712.50 + $525)') is read the same way (:func:`breakdown_problems`): the parts are the written
+expression, the figure before the bracket its stated result. Years in brackets are no parts.
 
 Tolerance (the STEM rule, ``stem.tolerance``): the stated value S passes when ``|C − S| ≤ h + τ·|C|`` for the value C of the
 written expression; ``h`` is half a unit in S's last written digit (the trailing zeros of a whole number count only up to the
@@ -57,7 +81,8 @@ from ..stem.si_reading import SI_READING, si_unit
 from ..stem.tolerance import TAU_APPROX, TAU_EQUAL, approx_word_in, band_expr
 from .quant import worked_equations
 
-__all__ = ["MAX_DEPTH", "MAX_TOKENS", "MAX_WORKED_CHECKS", "WORKED_RULE", "WORKED_SCOPE", "WorkedProblem", "decided_worked_chains", "worked_problems"]
+__all__ = ["MAX_DEPTH", "MAX_TOKENS", "MAX_WORKED_CHECKS", "WORKED_RULE", "WORKED_SCOPE", "WorkedProblem", "breakdown_problems", "decided_worked_chains",
+           "worked_problems"]
 
 #: The most worked equations one report sends to the engine; the rest stay named undecided (CORE-QNT-001).
 MAX_WORKED_CHECKS = 64
@@ -71,7 +96,8 @@ WORKED_SCOPE = ("Worked-arithmetic check: proves a property of its encoding only
                 "the figures are true, that the formula is the right one for the question, or that a unit is the right one.")
 WORKED_RULE = ("tolerance: |C − S| ≤ h + τ·|C|; h: half a unit in S's last written digit (a whole number's trailing zeros only to the measured "
                "operands' significant figures), times its scale; τ: 1/20 after ≈ or about, else 1/100, and 0 with h only for a result of two or more "
-               "digits when every figure is exact; a per cent sign read as a fraction and, for a stated result in per cent, as written")
+               "digits when every figure is exact; a per cent sign read as a fraction and, for a stated result in per cent, as written; a scale word "
+               "after the stated result only also read as the line's scale (h then in the result's written units)")
 
 _CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
 _CUR_RE = re.compile(_CUR)
@@ -98,6 +124,10 @@ _LABEL_WORDS = frozenset("per a an each every of in on at to is as by or and the
 
 class _Refuse(Exception):
     """The line is outside the reading: it is not read, and stays named undecided."""
+
+
+class _SymbolRefuse(_Refuse):
+    """A link holds a letter the reading does not read (a symbol of a formula: 'Σd²', 'n³ − n', '(1 + r)^n')."""
 
 
 @dataclass(frozen=True)
@@ -139,7 +169,7 @@ def _read_figure(s: str, i: int) -> tuple[_Fig, int]:
     if scan is None or scan.number is None:
         raise _Refuse("a figure outside the number reader's bounds")
     j = scan.end
-    if j < len(s) and s[j].isdigit():
+    if j < len(s) and s[j].isdigit() and s[j] not in _SUPER:  # a superscript after the figure is its power ('6³'), read as a token
         raise _Refuse("a figure read in part")
     if j < len(s) and s[j] in ",." and j + 1 < len(s) and s[j + 1].isdigit():
         raise _Refuse("a decimal comma or a broken thousands group")
@@ -222,6 +252,8 @@ def _tokens(link: str) -> list:
                 raise _Refuse("two figures with no operator between them")
             fig, i = _read_figure(s, i)
             out.append(("fig", fig))
+        elif ch.isalpha():
+            raise _SymbolRefuse(f"a character outside the reading ({ch!r})")
         else:
             raise _Refuse(f"a character outside the reading ({ch!r})")
         i = _skip_ws(s, i)
@@ -395,6 +427,8 @@ def _unit_key(word: str) -> Optional[str]:
         u = si_unit(w, SI_READING.profile)
     except Exception:  # noqa: BLE001 - an unreadable word is a label
         u = None
+    if u is not None and u.factor == 1 and not u.affine and not any(u.dim.exps) and not u.dim.angle:
+        return None  # a pure count ('loaves', 'people', 'items', when the unit table reads count nouns): a label, no unit to convert
     return f"{w}" if u is not None else None
 
 
@@ -433,20 +467,39 @@ def _read(phrase: str, statement: str) -> _Read:
         raise _Refuse("no stated result")
     links = [_strip_label(links[0])] + links[1:]
     *expr_links, result_link = links
+    # a comment in brackets inside the working ('4.00% − 5.20% (inflation from paragraph [2])', '(units cancel)'): words and no operator,
+    # so no part of the arithmetic; it is set aside before the link is read (c1 adversarial: such a chain was named undecided only)
+    expr_links = [_COMMENT_RE.sub(" ", link) for link in expr_links]
     trees = []
-    for link in expr_links:
-        toks = _tokens(link)
+    kept: list[str] = []
+    for k, link in enumerate(expr_links):
+        try:
+            toks = _tokens(link)
+        except _SymbolRefuse:
+            if not trees and k + 1 < len(expr_links):
+                # the formula written in symbols before the working ('1 − (6 × Σd²) ÷ (n³ − n) = 1 − (6 × 66) ÷ (6³ − 6) = 1 − 396 ÷ 210
+                # = ...'): its statement, not a figure of the working, set aside as the label words before the first figure are, when
+                # links of figures follow it; a symbol in a later link still refuses the line (c1 adversarial ge-t14-rs)
+                continue
+            raise
         if not any(t[0] == "op" or t[0] == "pow" for t in toks):
             raise _Refuse("a link that is not an expression")
         trees.append(_Parser(toks).parse())
+        kept.append(link)
+    expr_links = kept
     rl = result_link.strip()
     sign = 1
+    if rl[:1] == "+":
+        rl = rl[1:].lstrip()  # a stated gain written with its sign ('= +$53,900')
     while rl[:1] in "-−":
         sign = -sign
         rl = rl[1:].lstrip()
     cur_first = _CUR_RE.match(rl)
     if cur_first:
         after = rl[cur_first.end():].lstrip()
+        if after[:1] == "+":
+            rl = rl[:cur_first.end()] + after[1:]
+            after = after[1:]
         if after[:1] in "-−":
             sign = -sign
             rl = rl[:cur_first.end()] + after[1:]
@@ -464,23 +517,81 @@ def _read(phrase: str, statement: str) -> _Read:
     return _Read(phrase, statement, tuple(trees), tuple(" ".join(x.split()) for x in expr_links), result, approx)
 
 
+#: A bracketed comment of a link: at least one word of three letters and no arithmetic operator or '=' inside (bounded: 120 characters).
+_COMMENT_RE = re.compile(r"\s{0,3}\((?=[^()\n]{0,120}?[A-Za-z]{3})[^()\n=+×÷*/−–^-]{1,120}\)")
+
+
 @lru_cache(maxsize=32)
 def _reads(text: str) -> tuple[tuple[str, str, Optional[_Read], str], ...]:
-    """``(phrase, statement, read or None, why not)`` for every worked equation of ``text``, at most :data:`MAX_WORKED_CHECKS` read."""
+    """``(phrase, statement, read or None, why not)`` for every worked equation of ``text``, at most :data:`MAX_WORKED_CHECKS` read; a
+    relative change stated after a difference's result (:func:`_relative_change_read`) is read after its equation, its ``why`` the tag
+    :data:`_RELATIVE_TAG`."""
     out: list[tuple[str, str, Optional[_Read], str]] = []
+    n_read = 0  # counted as the reads are made (a sum over the list at every equation was quadratic in the number of equations)
     for eq in worked_equations(text):
-        if sum(1 for _p, _s, r, _w in out if r is not None) >= MAX_WORKED_CHECKS:
+        if n_read >= MAX_WORKED_CHECKS:
             out.append((eq.phrase, eq.statement, None, "the limit of worked-arithmetic checks per report was reached"))
             continue
         try:
             r = _read(eq.phrase, eq.statement)
             Problem.model_validate(_problem(r, pid="worked-check", claim_id="worked-check", request_id="worked-check")[0])  # the IR's own schema
             out.append((eq.phrase, eq.statement, r, ""))
+            n_read += 1
         except _Refuse as why:
             out.append((eq.phrase, eq.statement, None, str(why)))
+            continue
         except Exception as exc:  # noqa: BLE001 - never an exception on agent text; the equation stays named undecided (CORE-QNT-001)
             out.append((eq.phrase, eq.statement, None, f"not read ({type(exc).__name__})"))
+            continue
+        if n_read >= MAX_WORKED_CHECKS:
+            continue
+        try:
+            rel = _relative_change_read(r)
+            if rel is not None:
+                Problem.model_validate(_problem(rel, pid="worked-check", claim_id="worked-check", request_id="worked-check")[0])
+                out.append((rel.phrase, rel.statement, rel, _RELATIVE_TAG))
+                n_read += 1
+        except Exception:  # noqa: BLE001 - never an exception on agent text: the relative change is left to the prose reader
+            pass
     return tuple(out)
+
+
+#: The ``why`` of a relative change read after its difference (:func:`_relative_change_read`), so its check is described as such.
+_RELATIVE_TAG = "relative change of the difference"
+#: A relative change written right after a difference's stated result: '= +$1,725 million per year (an increase of 71.88%)', ', a fall of
+#: 4.2%'. Bounded: at most 40 characters of unit words between the result and the change; the per cent ends its bracket or clause.
+_REL_CHANGE_AFTER_RE = re.compile(
+    r"^[^()\n%=]{0,40}?[\s,;(]{1,3}(?:an?\s+)?(?:(?P<up>increase|rise|growth|gain)|(?P<down>decrease|fall|drop|decline|reduction))\s+of\s+"
+    r"(?P<pct>\d{1,4}(?:\.\d{1,6})?\s?(?:%|per\s?cent))(?=\s*(?:\)|[.;,]|$))", re.IGNORECASE)
+
+
+def _relative_change_read(r: _Read) -> Optional[_Read]:
+    """The relative change a line states right after the result of a difference of two figures ('Change = $4,125 million − $2,400 million =
+    +$1,725 million per year (an increase of 71.88%)'): the change of the first figure on the second, ``(A − B) ÷ B``, against the stated
+    per cent (a fall is a negative change), or None. Read only when the line is that one difference, both figures are amounts in one
+    currency with no per cent sign, and the stated result's sign is the direction's ('an increase' of a positive difference, 'a fall' of a
+    negative one), so 'old − new' working is never read the wrong way round."""
+    if len(r.links) != 1:
+        return None
+    tree = r.links[0]
+    if not (tree[0] == "sub" and tree[1][0] == "fig" and tree[2][0] == "fig"):
+        return None
+    a, b = tree[1][1], tree[2][1]
+    if a.percent or b.percent or r.result.percent or a.cur != b.cur or b.value == 0 or r.result.value == 0:
+        return None
+    at = r.statement.find(r.phrase)
+    if at < 0:
+        return None
+    m = _REL_CHANGE_AFTER_RE.match(r.statement[at + len(r.phrase):])
+    if m is None or (m.group("up") is not None) != (r.result.value > 0):
+        return None
+    pct, _end = _read_figure(m.group("pct"), 0)
+    if m.group("down") is not None:
+        pct = _Fig(replace(pct.number, value=-pct.number.value), pct.scale, pct.percent, pct.units, pct.cur, "−" + pct.text)
+    shown = f"({a.text} − {b.text}) ÷ {b.text}"
+    rel_tree = ("div", ("sub", ("fig", a), ("fig", b)), ("fig", b))
+    words = " ".join(m.group(0).strip(" ,;(").split())
+    return _Read(f"{r.phrase} ({words})", r.statement, (rel_tree,), (shown,), pct, r.approx)
 
 
 @dataclass(frozen=True)
@@ -504,17 +615,30 @@ def _fmt(f: Fraction) -> str:
     return f"{float(f):.12g}" if d == 1 else str(f)
 
 
+#: The name of a scale for the reading that lets the stated result's scale word govern the line.
+_SCALE_NAMES = {3: "thousands", 6: "millions", 9: "billions", 12: "trillions"}
+
+
 def _problem(r: _Read, *, pid: str, claim_id: str, request_id: str) -> tuple[dict, str]:
     operands = [f for t in r.links for f in _figures(t)]
     S = r.result
     has_pct_operand = any(f.percent for f in operands)
-    readings: list[tuple[str, bool, bool]] = [("per cent as a fraction" if (has_pct_operand or S.percent) else "as written", True, True)]
+    base: list[tuple[str, bool, bool]] = [("per cent as a fraction" if (has_pct_operand or S.percent) else "as written", True, True)]
     if S.percent:
-        readings.append(("the stated per cent as written, an operand's per cent as a fraction" if has_pct_operand else "the stated per cent as written", True, False))
+        base.append(("the stated per cent as written, an operand's per cent as a fraction" if has_pct_operand else "the stated per cent as written", True, False))
     if has_pct_operand and not S.cur and not any(f.cur for f in operands):
         # per-cent arithmetic stated in per cent or in points ('12.5% − 10.0% = 2.5 percentage points'); never for an amount of money
         # ('5% × $200 = $1,000' is no reading of a tax of 5 per cent)
-        readings.append(("every per cent as written", False, False))
+        base.append(("every per cent as written", False, False))
+    # a scale word written once, after the stated result, for operands that carry none ('10.0 − 4.0 = 6.0 million tonnes per year'):
+    # the line is also read in the result's scale (its figures in the result's written units), beside the reading as written
+    # ('$1,500,000 + $500,000 = $2 million'); readings: (label, an operand's per cent as a fraction, the stated per cent as a fraction,
+    # the stated value at its written scale)
+    readings: list[tuple[str, bool, bool, bool]] = [(label, a, b, True) for label, a, b in base]
+    if S.scale and not S.percent and not any(f.scale for f in operands):
+        scale_name = _SCALE_NAMES.get(S.scale, f"units of 10^{S.scale}")
+        readings = [(f"the scale word after the result governs the line (every figure in {scale_name})" + (f", {label}" if label != "as written" else ""), a, b, False)
+                    for label, a, b in base] + readings
     exact = (not r.approx and all(not f.measured for f in operands) and not S.measured)
     measured_sf = [f.number.sig_figs for f in operands if f.measured]
     min_sf = min(measured_sf) if measured_sf else None
@@ -525,20 +649,21 @@ def _problem(r: _Read, *, pid: str, claim_id: str, request_id: str) -> tuple[dic
     else:
         tau = TAU_EQUAL
     if exact:
-        h_written = Fraction(1, 2) if S.number.digit_count >= 2 else Fraction(0)
+        h_unscaled = Fraction(1, 2) if S.number.digit_count >= 2 else Fraction(0)
     else:
-        h_written = S.number.half_width_for(min_sf)
-    h_written *= Fraction(10) ** S.scale
+        h_unscaled = S.number.half_width_for(min_sf)
+    h_written = h_unscaled * Fraction(10) ** S.scale
     symbols: list[dict] = []
     premises: list[dict] = []
     bands: list[dict] = []
     shown_expr = " = ".join(r.shown_links)
-    for k, (label, pct_operands, pct_result) in enumerate(readings, start=1):
+    for k, (label, pct_operands, pct_result, at_scale) in enumerate(readings, start=1):
         tag = "" if k == 1 else str(k)
         enc = _Encoder(tag, pct_operands)
         c, r_name = f"c{tag}", f"r{tag}"
-        stated = S.value / 100 if (S.percent and pct_result) else S.value
-        h = h_written / 100 if (S.percent and pct_result) else h_written
+        value, h_read = (S.value, h_written) if at_scale else (S.number.value, h_unscaled)
+        stated = value / 100 if (S.percent and pct_result) else value
+        h = h_read / 100 if (S.percent and pct_result) else h_read
         symbols += [{"name": c, "sort": "Real", "meaning": f"the computed value of the written expression ({label})"},
                     {"name": r_name, "sort": "Real", "meaning": f"the stated value ({label})"}]
         for j, tree in enumerate(r.links, start=1):
@@ -562,9 +687,10 @@ def _problem(r: _Read, *, pid: str, claim_id: str, request_id: str) -> tuple[dic
         link_bands = [band_expr(_var(c if j == 1 else f"{c}_{j}"), _var(r_name), _real(h), tau) for j in range(1, len(r.links) + 1)]
         bands.append(link_bands[0] if len(link_bands) == 1 else {"op": "and", "args": link_bands})
     conclusion = bands[0] if len(bands) == 1 else {"op": "or", "args": bands}
-    names = "; ".join(label for label, _a, _b in readings)
+    names = "; ".join(label for label, _a, _b, _s in readings)
+    h_shown = _fmt(h_written) if all(at for *_x, at in readings) else f"{_fmt(h_unscaled)} in the result's scale, {_fmt(h_written)} as written"
     mode = ("exact mode: every figure is exact" + (", h = 1/2" if h_written else ", h = 0") if exact else
-            f"h = {_fmt(h_written)}" + (" (≈ or about: τ = 1/20)" if r.approx else ""))
+            f"h = {h_shown}" + (" (≈ or about: τ = 1/20)" if r.approx else ""))
     problem = {
         "ir_version": "1.0", "problem_id": pid[:128], "request_id": request_id[:128], "claim_id": claim_id[:128], "query": "entailment",
         "symbols": symbols, "premises": premises,
@@ -588,7 +714,72 @@ def worked_problems(text: str, *, report_id: str, request_id: str, prefix: str, 
             continue
         n += 1
         problem, description = _problem(r, pid=f"{prefix}-{report_id}-{n}", claim_id=f"{report_id}:{prefix}-{n}", request_id=request_id)
+        if _why == _RELATIVE_TAG:
+            description = description.replace("the written arithmetic:", "the relative change stated after the difference:", 1)
         out.append(WorkedProblem(phrase, statement, problem, description))
+    return out
+
+
+# ------------------------------------------------------------------ a figure with its parts in brackets ('$11,300 (5,200 + 4,000 + 1,500 + 600)')
+
+#: A stated figure followed by the sum or difference of its parts in brackets: '$11,300 (5,200 + 4,000 + 1,500 + 600)', '$1,237.50 million per
+#: year in total ($712.50 + $525)'. Up to six words may stand between the figure and the bracket ('million per year in total'); the bracket
+#: holds two to twelve figures joined by '+' or '−' and nothing else. Every run is bounded, so each figure is read once.
+_BREAKDOWN_FIG = r"(?:US\$|[$£€¥])?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?!\d)|(?:US\$|[$£€¥])?\d+(?:\.\d+)?(?!\d)"
+_BREAKDOWN_RE = re.compile(
+    rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>(?:\s{{1,3}}[A-Za-z]{{1,15}}){{0,6}}?)\s{{0,3}}"
+    rf"\((?P<parts>\s{{0,3}}(?:{_BREAKDOWN_FIG})(?:\s{{0,3}}[+−-]\s{{0,3}}(?:{_BREAKDOWN_FIG})){{1,11}}\s{{0,3}})\)")
+_YEAR_ONLY_RE = re.compile(r"^(?:1[0-9]{3}|20[0-9]{2})$")
+#: The longest text the breakdown reader reads.
+_BREAKDOWN_MAX_CHARS = 200_000
+
+
+def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
+    """``(phrase, statement, read)`` for every figure of ``text`` stated with the sum of its parts in brackets: the parts are read as the
+    written expression and the figure before the bracket (with its scale word) as its stated result, so the engine decides it as any worked
+    line (the scale rule included: '$1,237.50 million ... ($712.50 + $525)' is read in millions). Years in brackets ('(2019 + 2020)') are
+    no parts."""
+    out: list[tuple[str, str, _Read]] = []
+    for m in _BREAKDOWN_RE.finditer(text[:_BREAKDOWN_MAX_CHARS]):
+        parts = m.group("parts")
+        figures = re.findall(r"\d[\d,.]*", parts)
+        if all(_YEAR_ONLY_RE.match(f) for f in figures):
+            continue
+        stated_text = m.group("stated") + m.group("words")
+        try:
+            toks = _tokens(parts)
+            tree = _Parser(toks).parse()
+            result, _end = _read_figure(stated_text.strip(), 0)
+        except _Refuse:
+            continue
+        except Exception:  # noqa: BLE001 - never an exception on agent text: the figure is not read
+            continue
+        figs = _figures(tree) + [result]
+        if len({f.cur for f in figs if f.cur}) > 1 or len({k for f in figs for w in f.units for k in [_unit_key(w)] if k}) > 1:
+            continue
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        line_end = text.find("\n", m.end())
+        statement = text[line_start: line_end if line_end >= 0 else len(text)].strip()
+        phrase = " ".join(m.group(0).split())
+        shown = " ".join(parts.split())
+        out.append((phrase, statement, _Read(phrase, statement, (tree,), (shown,), result, approx_word_in(m.group("words")))))
+        if len(out) >= MAX_WORKED_CHECKS:
+            break
+    return out
+
+
+def breakdown_problems(text: str, *, report_id: str, request_id: str, prefix: str) -> list[WorkedProblem]:
+    """The engine problems of the figures ``text`` states with the sum of their parts in brackets (:func:`_breakdown_reads`), numbered
+    after the worked equations of the same prefix ('-b1', '-b2'): '$11,400 (5,200 + 4,000 + 1,500 + 600)' is a COUNTEREXAMPLE, '$11,300
+    (...)' ENTAILED (c1 adversarial: parenthetical sums crossed silently)."""
+    out: list[WorkedProblem] = []
+    for n, (phrase, statement, r) in enumerate(_breakdown_reads(text), start=1):
+        problem, description = _problem(r, pid=f"{prefix}-{report_id}-b{n}", claim_id=f"{report_id}:{prefix}-b{n}", request_id=request_id)
+        try:
+            Problem.model_validate(problem)
+        except Exception:  # noqa: BLE001 - a problem the IR schema refuses is not built
+            continue
+        out.append(WorkedProblem(phrase, statement, problem, description.replace("the written arithmetic:", "the parts in brackets:", 1)))
     return out
 
 

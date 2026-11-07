@@ -25,7 +25,7 @@ from epinoic_logic.integrity.contracts import payload_hash
 from epinoic_logic.overseer import load_pack
 from epinoic_logic.overseer.delivery_policy import (
     DELIVERY_SCOPE_STATEMENT, FOUNDER_MIN_SELECTED_ACCURACY, FOUNDER_TRANSLATION_BUDGET_S, DeadlineVerifier, DeliveredAnswer, DeliveryConfig,
-    DeliveryPolicy, TranslationStage, is_fallback_label_honest, verify_delivered_answer, verify_delivery_receipt,
+    NOT_CHECKED_CODES, DeliveryPolicy, TranslationStage, is_fallback_label_honest, verify_delivered_answer, verify_delivery_receipt,
 )
 from epinoic_logic.overseer.export import export_pack
 from epinoic_logic.overseer.keys import DELIVERY_KEY_ID
@@ -100,6 +100,46 @@ def test_a_fast_clean_answer_is_delivered_formally_checked_with_a_signed_receipt
         assert (d.answer.formal_reasons, d.answer.selection, d.answer.accuracy_fraction) == ([], [], None)
     finally:
         run.close()
+
+
+@pytest.mark.parametrize("second, code", [
+    ("The speed rose by 20%.", "CORE-QNT-001"),
+    ("The car was built in March 1990, before the road opened in March 1990.", "CORE-CHR-001"),
+    ("The road opened in 1990, after the car was built in May.", "CORE-CHR-001"),
+])
+def test_a_fast_answer_whose_receipt_names_prose_working_not_checked_is_never_formally_checked(clock, second, code):
+    """Round-8 clearance c1 (critical): beside the clean answer above, the same fast answer with one more sentence whose
+    working the prose branch read but could not check, a per cent whose figures its sentence does not state (CORE-QNT-001)
+    or an order of dated events it could not pair (CORE-CHR-001), was delivered FORMALLY CHECKED, because neither code was
+    among the codes of rule unchecked-working. The receipt names the working as not checked, so the formal path never
+    completes over it (docs/DELIVERY.md, condition 6): with no overseer configured the answer is withheld, never labelled
+    formally checked, and the reason names the code and the claim."""
+    rep = physics_report(AGENT, "rep-a", (("p1.1", "The speed is 15 km/h."), ("p1.2", second)))
+    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, rep)], verify=Verifier(clock, delays={"*": 5}))
+    try:
+        [rc] = list(run.receipts.values())
+        assert (code, "warning") in {(f.code, f.severity) for f in list(rc.findings) + list(rc.structural_findings)}
+        assert code in NOT_CHECKED_CODES
+        d = run.decision
+        assert d.mode != "formally_checked" and not d.receipt.formal.complete and not d.label.lower().startswith("formally checked")
+        assert any(f"the receipt names working that was not checked: {code}" in r and "p1.2" in r for r in d.receipt.formal.reasons), d.receipt.formal.reasons
+        assert_honest(d)
+    finally:
+        run.close()
+
+
+def test_every_receipt_code_saying_a_check_was_not_built_or_a_pack_failed_is_unchecked_working():
+    """The sweep of round-8 clearance c1: every receipt code, below error severity, by which a pack says it failed
+    (``*-INTERNAL-*``: its findings are missing) or that stated working was read and not checked (the prose branches'
+    CORE-QNT-001 and CORE-CHR-001, the STEM front end's undecided and unparsed codes) is a code of rule unchecked-working.
+    An error-level one excludes the answer anyway. ES-INTERNAL-001 (the English pack catches its own failure, so the hub's
+    BR-INTERNAL-001 never accompanies it) was the one the sweep found missing."""
+    from epinoic_logic.overseer.emitted import RECEIPT_CODES
+    below_error = {c for c, row in RECEIPT_CODES.items() if row.severities - {"error"}}
+    internal = {c for c in below_error if "-INTERNAL-" in c}
+    assert {"BR-INTERNAL-001", "ES-INTERNAL-001", "ST-INTERNAL-001"} <= internal <= NOT_CHECKED_CODES
+    assert {"CORE-QNT-001", "CORE-CHR-001", "ST-UNDEC-001", "ST-UNDEC-002", "ST-UNDEC-003", "ST-PARSE-001", "ST-PARSE-002"} <= NOT_CHECKED_CODES
+    assert NOT_CHECKED_CODES <= set(RECEIPT_CODES)  # every one is a code a receipt carries
 
 
 def test_the_formal_path_makes_no_overseer_call(clock, pack):

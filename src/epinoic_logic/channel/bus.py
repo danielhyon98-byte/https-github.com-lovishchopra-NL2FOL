@@ -32,7 +32,10 @@ cited sources do not name for it (INT-LEDGER-032), and, when a synthesized claim
 carries (or can be given) a formal conclusion, for entailment by its formalized sources;
 when that cannot be checked, the receipt says so instead of implying a check that nobody
 ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone UTF-16
-surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router.
+surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router. So is a
+specialist's response whose own text holds a bidirectional embedding, override or isolate
+(rule bidi-text, :data:`BIDI_CONTROL_CLASS`): a reader may be shown that text in another order
+than every check reads it, as the combinator port's text rule already refuses in a synthesis.
 
 Branch formal checks (``_branch_checks``) run under the check's named engine policy
 (``engine.policies``: ``linear`` is the caller's configuration unchanged; ``nonlinear`` opens
@@ -91,6 +94,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import itertools
 import re
 import time
 import uuid
@@ -130,12 +134,14 @@ from ..named import (
 from ..translate.common import truncate
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TaskRecord, TranslationStatus, sha256_text
 from ..translate.diag_core import report_diagnostics
-from ..translate.grounding import check_claim_sources, locate_long_elision, locate_quotation, locate_quotation_inexact
+from ..translate.grounding import check_claim_sources, locate_excerpt, locate_long_elision, locate_quotation, locate_quotation_inexact
 from ..version import ARG_RULES_VERSION
+from .citations import citation_evidence
 from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
 from .cues import VERDICT_CUES, verdict_cue_regex
 from .events import ChannelEvent, ObservationState, observe_call
-from .request_parser import LEVEL3_VERDICT_TERMS, blank_quotations, count_answer_words, count_paragraphs, extract_constraints, extract_items, measure_answer_words, part_label
+from .request_parser import (LEVEL3_VERDICT_TERMS, about_band, blank_quotations, bound_word_measure, count_answer_words, count_paragraphs, extract_constraints,
+                             extract_items, measure_answer_words, measured_of, part_label, per_part_bound, question_label, word_bound_severity)
 
 
 @dataclass(frozen=True)
@@ -210,6 +216,73 @@ _ECHO_FUNCTION = frozenset(light_stem(w) for w in (" ".join(sorted(_STOP)) + " s
 _SCOPE_TAIL = "Formal results concern only the encoded checks under their premises; coverage is heuristic."
 #: A from-memory label in a claim's sentence: a quotation it carries is unverifiable, never refuted.
 _MEMORY_LABEL_RE = re.compile(r"\bfrom memory\b|\bas I recall\b|\bI recall\b|\bif I remember\b", re.IGNORECASE)
+#: A word of a supplied text, for the near forms of an altered short quotation.
+_NEAR_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+@functools.lru_cache(maxsize=64)
+def _text_word_index(text: str) -> tuple[tuple[str, ...], dict[str, tuple[int, ...]], dict[str, frozenset[int]]]:
+    """``(words, positions, prefix lengths)`` of a supplied text, read once per text: its case-folded words in order, the
+    first 64 positions of each word, and for each four-letter prefix the lengths of the words that open with it. The near
+    forms of every short quotation of an answer are looked up here, where the text was read again for each one (round-8
+    clearance c1, handoff fixer: an answer of many short quotations made the check quadratic)."""
+    words = tuple(w.casefold() for w in _NEAR_WORD_RE.findall(text))
+    positions: dict[str, list[int]] = {}
+    prefixes: dict[str, set[int]] = {}
+    for i, w in enumerate(words):
+        at = positions.setdefault(w, [])
+        if len(at) < 64:
+            at.append(i)
+        if len(w) >= 4:
+            prefixes.setdefault(w[:4], set()).add(len(w))
+    return words, {w: tuple(at) for w, at in positions.items()}, {k: frozenset(v) for k, v in prefixes.items()}
+
+
+def _edit_distance(a: str, b: str, cap: int) -> int:
+    """Levenshtein distance of two words, stopped once it exceeds ``cap`` (``cap + 1`` then)."""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+        if min(cur) > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+def _near_word(word: str, other: str) -> bool:
+    """``other`` is a near form of ``word``: both of four letters or more sharing their first three ("amigos",
+    "amistades"), or within an edit distance of a third of the longer word ("amistad", "amistades")."""
+    if word == other or not word or not other:
+        return False
+    if min(len(word), len(other)) >= 4 and word[:3] == other[:3]:
+        return True
+    cap = max(1, max(len(word), len(other)) // 3)
+    return _edit_distance(word[:40], other[:40], cap) <= cap
+
+
+def displaced_word(excerpt: str, text: str) -> bool:
+    """Rule ``short-near-miss`` (round-8 clearance c1, sp-t13): a two-word quotation one of whose words the text holds next
+    to a near form of its other word (:func:`_near_word`), in the quotation's order: «crecen amigos» where the text says
+    «crecen amistades». The text holds the quotation altered, so it is refutable, not merely unverifiable. One lookup per
+    occurrence of the word held (at most 64)."""
+    ex = [w.casefold() for w in _NEAR_WORD_RE.findall(excerpt[:400])]
+    if len(ex) != 2:
+        return False
+    words, positions, _prefixes = _text_word_index(text)
+    held = [w in positions for w in ex]
+    if held.count(True) != 1:
+        return False
+    k = held.index(True)
+    anchor, missing = ex[k], ex[1 - k]
+    for i in positions[anchor]:
+        j = i + 1 if k == 0 else i - 1
+        if 0 <= j < len(words) and _near_word(missing, words[j]):
+            return True
+    return False
 _SUMMARY_TRUNCATED = " ...[summary truncated] "
 _MAX_NAMED = 8
 #: Contract lengths of a ConstraintResult detail and of a finding message.
@@ -237,6 +310,18 @@ def stem_budget_s(requested: Optional[float]) -> float:
 #: emoji arriving in an agent's JSON as "\\ud83d"): it has no UTF-8 form and no contract accepts it, so text carrying one
 #: is rejected at the channel boundary (INT-REQ-009) before it is parsed or hashed.
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
+#: The bidirectional embeddings, overrides and isolates and the marks that close them (U+202A to U+202E, U+2066 to U+2069):
+#: the bidirectional class of the combinator port's text rule (``integrity.contracts.SYNTHESIS_FORBIDDEN_CLASS``). The text
+#: one governs may be shown to a reader in another order than the order every check of the hub reads ('5.0' after U+202E is
+#: displayed '0.5'; a date, a quotation or a sum in an isolate is reordered alike), so a specialist's response whose own text
+#: holds one is refused (INT-REQ-009, rule bidi-text) as a synthesis holding one already is: no receipt of any subject shows a
+#: check result for text a reader sees in another order. Round-8 clearance c1 (STEM-integration finding 17): the STEM pack
+#: declines to decide a relation such a control reaches (rule bidi-control), but a humanities answer's claims, which it never
+#: reads, were translated and checked in the order the hub reads them. The marks U+200E, U+200F and U+061C reorder no run of
+#: text and are not refused.
+BIDI_CONTROL_CLASS = "\u202a-\u202e\u2066-\u2069"
+_BIDI_CONTROL_RE = re.compile(f"[{BIDI_CONTROL_CLASS}]")
+_BIDI_CONTROLS = ("\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069")
 
 
 def _now() -> str:
@@ -285,13 +370,14 @@ _MARKUP_CHARS_RE = re.compile(r"[*_`$#]")
 
 def _answer_sections(text: str) -> list[tuple[int, frozenset[str]]]:
     """``(offset, labels)`` for every line of the answer (markup removed) that opens with a part label: "(a)", "Part
-    (b) —", "1.", and a nested "3. a)" (labels 3 and a). Offsets are in the markup-free text."""
-    from .request_parser import part_label
+    (b) —", "1.", and a nested "3. a)" (labels 3 and a), or with a question heading ("Question 2 [5 marks]": label q2,
+    ``request_parser.question_label``; round-8 clearance c1). Offsets are in the markup-free text."""
+    from .request_parser import part_label, question_label
     plain = _MARKUP_CHARS_RE.sub("", text)
     out: list[tuple[int, frozenset[str]]] = []
     pos = 0
     for line in plain.split("\n"):
-        lab = part_label(line)
+        lab = part_label(line) or question_label(line)
         if lab is not None:
             labels = {lab}
             rest = re.sub(r"^\W{0,4}(?:part\s+)?\(?[0-9a-z]{1,4}[.)]\)?\s*", "", line.strip(), flags=re.IGNORECASE)
@@ -417,6 +503,77 @@ def _surrogate_message(what: str, offsets: list[int]) -> str:
             f"character such as half an emoji): it is not valid Unicode text, so it was neither parsed nor delivered")
 
 
+def _bidi_count(text: str) -> int:
+    """How many bidirectional embeddings, overrides, isolates and closing marks ``text`` holds: one C-level count per code point,
+    so a text made of nothing else (400,000 of them) is counted in milliseconds, never matched one by one in Python."""
+    return sum(text.count(ch) for ch in _BIDI_CONTROLS)
+
+
+def bidi_control_message(what: str, text: str) -> Optional[str]:
+    """Rule bidi-text: why ``text`` (the ``what`` of a specialist's response) is refused, naming the first bidirectional
+    embeddings, overrides and isolates it holds (:data:`BIDI_CONTROL_CLASS`) by code point and character offset and
+    counting the rest, never quoting the text; None when it holds none. One pass over the text."""
+    if not isinstance(text, str) or not text or _BIDI_CONTROL_RE.search(text) is None:
+        return None
+    n = _bidi_count(text)
+    first = [f"U+{ord(m.group()):04X} at character offset {m.start()}" for m in itertools.islice(_BIDI_CONTROL_RE.finditer(text), _MAX_NAMED)]
+    shown = ", ".join(first) + (f" and {n - len(first)} more" if n > len(first) else "")
+    return (f"{what} carries {n} bidirectional embedding, override or isolate character(s) ({shown}): a reader may be shown the text "
+            "it governs in another order than the order every check of the hub reads, so it was neither checked nor delivered (rule "
+            "bidi-text: the text rule the combinator port holds a synthesis to)")
+
+
+def _report_texts(report: SpecialistReport):
+    """``(where, claim id or None, text)`` for every text of a report that is the specialist's own: the response, the report's
+    assumptions and unresolved issues, and each claim's text, assumptions, assessment criteria and source references (excerpt and
+    locator). The supplied texts are the router's and are not read."""
+    yield "the response text", None, report.original_response
+    for a in report.assumptions:
+        yield "an assumption of the report", None, a
+    for a in report.unresolved_issues:
+        yield "an unresolved issue of the report", None, a
+    for c in report.claims:
+        yield "the text of claim", c.claim_id, c.claim_text
+        for a in [*c.assumptions, *c.assessment_criteria]:
+            yield "an assumption of claim", c.claim_id, a
+        for r in c.source_refs:
+            for t in (r.excerpt, r.locator):
+                if t:
+                    yield "a source reference of claim", c.claim_id, t
+
+
+def report_bidi_findings(report: SpecialistReport) -> list[IntegrityFinding]:
+    """Rule bidi-text on a report (a response received as a structured payload, or handed to ``respond``): INT-REQ-009
+    (error, blocking) when the specialist's own text (:func:`_report_texts`) holds a bidirectional embedding, override or
+    isolate, naming the first place and the claims holding one; [] otherwise. Never raises: a report built around its
+    contract's validation is the re-validation's to refuse."""
+    try:
+        named: list[str] = []
+        claims: list[str] = []
+        n = 0
+        for where, cid, text in _report_texts(report):
+            if not isinstance(text, str) or _BIDI_CONTROL_RE.search(text) is None:
+                continue
+            n += _bidi_count(text)
+            if len(named) < _MAX_NAMED:
+                label = where if cid is None else f"{where} {_BIDI_CONTROL_RE.sub(chr(0xFFFD), _scrub(str(cid)))[:128]}"
+                named += [f"U+{ord(m.group()):04X} at character offset {m.start()} of {label}"
+                          for m in itertools.islice(_BIDI_CONTROL_RE.finditer(text), _MAX_NAMED - len(named))]
+            if cid is not None and cid not in claims:
+                claims.append(cid)
+        if not n:
+            return []
+        shown = "; ".join(named) + (f" and {n - len(named)} more" if n > len(named) else "")
+        rid, aid = _text_attr(report, "report_id"), _text_attr(report, "agent_id")
+        return [IntegrityFinding(code="INT-REQ-009", severity="error",
+                                 message=(f"report payload carries {n} bidirectional embedding, override or isolate character(s) in the specialist's own text "
+                                          f"({shown}): a reader may be shown the text it governs in another order than the order every check of the hub "
+                                          "reads, so it was neither checked nor delivered (rule bidi-text: the text rule the combinator port holds a synthesis to)"),
+                                 claim_ids=[c for c in claims if isinstance(c, str)][:64], report_ids=[rid] if rid else [], agent_ids=[aid] if aid else [])]
+    except Exception:
+        return []
+
+
 def _named(ids: list[str]) -> str:
     shown = ", ".join(ids[:_MAX_NAMED])
     return shown + (f" and {len(ids) - _MAX_NAMED} more" if len(ids) > _MAX_NAMED else "")
@@ -436,6 +593,54 @@ def _norm_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+#: A sentence that defers the deliverable to the student's reply (round-8 clearance c1, ps-p8d: 'Reply "approve" and I will
+#: write the full evaluation within 500 words.'): the answer is a plan or a question back, not the deliverable. The deferred
+#: object must name the deliverable ("the full evaluation", "the essay", "your answer"), so an offer of something more after
+#: a complete answer ("let me know and I can add an example") defers nothing. Every run is bounded.
+_DEFERRED_OBJECT = (r"(?:the|a|your|my)\s+(?:(?:full|complete|whole|entire|final)\b[^.!?\n]{0,40}?"
+                    r"|(?:essay|answer|response|evaluation|report|analysis|draft|section|sections|paragraph|commentary|discussion)\b)")
+_DEFERRAL_RE = re.compile(
+    r"(?:^|(?<=[.!?:\n])\s{0,3})(?:(?:reply|respond|answer|write\s+back|say|tell\s+me|let\s+me\s+know|confirm)\b[^.!?\n]{0,120}?\b(?:and|then|so)\s+I"
+    r"(?:'ll|’ll|\s+will|\s+can|\s+shall)\s+(?:write|draft|produce|give|send|complete|finish)\s+(?:you\s+)?" + _DEFERRED_OBJECT
+    + r"|(?:once|when|if|after)\s+you\s+(?:approve|confirm|agree|reply|say\s+so|let\s+me\s+know|are\s+happy)\b[^.!?\n]{0,120}?\bI(?:'ll|’ll|\s+will|\s+can|\s+shall)\s+"
+    r"(?:write|draft|produce|give|send|complete|finish)\s+(?:you\s+)?" + _DEFERRED_OBJECT
+    + r"|(?:shall|should)\s+I\s+(?:write|draft|produce|go\s+ahead\s+(?:and|with))\b[^.!?\n]{0,40}?" + _DEFERRED_OBJECT + r"[^.!?\n]{0,80}?\?"
+    + r"|(?:do\s+you\s+want|would\s+you\s+like)\s+me\s+to\s+(?:write|draft|produce)\s+" + _DEFERRED_OBJECT + r"[^.!?\n]{0,80}?\?)",
+    re.IGNORECASE)
+
+
+#: The detail a word or paragraph bound set on a deliverable the answer declines opens with (round-8 clearance c1): the bound
+#: is recorded not applicable (satisfied None, method not_checkable, no formal result, no INT-REQ-005), naming the declining
+#: sentence. The transfer auditor accepts exactly this record, exactly when :func:`withheld_deliverable` reads a decline in
+#: the journaled response (``overseer.checks.formal.declined_bound``).
+DECLINED_BOUND_PREFIX = "not applicable: the answer declines the deliverable the bound was set on"
+
+
+def withheld_deliverable(response: str) -> Optional[tuple[str, str]]:
+    """``("declined", sentence)`` when the answer declines the deliverable it was asked for
+    (``adapters.markdown.declined_deliverable``: "I can't write the analysis or the conclusion sections, ... because the
+    analysis and the report must be entirely your own work."), ``("deferred", sentence)`` when it defers the deliverable to
+    the student's reply (:data:`_DEFERRAL_RE`), else None (round-8 clearance c1: ge-t14 and ps-p8d were delivered as if every
+    item had been answered)."""
+    if not response:
+        return None
+    try:
+        from ..adapters.markdown import declined_deliverable
+        declined = declined_deliverable(response)
+    except Exception:
+        declined = None
+    if declined:
+        return "declined", declined.strip()
+    m = _DEFERRAL_RE.search(response)
+    if m is None:
+        return None
+    start = max(response.rfind(".", 0, m.start()), response.rfind("\n", 0, m.start()), response.rfind("!", 0, m.start()), response.rfind("?", 0, m.start()))
+    end = m.end()
+    stop = re.compile(r"[.!?\n]").search(response, end)
+    sentence = response[start + 1: (stop.end() if stop is not None else len(response))].strip()
+    return "deferred", sentence[:300]
+
+
 def _dedupe_ids(ids) -> list[str]:
     return list(dict.fromkeys(ids))
 
@@ -443,7 +648,7 @@ def _dedupe_ids(ids) -> list[str]:
 def _located(excerpt: str, text: str, document_id: Optional[str] = None) -> bool:
     """The quoted words occur in ``text`` in some form (exact, normalized, elided, a form difference or a long elision).
     ``document_id`` names a supplied text for the grounding cache; the answer never depends on it."""
-    return bool(excerpt.strip()) and (locate_quotation(excerpt, text, document_id=document_id) is not None
+    return bool(excerpt.strip()) and (locate_excerpt(excerpt, text, document_id=document_id) is not None
                                       or locate_quotation_inexact(excerpt, text, document_id=document_id) is not None
                                       or locate_long_elision(excerpt, text, document_id=document_id) is not None)
 
@@ -1499,6 +1704,10 @@ class TranslatorChannel:
         if bad:  # not valid Unicode: no adapter or contract can take it, so it is refused before parsing (never an exception)
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=_surrogate_message("response text", bad), report_ids=[report_id], agent_ids=[agent_id])])
+        bidi = bidi_control_message("response text", text)
+        if bidi is not None:  # rule bidi-text: what a reader is shown may differ from what every check reads, so it is refused before parsing
+            return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
+                IntegrityFinding(code="INT-REQ-009", severity="error", message=bidi, report_ids=[report_id], agent_ids=[agent_id])])
         cut, mapping = _json_report_text(text)
         if cut is not None:  # a JSON object cut off before its end: never parsed as prose (a fragment would read as claims)
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
@@ -1894,6 +2103,10 @@ class TranslatorChannel:
         blocked = any(f.code in ("INT-REQ-009", "INT-HANDOFF-012") for f in image_findings)  # does not re-validate, or carries another report's claims
         if not blocked:
             report = self._as_delivered(report, payload)
+            # rule bidi-text: the specialist's own text, as the recipient reads it, holds no bidirectional embedding, override or isolate
+            # (a structured payload, or a report handed over as an object; raw text is refused before it is parsed, in respond_text)
+            image_findings += report_bidi_findings(report)
+            blocked = any(f.code == "INT-REQ-009" for f in image_findings)
         findings += self.log.accept(msg)
         if not blocked:
             findings += bind_payload(msg, report)
@@ -1936,11 +2149,16 @@ class TranslatorChannel:
             findings.append(echo)
         view = (lambda t: self._hook(lambda: hooks.word_count_view(t, profile.key), t)) if hooks else None
         findings += self._guarded("answer presence (INT-REQ-012)", findings, lambda: self._no_answer(report, view=view), [], **rid)
+        withheld = self._guarded("a declined or deferred deliverable (INT-REQ-004)", findings, lambda: withheld_deliverable(report.original_response), None, **rid)
         coverage = self._guarded("request coverage (INT-REQ-004)", findings, lambda: self._coverage(req, report, echoed=echo is not None, hooks=hooks, profile_key=profile.key), [], **rid)
         for cov in coverage:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
-                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)" + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
+                why = ""
+                if withheld is not None:
+                    why = (f"; the answer declines the deliverable ({withheld[1][:200]!r}): the item is declined, not answered" if withheld[0] == "declined"
+                           else f"; the answer defers the deliverable to the student's reply ({withheld[1][:200]!r}): the item is pending, not answered")
+                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)" + why + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
         # Command terms C6: evaluate / discuss / to what extent / assess / examine / justify / recommend / give a judgement
         # need a judgement or position on degree. A judgement-role claim counts; so does a point, thesis, link or analysis
         # claim that states a position (verdict cue); a bare claim does not. A claim roled 'other' (a note, a self-report) never counts.
@@ -1950,19 +2168,24 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report, view=view), ([], []), **rid)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
-        refuted = {cid for f in uncredited for cid in f.claim_ids}
+        # a quotation refuted against the supplied texts is not also "unverifiable"; with no text supplied, a quotation the
+        # request alone refutes keeps the pack's CORE-SRC-003 beside the error (no supplied text holds it either)
+        refuted = {cid for f in uncredited if supplied for cid in f.claim_ids}
         if refuted:  # the same quotation is not also "unverifiable": the hub found it in none of the supplied texts
             structural = [sf for sf in structural if not (sf.code == "CORE-SRC-003" and sf.claim_ids and set(sf.claim_ids) <= refuted)]
         findings = self._name_branch_rules(findings, structural)
         findings += self._guarded("credits to texts not supplied (INT-REQ-015)", findings, lambda: self._foreign_credits(report, supplied, structural), [], **rid)
         formal_ids = list(formal_ids) + branch_ids
-        kinds = {c.constraint_id: c.kind for c in req.constraints}
+        by_cid = {c.constraint_id: c for c in req.constraints}
         for cr in constraint_results:
             if cr.satisfied is False:
                 # A paragraph bound is measured over blank-line blocks; a specialist may set one paragraph out as several blocks
-                # (point, strands, link), so an overrun is a layout warning for the router, not an error like a word limit.
-                layout = kinds.get(cr.constraint_id, "").endswith("paragraphs")
-                findings.append(IntegrityFinding(code="INT-REQ-005", severity="warning" if layout else "error",
+                # (point, strands, link), so an overrun is a layout warning for the router, not an error like a word limit. An
+                # "about N words" band is a target, so a measure outside it but within a quarter of N is a warning too (round-8
+                # clearance c1; ``request_parser.word_bound_severity``, which the transfer auditor's rule reads on its recount).
+                bound = by_cid.get(cr.constraint_id)
+                layout = bound is not None and bound.kind.endswith("paragraphs")
+                findings.append(IntegrityFinding(code="INT-REQ-005", severity=word_bound_severity(bound, measured_of(cr.detail)),
                                                  message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}" + (" (blank-line blocks; a paragraph set out in blocks counts as several)" if layout else ""),
                                                  formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
         self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(report, findings), None, **rid)
@@ -2411,7 +2634,7 @@ class TranslatorChannel:
                 elif not (ref.excerpt or "").strip():
                     out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} to document {ref.document_id!r} carries no excerpt to check", **ids))
                 else:
-                    elsewhere = sorted(d for d, t in by_id.items() if d != ref.document_id and locate_quotation(ref.excerpt or "", t.text, document_id=d) is not None)
+                    elsewhere = sorted(d for d, t in by_id.items() if d != ref.document_id and locate_excerpt(ref.excerpt or "", t.text, document_id=d) is not None)
                     if elsewhere:
                         out.append(IntegrityFinding(code="INT-REQ-003", severity="error", message=f"quotation cited by claim {c.claim_id} to document {ref.document_id!r} does not occur there; its words occur in {elsewhere} (misattributed)", **ids))
                     else:
@@ -2438,8 +2661,10 @@ class TranslatorChannel:
         from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import is_peer_text, nearest_text, quotation_credit, uncredited_excerpt
         from ..branches.packs import _absent_mentions
-        if not supplied:
+        if not supplied and not request_text:
             return []
+        # with no text supplied, the request's own words are still a text a quotation can alter (round-8 clearance c1,
+        # ps-t14: "makes his heart race and his handsly sweat" of the student's scenario was only unverifiable)
         docs = {t.document_id: t for t in supplied}
         own = {d: t for d, t in docs.items() if not is_peer_text(t)}
         candidates = dict(own or docs)
@@ -2452,8 +2677,19 @@ class TranslatorChannel:
             return q.strip().strip(".,;:!?").strip().casefold()
 
         def near_form(word: str, text: str) -> bool:
+            # a word of the text that opens with the missing word's first four letters, within three letters of its length
+            # (the text's words read once: ``_text_word_index``)
             w = word.strip("'").casefold()
-            return any(len(w) >= 4 and (v.startswith(w[:4]) and abs(len(v) - len(w)) <= 3) for v in (x.casefold() for x in re.findall(r"[^\W\d_]+", text)))
+            return len(w) >= 4 and any(abs(n - len(w)) <= 3 for n in _text_word_index(text)[2].get(w[:4], ()))
+
+        # each claim's text folded once, not once for every quotation (a report holds at most 512 claims)
+        folded_claims = [(x.claim_text, x.claim_text.casefold()) for x in report.claims]
+        holders_of: dict[str, list[str]] = {}
+
+        def claims_holding(key: str) -> list[str]:
+            if key not in holders_of:
+                holders_of[key] = sorted((text for text, folded in folded_claims if key in folded), key=len, reverse=True)
+            return holders_of[key]
 
         for c in report.claims:
             for a in c.assumptions:
@@ -2466,11 +2702,14 @@ class TranslatorChannel:
                 near, missing, altered = None, [], False
                 for d, t in candidates.items():  # the text this quotation alters: all its words but one or two (a short one: a near form)
                     _n, miss = nearest_text(ex, {d: t})
-                    if 0 < len(miss) <= 2 and len(miss) < words and (words >= 3 or all(near_form(w, t.text) for w in miss)) and (not altered or len(miss) < len(missing)):
+                    # a short one (one or two words) needs a near form of its missing word in the text, or, for two words, the
+                    # word it holds next to a near form of the other (rule short-near-miss: «crecen amigos» for «crecen amistades»)
+                    if 0 < len(miss) <= 2 and len(miss) < words and (words >= 3 or all(near_form(w, t.text) for w in miss) or (words == 2 and displaced_word(ex, t.text))) \
+                            and (not altered or len(miss) < len(missing)):
                         near, missing, altered = d, miss, True
                 # The sentence that carries the quotation (a parser may deliver the quotation as its own evidence claim and
                 # the sentence that credits it as another claim): the longest claim text holding it, else the response.
-                holders = sorted((x.claim_text for x in report.claims if norm(ex) in x.claim_text.casefold()), key=len, reverse=True)
+                holders = claims_holding(norm(ex))
                 sentence = holders[0] if holders else c.claim_text
                 credit = None
                 all_spans = find_quotation_spans(sentence)
@@ -2491,7 +2730,8 @@ class TranslatorChannel:
                        else f"the sentence credits it to {credit.phrase!r}, the text under analysis named by kind (an invented quotation)" if by_kind
                        else "its sentence credits it to no source, and none of the supplied texts nor the request holds its words (an invented quotation)")
                 out.append(IntegrityFinding(code="INT-REQ-003", severity="error",
-                                            message=f"quotation '{ex[:120]}' of claim {c.claim_id}, which the report credits to no text, was not found in the supplied texts {doc_ids}: {why}",
+                                            message=f"quotation '{ex[:120]}' of claim {c.claim_id}, which the report credits to no text, was not found in the supplied texts {doc_ids}"
+                                                    + (" nor in the request" if request_text else "") + f": {why}",
                                             claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=doc_ids))
         return out
 
@@ -2752,14 +2992,19 @@ class TranslatorChannel:
         paragraph together (a paragraph that answers a guiding question need not repeat its words in one sentence); a
         guiding, essay or research question is answered by a point, thesis or judgement claim that takes up its terms.
         ``hooks`` (a branch's hub hooks; the STEM branches) lend each claim extra words (STEM: the dimensions of its
-        quantities), read wherever the claim's own words are."""
+        quantities), read wherever the claim's own words are. An answer that declines the deliverable, or defers it to the
+        student's reply (:func:`withheld_deliverable`, read from the report itself, so the transfer auditor's re-run of this
+        rule gives the same records), addresses no item, whatever words it shares with them (round-8 clearance c1: ge-t14's
+        decline and ps-p8d's plan were read as answering every item)."""
         out: list[CoverageRecord] = []
+        if withheld_deliverable(report.original_response) is not None:
+            return [CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic") for item in req.items]
         material = _material_claims(report)
         sections = _answer_sections(report.original_response)
         section_of = _claim_sections(report.original_response, sections, material) if sections else {}
         answer_labels = {lab for _start, labels in sections for lab in labels}
-        item_labels = {part_label(i.text) for i in req.items} - {None}
-        by_part = bool(item_labels & answer_labels)  # the answer labels its parts as the request does
+        item_labels = {part_label(i.text) or question_label(i.text) for i in req.items} - {None}
+        by_part = bool(item_labels & answer_labels)  # the answer labels its parts (or its questions) as the request does
         claim_terms: dict[str, set[str]] = {}
         for c in material:
             terms = _terms(c.claim_text)
@@ -2774,7 +3019,7 @@ class TranslatorChannel:
             if echoed:  # a restated request addresses nothing, whatever words it shares with the items
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
-            lab = part_label(item.text)
+            lab = part_label(item.text) or question_label(item.text)
             if by_part and lab is not None:
                 hits = [c.claim_id for c in material if lab in section_of.get(c.claim_id, ())]
                 out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits), addressed_by_claim_ids=hits, method="part_label"))
@@ -2793,29 +3038,41 @@ class TranslatorChannel:
 
     def _constraints(self, req: TaskRequest, report: SpecialistReport, view=None) -> tuple[list[ConstraintResult], list[str]]:
         results: list[ConstraintResult] = []
+        # A bound set on a deliverable the answer declines (round-8 clearance c1, ge-t14: an academic-integrity decline of 639
+        # words against "about 900") does not apply to the decline: it is recorded not applicable (satisfied None, no formal
+        # result, no INT-REQ-005), naming the declining sentence, and the request's items are INT-REQ-004 naming it. The
+        # transfer auditor accepts exactly this record exactly when ``withheld_deliverable`` reads a decline in the journaled
+        # response (``overseer.checks.formal.declined_bound``), so the receipt and the audit agree.
+        withheld = withheld_deliverable(report.original_response)
+        declined = withheld[1] if withheld is not None and withheld[0] == "declined" else None
         formal_ids: list[str] = []
-        measures: dict[tuple[str, ...], tuple[int, int, int]] = {}
+        measures: dict[tuple, tuple[int, int, int, str]] = {}
 
-        def word_measure(c: Constraint) -> tuple[int, int, int]:
-            """``(answer words, note words, exempt words)`` for a word bound: notes left out, and the working and the
-            diagram too when the request sets them outside the bound ("plus working and your diagram"), measured on the
-            branch's word-count view when it lends one (STEM: a maths span or a code block is one word)."""
-            key = tuple(sorted(c.excludes))
+        def word_measure(c: Constraint) -> tuple[int, int, int, str]:
+            """``(answer words, note words, exempt words, scope note)`` for a word bound: notes left out, and the working
+            and the diagram too when the request sets them outside the bound ("plus working and your diagram"), measured on
+            the branch's word-count view when it lends one (STEM: a maths span or a code block is one word), over each part
+            of the answer for a bound the request sets on each part (``request_parser.bound_word_measure``, which the
+            transfer auditor's recount calls too)."""
+            key = (tuple(sorted(c.excludes)), c.kind if per_part_bound(c) else None)
             if key not in measures:
-                measures[key] = measure_answer_words(report.original_response, excludes=key, view=view)
+                measures[key] = bound_word_measure(report.original_response, c, request_text=req.user_input, view=view, measure=measure_answer_words)
             return measures[key]
-        words, meta_words, _none = word_measure(Constraint(constraint_id="all", kind="max_words", text="all"))
+        words, meta_words, _none, _scope = word_measure(Constraint(constraint_id="all", kind="max_words", text="all"))
         paras = count_paragraphs(report.original_response)
         # A minimum and a maximum stated by one span ("about 250 words", "between 300 and 400 words", "exactly 3
         # paragraphs") are decided by ONE range problem when the measurement lies within both: each constraint cites that
-        # signed result. Only a measurement outside the range is decided side by side, to say which bound it crosses.
+        # signed result. Only a measurement outside the range is decided side by side, to say which bound it crosses. A pair
+        # set on each part is measured on two parts (the longest and the shortest), so it is always decided side by side.
         ranged: dict[str, VerificationResult] = {}
         for unit in ("words", "paragraphs"):
             spans: dict[str, dict[str, Constraint]] = {}
             for c in req.constraints:
-                if c.kind in (f"min_{unit}", f"max_{unit}") and c.value is not None:
+                if c.kind in (f"min_{unit}", f"max_{unit}") and c.value is not None and not per_part_bound(c):
                     spans.setdefault(c.text, {})[c.kind[:3]] = c
             for pair in spans.values():
+                if declined is not None:
+                    break
                 measured = word_measure(next(iter(pair.values())))[0] if unit == "words" else paras
                 if "min" in pair and "max" in pair and pair["min"].value.isdecimal() and pair["max"].value.isdecimal() and int(pair["min"].value) <= measured <= int(pair["max"].value):
                     res = self._formal_range(req, pair["min"], pair["max"], measured)  # the engine decides; the comparison only chooses the problem
@@ -2824,8 +3081,13 @@ class TranslatorChannel:
         for c in req.constraints:
             if c.kind in ("max_words", "min_words", "max_paragraphs", "min_paragraphs") and c.value is not None:
                 is_words = c.kind.endswith("words")
-                c_words, c_notes, c_exempt = word_measure(c) if is_words else (words, meta_words, 0)
+                c_words, c_notes, c_exempt, c_scope = word_measure(c) if is_words else (words, meta_words, 0, "")
                 measured = c_words if is_words else paras
+                if declined is not None:
+                    results.append(ConstraintResult(constraint_id=c.constraint_id, satisfied=None, method="not_checkable",
+                                                    detail=truncate(f"{DECLINED_BOUND_PREFIX} ({declined[:160]!r}); measured {measured} "
+                                                                    f"{'words' if is_words else 'paragraphs'}; bound {c.kind} {c.value}", 2000)))
+                    continue
                 res = ranged.get(c.constraint_id) or self._formal_bound(req, c, measured)
                 if res.result_id not in formal_ids:
                     formal_ids.append(res.result_id)
@@ -2833,15 +3095,37 @@ class TranslatorChannel:
                 excluded = f" ({c_notes} words of note or meta-text blocks excluded, as for paragraphs)" if is_words and c_notes else ""
                 if is_words and c.excludes:
                     excluded += f" (prose only: {c_exempt} words of {' and '.join(c.excludes)} excluded, as the request sets them outside the bound)"
+                if is_words and c_scope:
+                    excluded += f" ({c_scope})"
+                band = (" (the request states a band around a target length, and the measure lies within a quarter of the target, so it is a warning)"
+                        if sat is False and about_band(c) and word_bound_severity(c, measured) == "warning" else "")
                 results.append(ConstraintResult(constraint_id=c.constraint_id, satisfied=sat, method="formal",
-                                                detail=f"measured {measured} {'words' if is_words else 'paragraphs'}{excluded}; bound {c.kind} {c.value}; solver {res.status.value}",
+                                                detail=truncate(f"measured {measured} {'words' if is_words else 'paragraphs'}{excluded}; bound {c.kind} {c.value}; "
+                                                                f"solver {res.status.value}{band}", 2000),
                                                 formal_result_id=res.result_id, formal_status=res.status.value))
             elif c.kind == "must_cite_supplied_text":
-                cited = any(cl.source_refs for cl in report.claims)
-                results.append(ConstraintResult(constraint_id=c.constraint_id, satisfied=cited, method="deterministic", detail="at least one claim carries a source reference" if cited else "no claim carries a source reference"))
+                results.append(self._citation_result(c, req, report))
             else:
                 results.append(ConstraintResult(constraint_id=c.constraint_id, satisfied=None, method="not_checkable", detail="constraint kind not checkable by code"))
         return results, formal_ids
+
+    @staticmethod
+    def _citation_result(c: Constraint, req: TaskRequest, report: SpecialistReport) -> ConstraintResult:
+        """``must_cite_supplied_text``: satisfied by a claim that carries a source reference (a quotation the parser
+        located), or by evidence the answer cites the supplied texts as it was asked to (``channel.citations``, round-8
+        clearance c1, breadth F13/F14): a locator the supplied texts resolve ("(paragraph 1)", "(Table 1)") when the request
+        asks for citations, figures from a supplied table, or a code span found in supplied code. A request that asks for
+        quotations ("quote", "quotations") is not satisfied by a bare locator."""
+        if any(cl.source_refs for cl in report.claims):
+            return ConstraintResult(constraint_id=c.constraint_id, satisfied=True, method="deterministic", detail="at least one claim carries a source reference")
+        quotation_asked = bool(re.search(r"\bquot", c.text or "", re.IGNORECASE))
+        evidence = citation_evidence(report.original_response or "", list(req.supplied_texts) or list(report.supplied_texts), quotation_asked=quotation_asked)
+        if evidence is not None:
+            return ConstraintResult(constraint_id=c.constraint_id, satisfied=True, method="deterministic",
+                                    detail=truncate(f"no claim carries a quotation's source reference, but the answer {evidence.describe()}", 300))
+        detail = "no claim carries a source reference" + (" and the answer cites no supplied text by locator, table figure or quoted code" if not quotation_asked
+                                                          else " and the answer quotes no supplied text (no quotation, table figure or quoted code; a locator is no quotation)")
+        return ConstraintResult(constraint_id=c.constraint_id, satisfied=False, method="deterministic", detail=detail)
 
     def _formal_range(self, req: TaskRequest, low: Constraint, high: Constraint, measured: int) -> VerificationResult:
         """Encode 'low <= measured <= high' as one IR entailment (a signed, bound result both constraints cite)."""
@@ -3059,8 +3343,12 @@ class TranslatorChannel:
                                                  report_ids=[report.report_id], agent_ids=[report.agent_id]))
                 return outcomes
             f = self._with_report_ids(f)
-            findings.extend(f)
             self.conflicts_seen.extend((frozenset(x.claim_ids), x.formal_result_id) for x in f if x.code == "INT-CONFLICT-001")
+            # a glossary warning about two claims of other reports was named on the receipt that pooled them; this receipt
+            # carries only those that name one of its own claims (round-8 clearance c1: bm-p8a's receipt carried eleven warnings
+            # about pairs of the Economics specialist's claims). Contradictions and every other pool finding stay as they are.
+            own = {c.claim_id for c in report.claims}
+            findings.extend(x for x in f if x.code != "INT-GLOSSARY-005" or set(x.claim_ids) & own)
         return outcomes
 
     @staticmethod

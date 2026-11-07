@@ -2355,7 +2355,12 @@ def evaluate(probe: Probe, ob: Observed, base: Observed) -> dict:
         named = [f for f in new_ovs if f["code"] in probe.expected and (not f["claim_ids"] or set(f["claim_ids"]) & planted_claims_of(ob, probe))]
         trn_errors = [f for f in new_ovs if f["severity"] == "error" and f["code"].startswith("OVS-TRN")]
         out["translations"] = ob.translations
-        if probe.expected:
+        # rule circularity-agreement (round-8 clearance c1): the translator's own semantic rule withholds a planted circular
+        # encoding (E112 at translation), so nothing reaches the receipt for the auditor to name: the plant is caught at translation
+        withheld = [t for t in ob.translations if t["translation_status"] == "INVALID_FORMALIZATION" and any("E112" in d for d in t["diagnostics"])]
+        if probe.expected and "OVS-TRN-006" in probe.expected and withheld and not named:
+            outcome = "withheld"
+        elif probe.expected:
             outcome = "named" if named else ("caught_unnamed" if [f for f in new_ovs if f["severity"] in ("error", "warning")] else "missed")
         else:  # a meaning fault no check compares: no check may name it as a fault of another kind, and an agent's accusation stays unresolved
             outcome = "agents_only" if not trn_errors else "caught_unnamed"
@@ -2475,6 +2480,9 @@ def probe_ok(r: dict) -> bool:
         return False
     if r["kind"] == "control":
         return r["outcome"] == "clean" and (r.get("context") != "translation" or bool((r.get("dossier") or {}).get("translation", True)))
+    if r["kind"] == "translation" and r["outcome"] == "withheld":
+        # the translator withholds the planted circular encoding itself (E112; rule circularity-agreement): no agent reviews it
+        return "OVS-TRN-006" in (r.get("expected") or [])
     if r["kind"] == "translation":
         want = "named" if r.get("expected") else "agents_only"
         return (r["outcome"] == want or bool(r.get("translator_gap"))) and _agent_ok(r) and bool((r.get("dossier") or {}).get("translation"))
@@ -2486,7 +2494,7 @@ def probe_ok(r: dict) -> bool:
 def probes_gate(results: list[dict]) -> dict:
     counted = [r for r in results if not r.get("translator_gap") or r["kind"] == "control"]
     failing = [r["probe_id"] for r in results if not probe_ok(r)]
-    covered = {c: sorted({r["context"] for r in results if r["class"] == c and r.get("outcome") in ("named", "agents_only", "clean")}) for c in STEM_CLASSES}
+    covered = {c: sorted({r["context"] for r in results if r["class"] == c and r.get("outcome") in ("named", "withheld", "agents_only", "clean")}) for c in STEM_CLASSES}
     return {"ok": not failing and all(covered[c] for c in STEM_CLASSES), "failing": failing, "probes": len(results), "counted": len(counted),
             "translator_gaps": sorted(r["probe_id"] for r in results if r.get("translator_gap") and r["kind"] != "control"),
             "classes_with_a_named_probe": covered}

@@ -296,6 +296,22 @@ them so:
     100 per cent in the whole) is a premise of kind "assumption" with a label that
     says so. Never write "verified" anywhere: only code sets it.
 
+## What the claim rests on (translate_v3)
+
+Code withholds the verdict of an encoding that assumes what the claim must show.
+Three encodings do so:
+
+- A value the claim tests and rejects, rules out or supposes ("x = -5 is rejected
+  because it does not satisfy x > 4") gets a symbol of its own, its meaning naming
+  it as the candidate tested. Never give it the symbol of the unknown that other
+  claims solve for: the candidate is a hypothesis, not a fact about the unknown.
+- The result of a calculation the claim writes is computed by the engine: encode
+  the calculation itself (a product, a sum, a quotient by a number), never its
+  result as an "arithmetic_fact" or any other premise.
+- A consequence the claim draws ("..., so A", "therefore A", "A because R") is
+  derived from the reason the claim states: encode the reason and the link from
+  it to the consequence, never the consequence itself as a premise.
+
 ## Retries
 
 On a retry, correct exactly what the diagnostics name without changing what the

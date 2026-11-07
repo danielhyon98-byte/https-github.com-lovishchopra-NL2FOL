@@ -95,11 +95,23 @@ it. The deadline stops new work from starting.
    ST-PARSE-002), a relation outside the encodings, resting on a symbol with no stated value or a Given that could not be
    set against the request (ST-UNDEC-001, -002, -003), an undefined expression (ST-UNDEF-001), a unit checked as written
    only (ST-UNIT-001), an unreadable chemical equation (ST-CHEM-001), a code block (ST-CODE-001), a bound exceeded
-   (ST-LIM-001, -002), a pack that failed (ST-INTERNAL-001, BR-INTERNAL-001) or a check left undecided (INT-SUBJ-002).
+   (ST-LIM-001, -002), a pack that failed (ST-INTERNAL-001, BR-INTERNAL-001, and ES-INTERNAL-001: the English pack failed or
+   could not be loaded, its findings are missing, and no BR-INTERNAL-001 accompanies it), a check left undecided
+   (INT-SUBJ-002), or stated arithmetic, a derived figure or a relation over dated figures that the prose branches could not
+   check or that the check limit left out (CORE-QNT-001), or a stated order of dated events that could not be decided or
+   paired (CORE-CHR-001). Before the round-8 clearance CORE-QNT-001 and CORE-CHR-001 were missing from this list, so a
+   Physics answer with "The speed rose by 20%." beside a clean calculation was delivered FORMALLY CHECKED.
 
    6b. **No agent self-report** (rule `self-report-disclosed`). The receipt carries no CORE-SELF-001, ES-META-001 or
    INT-REQ-014 at any severity, and the task audit names the answer in no OVS-FID-005 or OVS-FID-009. An agent's
-   statement that its answer was checked or verified is advisory and never travels under the FORMALLY CHECKED label.
+   statement that its answer was checked or verified is advisory and never travels under the FORMALLY CHECKED label. One
+   exception (rule `meta-note`, round-8 clearance): a paragraph-level ES-META-001 whose paragraph is a note that reports no
+   check, no verification and no assurance (a bare "Next step:", "Note:" or "Caveat:" lead, nothing a self-report reader
+   names, no assurance word: `overseer.meta_notes.is_note_paragraph`, which reads the journaled answer again) is a note,
+   not a self-report, and does not keep a clean answer from the FORMALLY CHECKED label (the recorded en-t14 "Next step:
+   write your own paragraph ... for feedback."). A note that reports a check or an assurance ("Note: every quotation has
+   been checked word for word", "Note: this answer contains no errors") still does, as does every ES-META-001 the rule
+   cannot read.
 7. **No objection from the transfer audit.** The overseer's translation checks (`OVS-TRN-*`) name none of the material
    claims. The latest verified task audit names the answer in no error. The transfer's clearance lets the router act
    (`policy.act_decision`).
@@ -257,7 +269,9 @@ translated again, no transfer is added to the journal, and no receipt changes. T
 on a hub of its own with a transfer auditor:
 
 - It replays each group's genuine traffic in the genuine pass's order: requests, peer relays and answers, with the same
-  fixtures.
+  fixtures and, as the genuine pass and production do, the task record of each request handed to the translator (the
+  session's deadline verifier passes it on to the harness's task-aware verifier; `scripts/arena/README.md`, "Replay
+  configuration").
 - It opens a delivery session for each answer and decides.
 
 It adds no record and moves no transport count. Its hub and its claim verifier are bound when the module is imported,
