@@ -1562,3 +1562,11 @@ Work in progress after it is labelled as such.
   hidden format characters. The round-8 release will therefore withhold the formally checked label for every answer
   (every answer follows the existing fallback path) until a label policy holds under attack; the readers built in this
   fix stay in place for that work. Nothing from round 8 is uploaded yet.
+
+### Progress, 16:00 UTC (7 November)
+
+- Sixth fix round finished: a new refusal-only rule withholds the formally checked label for every answer until a
+  label policy holds under attack (26 files changed in the fix tree; targeted runs include 55, 92 and 87 passing tests
+  in the delivery-policy, gate and clearance files). Replaying the 24 recorded round-8 deliveries changed only the
+  label and its reason. A seventh independent attack round is checking that nothing reaches the label and nothing else
+  changed. Nothing from round 8 is uploaded yet.
