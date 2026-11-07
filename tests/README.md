@@ -1553,3 +1553,12 @@ Work in progress after it is labelled as such.
 - The sixth fix round is still running (the formally checked label to require a successful signed formal result for
   every claim; earlier tests that pinned the weaker behaviour are being rewritten to the stricter rule, none deleted).
   A sixth independent attack round follows it. Nothing from round 8 is uploaded yet.
+
+### Progress, 15:00 UTC (7 November)
+
+- Sixth independent attack round on the fix: the stricter label rule (every claim needs a successful signed formal
+  result) holds against the claim channel the fifth round found, but text still reaches the formally checked label
+  through words written into a verified claim, self-grades the verifier itself confirms, visible combining letters and
+  hidden format characters. The round-8 release will therefore withhold the formally checked label for every answer
+  (every answer follows the existing fallback path) until a label policy holds under attack; the readers built in this
+  fix stay in place for that work. Nothing from round 8 is uploaded yet.
