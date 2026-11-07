@@ -580,6 +580,39 @@ The next stress pass runs at the end of the current arena loop, then again in ea
 three clearance rounds, and then at scale (many agents per task). Its numbers will be added
 here.
 
+## Arena round 8 (integrated round c1)
+
+Measured results only. The round's harness summary is marked QUALIFIED (fixtures unbound).
+
+| Measure | Value |
+|---|---|
+| Arena run time | 289.4 s |
+| Peer deliveries | 4 of 4 dependencies |
+| Transfers judged / dossiers | 30 / 60 |
+| Overseer instances / duplicates spawned | 4 / 0 |
+| Verdicts valid / invalid | 60 / 0 |
+| Agent-findable faults present / named | 30 / 1 |
+| Accusations: confirmed / unresolved / refuted | 1 / 20 / 1 |
+| False accusations accepted | 0 (the one false accusation was caught by a deterministic check) |
+| Contested transfers / resolved | 9 / 0 |
+| Repeated-fault transfers stopped | 3 of 8 (held for human review; 5 were green-lit) |
+| Contradictions of signed results / caught | 0 / 0 |
+| Green-lit transfers | 17 |
+| Genuine transfers | 12 |
+| Overseer time total / median per instance | 4524.9 s / 1163.8 s |
+
+Gates:
+- False-accusation gate: NOT MEASURED (bounds 0.0 to 0.078 of clean transfers), because 8 unresolved accusations on clean transfers need human adjudication.
+- Every verdict produced by the package's runner: FAIL (all verdicts were self-reported).
+- Injection gate: NOT MEASURED.
+
+Green-lit transfers later found inaccurate on review (partial list; the source data was cut off):
+- t1f22e0: minor arithmetic slip in an intermediate step; final result correct.
+- t2fab05: wrong intermediate unit, and a sources line citing notes that were not supplied (both minor).
+- t3159a5: major. The answer told the student every claim was verified, while the signed receipt was ACCEPTED_WITH_FINDINGS with unsupported and ambiguous claims. A non-success status was shown as success.
+
+These results are agent self-reports scored against signed engine results; they prove properties of the encoding only.
+
 ## What runs next
 
 - **English/History arena loop:** continues from round 5 until all three overseers reach
@@ -1429,3 +1462,12 @@ Work in progress after it is labelled as such.
   passed, 45 deselected, 0 failed, and the harness on round 7 gave 177 of 177; the contained run on the recorded rounds
   is in progress. The upload follows only if every gate passes.
 - Arena round 8: the overseer lenses are running.
+
+### Progress, 03:00 UTC (7 November)
+
+- Arena round 8 (integrated round c1): the fixes are verified and committed ("Fix the c1 clearance findings"): the suite
+  gave 18,395 passed, 12 skipped, 0 failed, and the harness gave r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177
+  and c1 203/203, with no drop. The prototype documentation is committed ("Prototype: integrated translator after round 8").
+- The independent push check held the round-8 upload: one critical item is open (a note in an answer's meta-text that
+  asserts the answer is sound could still lift the formally checked label). Its fix is in progress; nothing from round 8
+  is uploaded until a new independent check passes.
