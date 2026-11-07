@@ -1,5 +1,5 @@
-refs/checkpoint/2026-10-12/c1-metanote-staged bf1cf4f6eaab3a431fa8dceb3f61cefecedfe4d0
-refs/checkpoint/2026-10-12/probe-staged d77bfea6101ad512198955c285e00dd7c650d4e6
+refs/checkpoint/2026-10-12/c1-metanote-staged 9f63a550d897031bdc3cf0cc776a47367c34d0b8
+refs/checkpoint/2026-10-12/probe-staged 8d5575f6db0355b4ff40b2b72654a94a45ef74cc
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-accfix-before 4267cb3c6b99f833ec7fa0ac84c6351a563e0d8c
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
@@ -12,7 +12,7 @@ refs/heads/argdiag-final c219b4f467f521b18db07c1a623699465adf9cc4
 refs/heads/argdiag-port e521e94f1bb8594452878ae59778fec883ba9698
 refs/heads/argdiag-r6-snapshot ac7df9f6ff0278cda8ce04a17467eecd721aad86
 refs/heads/c1-metanote-fix f2329df8193a2307dfba94e398ea9a74a65ca729
-refs/heads/claude/z3-verification-engine-plan-nk3luq f3a768251067c2b7ac98a40d3024c04e07baf314
+refs/heads/claude/z3-verification-engine-plan-nk3luq 57d86e1979f535b8db1ed892e6a20721bd89ece7
 refs/heads/contained-fix 6947c2d421a85ceb1d17b9658a5a2810757f2570
 refs/heads/docs/final-z3-handoff e88a7934ceaeea1bc355621365ea7ea96efdf534
 refs/heads/e2e-fix-channel 0d28ebad1a9b70416de69428ada2b1da4fbc2aa9
