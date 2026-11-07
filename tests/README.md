@@ -318,6 +318,375 @@ harness rates of the second layer have not dropped.
      form, a name the request states, a sentence's first word, a name inside a quotation, four shared letters, a two-word
      place the case states and every name as the case writes it; the reader bounded on 15,000 to 20,000 hostile names and in
      the module's sweep).
+   - the push check's hold on the clearance commit (rule meta-note, `overseer/meta_notes.py`; docs/DELIVERY.md 6b): the note
+     form accepted any paragraph holding "not" or "only", so "Note: there is nothing to fix in this answer, not a single
+     slip." was freed. A first rewrite read notes through a wide grammar with open slots, and an attack freed 196 of its
+     332 assurance paragraphs through them ("Note: the figures come from Table 1 to the decimal place."); the rule is now a
+     closed allowlist (a study suggestion whose object is the student's own work, a question or a passage of a strict
+     source list that never names the answer's own part, a first-person inability to see or open a source named with a
+     definite determiner, named content not checked and never set against the rest), so genuine notes outside it are
+     refused by design. The fixer's own probe of the narrowed rule found 120 more paragraphs it still freed (a part of the
+     answer learnt by heart or taken as a suggestion's object or yardstick, "your notes" as the object of practice, a
+     submission, "the remaining figures are unverified", "I can't see a second source"); the last tightening closes them.
+     The fix rewrote two tests of `tests/overseer/test_clearance_c1_overseer.py` to the stricter rule and weakened or
+     deleted none: `test_a_next_step_or_a_note_that_reports_nothing_is_a_note` asserted eight notes; the six the allowlist
+     refuses (lit-t14's task wording, ll-t14's provenance clause, en-p8c's status, use and possessive, a fictional-practice
+     status, a suggestion naming the answer's own sentence, an extract's context not shown) moved to
+     `NOTES_OUTSIDE_THE_ALLOWLIST`, asserted refused by the new `test_a_note_outside_the_closed_allowlist_is_now_a_self_report`,
+     and the note list gained the allowlist's own reading of three of them ("Note: I can't see the image.", "Next step: plan
+     your second analysis on the other passage now.", "Note: the dates are unchecked here.");
+     `test_the_note_reader_reads_an_answer_of_two_thousand_notes_in_linear_time` read 2,000 "Note: the figures are practice
+     data." as notes; it now reads 2,000 "Note: the figures are unverified." as notes and the old 2,000 as self-reports, each
+     within the same bound. Every self-report of that file and its hostile paragraphs read as before. Its regression tests
+     are `tests/overseer/test_c1_push_check_meta_note.py` (written with the first rewrite, rewritten with the allowlist: its
+     two appraisals written as a suggestion's object, refused only by the vocabulary before, are now refused by the
+     allowlist too; with the last tightening two of its own genuine controls, "Next step: annotate the second stanza,
+     focusing on the verbs." and "Next step: annotate the opening stanza, then ...", moved from `FURTHER_GENUINE` to
+     `OUTSIDE_THE_ALLOWLIST`, a stanza being a passage that can be the answer's own, and their strict-list readings, "the
+     extract", took their place): the push check's three phrasings, 16 of the attack's bypasses and 7 of the probe's
+     paragraphs on the recorded en-t14 answer through an audited hub with a delivery session (ES-META-001 kept, the
+     self-report named, never FORMALLY CHECKED; the recorded answer alone names none), the label itself (with every claim of
+     en-t14 counted clean, FORMALLY CHECKED with a genuine note and never with an assurance), all 332 paragraphs of the
+     attack (`tests/overseer/data/meta_note_attack_round1.json`, two heading-led bypasses added that the first gathering
+     skipped) refused by the rule and by the allowlist alone and kept on the pack path, the probe's 120 paragraphs refused
+     by the rule and by the allowlist alone, 93 assurance phrasings (negated, double-negated, litotes, idioms, hedged,
+     synonyms, every note lead, markdown emphasis, mixed with a genuine limitation, inside a suggestion, Spanish and French)
+     refused, each by the allowlist alone too, 43 more in words neither vocabulary lists refused by the allowlist, negators
+     alone refused, a genuine note with an assurance added refused, the allowlist's own lines each with both sides (a
+     pronoun needs a noun phrase of its number and a topic names none; no suggestion names the answer; a yardstick is the
+     student's own work or the strict list; practice only of the student's own work, a question or a practice item, and no
+     verb of learning by heart; sending only back to the tutor; no universal, fidelity, finality or contrastive modifier on
+     content not checked; first-person inability with a closed verb and a source named with a definite determiner; no
+     character or word outside the lists; the lead decides the kind), the two recorded round-8 English notes it reads and 45
+     further genuine notes kept, the five recorded English notes it refuses and 31 genuine notes outside the allowlist
+     pinned as refused, receipt and audit in agreement (the task audit has no reading of a note; the receipt never frees a
+     sentence the auditor's detector names), and the readers on 31 hostile paragraphs under the bound and on 13 growth
+     ratios.
+     Attack round 2 found rule meta-note held and every remaining bypass outside it, in the English parser's segmentation
+     (a 'sources' unit, read before the meta-text test since the clearance commit, and a note-led 'body' block, at the
+     published base already): rules lead-blocks and source-list (`overseer/meta_notes.py`, read by the delivery policy)
+     refuse the label for any block of the answer as written that opens with a note or sources lead and is read neither
+     as a note nor as a pure source list. The fix rewrote one test to the stricter rule and weakened or deleted none:
+     `tests/overseer/test_c1_push_check_meta_note.py::test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without_an_assurance`
+     pinned the formal path's reasons for an assurance note as the ES-META-001 self-report alone (and its docstring said
+     rule meta-note was then the only line, which round 2 showed false); rule lead-blocks names the same paragraph too, so
+     it now asserts both reasons, the second naming paragraph 7 by position, lead and rule only. The same file's
+     docstring of `test_every_paragraph_of_the_attack_on_the_first_rewrite_is_a_self_report` said 330 paragraphs; the data
+     file holds 332 (196 of them freed by the first rewrite), as `docs/OVERSEER_DESIGN.md` Decision 99 now says too (it
+     said 188 of 244). Its regression tests are `tests/overseer/test_c1_push_check_lead_blocks.py`, with the round's inputs
+     in `tests/overseer/data/meta_note_attack_round2.json` (the bypass lens's 64 and the review lens's 25, each with the
+     form its lens added it in): the 77 that carry a lead, or that the parser reads as meta-text, keep the recorded en-t14
+     answer from the label with every claim counted clean (69 of them reached it with the rule switched off: all 53 of the
+     bypass lens's and 16 of the review lens's), the block named (a paragraph after the answer, en-t14's own
+     sources line replaced, a last sentence of its fourth paragraph, a sentence after its own note); the 12 with no lead
+     that no reader names (plain body prose, a heading or a list item) are strict xfail tests, an open question for round
+     9; the note-masking path recorded as open after attack round 1 (5 notes holding a quotation of the extract or opened
+     by a fullwidth lead, which the parser reads as body) closed on the real path; the label for real on the Physics delivery fixture (FORMALLY CHECKED, and with a genuine note or a pure source list
+     added, never with the push check's phrasings or another note-led or sources-led assurance); 22 genuine source lists
+     read and 35 lists refused by rule source-list, every round-2 sources unit refused, a supplied name read only with the
+     supplied titles, deny words beating a title, the closed list disjoint from the deny list; 54 lead forms (the History
+     parser's leads and any blank the parsers read inside a lead among them), 5 leads split by a line break or an odd blank
+     on the real path, 10 things that are no lead, the block's extent, the parser's paragraph cut, 8 leads rule meta-note has no reading of, the
+     reason's words, the block bound; every lead block of the 18 recorded round-8 answers the repository holds pinned
+     (only en-t14's two and ch-t14's sources line are read); the recorded English notes rule meta-note reads read as
+     blocks too; receipt and audit in agreement (every block the auditor's structural detector names refused, the task
+     audit the same with and without a note or sources block); and the readers on 14 hostile answers of up to 400,000
+     characters under the bound and on 5 growth ratios.
+     Attack round 3 showed a closed list of leads cannot close condition 6b (note leads the parsers read behind a format
+     character, a bracket or a dash after "Note on", "N.  B."; the English parser's feedback furniture, answer notes and
+     label-shaped "from memory" sentences; headings and list items; text a report delivered as an object never claims):
+     rule non-material-text (`overseer/non_material.py`, read by the delivery policy) inverts the reading, so everything the
+     branch's own parser reads as no claim, or that the journaled report does not claim, must be read by rule meta-note's
+     note allowlist, rule source-list or the new strict rule layout; every reader normalises its text first and the lead
+     reader reads any punctuation after a lead and any marks before it. The fix rewrote five tests to the stricter rule and
+     weakened or deleted none, each change stated in its docstring:
+     `tests/overseer/test_c1_push_check_lead_blocks.py::test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_checked_label`
+     pinned every reason as rule lead-blocks' or the self-report's, and the meta-text heading's reasons as the self-report
+     alone; rule non-material-text may now name the same block too. `::test_round_2_assurances_with_no_lead_are_open_for_round_9`
+     held 12 inputs open (strict xfail); rule non-material-text closes three of them (a heading, a list item and a line with
+     no stop, no claim for the English parser), now pinned closed by the new
+     `::test_round_2_headings_and_list_items_are_closed_by_rule_non_material_text`, and nine plain-prose inputs stay open;
+     `::test_the_round_2_data_covers_both_lenses_every_form_and_every_channel` counts them so.
+     `::test_the_label_for_real_on_a_physics_answer_the_formal_path_completes_for` pinned rule lead-blocks' reason as the only
+     one; rule non-material-text names the same block (the agent's report claims none of it), so both reasons are asserted.
+     `tests/overseer/test_c1_push_check_meta_note.py::test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without_an_assurance`
+     pinned two reasons; the third, rule non-material-text's naming paragraph 7 by position and rule only, is asserted too.
+     Its regression tests are `tests/overseer/test_c1_push_check_non_material.py`, with the round's inputs in
+     `tests/overseer/data/meta_note_attack_round3.json` (the bypass lens's 111 en-t14 inputs and 16 Physics texts, the
+     regression lens's 26 whole answers, each with the status the rules give it): the 52 en-t14 inputs the rules close keep
+     the recorded answer from the label with every claim counted clean (37 named by rule non-material-text, 15 display spoofs
+     by the lead reader), named by position and rule only; the 59 the English parser reads as claims of the answer (27
+     material points and one material link the formal path marks not_eligible, 31 supporting interpretation sentences) and
+     "NB all quotations hold." are strict xfail tests for round 9, their reading pinned; the 15 Physics assurances refused
+     for real and the genuine note kept; text the agent's report never claims read however the parser reads it; the 26
+     regression-lens answers refused; the label-level counterfactual for feedback furniture, an answer note and a
+     label-shaped from-memory sentence; the push check's three phrasings (ES-META-001 kept, never FORMALLY CHECKED, named
+     by rule non-material-text too); the 93 assurances of the meta-note corpus read by no closed reader and named appended
+     or inline; the two recorded English notes and 45 further genuine notes leaving nothing unread (a bold-led note written
+     inside a paragraph, which the parser glues to the sentence before it, refused conservatively), five on the real path
+     with the label; rule layout (51 closed forms read, 32 refused) and its labels read by each parser's own pattern; the
+     normalisation and the tag characters; 30 round-3 lead forms and 10 things that are no lead; the alignment of the
+     parser's reading (a claim's own marks, mark annotations, order and whole words, the journaled report's claims, fail
+     closed); each branch's reading (English, History, Economics, Physics, Mathematics) and an English answer whose report
+     folds claims; every block of the 18 recorded round-8 answers the rule leaves unread pinned (only en-t14 has none);
+     receipt and audit in agreement; and the readers on 9 hostile answers, 5 hostile layout blocks and 4 growth ratios.
+     Attack round 4 found open slots in the fix's own readers: rule layout took the STEM parser's open part-id slot after the
+     structure heads ("Working (fine):", "Method (good):", "Working ok:", "Known good:") and read runs of markscheme codes
+     ("(A1) (A1) (A1) (A1)") as layout, rule source-list took words that name no source ("Sources: the examination paper's
+     own answers.", "the extract's own lines"), look-alike letters hid a lead ("Nоte:" with a Cyrillic о, a Greek "Ν.Β."),
+     and the task's wording was read once per block. The part id now takes only the parsers' own part-label grammar, a run
+     of annotations is layout only when it holds mark allocations alone, the source list names sources and nothing else,
+     every lead and label is read on the text's confusable skeleton (a lead only the skeleton reads frees nothing), and the
+     task's wording is read once per answer. The fix changed eight tests, each to the stricter rule or to a corrected record,
+     and weakened or deleted none, each change stated in its docstring or reason:
+     `tests/overseer/test_c1_push_check_non_material.py::test_rule_layout_reads_closed_furniture` read the markscheme codes
+     "(M1)" and "M1 A1" as layout; they moved to `::test_rule_layout_refuses_everything_else`, which also gained "Working
+     (fine):", "Working ok:" and "Known good:". `::test_mark_annotations_the_parser_removes_inside_a_claim_do_not_break_the_reading`
+     asserted nothing unread; the "A1" after the claim's last word is now a block rule layout refuses (the claim is still
+     found across the "M1" inside it, and a mark allocation there is still layout).
+     `::test_every_block_of_the_recorded_round_8_answers_the_rule_leaves_unread_is_pinned` gained maa-t14's sixteen codes
+     (no block left the list). `::test_round_3_inputs_the_parser_reads_as_claims_are_open_for_round_9` held 59 inputs open;
+     the look-alike lead among them is now closed, pinned by the new `::test_the_round_3_look_alike_lead_is_closed_in_round_4`
+     (`CLOSED_IN_ROUND_4`; the data file is unchanged; `::test_the_open_round_3_inputs_are_read_by_the_english_parser_as_claims`
+     reads the 58 left), and `::test_the_round_3_data_covers_every_input_of_both_lenses` counts 58 open; its reason, and that of `::test_an_assurance_with_no_lead_the_parsers_read_is_open_for_round_9` and of
+     `tests/overseer/test_c1_push_check_lead_blocks.py::test_round_2_assurances_with_no_lead_are_open_for_round_9` (which said
+     "pre-existing at the published base"), now state each input's behaviour at the published base as measured: FORMALLY
+     CHECKED there on en-t14 without its note, withheld on en-t14 with it (that note's ES-META-001), so the claim channel is
+     reachable on note-carrying answers since rule meta-note frees the note. Its regression tests are
+     `tests/overseer/test_c1_push_check_round4.py`, with the round's inputs in `tests/overseer/data/meta_note_attack_round4.json`
+     (the bypass lens's 158 label-level, 8 borderline and 83 literal inputs, the regression lens's 27 and the review lens's
+     14, each with the form its lens added it in; the Physics fixture's answer as text, 20 inputs, and as its report object,
+     14; and the behaviour at the published base 16d5a4a of every claim-channel input of rounds 2, 3 and 4, measured on
+     en-t14 as recorded, on en-t14 shortened under the base's word bound with and without its note): the 145 inputs the rules
+     close keep en-t14 from the label with every claim counted clean, named by position and rule only (the 13 look-alike leads
+     by rule lead-blocks, the evaluative labels and wider source lists by their rules); the 145 the English parser reads as
+     claims are strict xfail tests for round 9, their reading and their base behaviour pinned; on the Physics answer as text,
+     for real, the push check's sentence, a look-alike lead, a lead alone on its line and the code runs are refused, the
+     controls keep the label, and 10 claim-channel inputs (the STEM parser's 'structural' head through its own open slot
+     among them) are strict xfail with their base behaviour; on the report object every evaluative label line and code run is
+     refused and a part-labelled head, a run of mark allocations and a genuine note keep the label; rule layout's part-id
+     grammar on every STEM head, its agreement with the STEM parser's head pattern, and 16 label lines of the lenses refused;
+     11 code runs refused and 8 allocation runs read; 27 lists naming no source refused and 15 of the knowledge bases' forms,
+     locators and kind tags read, the closed list holding source names only; 16 look-alike leads read as leads and freeing
+     nothing, 4 look-alike labels cutting a block and never read as layout, the skeleton's table, the recorded and further
+     genuine notes read as before; receipt and audit in agreement (the task audit the same with and without a round-4 block);
+     the five recorded answers the 6b rules alone keep off the label with every claim counted clean and the one that keeps it;
+     and the readers on 4 hostile answers of up to 400,000 characters, the task wording read once (4,000 blocks against an
+     8,234-character task), and 3 growth ratios.
+     Attack round 5 found the fix's own source-list reader reading only the words after its lead (the cutting reader takes any
+     marks before a lead, an HTML-like tag and any mark after it, so "👍 Sources:", "★★★★★ Sources:", "🆅🅴🆁🅸🅵🅸🅴🅳 Sources:",
+     "<all verified> Sources:" and "Sources💯" were freed), and the claim channel a regression since the published base (an
+     assurance the branch's parser reads as a claim reached no reader, and rule meta-note made it reachable on note-carrying
+     answers). Every reader that frees a block now reads it as a whole (before a lead or label only blanks, at most one list
+     mark and the lead's own emphasis; the sources lead's colon), and the delivery policy's new refusal-only rule
+     unverified-claims needs every claim of the answer, whatever its materiality, to carry a positive outcome of a signed
+     engine result (a material claim marked not eligible, a supporting claim not clean and a parser claim whose whole text no
+     journaled claim holds are named). The fix rewrote these tests to the stricter rule and weakened or deleted none, each
+     change stated in its docstring:
+     `tests/overseer/delivery_support.py::physics_report` gained `evidence=False` (default unchanged): the fixture's answer
+     without its supporting evidence claim ("A car travels 120 km in 8 hours.", `p1.0`), which the fixture verifier never
+     checks. In `tests/overseer/test_delivery_policy.py`, `::test_a_fast_clean_answer_is_refused_by_the_label_rule_alone_and_its_signed_receipt_verifies`
+     (one verifier call of 5 s now, 10 s before), `::test_the_formal_path_makes_no_overseer_call`,
+     `::test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_when_every_one_is_clean` (30 s, 40 s before),
+     `::test_inside_the_budget_the_formal_path_names_no_budget_reason`, `::test_a_tampered_receipt_or_payload_no_longer_verifies` (the reworded
+     claim is the answer's first now), `::test_the_session_restores_the_channels_verifier_and_decides_once`,
+     `::test_a_formal_path_never_waits_for_another_deliverables_overseer_stage` (B's answer) and
+     `::test_the_delivered_payload_is_the_journaled_report` pinned FORMALLY CHECKED for the answer holding `p1.0`; they deliver
+     the answer without it, and the new `::test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked`
+     pins the refusal of the answer with it (withheld, the reason naming `p1.0 (supporting evidence: not_attempted)`; with
+     overseer agents, the fallback). In `tests/overseer/test_gate1_overseer_fixes.py`,
+     `::test_control_an_answer_whose_working_is_all_checked_is_refused_by_the_label_rule_alone` and
+     `::test_control_the_same_answer_without_the_self_report_is_refused_by_the_label_rule_alone` likewise, with the answers of the tests they
+     control (`_formal`, `::test_an_answer_carrying_a_self_report_never_travels_under_the_formal_label`) built without `p1.0`.
+     The label tests of the four c1 push-check files counted only the eligible material claims clean
+     (`_clean_formal_claims`), under which en-t14's 13 quotations and 6 interpretation sentences carried no outcome and en-t14
+     is now refused by rule unverified-claims alone (pinned by the new
+     `tests/overseer/test_c1_push_check_meta_note.py::test_with_only_the_eligible_material_claims_clean_en_t14_is_refused_by_rule_unverified_claims`);
+     they count every claim of the recorded answer clean (`_clean_recorded_claims`; a claim the input adds keeps its real
+     outcome) or, for a recorded answer delivered alone, every claim (`_clean_every_claim`):
+     `test_c1_push_check_meta_note.py::test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without_an_assurance`;
+     in `test_c1_push_check_lead_blocks.py` `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_checked_label` (a reason naming a claim the
+     input adds, condition 3's or rule unverified-claims', may stand beside the block's),
+     `::test_round_2_headings_and_list_items_are_closed_by_rule_non_material_text`,
+     `::test_a_genuine_source_list_in_place_of_en_t14s_is_refused_by_the_label_rule_alone`, `::test_the_note_masking_path_recorded_after_attack_round_1_is_closed`,
+     `::test_a_lead_split_by_a_line_break_or_an_odd_blank_is_still_a_lead` and `::test_a_genuine_note_added_to_en_t14_is_refused_by_the_label_rule_alone`;
+     in `test_c1_push_check_non_material.py` `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_3_bypass_the_rules_close_keeps_en_t14_off_the_label` (claim reasons allowed beside),
+     `::test_the_round_3_look_alike_lead_is_closed_in_round_4`, `::test_every_note_on_and_residual_answer_of_the_regression_lens_is_refused`,
+     `::test_the_label_level_counterfactual_for_each_non_material_channel` and `::test_a_genuine_note_is_refused_by_the_label_rule_alone_on_the_real_path`;
+     in `test_c1_push_check_round4.py` `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_4_input_the_rules_close_keeps_en_t14_off_the_label`, `::test_a_look_alike_lead_is_named_by_rule_lead_blocks`,
+     `::test_every_evaluative_label_and_wider_source_list_is_named_by_its_rule`,
+     `::test_the_recorded_answers_the_6b_rules_alone_keep_off_the_label` and `::test_the_recorded_answer_the_label_rule_alone_refuses`.
+     Their Physics helpers (`_physics` of the lead-blocks and non-material files, `_physics_report` of the round-4 file) build
+     the fixture without `p1.0`; `test_c1_push_check_lead_blocks.py::test_the_label_for_real_on_a_physics_answer_the_formal_path_completes_for`
+     and `test_c1_push_check_non_material.py::test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by_the_label_rule_alone`
+     allow rule unverified-claims' reason beside the block's (the STEM parser reads some added sentences as claims the report
+     does not hold). Two controls pinned the label for an answer holding a STEM structure head, "Working (b):", which the STEM
+     parser reads as a 'structural' supporting claim no signed engine result decides:
+     `test_c1_push_check_round4.py::test_the_physics_answer_delivered_as_text_for_real` and `::test_the_physics_report_object_for_real`
+     now assert its refusal by rule unverified-claims alone, naming the claim. The strict xfail tests of the claim channel
+     are real tests of the refusal now, renamed: `test_c1_push_check_lead_blocks.py::test_round_2_assurances_with_no_lead_are_open_for_round_9`
+     (9) is `::test_round_2_assurances_with_no_lead_are_refused_by_rule_unverified_claims`;
+     `test_c1_push_check_non_material.py::test_round_3_inputs_the_parser_reads_as_claims_are_open_for_round_9` (58) is
+     `::test_round_3_inputs_the_parser_reads_as_claims_are_refused_by_the_claim_rules` and
+     `::test_an_assurance_with_no_lead_the_parsers_read_is_open_for_round_9` (1) is
+     `::test_an_assurance_with_no_lead_the_parsers_read_is_refused_by_the_claim_rules`;
+     `test_c1_push_check_round4.py::test_round_4_claim_channel_inputs_are_open_for_round_9` (145) is
+     `::test_round_4_claim_channel_inputs_are_refused_by_the_claim_rules`, and
+     `::test_physics_text_claim_channel_inputs_are_open_for_round_9` (10) is split into
+     `::test_physics_text_claim_channel_inputs_are_refused_for_real` (8) and
+     `::test_physics_text_inputs_glued_into_the_verified_claim_are_refused_for_real` (2: the input is glued INTO the claim the
+     engine verifies, whose fidelity review the fixture fakes, and the rule names a claim holding a note lead after a clause
+     mark or a character outside the claim alphabet). Each asserts that the reasons name, by id only, the claim the input added
+     or changed (`assert_claim_refusal`). Its regression tests are
+     `tests/overseer/test_c1_push_check_round5.py`, with the round's inputs in `tests/overseer/data/meta_note_attack_round5.json`
+     (the bypass lens's 156 lines, 22 of them weak praise emoji, each with the form and region it used; its 18 Physics text rows;
+     the review lens's 83 whole-answer rows and 80 lines): every line read by no freeing reader; both block rules naming every
+     en-t14 bypass; the lead region per reader (17 regions read for source lists and labels, 8 for notes, 62 refused for all
+     three, 41 of them named by both block rules on en-t14 and all 62 keeping en-t14 off the label for real); the sources lead's colon (18 marks refused); a part label before a bulleted
+     list read as two blocks; on the real path every en-t14 bypass and review answer refused (the block named by rule
+     lead-blocks, or the claim named), the Physics text and report rows refused for real and their controls kept, the report
+     object's glued symbols named by rule unverified-claims; the claim channel (12 en-t14 inputs and 6 Physics text inputs
+     refused, the claim named), a material claim marked not eligible, claims that cannot be read, refusal only; receipt and
+     audit in agreement; the claim alphabet (19 claims of letters, numbers, punctuation and mathematics read, 15 holding a
+     character no encoding reads named, a radical with no operand among them) and the note lead glued into a claim (12 cases),
+     the review lens's 2 symbols glued into the Physics result refused for real, and 3 inputs of words glued into the verified
+     claim strict xfail (round 9: the fidelity review's); and the readers on 4 hostile regions, 200 long refused source lists
+     and 4 growth ratios.
+     Attack round 6 showed that no reader of free text closes condition 6b (assurances glued to a verified claim, eligible
+     assurance claims, separate self-grades the verifier confirms, combining letters and hidden format characters the
+     readers drop), so for the round-8 release rule `formal-label-withheld` (docs/DELIVERY.md condition 6d) withholds the
+     FORMALLY CHECKED label from every answer and every answer takes the existing fallback. Every test that pinned FORMALLY
+     CHECKED, or pinned a refusal's reasons exactly, pinned the older, weaker behaviour and was rewritten to the stricter rule,
+     each saying so in its docstring; none was weakened or deleted. A pinned label now asserts that the label rule's reason
+     is the formal path's ONLY reason (`delivery_support.assert_label_withheld_only`: every other condition still holds), and
+     a pinned refusal asserts its reasons followed by the label rule's: `tests/overseer/test_delivery_policy.py`
+     `::test_a_fast_clean_answer_is_refused_by_the_label_rule_alone_and_its_signed_receipt_verifies` (withheld without an overseer agent,
+     overseer-selected and delivered with one, its payload the journaled one), `::test_the_formal_path_makes_no_overseer_call`
+     (the formal stage still makes none; the fallback's overseer stage starts when it ends),
+     `::test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_when_every_one_is_clean`,
+     `::test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked`,
+     `::test_inside_the_budget_the_formal_path_names_no_budget_reason` (4; inside the budget the formal path names no budget reason, the
+     fallback runs for the label rule only), `::test_a_tampered_receipt_or_payload_no_longer_verifies` (the answer is the
+     fallback's; the mode tried is `formally_checked`, the accuracy tried "0/1"),
+     `::test_the_session_restores_the_channels_verifier_and_decides_once`,
+     `::test_a_formal_path_never_waits_for_another_deliverables_overseer_stage` (B's formal path is read while A's overseer
+     stage holds its gate; B's fallback then waits for it, one overseer stage at a time) and
+     `::test_the_delivered_payload_is_the_journaled_report`; `tests/overseer/test_gate1_overseer_fixes.py`
+     `::test_control_an_answer_whose_working_is_all_checked_is_refused_by_the_label_rule_alone` and
+     `::test_control_the_same_answer_without_the_self_report_is_refused_by_the_label_rule_alone`;
+     `tests/overseer/test_c1_push_check_meta_note.py` `::test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without_an_assurance`
+     and `::test_with_only_the_eligible_material_claims_clean_en_t14_is_refused_by_rule_unverified_claims`;
+     `tests/overseer/test_c1_push_check_lead_blocks.py` `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_checked_label`,
+     `::test_a_genuine_source_list_in_place_of_en_t14s_is_refused_by_the_label_rule_alone`, `::test_a_genuine_note_added_to_en_t14_is_refused_by_the_label_rule_alone`
+     and `::test_the_label_for_real_on_a_physics_answer_the_formal_path_completes_for`;
+     `tests/overseer/test_c1_push_check_non_material.py` `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_3_bypass_the_rules_close_keeps_en_t14_off_the_label`,
+     `::test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by_the_label_rule_alone`,
+     `::test_the_label_level_counterfactual_for_each_non_material_channel` and `::test_a_genuine_note_is_refused_by_the_label_rule_alone_on_the_real_path`;
+     `tests/overseer/test_c1_push_check_round4.py` `::test_the_physics_answer_delivered_as_text_for_real`,
+     `::test_the_physics_report_object_for_real`, `::test_the_recorded_answer_the_label_rule_alone_refuses`,
+     `::test_the_recorded_answers_the_6b_rules_alone_keep_off_the_label` and
+     `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`;
+     `tests/overseer/test_c1_push_check_round5.py` `::test_en_t14_with_a_genuine_list_mark_or_emphasis_before_its_sources_lead_is_refused_by_the_label_rule_alone`,
+     `::test_every_round_5_bypass_keeps_en_t14_off_the_label`, `::test_every_review_lens_row_on_the_physics_report_object_is_refused_for_real`,
+     `::test_the_bypass_and_review_lenses_physics_text_rows_for_real`, `::test_the_physics_text_control_is_refused_by_the_label_rule_alone_and_the_rule_names_nothing`
+     and `::test_with_only_the_eligible_material_claims_clean_the_supporting_claims_are_named`; and the strict xfail
+     `::test_words_glued_into_the_verified_claim_are_open_for_round_9` (3) is a real test of the refusal now, renamed
+     `::test_words_glued_into_the_verified_claim_are_refused_by_rule_formal_label_withheld` (the label rule its only reason).
+     The integration kit agrees (its summary is never `formally_checked`): `tests/integration/test_decision_table.py`
+     `::test_summary_from_counts` expected `formally_checked` for its first two rows and expects `partly_checked`;
+     `::test_decision_table_vectors_match_the_hand_written_rows` pinned the vector `deliver-formally-checked` (its name kept)
+     at `formally_checked` and pins `partly_checked`; `::test_a_non_definitive_status_never_yields_formally_checked` asserts no
+     summary is `formally_checked` too. The regenerated vectors (`decision-table/deliver-formally-checked.json`,
+     `chat-contract/labels.json`'s case `every-material-claim-positive-and-permitted`) are read by the JavaScript tests
+     unchanged in code. Its regression tests are `tests/overseer/test_c1_push_check_round6.py`, with the round's inputs in
+     `tests/overseer/data/meta_note_attack_round6.json` (the bypass lens's 17 en-t14 rows and 27 Physics text rows, the
+     regression lens's 145 rows with their decisions at 16d5a4a and f2329df): the rule a named constant no configuration
+     turns off; the label-level counterfactual (the clean Physics answer for real, en-t14 with every recorded claim clean:
+     FORMALLY CHECKED without the rule, withheld by it alone); the push check's three phrasings; the clean answer
+     overseer-selected with an overseer agent; every round-6 input never FORMALLY CHECKED, the rule's reason named (en-t14
+     real and under two counterfactuals, the Physics text path real and with every eligible claim clean, every regression
+     row as its lens delivered it); the inputs the label being off makes moot, which reach the label without the rule; an
+     answer another condition refuses decided exactly as before (only the label rule's reason added); the kit's summary over
+     every combination of up to three claims; the Worker's summarize; the readers that still run grow linearly.
+     The pre-commit review of the c1 landing found five test problems, fixed without weakening or deleting a test, each
+     change stated in its docstring. (1) Rule formal-label-withheld puts its reason on every formal path, so five end-to-end
+     tests that asserted only "not FORMALLY CHECKED, some reason given" passed whatever the 6b and claim rules did:
+     `tests/overseer/test_c1_push_check_round4.py::test_every_round_4_input_the_rules_close_keeps_en_t14_off_the_label` (145)
+     and, in `test_c1_push_check_round5.py`, `::test_every_region_keeps_en_t14_off_the_label_for_its_sources_line_and_for_a_note`
+     (62 regions, two answers each), `::test_every_review_lens_row_on_the_physics_report_object_is_refused_for_real` (30),
+     `::test_every_review_lens_whole_answer_on_the_report_object_is_refused_for_real` (21) and
+     `::test_the_bypass_and_review_lenses_physics_text_rows_for_real` (29). Each is stricter now: a refused row needs a reason
+     other than the label rule's, from one of the rules its docstring names (the new `delivery_support.assert_refused_beyond_the_label`;
+     the counterfactual without the label rule, `test_c1_push_check_round6._without_label_rule`, completes the formal path
+     exactly when no such reason remains, so each row is never FORMALLY CHECKED without the label rule either). Measured on
+     the landing, no row of the five is refused by the label rule alone; a few are refused before the formal path reads them,
+     by the consolidation's exclusion of the answer, and are pinned so: the three quoted literal inputs of round 4
+     (`QUOTED_LITERALS`) and the regions after a quotation mark of round 5 (`QUOTE_REGIONS`), a quotation of no supplied text
+     whose receipt carries error-level findings, and the review lens's four "mid" whole answers, which the task audit names.
+     With the 6b and claim rules switched off, 55 of the 59 rows of the two Physics text and report tests fail now (the 4
+     controls pass); before, they asserted only what the label rule guarantees. The round-4 docstring now names rule unverified-claims (6c) and rule formal-label-withheld (6d).
+     (2) The landing removed the only assertions on the text of the FORMALLY CHECKED label; they are pinned again on the label
+     the counterfactual grants, in `test_c1_push_check_round6.py::test_the_label_level_counterfactual_a_physics_answer_every_claim_of_which_is_clean`
+     (it starts "FORMALLY CHECKED within the 240 s translation budget", gives "each of the 1 material eligible claim(s)" and
+     ends "This proves properties of the encodings only.") and `::test_the_label_level_counterfactual_en_t14_with_every_recorded_claim_clean`
+     (the count of its material eligible claims, the budget and the scope statement). (3) Five tests whose names stated the
+     opposite of what they assert are renamed, their assertions unchanged: in `tests/overseer/test_delivery_policy.py`,
+     `::test_a_fast_clean_answer_is_delivered_formally_checked_with_a_signed_receipt` is
+     `::test_a_fast_clean_answer_is_refused_by_the_label_rule_alone_and_its_signed_receipt_verifies`,
+     `::test_inside_the_budget_there_is_no_fallback` is `::test_inside_the_budget_the_formal_path_names_no_budget_reason` and
+     `::test_a_decision_never_waits_for_another_deliverables_overseer_stage` is
+     `::test_a_formal_path_never_waits_for_another_deliverables_overseer_stage`; in `tests/overseer/test_gate1_overseer_fixes.py`,
+     `::test_control_an_answer_whose_working_is_all_checked_is_still_formally_checked` is
+     `::test_control_an_answer_whose_working_is_all_checked_is_refused_by_the_label_rule_alone` and
+     `::test_control_the_same_answer_without_the_self_report_is_formally_checked` is
+     `::test_control_the_same_answer_without_the_self_report_is_refused_by_the_label_rule_alone` (the passages above use the
+     new names). (4) The base behaviour tests compare recorded data with itself and run no code at the base:
+     `test_c1_push_check_round4.py::test_the_behaviour_of_each_open_round_4_input_at_the_published_base_is_recorded`,
+     `::test_the_claim_channel_inputs_of_rounds_2_and_3_have_their_base_behaviour_recorded`, the `base_16d5a4a` assertions of
+     `::test_the_physics_text_data_is_complete` and `::test_the_open_physics_text_inputs_are_claims_of_the_stem_parser_and_their_base_behaviour_is_recorded`,
+     and the `at_16d5a4a` and `at_f2329df` assertions of
+     `test_c1_push_check_round6.py::test_every_round_6_regression_input_is_never_formally_checked`. They are kept; their
+     docstrings now say that the 16d5a4a and f2329df figures are recorded data, measured once by the attack lenses, not
+     re-measured by the suite. (5) An exception raised by a refusal-only rule outside its own try block (rule meta-note's
+     `self_report_findings`, rule lead-blocks, rule non-material-text, rule unverified-claims) escaped the formal path and
+     made the whole decision WITHHELD for an internal failure, changing the delivery mode; `DeliveryPolicy._formal` now runs
+     each fail closed, the exception a whole-answer reason naming the rule and the exception's type, the fallback deciding
+     the mode. Its regression test, `test_c1_push_check_round6.py::test_a_rule_that_raises_refuses_the_label_and_changes_nothing_else`
+     (4 rules, OVERSEER-SELECTED and NOT CHECKED), asserts the same mode as without the exception, the rule named, and,
+     without the label rule, the clean Physics answer refused by the new reason alone; all 8 cases fail on the landing's
+     policy.
+     The re-review of those fixes found two more test problems, fixed the same way. (6) The five tests of (1) accept a
+     reason of any one of several rules, so they catch the removal of all the rules they name, not of one of them while
+     another also refuses the row (`assert_refused_beyond_the_label` now says so); the self-report reason (rules
+     self-report-disclosed and meta-note) decided no row: with its reader switched off all 287 rows still pass. Those of the
+     five that accepted it (`::test_every_round_4_input_the_rules_close_keeps_en_t14_off_the_label`,
+     `::test_every_region_keeps_en_t14_off_the_label_for_its_sources_line_and_for_a_note`,
+     `::test_every_review_lens_row_on_the_physics_report_object_is_refused_for_real` and
+     `::test_the_bypass_and_review_lenses_physics_text_rows_for_real`) no longer accept it as the reason a row rests on
+     (stricter; `test_c1_push_check_round5.SIX_B_DECIDING`). (7) Twelve more tests (ten names) whose names stated the label they no longer
+     grant are renamed, their assertions unchanged: `::test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean`
+     (in `test_c1_push_check_lead_blocks.py`, `test_c1_push_check_non_material.py` and `test_c1_push_check_round4.py`) is
+     `::test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_label_rule_alone`; in
+     `test_c1_push_check_lead_blocks.py`, `::test_a_genuine_source_list_in_place_of_en_t14s_keeps_the_label` and
+     `::test_a_genuine_note_added_to_en_t14_keeps_the_label` end in `_is_refused_by_the_label_rule_alone`; in
+     `test_c1_push_check_meta_note.py`, `::test_with_every_claim_clean_the_label_is_formally_checked_only_without_an_assurance`
+     is `::test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without_an_assurance`; in
+     `test_c1_push_check_non_material.py`, `::test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_keeps_the_label`
+     is `::test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by_the_label_rule_alone` and
+     `::test_a_genuine_note_keeps_the_label_on_the_real_path` is `::test_a_genuine_note_is_refused_by_the_label_rule_alone_on_the_real_path`;
+     in `test_c1_push_check_round4.py`, `::test_the_recorded_answer_that_keeps_the_label` is
+     `::test_the_recorded_answer_the_label_rule_alone_refuses`; in `test_c1_push_check_round5.py`,
+     `::test_en_t14_with_a_genuine_list_mark_or_emphasis_before_its_sources_lead_keeps_the_label` ends in
+     `_is_refused_by_the_label_rule_alone` and `::test_the_physics_text_control_keeps_the_label_and_the_rule_names_nothing` is
+     `::test_the_physics_text_control_is_refused_by_the_label_rule_alone_and_the_rule_names_nothing`; in
+     `test_delivery_policy.py`, `::test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean` is
+     `::test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_when_every_one_is_clean` (the passages
+     above use the new names).
 
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`

@@ -2,7 +2,7 @@
   "expect": {
     "decision": "deliver",
     "reasons": [],
-    "summary": "formally_checked"
+    "summary": "partly_checked"
   },
   "fields": {
     "claims": [

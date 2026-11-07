@@ -110,8 +110,8 @@ def test_every_overseer_refusal_label_is_refused_and_named():
 
 
 @pytest.mark.parametrize("claims,expected", [
-    ([(M, "ENTAILED", "attempted", True)], "formally_checked"),
-    ([(M, "ENTAILED", "attempted", True), (M, "NOT_ELIGIBLE", "not_eligible", False)], "formally_checked"),
+    ([(M, "ENTAILED", "attempted", True)], "partly_checked"),
+    ([(M, "ENTAILED", "attempted", True), (M, "NOT_ELIGIBLE", "not_eligible", False)], "partly_checked"),
     ([(M, "ENTAILED", "attempted", True), (M, "ENTAILED", "attempted", False)], "partly_checked"),
     ([(M, "ENTAILED", "attempted", False)], "formal_only"),
     ([(M, "NOT_ELIGIBLE", "not_eligible", False)], "not_formally_checkable"),
@@ -120,7 +120,25 @@ def test_every_overseer_refusal_label_is_refused_and_named():
     ([(S, "ENTAILED", "attempted", True)], "not_formally_checkable"),
 ])
 def test_summary_from_counts(claims, expected):
+    """Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    first two rows, every material eligible claim positive with its release permitted, expected ``formally_checked``; while
+    the delivery policy withholds the FORMALLY CHECKED label from every answer the summary never reports it either, so they
+    expect ``partly_checked``. Every other row is unchanged."""
     assert summarize(count_claims(ClaimFields(*c) for c in claims)) == expected
+
+
+@pytest.mark.parametrize("claims", [
+    [(M, "ENTAILED", "attempted", True)], [(M, "ENTAILED", "attempted", True), (M, "CONSISTENT", "attempted", True)],
+    [(M, "SATISFIABLE", "attempted", True), (S, "ENTAILED", "attempted", True), (M, "NOT_ELIGIBLE", "not_eligible", False)],
+    [(S, "ENTAILED", "attempted", True), (M, "NOT_ELIGIBLE", "not_eligible", False)],
+])
+def test_rule_formal_label_withheld_the_summary_is_never_formally_checked(claims):
+    """Rule ``formal-label-withheld`` (condition 6d): the summary of an answer whose every material eligible claim is positive
+    and permitted, the one summary that said ``formally_checked``, is ``partly_checked`` (or ``formal_only`` /
+    ``not_formally_checkable`` where nothing material is permitted), never ``formally_checked``."""
+    from epinoic_logic.integration.delivery import FORMAL_LABEL_RULE
+    assert FORMAL_LABEL_RULE == "formal-label-withheld"
+    assert summarize(count_claims(ClaimFields(*c) for c in claims)) != "formally_checked"
 
 
 def test_counts_cover_material_claims_and_exclude_not_eligible():
@@ -165,6 +183,7 @@ def test_a_non_definitive_status_never_yields_formally_checked(claims, policy):
         summary = summarize(counts)
         if any(f.formal in INCOMPLETE_STATUSES for f in material_eligible):
             assert policy == "verified-v1-qualify" and summary == "incomplete"
+        assert summary != "formally_checked"  # rule formal-label-withheld (docs/DELIVERY.md 6d)
         if summary == "formally_checked":
             assert material_eligible and all(f.formal in DEFINITIVE and f.formal in POSITIVE and f.release_permitted for f in material_eligible)
     if policy == "verified-v1" and any(f.formal in INCOMPLETE_STATUSES for f in material_eligible) and decision != "refuse_unresolved":
@@ -208,7 +227,8 @@ def test_decision_table_vectors_match_the_hand_written_rows():
     assert by_name["row4-counterexample"]["decision"] == "refuse_unresolved"
     assert by_name["row5-not-attempted-budget"]["reasons"] == ["KIT-DL-011", "KIT-DL-013"]
     assert by_name["row5-qualify-policy-continues"] == {"decision": "deliver", "reasons": [], "summary": "incomplete"}
-    assert by_name["deliver-formally-checked"]["summary"] == "formally_checked"
+    # rewritten to rule formal-label-withheld (docs/DELIVERY.md 6d): the vector keeps its name, its summary is partly_checked
+    assert by_name["deliver-formally-checked"]["summary"] == "partly_checked"
     assert by_name["internal-error-verdict"] == {"decision": "refuse_incomplete", "reasons": ["KIT-DL-900"], "summary": None}
 
 

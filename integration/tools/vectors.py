@@ -163,6 +163,7 @@ def C(formal, attempt="attempted", materiality="material", permitted=False):
 def decision_vectors() -> dict[str, dict]:
     cases = {
         "deliver-formal-only": _fields([C("ENTAILED"), C("NOT_ELIGIBLE", "not_eligible")]),
+        # named for the summary it had before rule formal-label-withheld (docs/DELIVERY.md 6d): now partly_checked
         "deliver-formally-checked": _fields([C("ENTAILED", permitted=True), C("CONSISTENT", permitted=True)]),
         "deliver-partly-checked": _fields([C("ENTAILED", permitted=True), C("ENTAILED")]),
         "deliver-not-formally-checkable": _fields([C("NOT_ELIGIBLE", "not_eligible"), C("UNSUPPORTED")]),
@@ -382,7 +383,9 @@ def chat_contract_vectors() -> dict[str, dict]:
     possibly other material claims not formally checked) carry a neutral qualified badge; an answer with no positive
     result, or one whose material checks did not all complete (reachable under the qualify policy only), never carries
     the word "passed", whatever the policy. ``badge_cases`` are delivered answers' claims (the decision fields only) with
-    the summary their counts give and the badge it shows, so both sides show the rule on the same cases."""
+    the summary their counts give and the badge it shows, so both sides show the rule on the same cases. While rule
+    ``formal-label-withheld`` holds (``docs/DELIVERY.md`` condition 6d) no summary is ``formally_checked``: the case
+    ``every-material-claim-positive-and-permitted`` is ``partly_checked`` and no case shows the "passed" badge."""
     from epinoic_logic.integration.delivery import ClaimFields, count_claims, summarize
     labels = {
         "positive_faithful_resolved": "Formally checked: in its logic encoding, this claim follows from its stated premises.",

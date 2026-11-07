@@ -575,7 +575,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Repeated faults | `repeats.py` | a deterministic signature for every error-level fault of an answer (code, normalised offending claim or quoted phrase, figures); `detect_repeats` over a task's answers: `OVS-REP-001`, counts per agent |
 | Consolidation | `consolidate.py` | `consolidate`: ONE signed `consolidated_response/1.0` for answers several agents gave to one input (groups, representative, exclusions, conflicts disclosed); `delivery_decision`, `check_consolidation` (`OVS-CONS-*`) |
 | Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack |
-| Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget, else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
+| Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget (withheld for every answer in this release: rule `formal-label-withheld`, `docs/DELIVERY.md` 6d), else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
 
 The observer hook itself lives outside this package, which the channel never imports: `channel/events.py`
 (`ChannelEvent`, `snapshot_event`, `observe_call`), the private decorator on the four entry points of
@@ -668,15 +668,37 @@ instances never certify anything or change a status. Design section 19.
 ## The delivery policy
 
 `delivery_policy.py` decides what the router may hand on for one deliverable and records why in a signed
-`delivery_receipt/1.0`. The formal path: within `translation_budget_s` (240 s, the founder's limit, on an injectable
+`delivery_receipt/1.0`. For the round-8 release the formal path never completes: rule `formal-label-withheld`
+(`docs/DELIVERY.md` condition 6d, `delivery_policy.FORMAL_LABEL_REASON`) adds its reason for every deliverable, so the policy
+never grants FORMALLY CHECKED and every answer takes the fallback below, until a label policy holds under adversarial attack
+(round 9). The conditions that follow still run and name their reasons; they describe what the label will need. The formal
+path: within `translation_budget_s` (240 s, the founder's limit, on an injectable
 monotonic clock) every material eligible claim clean (translated, definitive, the release rule re-derived from the journal
 and the signed result, no `OVS-TRN-*` finding naming it, the clearance actionable), every branch formal check holding, no
 working the receipt names as not checked (`NOT_CHECKED_CODES`: a STEM relation outside the grammar or the encodings, a value
 not stated, a unit checked as written only, a pack that failed, ES-INTERNAL-001 included, a check undecided, and since the
 round-8 clearance the prose branches' undecided arithmetic and chronology, CORE-QNT-001 and CORE-CHR-001) and no agent
 self-report on the answer (`SELF_REPORT_CODES`, at any severity, and the task audit's FID-005 and FID-009; an English
-"Next step:" or "Note:" paragraph that reports no check and no assurance is a note, not a self-report: rule `meta-note`,
-`meta_notes.py`). Otherwise the fallback: the policy's
+"Next step:" or "Note:" paragraph is a note, not a self-report, only when every clause is read, word for word from closed
+lists, as a study suggestion whose object is the student's own work, a question or a passage of a strict source list that
+never names the answer's own part, with no verb of learning by heart and sending only back to the tutor
+(`study-suggestion`), a first-person inability to see or open a source named with a definite determiner (`no-access`) or
+named content not checked, never set against the rest of the answer (`not-checked`), with no assurance or evaluation word
+in any polarity: rule `meta-note` with its rules `assurance-words`, `evaluation-words`, `note-clauses` and `note-form`;
+`bare-negator` and `answer-evaluation` name why a clause was refused; and the answer as written holds no block opened by a
+note or sources lead, at a paragraph's or a line's start or after a sentence's end, that is read neither as such a note
+nor as a pure source list of names, labels, locators and the citation rule's kinds whose names a supplied title writes:
+rules `lead-blocks` and `source-list`, which read every deliverable, whatever the parser made of the block; `meta_notes.py`;
+and, read inverted, no text the branch's own parser reads as no claim of the answer, or that the journaled report claims
+nowhere, that is read neither as such a note, nor as such a source list, nor as layout, a closed label of the parsers' own
+sets alone (a STEM structure head with at most a part id of the parsers' own grammar) or with the task's own wording, a
+part label, a run of mark allocations (never a markscheme code) or a table rule: rules `non-material-text` and `layout`,
+`non_material.py`; every lead and label is read on the text's confusable skeleton, and a lead only the skeleton reads frees
+nothing; every reader that frees a block reads it as a whole from its first character, only blanks, at most one list mark
+and the lead's own emphasis before its lead or label: `meta_notes.LEAD_REGION`), and every claim of the answer, whatever its
+materiality, carries a positive outcome of a signed engine result: no material claim marked not eligible, no supporting
+claim that is not clean, no claim the branch's parser reads whose whole text the journaled report does not hold (rule
+`unverified-claims`, `delivery_policy._unverified_claim_refusals`). Otherwise the fallback: the policy's
 `OverseerPool` reviews the task through `hub.review_pool`, every verdict validated as in production; a verdict that
 contradicts a signed result is rejected; each candidate's accuracy is the share of its material claims counted verdicts
 examined with no fault pinned down, no check naming them and no signed refutation; the best acceptable candidate is

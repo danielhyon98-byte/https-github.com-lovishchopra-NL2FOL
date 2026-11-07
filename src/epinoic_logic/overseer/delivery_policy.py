@@ -6,7 +6,13 @@ delivered, but only when that accuracy is above 90%. This module decides, for ON
 the consolidated response when several agents answered the same input), which of four things happens, and records why
 in a signed :class:`DeliveryReceipt` (contract ``delivery_receipt/1.0``, key id ``overseer-delivery``):
 
-* ``formally_checked``: within ``translation_budget_s`` (default 240 s, the founder's limit; an injectable monotonic
+**Condition 6d, rule ``formal-label-withheld`` (round-8 release).** The policy never grants ``formally_checked``: the rule
+adds :data:`FORMAL_LABEL_REASON` to the formal path's reasons for every deliverable, so every answer follows the fallback
+below exactly as an answer refused by any other formal condition does, until a label policy holds under adversarial attack
+(planned for round 9). The conditions of the first bullet still run and name their reasons on the receipt; they describe what
+the label will need when it returns, not a label any answer receives now.
+
+* ``formally_checked`` (withheld for every answer by rule ``formal-label-withheld``): within ``translation_budget_s`` (default 240 s, the founder's limit; an injectable monotonic
   clock measures it) every material eligible claim of the deliverable reached a definitive, clean outcome: translated
   (TRANSLATED, no ambiguity flag), the engine's display status the positive verdict of its query, and the release rule
   ``release-v1`` re-derived here from the journaled translation and signed result (the engine's release check under the
@@ -17,7 +23,14 @@ in a signed :class:`DeliveryReceipt` (contract ``delivery_receipt/1.0``, key id 
   a STEM relation not checked, a pack that failed (ES-INTERNAL-001 included), a check undecided, stated arithmetic or a
   dated order a prose branch could not check: CORE-QNT-001, CORE-CHR-001) and no agent self-report (rule
   ``self-report-disclosed``: :data:`SELF_REPORT_CODES`, at any severity, but an ES-META-001 whose paragraph rule ``meta-note``
-  reads as a note or a study suggestion; the task audit's OVS-FID-005 and OVS-FID-009), the
+  reads, through its closed allowlist, as a study suggestion, an inability to see a named source or content not checked,
+  never as an assurance; no block of the answer as written opened by a note or sources lead that is read neither as a note
+  nor as a pure source list, rule ``lead-blocks``; no text the branch's own parser reads as no claim of the answer that is
+  read neither as a note, nor as a pure source list, nor as layout, rule ``non-material-text``; the task audit's OVS-FID-005
+  and OVS-FID-009), every claim of the answer, whatever its materiality, carries a positive outcome of a signed engine result
+  (rule ``unverified-claims``: no material claim marked not eligible, no supporting claim that is not clean, no claim the
+  branch's parser reads that the journaled report does not hold, no claim whose text holds a character outside the claim
+  alphabet or a note lead glued into it), the
   overseer's translation checks (``OVS-TRN-*``) name none of the deliverable's material claims, the task audit names it in
   no error, the consolidation allows its delivery and the transfer's clearance lets the router act (``policy.may_act``).
   Results prove properties of the encoding only.
@@ -99,7 +112,11 @@ from .audit import verify_audit
 from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
-from .meta_notes import self_report_findings
+from .meta_notes import (
+    LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, glued_note_lead, self_report_findings, source_list_grounding,
+    unread_lead_blocks,
+)
+from .non_material import NON_MATERIAL_RULE, claim_key, held_claims, parser_claims, parser_units, unread_non_material_blocks
 from .policy import MAX_PENDING_WAIT_MS, act_decision
 from .pool import OverseerPool, PoolConfig
 from .view import RESPONSE_KINDS, OverseerView, Transfer
@@ -110,7 +127,8 @@ __all__ = [
     "DeliveryConfig", "ClaimTiming", "TranslationStage", "DeadlineVerifier", "ClaimFormal", "BranchCheck", "FormalPath", "ClaimAccuracy",
     "CandidateAssessment", "VerdictStanding", "OverseerStage", "Fallback", "DeliveryReceipt", "DeliveredAnswer", "DeliveryDecision",
     "DeliverySession", "DeliveryPolicy", "sign_delivery_receipt", "verify_delivery_receipt", "delivery_receipt_digest", "verify_delivered_answer",
-    "accuracy_above", "is_fallback_label_honest", "NOT_CHECKED_CODES", "SELF_REPORT_CODES", "SELF_REPORT_AUDIT_CODES",
+    "accuracy_above", "is_fallback_label_honest", "NOT_CHECKED_CODES", "SELF_REPORT_CODES", "SELF_REPORT_AUDIT_CODES", "UNVERIFIED_CLAIMS_RULE",
+    "FORMAL_LABEL_RULE", "FORMAL_LABEL_REASON",
 ]
 
 DELIVERY_CONTRACT = "delivery_receipt/1.0"
@@ -726,10 +744,169 @@ NOT_CHECKED_CODES: frozenset = frozenset({"ST-PARSE-001", "ST-PARSE-002", "ST-UN
 #: ES-META-001 also names meta-text that is no self-report: a note ("Note: I can't see the image, so ...") or a study
 #: suggestion ("Next step: write your own paragraph ..."), which the knowledge bases ask every answer to close with. Rule
 #: ``meta-note`` (round-8 clearance c1, :mod:`.meta_notes`) reads the journaled answer again and leaves out of this rule the
-#: paragraph-level ES-META-001 whose paragraph is positively read as a note (a bare note lead, nothing a self-report reader
-#: names, no assurance word); every other ES-META-001, and any the rule cannot read, still blocks the formal path.
+#: paragraph-level ES-META-001 whose paragraph is positively read as a note: a bare note lead, nothing a self-report reader
+#: names, no assurance word (rule ``assurance-words``), no evaluation word in any polarity (rule ``evaluation-words``), every
+#: clause read, word for word from closed lists, as one of exactly three constructions (rule ``note-clauses``: a study
+#: suggestion whose object is the student's own work, a question or a passage of a strict source list that never names
+#: the answer's own part, a first-person inability to see or open a source named with a definite determiner, named
+#: content not checked or not verified and never set against the rest; every provenance, status, universal or fidelity
+#: modifier, task wording or other phrase makes it a self-report) and at least one clause of its lead's kind (rule
+#: ``note-form``). The push check held the first version, which read any paragraph holding "not" or "only" as a note
+#: ("Note: there is nothing to fix in this answer, not a single slip."), and an attack beat a first rewrite's open grammar
+#: ("Note: the figures come from Table 1 to the decimal place."). Every other ES-META-001, and any the rule cannot read,
+#: still blocks the formal path. Rule ``lead-blocks`` (:func:`_lead_block_refusals`, attack round 2) reads the answer as
+#: written beside the receipt: the English parser keeps a 'sources' unit and a note-led body block out of ES-META-001, and
+#: no parser keeps a note-led block in the claims, so every block opened by a note or sources lead must be read as a note
+#: (rule meta-note) or as a pure source list (rule ``source-list``), or the formal path is refused and the block named. Rule
+#: ``non-material-text`` (:func:`_non_material_refusals`, attack round 3, :mod:`.non_material`) inverts the reading: no lead
+#: list can name every channel the parsers keep text out of the claims through, so everything the branch's own parser reads
+#: as no claim (and every claim the journaled report does not hold) must be read as a note, a pure source list or layout.
+#: Since attack round 5 every reader that frees a block reads it as a whole from its first character (only blanks, one list
+#: mark and the lead's own emphasis before a lead), and rule ``unverified-claims`` (:func:`_unverified_claim_refusals`, beside
+#: this rule) refuses an assurance the parser reads as a claim: every claim must carry a positive signed engine outcome.
 SELF_REPORT_CODES: frozenset = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
 SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+
+
+def _lead_block_refusals(view: OverseerView, t: Transfer) -> list[str]:
+    """Rule ``lead-blocks`` (rule ``self-report-disclosed``, ``docs/DELIVERY.md`` 6b; attack round 2 on rule meta-note):
+    the blocks of the deliverable's journaled answer, read as written, that open with a note lead or a sources lead and are
+    read neither as a note (rule meta-note) nor as a pure source list (rule ``source-list``, its names grounded in the titles
+    and authors of the texts the journaled request supplied), each named by its position, its lead and the rule that refused
+    it, never by its words. The parser's segmentation, the receipt, the claims and the packs' findings are not read: a block
+    the English parser keeps out of ES-META-001 (a 'sources' unit, a note-led body block) or any parser keeps out of the
+    claims is read all the same. An answer that cannot be read is refused as a whole (fail closed)."""
+    text = getattr(t.report, "original_response", None) if t.report is not None else None
+    if not isinstance(text, str):
+        return ["the answer as a whole (its text could not be read: rule lead-blocks)"]
+    titles: list[str] = []
+    rt = view.by_seq.get(t.request_seq) if t.request_seq is not None else None
+    req = rt.request if rt is not None else None
+    for doc in (list(getattr(req, "supplied_texts", None) or []) if req is not None else []):
+        titles += [str(getattr(doc, "title", "") or ""), str(getattr(doc, "author", "") or "")]
+    try:
+        return [b.where() for b in unread_lead_blocks(text, source_list_grounding(*titles))]
+    except Exception as exc:  # noqa: BLE001 - fail closed: a reader that fails frees nothing
+        return [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
+
+
+def _branch_parser_reading(session: "DeliverySession", view: OverseerView, t: Transfer) -> tuple[Any, dict[str, Any], list[Any], str]:
+    """The parser of the branch that serves the deliverable's agent and the arguments the channel gives it (the agent's subject,
+    task type and course level, the journaled request's supplied texts and its wording), with the supplied texts and the wording:
+    the reading rules ``non-material-text`` and ``unverified-claims`` share. Raises when the branch or the request cannot be read."""
+    report = t.report
+    ch = session.channel
+    agent = str(report.agent_id)
+    branch, _profile = ch._branch_for(agent)
+    parser = branch.parser()
+    rt = view.by_seq.get(t.request_seq) if t.request_seq is not None else None
+    req = rt.request if rt is not None else None
+    supplied = list(getattr(req, "supplied_texts", None) or []) if req is not None else []
+    wording = str(getattr(req, "user_input", "") or "") if req is not None else ""
+    kwargs: dict[str, Any] = dict(request_id=report.request_id, task_id=report.task_id, report_id=report.report_id, subject=ch._subject_for(agent),
+                                  task_type=ch._task_type_for(agent), supplied_texts=supplied, course_level=ch.plan.course_level or "unknown",
+                                  agent_version=report.agent_version, agent_id=agent)
+    if getattr(parser, "accepts_request_text", False) is True and req is not None:
+        kwargs["request_text"] = req.user_input
+    return parser, kwargs, supplied, wording
+
+
+#: Rule ``unverified-claims`` (``docs/DELIVERY.md``, beside condition 6b; attack round 5 on rule meta-note).
+UNVERIFIED_CLAIMS_RULE = "unverified-claims"
+#: Rule ``formal-label-withheld`` (``docs/DELIVERY.md``, condition 6d; attack round 6 on rule meta-note). Six attack rounds
+#: showed that no reader of free text closes condition 6b: assurances, self-grades and imitations of the label travel inside
+#: verified claims ("The speed is 15 km/h, VERIFIED."), as eligible material points ("..., so nothing in this answer needs
+#: fixing"), as separate quantitative self-grades the verifier confirms ("Score: 10/10.") and in visible combining letters
+#: or hidden format characters the readers drop, and each reached the label on inputs the published base withheld. For the
+#: round-8 release the policy therefore NEVER grants FORMALLY CHECKED: the rule adds :data:`FORMAL_LABEL_REASON` to the
+#: formal path's reasons for every deliverable, so the formal path never completes and every answer follows the existing
+#: fallback (overseer-selected, not checked or withheld) exactly as an answer refused by any other formal condition does.
+#: It is refusal-only and a constant, never a configuration: no operator setting turns the label back on. Rules
+#: ``self-report-disclosed``, ``meta-note``, ``lead-blocks``, ``non-material-text`` and ``unverified-claims`` still run and
+#: name their reasons on the receipt (they will govern the label when a label policy that holds under attack returns it,
+#: planned for round 9); their readers are linear and bounded (the timing tests of ``tests/overseer/test_c1_push_check_*``).
+FORMAL_LABEL_RULE = "formal-label-withheld"
+FORMAL_LABEL_REASON = (f"the FORMALLY CHECKED label is withheld for every answer until a label policy holds under adversarial attack "
+                       f"(rule {FORMAL_LABEL_RULE}, docs/DELIVERY.md condition 6d)")
+
+
+def _unverified_claim_refusals(session: "DeliverySession", view: OverseerView, t: Transfer, formal: Sequence[ClaimFormal], keyring: KeyRing,
+                               stage: TranslationStage) -> list[str]:
+    """Rule ``unverified-claims`` (attack round 5): FORMALLY CHECKED needs EVERY claim of the answer to carry a formal outcome in
+    the success set of a signed engine result (``clean``, :func:`_claim_formal`), whatever its materiality. Rules 6b read what the
+    branch's parser reads as no claim; an assurance it reads as a claim ("Nothing in this answer needs fixing." as a point, "All
+    figures are sound and not in doubt." as a STEM analysis step, "LGTM.") reached no reader, and since rule meta-note frees a
+    genuine closing note it travelled under the label. Named here, by claim id, kind and outcome (never by its words):
+
+    * a material claim the formal path reads as ``not_eligible`` (condition 3 names every other material claim that is not clean);
+    * every other claim of the journaled report with a role other than ``other`` (a supporting claim) that is not clean: not
+      eligible, not attempted, unsupported, ambiguous, withheld, undecided, refuted, late, or with no outcome at all;
+    * every claim the branch's own parser reads in the journaled answer (a role other than ``other``, any materiality; the
+      reading of :func:`_branch_parser_reading`) whose WHOLE text (``non_material.claim_key``: NFKC, blanks collapsed, every
+      symbol kept) is the text of no claim of the journaled report: no outcome reached it. A report delivered as an object may
+      claim "The speed is 15 km/h." while its answer reads "The speed is 15 km/h. 👍"; the parser's claim says more than the
+      checked one, so it is refused;
+    * every claim, journaled or read by the parser, whose text says more than any encoding of it reads (a claim carries the
+      outcome of what was encoded, never of what is glued to it): a character outside the claim alphabet
+      (``meta_notes.claim_alphabet_breach``: an emoji, a check mark, a star, a squared, enclosed or regional-indicator letter,
+      a format or private-use code point: "The speed is 15 km/h. 👍" delivered as text is one quantitative claim for the STEM
+      parser, and its engine outcome is the speed's), or a note lead inside the claim after a clause mark or a sentence's end
+      (``meta_notes.glued_note_lead``: "The speed is 15 km/h; note: all figures are sound and not in doubt.").
+
+    An answer whose claims cannot be read is refused as a whole (fail closed). The rule only ever removes the label. Words
+    glued into a verified claim with no note lead and no symbol ("The speed is 15 km/h, and nothing above needs fixing.")
+    are the fidelity review's to refuse (the release rule needs a ``faithful`` review of the claim's whole text)."""
+    report = t.report
+    text = getattr(report, "original_response", None) if report is not None else None
+    if report is None or not isinstance(text, str):
+        return [f"the answer as a whole (its claims could not be read: rule {UNVERIFIED_CLAIMS_RULE})"]
+    try:
+        materiality = {c.claim_id: c.materiality for c in report.claims}
+        out = [f"{c.claim_id} (material {c.role}: not_eligible)" for c in formal if c.outcome == "not_eligible"]
+        out += [f"{c.claim_id} ({materiality.get(c.claim_id, 'supporting')} {c.role}: {c.outcome})" for c in _supporting_claims(t, view, keyring, stage)
+                if c.outcome != "clean"]
+        parser, kwargs, _supplied, _wording = _branch_parser_reading(session, view, t)
+        journaled = [(str(c.claim_id), str(c.claim_role), str(c.claim_text)) for c in report.claims if c.claim_role != "other"]
+        parsed = parser_claims(text, parser, **kwargs)
+        held = {claim_key(ctext) for _cid, _role, ctext in journaled}
+        out += [f"{cid} ({role}: read by its branch's parser, held by no claim of the journaled report)"
+                for cid, role, ctext in parsed if claim_key(ctext) not in held]
+        for cid, role, ctext in journaled + parsed:  # a claim whose text says more than any encoding of it reads
+            breach = claim_alphabet_breach(ctext)
+            why = (f"a character outside the claim alphabet, {breach}" if breach is not None
+                   else "a note lead inside the claim" if glued_note_lead(ctext) else "")
+            if why and f"{cid} ({role}: {why})" not in out:
+                out.append(f"{cid} ({role}: {why})")
+    except Exception as exc:  # noqa: BLE001 - fail closed: claims that cannot be read free nothing
+        return [f"the answer as a whole (its claims could not be read: {type(exc).__name__}; rule {UNVERIFIED_CLAIMS_RULE})"]
+    return out
+
+
+def _non_material_refusals(session: "DeliverySession", view: OverseerView, t: Transfer) -> list[str]:
+    """Rule ``non-material-text`` (rule ``self-report-disclosed``, ``docs/DELIVERY.md`` 6b; attack round 3, :mod:`.non_material`):
+    the deliverable's journaled answer is read again by the parser of the branch that serves its agent, with the arguments the
+    channel gives it (the agent's subject, task type and course level, the journaled request's supplied texts and wording),
+    and every block of the text that parser reads as no claim of the answer must be read by one of three closed readers: rule
+    meta-note's note allowlist, the strict source-list reader (its names grounded in the supplied texts' titles and authors)
+    or the strict layout reader (a closed label alone, or followed only by the task's own wording). A parser claim covers its
+    text only when the journaled report holds the same claim (a report delivered as an object may claim less than its
+    ``original_response`` says). Each block no reader reads is named by its position and the rule that refused it, never by
+    its words; an answer that cannot be read is refused as a whole (fail closed). The rule only ever removes the FORMALLY
+    CHECKED label."""
+    report = t.report
+    text = getattr(report, "original_response", None) if report is not None else None
+    if not isinstance(text, str):
+        return [f"the answer as a whole (its text could not be read: rule {NON_MATERIAL_RULE})"]
+    try:
+        parser, kwargs, supplied, wording = _branch_parser_reading(session, view, t)
+        units = parser_units(text, parser, **kwargs)
+        titles: list[str] = []
+        for doc in supplied:
+            titles += [str(getattr(doc, "title", "") or ""), str(getattr(doc, "author", "") or "")]
+        blocks = unread_non_material_blocks(text, units, grounding=source_list_grounding(*titles), task_wording=wording, held=held_claims(report))
+    except Exception as exc:  # noqa: BLE001 - fail closed: an answer the branch's parser cannot read frees nothing
+        return [f"the answer as a whole (its branch's parser could not read it: {type(exc).__name__}; rule {NON_MATERIAL_RULE})"]
+    return [b.where() for b in blocks]
 
 
 def _receipt_findings_of(receipt: Any, codes: frozenset) -> list[Any]:
@@ -746,60 +923,75 @@ def _code_claims(findings: Sequence[Any]) -> str:
     return "; ".join(f"{code} ({'claims ' + _listed(claims) if claims else 'the answer as a whole'})" for code, claims in sorted(by_code.items()))
 
 
+def _claim_formal(c: ClaimRecord, o: Optional[ClaimVerificationOutcome], report: SpecialistReport, receipt: Any, task: Optional[TaskRecord],
+                  keyring: KeyRing, stage: TranslationStage) -> ClaimFormal:
+    """One claim of the deliverable on the formal path: its outcome re-derived from the journaled translation and signed result
+    (``_rederive``), never from the stored display status or release fields. ``clean`` is the success set: translated, no
+    ambiguity flag, a definitive display status, the release rule permits it (a positive verdict of an authentic signed engine
+    result among its conditions), no error-level finding names it, and it finished within the budget."""
+    timing = stage.of(report.report_id, c.claim_id)
+    finished = timing.finished_s if timing is not None else None
+    errors = _error_findings_naming(receipt, report.report_id, c.claim_id)
+    err_reasons = [f"the receipt names it in an error-level finding ({f.code})" for f in errors]
+    if o is None or o.translation.status is TranslationStatus.NOT_ELIGIBLE:
+        eligible = _eligible(c) if o is None else False
+        if not eligible:
+            return ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=False, outcome="not_eligible", reasons=err_reasons
+                               or ["not eligible for the formal check under the subject policy (deterministic eligibility)"])
+        if timing is not None and timing.state == "skipped_budget":
+            return ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=True, outcome="skipped_budget", finished_s=finished,
+                               reasons=[f"not started: the translation budget was spent at {timing.started_s:g} s (NOT_ATTEMPTED)"] + err_reasons)
+        why = {"no_outcome": "the verifier produced no outcome (no translation was served)",
+               "raised": "the verification failed internally"}.get(timing.state if timing is not None else "", "no translation outcome reached the receipt")
+        return ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=True, outcome="not_attempted", finished_s=finished,
+                           reasons=[f"{why} (NOT_ATTEMPTED)"] + err_reasons)
+    display, release, authentic = _rederive(c, o, report, task, keyring)
+    ver = o.verification
+    base = dict(claim_id=c.claim_id, role=c.claim_role, eligible=True, translation_status=o.translation.status.value, display_status=display.value,
+                result_id=ver.result_id if ver is not None else None, finished_s=finished)
+    if display in REFUTING_STATUSES and authentic and ver is not None and ver.status is display:
+        return ClaimFormal(**base, outcome="refuted", reasons=[f"the signed engine result {ver.result_id} is {display.value}: the claim's "
+                                                                  "encoding does not hold as stated"] + err_reasons)
+    reasons: list[str] = []
+    if o.translation.status is not TranslationStatus.TRANSLATED:
+        reasons.append(f"translation {o.translation.status.value}")
+    interp = o.translation.interpretation
+    if interp is not None and interp.ambiguity_flags:
+        reasons.append("the translation carries ambiguity flags: " + _listed([a.code for a in interp.ambiguity_flags]))
+    if not is_definitive(display):
+        reasons.append(f"display status {display.value}: no definitive verdict")
+    if not release.permitted:
+        reasons += [f"release rule {release.policy}: {_cut(u, 300)}" for u in release.unresolved]
+    reasons += err_reasons
+    if timing is not None and timing.state == "late":
+        return ClaimFormal(**base, outcome="late", reasons=[f"its verification finished at {timing.finished_s:g} s, after the "
+                                                               f"{stage.budget_s:g} s budget"] + reasons)
+    return ClaimFormal(**base, outcome="unresolved" if reasons else "clean", reasons=reasons)
+
+
 def _formal_claims(t: Transfer, view: OverseerView, keyring: KeyRing, stage: TranslationStage) -> tuple[list[ClaimFormal], list[BranchCheck]]:
     report, receipt = t.report, t.receipt
     assert report is not None and receipt is not None
     task = _task_record(view, t)
     outcomes = {o.claim_id: o for o in receipt.outcomes}
-    claims: list[ClaimFormal] = []
-    for c in material_claims(report):
-        o = outcomes.get(c.claim_id)
-        timing = stage.of(report.report_id, c.claim_id)
-        finished = timing.finished_s if timing is not None else None
-        errors = _error_findings_naming(receipt, report.report_id, c.claim_id)
-        err_reasons = [f"the receipt names it in an error-level finding ({f.code})" for f in errors]
-        if o is None or o.translation.status is TranslationStatus.NOT_ELIGIBLE:
-            eligible = _eligible(c) if o is None else False
-            if not eligible:
-                claims.append(ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=False, outcome="not_eligible", reasons=err_reasons
-                                          or ["not eligible for the formal check under the subject policy (deterministic eligibility)"]))
-                continue
-            if timing is not None and timing.state == "skipped_budget":
-                claims.append(ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=True, outcome="skipped_budget", finished_s=finished,
-                                          reasons=[f"not started: the translation budget was spent at {timing.started_s:g} s (NOT_ATTEMPTED)"] + err_reasons))
-            else:
-                why = {"no_outcome": "the verifier produced no outcome (no translation was served)",
-                       "raised": "the verification failed internally"}.get(timing.state if timing is not None else "", "no translation outcome reached the receipt")
-                claims.append(ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=True, outcome="not_attempted", finished_s=finished,
-                                          reasons=[f"{why} (NOT_ATTEMPTED)"] + err_reasons))
-            continue
-        display, release, authentic = _rederive(c, o, report, task, keyring)
-        ver = o.verification
-        base = dict(claim_id=c.claim_id, role=c.claim_role, eligible=True, translation_status=o.translation.status.value, display_status=display.value,
-                    result_id=ver.result_id if ver is not None else None, finished_s=finished)
-        if display in REFUTING_STATUSES and authentic and ver is not None and ver.status is display:
-            claims.append(ClaimFormal(**base, outcome="refuted", reasons=[f"the signed engine result {ver.result_id} is {display.value}: the claim's "
-                                                                             "encoding does not hold as stated"] + err_reasons))
-            continue
-        reasons: list[str] = []
-        if o.translation.status is not TranslationStatus.TRANSLATED:
-            reasons.append(f"translation {o.translation.status.value}")
-        interp = o.translation.interpretation
-        if interp is not None and interp.ambiguity_flags:
-            reasons.append("the translation carries ambiguity flags: " + _listed([a.code for a in interp.ambiguity_flags]))
-        if not is_definitive(display):
-            reasons.append(f"display status {display.value}: no definitive verdict")
-        if not release.permitted:
-            reasons += [f"release rule {release.policy}: {_cut(u, 300)}" for u in release.unresolved]
-        reasons += err_reasons
-        if timing is not None and timing.state == "late":
-            claims.append(ClaimFormal(**base, outcome="late", reasons=[f"its verification finished at {timing.finished_s:g} s, after the "
-                                                                          f"{stage.budget_s:g} s budget"] + reasons))
-            continue
-        claims.append(ClaimFormal(**base, outcome="unresolved" if reasons else "clean", reasons=reasons))
+    claims = [_claim_formal(c, outcomes.get(c.claim_id), report, receipt, task, keyring, stage) for c in material_claims(report)]
     checks = [BranchCheck(constraint_id=fc.constraint_id, satisfied=fc.satisfied, formal_status=fc.formal_status, result_id=fc.formal_result_id,
                           claim_ids=list(fc.claim_ids)) for fc in receipt.formal_checks]
     return claims, checks
+
+
+def _supporting_claims(t: Transfer, view: OverseerView, keyring: KeyRing, stage: TranslationStage) -> list[ClaimFormal]:
+    """Rule ``unverified-claims`` (attack round 5): every claim of the deliverable's journaled report that the formal path's
+    claims leave out, a role other than ``other`` with a materiality other than ``material`` (a supporting claim: an English
+    interpretation or quotation, a STEM analysis step, a Physics answer's evidence), its outcome derived exactly as a material
+    claim's (:func:`_claim_formal`): a claim no outcome reached is ``not_eligible`` or ``not_attempted``, never clean."""
+    report, receipt = t.report, t.receipt
+    assert report is not None and receipt is not None
+    task = _task_record(view, t)
+    outcomes = {o.claim_id: o for o in receipt.outcomes}
+    material = {c.claim_id for c in material_claims(report)}
+    return [_claim_formal(c, outcomes.get(c.claim_id), report, receipt, task, keyring, stage) for c in report.claims
+            if c.claim_role != "other" and c.claim_id not in material]
 
 
 # ============================================================================================ the fallback's assessment
@@ -1163,9 +1355,32 @@ class DeliveryPolicy:
         unchecked = _receipt_findings_of(rec, NOT_CHECKED_CODES)  # rule unchecked-working
         if unchecked:
             reasons.append(f"the receipt names working that was not checked: {_cut(_code_claims(unchecked), 400)}")
-        self_reports = self_report_findings(_receipt_findings_of(rec, SELF_REPORT_CODES), t.report)  # rules self-report-disclosed and meta-note
+        def guarded(rule: str, read: Callable[[], list]) -> list:
+            """A refusal-only rule of condition 6b run fail closed: a rule that raises refuses the label for the answer as a whole,
+            named by the rule and the exception's type (never its message, which may hold the answer's words). The formal path
+            only gains a reason, so the fallback still decides the mode: a failing rule removes the label and nothing else."""
+            try:
+                return read()
+            except Exception as exc:  # noqa: BLE001 - fail closed: a rule that fails frees nothing
+                reasons.append(f"the answer as a whole is refused the label: rule {rule} failed ({type(exc).__name__})")
+                return []
+        # rules self-report-disclosed and meta-note
+        self_reports = guarded(META_NOTE_RULE, lambda: self_report_findings(_receipt_findings_of(rec, SELF_REPORT_CODES), t.report))
         if self_reports:
             reasons.append(f"the answer carries a self-report or a relayed check result no check established: {_cut(_code_claims(self_reports), 400)}")
+        unread = guarded(LEAD_BLOCKS_RULE, lambda: _lead_block_refusals(view, t))  # rules self-report-disclosed and lead-blocks
+        if unread:
+            reasons.append("the answer carries a block opened by a note or sources lead that is read neither as a note nor as a pure source list "
+                           f"(rule lead-blocks): {_listed(unread)}")
+        unread = guarded(NON_MATERIAL_RULE, lambda: _non_material_refusals(session, view, t))  # rules self-report-disclosed and non-material-text
+        if unread:
+            reasons.append("the answer carries text its branch's parser reads as no claim of the answer that is read neither as a note, nor as a pure "
+                           f"source list, nor as layout (rule non-material-text): {_listed(unread)}")
+        # rule unverified-claims (beside 6b)
+        unverified = guarded(UNVERIFIED_CLAIMS_RULE, lambda: _unverified_claim_refusals(session, view, t, claims, keyring, stage))
+        if unverified:
+            reasons.append("the answer holds claims that carry no formal outcome in the success set of a signed engine result (rule "
+                           f"{UNVERIFIED_CLAIMS_RULE}): {_listed(unverified)}")
         named = _audit_findings_naming(audit, t.message_id or "")
         audit_self = [f for f in named if f.code in SELF_REPORT_AUDIT_CODES]
         if audit_self:
@@ -1182,6 +1397,7 @@ class DeliveryPolicy:
         state, refusal = self._clearance(session, t, receipts)
         if refusal:
             reasons.append(f"clearance {state}: {refusal}")
+        reasons.append(FORMAL_LABEL_REASON)  # rule formal-label-withheld (condition 6d): the formal path never completes
         path = FormalPath(**{**base, "complete": not reasons}, deliverable_message_id=t.message_id, deliverable_receipt_id=t.receipt_id, receipt_status=t.status,
                           receipt_error_codes=errors, clearance=state, claims=claims, branch_checks=checks, reasons=reasons)
         return path, t

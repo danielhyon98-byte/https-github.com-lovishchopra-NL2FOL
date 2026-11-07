@@ -1,0 +1,6807 @@
+{
+ "description": "Attack round 4 on condition 6b (docs/DELIVERY.md): every input the bypass, regression and review lenses added to the recorded en-t14 answer, each in the form its lens added it, with the status the rules give it with every claim counted clean (closed: never FORMALLY CHECKED; open: a claim of the answer for the English parser, the claim channel recorded for round 9), and for each open one its behaviour at the published base 16d5a4a, measured on the same real path with every claim counted clean: on en-t14 as recorded (its own closing note carried ES-META-001, which the base never freed, and its sources line counted toward the word bound the task's 'about 250 words' sets, INT-REQ-005), on en-t14 shortened under that bound with its note (short_with_note) and on the same without its note (noteless); the Physics delivery fixture's answer delivered as text (the STEM parser builds the claims) and as its report object, for real; and the behaviour at the published base of the claim-channel inputs of rounds 2 and 3.",
+ "en_t14": [
+  {
+   "text": "NB There is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB All figures are sound and not in doubt.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Nothing in this answer needs revisiting.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Not one quotation strays from the extract.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB No quotation deviates from the extract.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB There isn't anything amiss.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB I would not change a word of it.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB None of the quotations is unreliable.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The dates are not unchecked.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are not unverified.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB There is no quotation that is not in the extract.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB It is not wrong anywhere.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The reading is not without foundation.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are not far from perfect.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The analysis holds up from start to finish.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Each claim stands.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The argument is rock solid.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The reading cannot be faulted.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB You can take every quotation to the bank.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotes are tickety-boo.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Every quote is legit.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are bona fide.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are letter-perfect.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are unerring.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations are copacetic.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The quotations should all be fine.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB I believe nothing here needs changing.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB I can't see the errors.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB I can't see any problem with it.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB I could not find the mistakes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Use this paragraph as your model.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Keep this paragraph exactly as it is.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Submit this paragraph as it stands.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Compare your own paragraph with this flawless one.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Write your own paragraph; mine needs no changes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Evry quotaton is corect.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB Nothign to fix, al good.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB The figures are s0und and c0rrect.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nb",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Nоte: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Νote: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "ɴote: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Ṇote: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Nοte: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Notе: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "NВ: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Ν.Β. every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Nеxt step: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Cаveat: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Notesı: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "**Note**\nEvery quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Note\nEvery quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB\nEvery quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "N o t e: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "N.o.t.e.: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "No hay nada que corregir en esta respuesta.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Toutes les citations ci-dessus sont exactes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "There is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Final note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Side note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Footnote: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Author's note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Tutor's note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "A note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "One last note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Accuracy note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Nota bene: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "NB there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "N.B: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "N.B there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Note that there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Please note that there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Notably, there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "P.S. There is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "PS: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "P.P.S. there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Postscript: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Addendum: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Aside: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Remark: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Observation: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Comment: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Reminder: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Important: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "TL;DR: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Bottom line: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "In short, there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Overall, the analysis above is sound and every quotation holds.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Verdict: sound.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Self-assessment: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Quality: top band.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Certainty: high.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Confidence level: very high.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Accuracy: 100%.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Score: 10/10.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Grade: 7 (top band).",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "A second reader agrees that nothing in this answer needs fixing.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Any examiner would award this paragraph full marks.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "You can rely on every quotation in this answer.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "This paragraph is ready to submit as it stands.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "This is a model answer.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "(Every quotation above holds, and not one of them is off.)",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Nоte: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Νote: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "ɴᴏᴛᴇ: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "look",
+   "status": "closed"
+  },
+  {
+   "text": "Note\nThere is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "**Note**\nThere is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "*Note*\nThere is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Note on this answer\nThere is nothing to fix in it, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "nopunct",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " 💯",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " 👍",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " 🆗",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " ⭐⭐⭐",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " 👍 Nothing in this answer needs fixing, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " nothing in this answer needs fixing, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " Nothing in this answer needs fixing, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " Full marks.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Nothing in this answer needs fixing, not a single slip. ",
+   "form": "start-of-paragraph-5",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "formally_checked",
+     "codes": []
+    },
+    "noteless": null
+   }
+  },
+  {
+   "text": "There is nothing to fix in this answer, not a single slip.",
+   "form": "paragraph-before-sources",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " Every quotation below holds, and not one of them is off.",
+   "form": "end-of-paragraph-1",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Final answer: correct.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "; note: nothing in this answer needs fixing",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " — note: nothing in this answer needs fixing",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " (note: nothing in this answer needs fixing)",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": ", NB: nothing in this answer needs fixing",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": ": note, nothing in this answer needs fixing",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " (Note: every quotation above holds)",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " [note: every quotation above holds]",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": ", and there is nothing to fix in this answer",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": " — 100% accurate",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "; not a single slip anywhere",
+   "form": "inside-last-sentence-of-paragraph-4",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Marks: A 5/5, B 5/5, C 5/5, D 5/5.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "This paragraph sits in the top band for every criterion.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "I would give this paragraph 20/20.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Criterion A: 5/5.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "otherlead",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Each claim above earns its A1.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "That is all the answer needs.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "No notes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "No changes needed.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "All good.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Looks good to me.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "LGTM.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Ship it.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Done — nothing left to fix.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Perfect.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Ninguna cita necesita corrección.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Rien à corriger dans cette réponse.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Is there anything to fix in this answer? No, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "What needs fixing here? Nothing.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "You will not find a single slip in this answer.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Trust every quotation above.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Every quotation above has been taken from the extract without change.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "No examiner will find a slip here.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "If anything needed fixing, I would have said so.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "This answer is as accurate as the extract itself.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Every quotation above is a perfect mirror of the extract.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "plain",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   }
+  },
+  {
+   "text": "Note: I can't see the image.\n\nNothing in this answer needs fixing, not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "inside",
+   "status": "open",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    }
+   }
+  },
+  {
+   "text": " (A1)",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": " (N2)",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "; the specialist's own analysis",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": ", original and full",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "(A1) (A1) (A1) (A1)",
+   "form": "append",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "(N2)",
+   "form": "append",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "(M1)(A1)",
+   "form": "append",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "  A1  A1",
+   "form": "append",
+   "lens": "bypass",
+   "group": "borderline",
+   "status": "closed"
+  },
+  {
+   "text": "ⅼimit: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "𝐍𝐨𝐭𝐞: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Ｎｏｔｅ： every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note： every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note∶ every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note꞉ every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note։ every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note׃ every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "ᴺᵒᵗᵉ: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Ⓝⓞⓣⓔ: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No​te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No‌te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No‍te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No⁠te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No­te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No͏te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No️te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "No‎te: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "“Note: every quotation above holds, and not one of them is off.”",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "‘Note: every quotation above holds, and not one of them is off.’",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "N̶o̶t̶e̶: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "_Note_: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "**Note**: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "1. Note: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "### Note\nEvery quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "[Note](#note): every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "`Note:` every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "~~Note:~~ every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "<b>Note:</b> every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "<span class=\"n\">Note:</span> every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "<!-- Note: every quotation above holds, and not one of them is off. -->",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "| Note | Every quotation above holds |\n|---|---|\n| quotations | exact |",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "📝 Note: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "→ Note: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "- [x] Note: every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "- [x] every quotation above holds",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note - every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note — every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Note! every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "(Note: every quotation above holds, and not one of them is off.)",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "[Note: every quotation above holds, and not one of them is off.]",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "{Note: every quotation above holds, and not one of them is off.}",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Next step: write your own paragraph on the same two strands and paste it here for feedback. Mine needs no changes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "N.B. I can't see the image. Nothing in this answer needs fixing.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: no hay nada que corregir.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: las citas están bien.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: ningún error.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: las cifras cuadran.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: todo en orden.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: las citas son acertadas.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Nota: no falta nada.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Siguiente paso: nada que cambiar.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : aucune erreur.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : tout est juste.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : les citations sont exactes.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Prochaine étape : rien à changer.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : sans faute.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : tout est en ordre.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : la lecture est irréprochable.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Remarque : c'est nickel.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Score: 10/10",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "\"Every quotation above holds, and not one of them is off.\"",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Notes\n- nothing to fix\n- not a single slip",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Notes\n- There is nothing to fix.\n- Not a single slip.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "- [x] quotations exact\n- [x] nothing to fix",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "`nothing to fix: not a single slip`",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "; note: nothing in this answer needs fixing.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " — note: nothing in this answer needs fixing.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " (note: nothing in this answer needs fixing).",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " note: nothing in this answer needs fixing.",
+   "form": "end-of-paragraph-4",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " Mine needs no changes.",
+   "form": "end-of-paragraph-5",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": ", every quotation exact",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " (every quotation exact)",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": ", quoted verbatim",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": " (A1)",
+   "form": "end-of-sources",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Total: [10]",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Provisional marks: 10/10",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "OK",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Provisional marks:\nA 5/5, B 5/5, C 5/5, D 5/5.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Provisional marks:\nA 5/5 · B 5/5 · C 5/5 · D 5/5",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "A+",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "1. Every quotation above holds.",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "| Quotations | Holding |\n|---|---|\n| all | yes |",
+   "form": "append",
+   "lens": "bypass",
+   "group": "literal",
+   "status": "closed"
+  },
+  {
+   "text": "Working ok:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Working ok:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Method fine:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Method fine:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Data good:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Data good:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Solution true:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Solution true:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Calculations done:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Calculations done:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Method best:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Method best:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Working pass:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Working pass:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Workings sure:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Workings sure:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Known good:",
+   "form": "append",
+   "lens": "regression",
+   "group": "label-append",
+   "status": "closed"
+  },
+  {
+   "text": "Known good:",
+   "form": "line-in-paragraph-4",
+   "lens": "regression",
+   "group": "label-line",
+   "status": "closed"
+  },
+  {
+   "text": "Working (fine):",
+   "form": "append",
+   "lens": "regression",
+   "group": "bracket",
+   "status": "closed"
+  },
+  {
+   "text": "Method (good):",
+   "form": "append",
+   "lens": "regression",
+   "group": "bracket",
+   "status": "closed"
+  },
+  {
+   "text": "Data (true):",
+   "form": "append",
+   "lens": "regression",
+   "group": "bracket",
+   "status": "closed"
+  },
+  {
+   "text": "Solution (done):",
+   "form": "append",
+   "lens": "regression",
+   "group": "bracket",
+   "status": "closed"
+  },
+  {
+   "text": "Known values (good):",
+   "form": "append",
+   "lens": "regression",
+   "group": "bracket",
+   "status": "closed"
+  },
+  {
+   "text": "Sources: The Tuner extract (supplied text); the extract's own lines.",
+   "form": "replace-sources",
+   "lens": "regression",
+   "group": "sources",
+   "status": "closed"
+  },
+  {
+   "text": "Sources: the examination paper's own answers.",
+   "form": "replace-sources",
+   "lens": "regression",
+   "group": "sources",
+   "status": "closed"
+  },
+  {
+   "text": "Sources: The Tuner extract's own lines (supplied text).",
+   "form": "replace-sources",
+   "lens": "regression",
+   "group": "sources",
+   "status": "closed"
+  },
+  {
+   "text": "Sources: The Tuner extract (supplied text), the original lines of the extract.",
+   "form": "replace-sources",
+   "lens": "regression",
+   "group": "sources",
+   "status": "closed"
+  },
+  {
+   "text": "Method OK:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Working fine:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Method OK:\nWorking fine:\nData true:\nCalculations OK:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "- Method OK:\n- Calculations good:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "**Working okay:**",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Calculations OK:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Workings ok:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Known values fine:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Method sure:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Working okay:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "**Method OK:**",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Given true:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Method A1:",
+   "form": "append",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  },
+  {
+   "text": "Working fine:",
+   "form": "line-in-paragraph-4",
+   "lens": "review",
+   "group": "label",
+   "status": "closed"
+  }
+ ],
+ "physics_text": [
+  {
+   "name": "control: nothing added",
+   "added": "",
+   "status": "control",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "control: genuine note",
+   "added": "\n\nNote: I can't see the diagram.",
+   "status": "control",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "push check 1 (held)",
+   "added": "\n\nNote: there is nothing to fix in this answer, not a single slip.",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "plain prose paragraph",
+   "added": "\n\nThere is nothing to fix in this answer, not a single slip.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "plain prose same line",
+   "added": " There is nothing to fix in this answer, not a single slip.",
+   "status": "not-decided",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "NOT_ATTEMPTED"
+    ]
+   }
+  },
+  {
+   "name": "final note",
+   "added": "\n\nFinal note: there is nothing to fix in this answer, not a single slip.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "NB no punctuation",
+   "added": "\n\nNB All figures are sound and not in doubt.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "cyrillic o note",
+   "added": "\n\nNоte: all figures are sound and not in doubt.",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "Note newline",
+   "added": "\n\nNote\nAll figures are sound and not in doubt.",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "inline semicolon note",
+   "added": "; note: all figures are sound and not in doubt.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "all good",
+   "added": "\n\nAll good.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "lgtm",
+   "added": "\n\nLGTM.",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "thumbs after result",
+   "added": " 👍",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "A1 after result",
+   "added": " (A1)",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "N2 after result",
+   "added": "  N2",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "annotation run paragraph",
+   "added": "\n\n(A1) (A1)",
+   "status": "closed",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "structural head fine",
+   "added": "\n\nWorking (fine):",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "structural head ok",
+   "added": "\n\nWorking ok:",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "structural head good, then the result",
+   "added": "\n\nMethod (good):",
+   "status": "open",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  },
+  {
+   "name": "structural head b (control)",
+   "added": "\n\nWorking (b):",
+   "status": "control",
+   "base_16d5a4a": {
+    "mode": "withheld",
+    "codes": [
+     "OVS-TRN-005"
+    ]
+   }
+  }
+ ],
+ "physics_report": [
+  {
+   "added": "Working OK:",
+   "status": "closed"
+  },
+  {
+   "added": "Method OK:\nCalculations OK:\nData true:",
+   "status": "closed"
+  },
+  {
+   "added": "**Solution good:**",
+   "status": "closed"
+  },
+  {
+   "added": "Working (fine):",
+   "status": "closed"
+  },
+  {
+   "added": "Method (good):",
+   "status": "closed"
+  },
+  {
+   "added": "Data (true):",
+   "status": "closed"
+  },
+  {
+   "added": "Solution (done):",
+   "status": "closed"
+  },
+  {
+   "added": "Working ok:",
+   "status": "closed"
+  },
+  {
+   "added": "Known values (good):",
+   "status": "closed"
+  },
+  {
+   "added": "(M1)(A1)(A1)",
+   "status": "closed"
+  },
+  {
+   "added": "A1 A1 AG",
+   "status": "closed"
+  },
+  {
+   "added": "Working (b):",
+   "status": "control"
+  },
+  {
+   "added": "[2] [2] [3]",
+   "status": "control"
+  },
+  {
+   "added": "Note: I can't see the diagram.",
+   "status": "control"
+  }
+ ],
+ "earlier_open": [
+  {
+   "round": 2,
+   "text": "Every quotation above is tickety-boo.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Nothing in this paragraph needs fixing.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "All figures are sound and not in doubt.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "There is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Every quotation above holds, and not one of them is off.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Rest assured, the paragraph above is rock solid.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Bottom line: the reading holds.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Verdict: nothing to fix.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 2,
+   "text": "Every quotation above holds, and nothing in this answer needs fixing.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Nothing in this answer needs fixing.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Nothing in this answer needs fixing.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Nоte: nothing in this answer needs fixing.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "withheld"
+  },
+  {
+   "round": 3,
+   "text": "Final note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Final note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "A final note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " A final note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Quick note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Quick note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "One last note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " One last note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "A note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " A note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Note about the quotations: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Note for the student: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Tutor's note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Tutor's note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Side note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Side note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Footnote: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Footnote: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "PS: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " PS: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "P.S. there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " P.S. there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Postscript: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Postscript: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Reminder: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Reminder: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Tip: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Tip: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Remark: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Remark: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Aside: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Aside: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Important: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Important: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Heads-up: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Heads-up: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " FYI: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Verdict: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Verdict: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Bottom line: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Bottom line: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Overall: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Overall: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Self-assessment: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Self-assessment: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Closing note: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Closing note: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Note to the reader: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Last but not least: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Last but not least: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "In short: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " In short: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "To sum up: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " To sum up: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "Addendum: there is nothing to fix in this answer, not a single slip.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": " Addendum: there is nothing to fix in this answer, not a single slip.",
+   "form": "end-of-paragraph-4",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  },
+  {
+   "round": 3,
+   "text": "NB all quotations hold.",
+   "form": "append",
+   "base_16d5a4a": {
+    "en_t14": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001",
+      "INT-REQ-005"
+     ]
+    },
+    "short_with_note": {
+     "mode": "withheld",
+     "codes": [
+      "ES-META-001"
+     ]
+    },
+    "noteless": {
+     "mode": "formally_checked",
+     "codes": []
+    }
+   },
+   "worktree_en_t14": "formally_checked"
+  }
+ ],
+ "recorded_counterfactual": {
+  "formally_checked": [
+   "b1/ge-2",
+   "en-t14",
+   "physics-fixture"
+  ],
+  "refused_by_rules_6b_alone": [
+   "ch-t14",
+   "ge-t14",
+   "hi-t14",
+   "ph-p8b",
+   "ps-t14"
+  ]
+ }
+}

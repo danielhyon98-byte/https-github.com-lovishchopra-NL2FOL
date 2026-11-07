@@ -37,13 +37,13 @@ from epinoic_logic.ir.schema import Problem, SourceRef
 from epinoic_logic.overseer.checks import fidelity as F
 from epinoic_logic.overseer.checks import receipts as RCPT
 from epinoic_logic.overseer.checks import translation as T
-from epinoic_logic.overseer.delivery_policy import NOT_CHECKED_CODES, SELF_REPORT_CODES, DeliveryPolicy
+from epinoic_logic.overseer.delivery_policy import FORMAL_LABEL_REASON, NOT_CHECKED_CODES, SELF_REPORT_CODES, DeliveryPolicy
 from epinoic_logic.overseer import replay as R
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 from ..timing import measure
 from .conftest import CFG, DOC, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, new_channel, problems_fn
-from .delivery_support import PHYSICS, FakeClock, Verifier, physics_report, run_task, speed_translation
+from .delivery_support import PHYSICS, FakeClock, Verifier, assert_label_withheld_only, physics_report, run_task, speed_translation
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "overseer"))
@@ -163,8 +163,10 @@ def test_an_audited_english_hub_audits_twenty_thousand_spaces_in_seconds():
 
 # ============================================================================================ major: unchecked STEM working
 def _formal(extra: str):
+    """The fixture's answer with the sentence ``extra`` as a second quantitative claim; built without the supporting evidence
+    claim since attack round 5 (rule ``unverified-claims``), so the receipt's code is the only cause its control leaves."""
     clock = FakeClock()
-    rep = physics_report("physics-specialist", "rep-a", claims=(("p1.1", "The speed is 15 km/h."), ("p1.2", extra)))
+    rep = physics_report("physics-specialist", "rep-a", claims=(("p1.1", "The speed is 15 km/h."), ("p1.2", extra)), evidence=False)
     run = run_task(DeliveryPolicy(clock=clock), [("physics-specialist", rep)], verify=Verifier(clock, translations={"p1.2": speed_translation("p1.2")}))
     return run
 
@@ -184,13 +186,26 @@ def test_a_stem_relation_not_checked_never_travels_under_the_formal_label(extra,
         run.close()
 
 
-def test_control_an_answer_whose_working_is_all_checked_is_still_formally_checked():
+def test_control_an_answer_whose_working_is_all_checked_is_refused_by_the_label_rule_alone():
+    """Renamed after the pre-commit review of the c1 landing from
+    ``test_control_an_answer_whose_working_is_all_checked_is_still_formally_checked``, whose name stated the opposite of what
+    it asserts since rule ``formal-label-withheld``; its assertions are unchanged.
+
+    Rewritten to the stricter rule after attack round 5 (rule ``unverified-claims``): the fixture's answer held a supporting
+    evidence claim (``p1.0``) that no signed engine result decides, and FORMALLY CHECKED now needs every claim of the answer to
+    carry a positive outcome of a signed engine result; the answer is the same answer without that claim
+    (``physics_report(..., evidence=False)``), and so is the answer of the tests it controls.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the policy
+    never grants FORMALLY CHECKED in the round-8 release, so the control asserts that the label rule is the formal path's
+    ONLY reason (every other condition holds, as before) instead of the label itself."""
     clock = FakeClock()
-    run = run_task(DeliveryPolicy(clock=clock), [("physics-specialist", physics_report("physics-specialist", "rep-a"))], verify=Verifier(clock))
+    run = run_task(DeliveryPolicy(clock=clock), [("physics-specialist", physics_report("physics-specialist", "rep-a", evidence=False))], verify=Verifier(clock))
     try:
         [rc] = run.receipts.values()
         assert not ({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}) & (NOT_CHECKED_CODES | SELF_REPORT_CODES)
-        assert run.decision.mode == "formally_checked" and run.decision.receipt.formal.reasons == []
+        assert run.decision.mode == "withheld" and run.decision.receipt.formal.reasons == [FORMAL_LABEL_REASON]
+        assert_label_withheld_only(run.decision)
     finally:
         run.close()
 
@@ -206,7 +221,7 @@ PEER_DOC = SuppliedText(document_id="doc-ma", title="Mathematics specialist note
 @pytest.mark.parametrize("sentence,role,code", SELF_REPORTS)
 def test_an_answer_carrying_a_self_report_never_travels_under_the_formal_label(sentence, role, code):
     agent = "physics-specialist"
-    rep = physics_report(agent, "rep-a")
+    rep = physics_report(agent, "rep-a", evidence=False)  # attack round 5: the answer its control delivers (rule unverified-claims)
     claims = list(rep.claims) + [ClaimRecord(**PHYSICS, report_id="rep-a", agent_id=agent, claim_id="p1.9", claim_text=sentence, claim_role=role,
                                              materiality="supporting")]
     text = rep.original_response + " " + sentence
@@ -223,12 +238,25 @@ def test_an_answer_carrying_a_self_report_never_travels_under_the_formal_label(s
         run.close()
 
 
-def test_control_the_same_answer_without_the_self_report_is_formally_checked():
+def test_control_the_same_answer_without_the_self_report_is_refused_by_the_label_rule_alone():
+    """Renamed after the pre-commit review of the c1 landing from
+    ``test_control_the_same_answer_without_the_self_report_is_formally_checked``, whose name stated the opposite of what it
+    asserts since rule ``formal-label-withheld``; its assertions are unchanged.
+
+    Rewritten to the stricter rule after attack round 5 (rule ``unverified-claims``): the fixture's answer held a supporting
+    evidence claim (``p1.0``) that no signed engine result decides, and FORMALLY CHECKED now needs every claim of the answer to
+    carry a positive outcome of a signed engine result; the answer is the same answer without that claim
+    (``physics_report(..., evidence=False)``), and so is the answer of the tests it controls.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the policy
+    never grants FORMALLY CHECKED in the round-8 release, so the control asserts that the label rule is the formal path's
+    ONLY reason (every other condition holds, as before) instead of the label itself."""
     clock = FakeClock()
-    run = run_task(DeliveryPolicy(clock=clock), [("physics-specialist", physics_report("physics-specialist", "rep-a"))], verify=Verifier(clock),
-                   supplied=[PEER_DOC])
+    run = run_task(DeliveryPolicy(clock=clock), [("physics-specialist", physics_report("physics-specialist", "rep-a", evidence=False))],
+                   verify=Verifier(clock), supplied=[PEER_DOC])
     try:
-        assert run.decision.mode == "formally_checked"
+        assert run.decision.mode == "withheld"
+        assert_label_withheld_only(run.decision)
     finally:
         run.close()
 

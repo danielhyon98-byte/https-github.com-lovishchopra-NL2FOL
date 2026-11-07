@@ -54,13 +54,20 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    a per-instance quota or when faults repeat, never past a maximum (four by default). Every instance comes from the
    same exported pack.
 5. **The delivery policy** (`overseer.delivery_policy`, `delivery-v1`, `docs/DELIVERY.md`). This is the founder's
-   four-minute rule. An answer is delivered FORMALLY CHECKED only when, within the 240 s translation budget, every
+   four-minute rule. An answer can be delivered FORMALLY CHECKED only when, within the 240 s translation budget, every
    material eligible claim was translated, decided positively, passed the release rule and was cleared by the transfer
-   audit, and the receipt names no unchecked working and no agent self-report. Otherwise the fallback runs: overseer
+   audit, every claim of the answer carries a positive outcome of a signed engine result, and the receipt names no
+   unchecked working and no agent self-report. Otherwise the fallback runs: overseer
    agents built from the exported pack score every candidate answer. The most accurate acceptable candidate is
    delivered OVERSEER-SELECTED only when its accuracy is strictly above 0.90, compared as an exact fraction. Otherwise
    the answer is withheld. Every decision is recorded in a signed delivery receipt. Only FORMALLY CHECKED claims a
    check; every other label says "not formally checked, not verified".
+
+   **In this release the FORMALLY CHECKED label is withheld for every answer** (rule `formal-label-withheld`,
+   `docs/DELIVERY.md` condition 6d). Six attack rounds on the clearance fix showed that no reader of free text keeps
+   every agent assurance away from the label, so the formal path never completes and every answer follows the
+   fallback. The formal path's other conditions still run and name their reasons on the receipt. Round 9 designs a
+   label policy that holds under attack before the label returns.
 
 **Which tier runs which role.** Deployed agents run on the cheapest model tier: the specialists, the combinator, the
 translation provider and the overseer agents. The checks every transfer depends on use no model. In testing, the
@@ -378,7 +385,17 @@ Each fix has a regression test with a clean control.
   - Pack 1.5 is installed.
 - **Delivery policy** (`docs/DELIVERY.md`).
   - CORE-QNT-001 and CORE-CHR-001 now block FORMALLY CHECKED.
-  - A bare "Next step:" or "Note:" paragraph is a note, not a self-report (rule `meta-note`).
+  - A "Next step:" or "Note:" paragraph is a note, not a self-report (rule `meta-note`), only when a closed allowlist
+    reads it as a study suggestion, an inability to see or open a named source, or content not checked. The clearance
+    commit `f2329df` read a bare note as a note whenever it held a limitation word such as "not" or "only", and the
+    independent push check held it on this rule: it let an assurance written as a note ("Note: there is nothing to fix
+    in this answer, not a single slip.") travel under the label. The follow-up commit narrows the rule to that closed
+    allowlist, read from the block's first character. It refuses the label for any block that opens with a note or
+    sources lead and is read neither as a note nor as a pure source list (rules `lead-blocks` and
+    `source-list`), and for any text the branch's parser reads as no claim unless a closed reader reads it whole as a
+    note, a source list or a bare layout label (rules `non-material-text` and `layout`). Every claim must carry a
+    positive signed engine outcome (rule `unverified-claims`, 6c), and the label is withheld for every answer in this
+    release (rule `formal-label-withheld`, 6d). Every one of these rules can only remove the label.
 - **Harness** (`docs/ARENA_RESULTS.md`, "Round 8 clearance").
   - The replay now passes the task record to the translator as production does.
   - Fixtures can be bound to their claim text.

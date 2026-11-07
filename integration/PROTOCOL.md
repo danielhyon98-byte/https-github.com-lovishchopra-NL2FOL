@@ -517,7 +517,12 @@ formally checked. **Summary** of a delivered answer, from the counts: `incomplet
 definitive result, reachable only under the qualify policy); `not_formally_checkable` (no positive result);
 `formally_checked` (every material eligible claim positive with `release_permitted`); `partly_checked` (some);
 `formal_only` (positive results, none permitted). **A non-definitive status never yields `formally_checked`, whatever
-the policy** (property-tested).
+the policy** (property-tested). **Rule `formal-label-withheld` (`docs/DELIVERY.md` condition 6d, the round-8 release):
+while the delivery policy withholds its FORMALLY CHECKED label from every answer, the summary never reports
+`formally_checked` either** (`delivery.summarize`, `website/src/verify/decision-table.js`, the same rule on both sides):
+an answer whose every material eligible claim is positive with `release_permitted` is `partly_checked`, and a verdict
+whose summary says `formally_checked` fails the Worker's re-derivation (row 1, KIT-DL-030). The value stays in the
+closed set of summaries for the label policy that returns it (planned for round 9).
 
 **Website mapping** (proposed; decisions D13, D26, D27). A delivered verified answer carries
 `review: "checks:integration.v1"` (append-only in `REVIEW_STATES`), never `passed` or `not_required`. **Its badge
@@ -568,7 +573,8 @@ holds, checked in this order; the first that fails names the refusal:
 12. the ChatResult passes the website's own gate, its size is at most 64 KiB, `review` is `checks:integration.v1`, and
     `checks` agree with the verdict's claims;
 13. the labels are truthful: nothing non-definitive is labelled checked, and the answer's badge says "passed" only
-    when its summary is `formally_checked` (every material eligible claim positive with its release permitted); the
+    when its summary is `formally_checked` (every material eligible claim positive with its release permitted; no
+    summary is while rule `formal-label-withheld` holds, section 8, so no badge says "passed"); the
     scope statement is present whenever a formal status is shown; `simulated` is true unless both the specialist and the
     checks are live.
 

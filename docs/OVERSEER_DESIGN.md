@@ -5056,7 +5056,7 @@ name, no assurance word in any clause (`assurance_words`: checked, verified, con
 free of errors, a first-person past act of checking, each unless the clause negates it once), and the note's own form
 (`note_form`: after "Next step" a suggestion verb opens the clause, after two lead words at most; otherwise a limitation word
 or "n't"). Everything else stays a self-report (fail closed). Each reading is linear and bounded (20,000 characters a
-paragraph).
+paragraph). Superseded in its note form by Decision 99: a limitation word such as "not" or "only" freed an assurance.
 
 **Decision 90 (rule `derived-figures`, major).** OVS-TRN-005 named as invented the figures an encoding takes from the texts
 other than as written: the bounds of a stated precision, numerals with spaced or LaTeX thin-space thousands, a figure at
@@ -5147,3 +5147,286 @@ bound at import (`channel.bus.bidi_control_message` on the raw text, `channel.bu
 report; `checks.receipts._bidi_implied`): a receipt that delivers such a response lacks the INT-REQ-009 its input implies
 and is OVS-RCPT-004; a refusal passes (`tests/overseer/test_c1_handoff_bidi_audit.py`). No code, severity or pack text
 changed: INT-REQ-009 is the existing named rejection.
+
+**Decision 99 (rule `meta-note` narrowed to a closed allowlist; the push check's hold, critical).** The independent push
+check held the clearance commit: Decision 89's note form (`note_form`) accepted any "Note:" paragraph holding a limitation
+word, and "not" and "only" were limitation words, so an agent's assurance about its own answer travelled under the
+FORMALLY CHECKED label ("Note: there is nothing to fix in this answer, not a single slip.", "Note: all figures are sound and
+not in doubt.", "Note: every quotation above holds, and not one of them is off.", reproduced on the recorded en-t14 answer),
+against `docs/DELIVERY.md` 6b. A first rewrite read notes through a wide clause grammar (provenance, possessive, status,
+limit-noun, context and suggestion constructions with open noun-phrase and prepositional slots, and a tokenizer that
+dropped every character it had no token for); an independent attack freed 196 of its 332 assurance paragraphs
+(`tests/overseer/data/meta_note_attack_round1.json`, field `freed_by_first_rewrite`) through those slots on the real path
+("Note: the figures come from Table 1 to the decimal place.", "Note: the answers are the exam board's own.", "Note: the
+quotations are not quoted from memory.", "Next step: use it as your model."), some of which the first version had refused,
+and found a quadratic modifier scan. The rule is now a minimal closed allowlist
+(`overseer/meta_notes.py`, rule `note-clauses`): every clause must be one or more of exactly three constructions, each of
+its words from a closed list: (a) `study-suggestion`, an imperative to the student (no verb of using, copying, submitting,
+treating, appraising, reproducing or learning by heart) whose object is the student's own work, a generic study item, a
+question or a passage of a STRICT source list (words that name supplied material and never a written answer or a part of
+one: "the extract", "the image", "the census"; never "the table", "the text", "the opening", "the passage", "the poem"),
+never the answer or a part of it ("your" work with or without "own" after every study verb but a verb of practice, which
+takes "your own" work only; "it", "them", "its" and "their" only after a noun phrase of their number read as the
+object, a yardstick or a "using" item of the same sentence; a topic names no antecedent), with only closed phrases after
+it: a topic after "on", "about" or "focusing on", a yardstick after "against", "with" or "in" only from the student's own
+work or the strict list; a verb of practice takes only the student's own work, a question or a practice item, and a verb
+of sending sends the work back to the tutor ("here", "back", "for feedback", "for a second provisional mark"); (b)
+`no-access`, "I" or "we", a negated see, read, open, access, have, view or hear, and a source named with a definite
+determiner; (c) `not-checked`, named content whose only predicate is not checked or not verified, with no modifier of
+extent, fidelity or finality and none that sets it against the rest of the answer ("the remaining figures"). Every
+provenance clause, every status but not checked, every universal or fidelity modifier, every finality, approval or
+evaluation word, the task's own wording and every phrase outside (a) to (c) makes the paragraph a self-report, and so does
+every character that is no letter, digit or clause mark (it is a token no construction reads, never dropped). Rules
+`assurance-words` and `evaluation-words` stay, unchanged, as vocabularies read in any polarity (a second line); rules
+`bare-negator` and `answer-evaluation` only name why a clause was refused; rule `note-form` asks for a clause of the lead's
+kind. The fixer's own probe of the narrowed rule found 120 more paragraphs it still freed through a suggestion's object or
+yardstick that can name the answer's own part ("Next step: memorise the table.", "Next step: compare your figures with
+the table."), "your" work as the object of practice or learning ("Next step: revise your notes."), a submission ("Next
+step: send your essay for marking."), content set against the rest ("Note: the remaining figures are unverified.") and an
+indefinite source ("Note: I can't see a second source."); the strict source list, the removal of the verbs of learning by
+heart and of "redraw", the lines on practice and sending, the definite determiner and the closed content modifiers close
+them at their cause. The rule frees none of the 332 paragraphs of the attack
+(`tests/overseer/data/meta_note_attack_round1.json`), none of the 93 assurance phrasings and 43 unlisted ones of the
+regression file, none of the 120 of the probe and none of the push check's three, on the pack path and on the real path;
+with every claim of en-t14 counted clean (a counterfactual) the answer is FORMALLY CHECKED with its own note or a genuine
+limitation and never with an assurance (`tests/overseer/test_c1_push_check_meta_note.py`). It refuses genuine notes by
+design (the last tightening refused no recorded note; two of the fixer's own controls, "annotate the second stanza", now
+refused, since a stanza can be the answer's own in a creative task): among the recorded
+English-pack notes, three of round 8 that both earlier versions freed (lit-t14's task wording, ll-t14's provenance clause
+after an inability, en-p8c's status, use and possessive) and two of earlier rounds the first rewrite already refused
+(lit-p7c in round 7, an earlier c1 ll-t14 answer). Each such answer falls back from the formal path, as every answer did
+before the rule existed; the first rewrite's record that its newly refused recorded notes were all on other branches or
+earlier rounds where no ES-META-001 arises was false for those two English-pack answers. The recorded en-t14 note and
+ll-t14's second note stay notes. The auditor has no reading of a note paragraph (a meta paragraph carries no claim; the
+task audit of en-t14 is the same with and without an assurance note), so there is no second derivation to keep in step;
+`flags_self_certification` is unchanged and remains one of the rule's shared readers. Every reader is linear (one token
+scan, each clause read forward once by three readers, a noun phrase of at most five tokens); the quadratic scan went with
+the grammar that held it.
+Superseded for the label by Decisions 103 and 104: rule `formal-label-withheld` withholds FORMALLY CHECKED from every
+answer in the round-8 release, so no answer this decision calls FORMALLY CHECKED, or says keeps the label, is delivered
+under it; it takes the fallback. This decision's counterfactual counted only the eligible material claims clean; under it
+rule `unverified-claims` (Decision 103) refuses such an answer as well wherever it holds a claim no signed engine result
+decides positively (en-t14's quotations and interpretation sentences, the Physics fixture's evidence claim). Only under
+Decision 103's stricter counterfactual (every claim of the recorded answer counted clean, the Physics fixture built
+without its evidence claim) is the label rule's reason the formal path's only reason
+(`tests/overseer/delivery_support.py`, `assert_label_withheld_only`).
+
+**Decision 100 (rules `lead-blocks` and `source-list`, delivery; attack round 2 on rule meta-note, critical and major).**
+Rule `meta-note` held against the second attack, and every remaining bypass travelled outside it, through the English
+parser's segmentation: a one-line block opened by a sources lead is a 'sources' unit, read before the meta-text test since
+the clearance commit's citation change (c1 bug 4), so "Sources: The Tuner extract (supplied text), every quotation verified
+against it." lost the ES-META-001 the published base gave it (critical, introduced by the commit); and a quotation-free
+block opened by a bare note lead that is not all meta-text is a 'body' block whose sentences are all notes, so "NB: I can't
+see the image. Nothing above needs fixing." carried no ES-META-001 (major, present at the published base), and so did a
+lead the parser does not read ("Caveat:", "Nota:", "__Note__:"), a note holding a quotation and a note sentence inside a body
+paragraph. Once the rule freed en-t14's genuine "Next step:" note, nothing else named such an assurance, and with every
+claim counted clean the answer travelled FORMALLY CHECKED. The fix is at the delivery policy and changes no segmentation,
+receipt, claim or pack finding: rule `lead-blocks` (`overseer/meta_notes.py`, `delivery_policy._lead_block_refusals`) reads
+the journaled answer as written, cut into paragraphs as the English parser cuts it, for every reader's note and sources
+leads (the History parser's "Limitation(s):", "Sourcing:" and full stop for a colon among them; fullwidth forms, markdown
+emphasis and any blank the parsers read, a line break included, read as the leads they show; Spanish and French forms) at
+a paragraph's start, a line's start or right after a sentence's end; each block runs to the next lead or the paragraph's end and must be read as
+a whole as a note by rule `meta-note` or as a pure source list by the new strict rule `source-list` (names, document
+labels, locators, years and the citation rule's kinds; every word from a closed list or a capitalised name a supplied
+title or author writes; no deny word whatever names it; brackets balanced; no quotation, JSON, self-report sentence or
+vocabulary word); any other block refuses the FORMALLY CHECKED label, named by position, lead and rule, never by its words.
+It reads every deliverable: the Physics delivery fixture, whose claims are all checked, had travelled FORMALLY CHECKED with
+the push check's phrasings added, and now does not, while a genuine note or a pure source list keeps the label. It refuses
+genuine closing lines outside the two readers by design (of the 18 recorded round-8 answers the repository holds, only
+en-t14 and ch-t14 have every such block read; "Sources: none consulted (no retrieval in this session)" names no source and
+is refused), and every recorded delivery was withheld for other reasons too. Every round-2 input with a lead keeps en-t14
+from the label (`tests/overseer/data/meta_note_attack_round2.json`, `tests/overseer/test_c1_push_check_lead_blocks.py`);
+assurances written as plain body prose, a heading or a list item, with no lead, reach no reader and are left to round 9
+(strict xfail until attack round 5, real tests of the refusal since: rule `unverified-claims`, Decision 103; Decision 101 closes the heading, the list item and the line with no stop, which the English parser reads as
+no claim). The auditor has no reading of a note or sources block (its task audit of en-t14 is the same with and without
+one) and both rules take its structural detector as a shared reader, so receipt and audit cannot disagree in the laxer
+direction. Every reader is linear: one scan per paragraph for the places a lead can stand, a lead of bounded look-ahead at
+each, each token of a source list read once; more than 256 blocks refuse the answer unread.
+Superseded for the label by Decisions 103 and 104: rule `formal-label-withheld` withholds FORMALLY CHECKED from every
+answer in the round-8 release, so no answer this decision calls FORMALLY CHECKED, or says keeps the label, is delivered
+under it; it takes the fallback. This decision's counterfactual counted only the eligible material claims clean; under it
+rule `unverified-claims` (Decision 103) refuses such an answer as well wherever it holds a claim no signed engine result
+decides positively (en-t14's quotations and interpretation sentences, the Physics fixture's evidence claim). Only under
+Decision 103's stricter counterfactual (every claim of the recorded answer counted clean, the Physics fixture built
+without its evidence claim) is the label rule's reason the formal path's only reason
+(`tests/overseer/delivery_support.py`, `assert_label_withheld_only`).
+
+**Decision 101 (rules `non-material-text` and `layout`, delivery; attack round 3 on condition 6b, critical and major).**
+Rules `meta-note` and `lead-blocks` held what their lead list named, and round 3 showed that no closed list of leads can
+close condition 6b: assurances travelled under the FORMALLY CHECKED label through note leads the parsers read and the list
+did not (a word joiner, a zero-width space, a soft hyphen, a combining grapheme joiner or a variation selector after "Note
+on", which renders as "Note on the analysis:"; a bracket, a dash or an ellipsis after "Note on"; "Note on" and ninety spaces;
+"N.  B."), through the English parser's other channels for text it keeps out of the claims (its marking-feedback furniture
+"Task:", "Provisional marks:", "What the task wants:" read as layout; its answer notes, any sentence holding "send me" or
+"paste ... here"; label-shaped "from memory" sentences; headings and list items), and, on the Physics delivery fixture, a
+report delivered as an object, through any text its claims do not hold. Rule `non-material-text` (`overseer/non_material.py`,
+`delivery_policy._non_material_refusals`) inverts the reading and lists no lead: the deliverable's journaled answer is read
+again by the parser of the branch that serves its agent (the English branch by its own segmentation and sentence roles,
+every other branch by its `parse_response`, with the channel's arguments); a unit of a role other than `other` is a claim
+and covers its words (found in order, whole words only, NFKC and case-folded, mark annotations blanked as the parsers leave
+them out) only when the journaled report holds the same claim; everything else (role `other`, or text in no unit) is cut at
+paragraph ends, claims and leads, and each block that holds more than layout marks must be read as a whole by rule
+`meta-note`'s note allowlist, rule `source-list` or the new strict rule `layout` (a bare closed label of the parsers' own
+label sets, a part label with at most its mark allocation, mark annotations or a table rule, or a closed label followed
+only by the task's own wording copied verbatim). Every reader now normalises its text first (NFKC; every format character,
+every other default-ignorable code point and every combining mark that does not belong to a letter removed) and refuses a
+text holding a Unicode tag character; the lead reader of rule `lead-blocks` reads the normalised copy (emphasis marks and
+HTML-like tags read as nothing, blank runs as one), any punctuation, bracket or dash after a lead's words and any marks before
+it, which closes 15 display spoofs the English parser reads as claims ("◦ Note:", "Note∶", "No**te**:", "<b>Note:</b>",
+"[Note](#note):"). On the recorded en-t14 answer with every claim counted clean, 52 of the round-3 bypass lens's 111 inputs
+are closed and the regression lens's 26 note-on and residual answers too; on the Physics fixture, for real, all 15 assurances
+are refused and its genuine note keeps the label (`tests/overseer/test_c1_push_check_non_material.py`,
+`tests/overseer/data/meta_note_attack_round3.json`). The other 59 inputs, which the English parser reads as claims of the
+answer (27 material points and one material link the formal path marks `not_eligible`, such as "Final note: there is
+nothing to fix in this answer, not a single slip." as a paragraph; 31 supporting interpretation sentences, the same written
+at the end of a body paragraph; "P.S.", "Tip:", "Verdict:", "Bottom line:" and plain prose among them), and "NB all
+quotations hold." (no punctuation after "NB"), reach no 6b reader: out of scope by the main session's direction (material
+claims the formal path marks not_eligible go to round 9) and recorded as strict xfail tests (real tests of the refusal
+since attack round 5: rule `unverified-claims` or condition 3, Decision 103). Reading supporting claims as
+non-material would refuse the label to every answer that argues, the Physics fixture's own result among them (the STEM
+parser reads "The speed is 15 km/h." as a supporting quantitative step), so the line is the parser's role `other`. The rule
+refuses genuine text outside its three readers by design (headings outside the closed label sets, part labels with a
+title or a command term, questions to the student, notes with no lead; of the 18 recorded round-8 answers the repository
+holds only en-t14 has nothing unread), and the replay of the 24 recorded round-8 deliveries changes no mode and no label:
+each was withheld before and is withheld now, with the blocks named among its reasons. The auditor has no reading of
+non-material text (the task audit is the same with and without it) and every reader takes its structural detector as a
+shared reader, so receipt and audit cannot disagree in the laxer direction. Every step is linear: the parser is the
+branch's own, the words are read once, each claim is found by one forward search, each piece is scanned once for its leads,
+and each block is read once by each linear reader; more than 256 blocks the layout reader does not read refuse the answer
+unread.
+Superseded for the label by Decisions 103 and 104: rule `formal-label-withheld` withholds FORMALLY CHECKED from every
+answer in the round-8 release, so no answer this decision calls FORMALLY CHECKED, or says keeps the label, is delivered
+under it; it takes the fallback. This decision's counterfactual counted only the eligible material claims clean; under it
+rule `unverified-claims` (Decision 103) refuses such an answer as well wherever it holds a claim no signed engine result
+decides positively (en-t14's quotations and interpretation sentences, the Physics fixture's evidence claim). Only under
+Decision 103's stricter counterfactual (every claim of the recorded answer counted clean, the Physics fixture built
+without its evidence claim) is the label rule's reason the formal path's only reason
+(`tests/overseer/delivery_support.py`, `assert_label_withheld_only`).
+
+**Decision 102 (the 6b readers' own slots, delivery; attack round 4 on condition 6b, major).** Round 4 found flaws in the fix's
+own readers, each closed at its cause and each only removing the label. Rule `layout` took after the STEM structure heads
+the STEM parser's own part-id slot of four letters or digits, so "Working (fine):", "Method (good):", "Data (true):",
+"Solution (done):", "Working ok:" and "Known good:" were read as layout and freed on every branch, for real on the Physics
+delivery fixture: the slot now takes only the parsers' own part-label grammar (one letter a to h, a roman numeral up to
+viii, or a number of one or two digits with an optional letter, in the parsers' brackets), every part id it takes one the
+STEM parser's head pattern reads too. Rule `layout` read a run of markscheme codes ("(A1) (A1) (A1) (A1)", "(N2)") as
+layout: a code is the mark the answer awards its own working, a self-grade in code form, so only a run of mark allocations
+is layout (maa-t14's sixteen codes after its lines of working are now named; it is withheld for its undecided working
+anyway). Rule `source-list` took words that name no source ("Sources: the examination paper's own answers.", "the
+extract's own lines", "the original lines of the extract", "the specialist's own analysis", "original and full"): it now
+names the supplied texts' names, the knowledge bases' fixed sources forms, locators and kind tags and nothing else (no
+word of ownership, origin, extent or fidelity, no answer but the student's pasted one, a part a locator names only with
+its number, a specialist only after a subject, an analysis only as a specialist's). Look-alike letters hid a lead from
+every reader ("Nоte:" with a Cyrillic о, a Greek "Ν.Β.", "ɴᴏᴛᴇ:", "Ṇote:"): every lead and label is read on the text's
+confusable skeleton (Cyrillic, Greek, Armenian and Cherokee look-alikes, Latin small capitals, dotless letters, a letter
+with a diacritic as its base letter, after NFKC), and a lead or label only the skeleton reads cuts a block but frees none.
+Rule `layout` read the task's wording again for every block (4,000 blocks against an 8,234-character task took 5.43 s);
+it is read once per answer. With every claim of en-t14 counted clean, 145 of the round's 290 en-t14 inputs are closed
+(13 look-alike leads, 8 code runs and wider source lists, the regression and review lenses' 41 evaluative labels and
+source lists, and 83 the earlier rules already refused), and one round-3 input recorded open, a Cyrillic "Nоte:", with
+them. The other 145, and 10 on the Physics fixture's answer delivered as text (plain prose, "Final note:", "NB" with no
+mark, an inline "; note:", "All good.", "LGTM.", an emoji glued to the result, and "Working (fine):", which the STEM
+parser's own open slot reads as a 'structural' claim), are claims of the answer: the claim channel, not attempted by the
+main session's direction and pinned as strict xfail tests (real tests of the refusal since attack round 5: rule
+`unverified-claims`, or condition 3 alone for two en-t14 inputs, Decision 103) with their behaviour at the published base 16d5a4a, measured on
+the same real path (`tests/overseer/data/meta_note_attack_round4.json`): with every claim counted clean each was FORMALLY
+CHECKED there on en-t14 without its closing note and withheld on en-t14 with it, by that note's ES-META-001, which rule
+`meta-note` now frees; so the channel predates the rule on a noteless answer and is reachable on a note-carrying answer
+since the clearance commit (the Physics text path was withheld at the base for every input, by OVS-TRN-005). The
+regression lens's record holds and is pinned: with every claim counted clean, the recorded answers ch-t14, ge-t14, hi-t14,
+ph-p8b and ps-t14 were FORMALLY CHECKED at the clearance commit and are kept off the label by rules `lead-blocks` and
+`non-material-text` alone, the conservative cost of reading every non-claim block (their recovery is round 9's). The
+replay of the 24 recorded round-8 deliveries changes no mode and no label against the worktree before this round, real or
+with every claim counted clean; only maa-p8b's, maa-t14's and mai-t14's reasons gain their markscheme codes
+(`tests/overseer/test_c1_push_check_round4.py`). The auditor is unchanged and every reader keeps its structural detector as
+a shared reader. Every reader stays linear: each character's skeleton is a bounded memo, the task's wording is read once,
+and a part a locator names is read with its value in a constant context.
+Superseded for the label by Decisions 103 and 104: the replay's labels here were measured on the worktree before rules
+`unverified-claims` and `formal-label-withheld`, with only the eligible material claims counted clean. Rule
+`formal-label-withheld` puts its reason on every formal path, so in the round-8 release no recorded delivery is FORMALLY
+CHECKED, real or under any counterfactual, and the answers this decision names as kept off the label by rules
+`lead-blocks` and `non-material-text` would stay off it without rule `formal-label-withheld`.
+
+**Decision 103 (the lead region and rule `unverified-claims`, delivery; attack round 5 on condition 6b, critical and a
+regression).** Round 5 found two things the round-8 code must not ship. In the fix's own reader, rule `source-list` found its
+lead with the cutting reader of rule `lead-blocks`, which reads past any run of marks before a lead, an HTML-like tag of up to
+40 characters before or inside it and any one mark in place of its colon, and then read only the words after the lead: "👍
+Sources: The Tuner extract (supplied text)", "★★★★★ Sources:", "√ Sources:", "🆅🅴🆁🅸🅵🅸🅴🅳 Sources:" (negative-squared letters
+that spell an assurance), "<all verified> Sources:", "Sour<all good>ces:" and "Sources💯" were freed whole by rules
+`lead-blocks` and `non-material-text` alike, 145 of the bypass lens's 154 source-list lines on en-t14 with every claim clean
+and 14 of 14 on the Physics fixture's answer delivered as text, for real. The cutting reader stays wide (it only makes more
+blocks that must be read); every reader that FREES a block now reads it as a whole from its first character: before its lead
+or label only blanks, at most one list mark of a closed set (one bullet "-", "*" or "•", or one list number "1.", "1)", "(1)",
+"a)", "a.", "(a)") and the lead's own emphasis ("**Note:**"), then the lead's words as written on one line and the parsers'
+own colon (`meta_notes.LEAD_REGION`, `strict_lead_end`, `lead_region_end`); rule `meta-note` and rule `layout` read their
+leads and labels the same way, so "> Note:", "### Working:" and "👍 Task:" free nothing either. And the claim channel was a
+regression since the published base, not only an old gap: at 16d5a4a every English answer that carried a closing note was
+withheld by that note's ES-META-001, and the Physics text path by OVS-TRN-005, so an assurance the branch's parser reads as a
+claim of the answer never travelled under the label there; since the clearance commit it did (219 inputs on en-t14 with its
+note; "LGTM.", "Working (fine):" and "All figures are sound and not in doubt." on the Physics text path, for real). The new
+refusal-only rule `unverified-claims` of the delivery policy (DELIVERY.md 6c) narrows it: FORMALLY CHECKED needs every claim of
+the answer, whatever its materiality, to carry a formal outcome in the success set of a signed engine result (`clean`, as
+condition 3 derives it), and the rule names, by claim id, kind and outcome, a material claim marked `not_eligible`, every
+supporting claim that is not clean, and every claim the branch's parser reads whose whole text (NFKC, blanks collapsed,
+every symbol kept) no journaled claim holds; claims that cannot be read refuse the answer as a whole. The last line closes a
+report-object path the review lens measured: the STEM parser reads "The speed is 15 km/h. 👍" as one claim whose words are
+the report's checked claim's words, so a glued "👍", "💯", "🆗", "★★★★★" or regional-indicator word rode on that claim; the
+parser's claim now says more than the checked one and is refused. The rule is strict by design and costs the label to every
+answer whose supporting claims (an English answer's quotations and interpretation sentences, a Physics answer's restated
+figures, a STEM structure head) the engine did not check; such an answer falls back, as every answer whose claims were not
+all checked did before. Words or symbols glued INTO a claim the engine verifies on the text path ("The speed is 15 km/h. 👍"
+as text; "The speed is 15 km/h; note: all figures are sound and not in doubt.") are ONE claim for the STEM parser and travel
+with it, whose positive outcome rests on its fidelity review, which the fixture fakes. A claim carries the outcome of what was
+encoded, never of what is glued to it, so the rule also names a claim whose text holds a character outside the claim
+alphabet (letters and the marks on them, numbers, punctuation, blanks, mathematical, currency and modifier symbols and "°",
+"℃", "℉", "△"; a radical with no operand after it is a tick mark) or a note lead after a clause mark, an opening bracket or a
+sentence's end: "The speed is 15 km/h. 👍", "...🆅🅴🆁🅸🅵🅸🅴🅳", "... 🗹" and "...; note: all figures are sound and not in doubt.",
+withheld at the base and FORMALLY CHECKED before these two readers, are refused. Words glued with neither ("The speed is 15
+km/h, and nothing above needs fixing.") stay the fidelity review's, open for round 9 (strict xfail until attack round 6);
+a vocabulary veto on verified claims would refuse "correct to 3 s.f." and "the exact value". So the rule narrows the claim
+channel (a claim no signed engine result decides positively is refused) and does not close it: assurances inside or as
+verified or eligible claims stay open to the formal path, and only condition 6d keeps them off the label (attack round 6,
+Decision 104). During the attack rounds on 7 November 2026, before rule `formal-label-withheld`, every attack input of rounds
+1 to 5 (1,223 inputs and 12 controls, 3,318 deliveries on en-t14 as recorded, shortened with and without its note, the whole
+answers and the Physics fixture's text and report paths) was delivered at the base and in the worktree of this fix: the base
+delivered 721 attack deliveries FORMALLY CHECKED, the worktree none, and its 12 FORMALLY CHECKED deliveries were all
+controls; that measurement, like the 219 inputs above, was made then, and the repository stores its inputs
+(`tests/overseer/data/meta_note_attack_round*.json`) and only part of the outcomes per input (the round-4 data's
+`base_16d5a4a` modes of its open rows and `worktree_en_t14` of its 69 earlier open inputs), not its whole per-delivery
+output. The replay of the 24 recorded round-8
+deliveries
+against the clearance commit changes no mode and no label as recorded (receipts identical, only reasons added, none removed:
+this rule's on 22 tasks, rule `lead-blocks`' on 20, rule `non-material-text`'s on 21, ES-META-001 on en-p8c, lit-t14 and
+ll-t14); with every eligible material claim counted clean the clearance commit's 8 FORMALLY CHECKED become none (en-t14 by
+this rule alone), with every eligible claim counted clean none, and with every claim counted clean whatever its eligibility
+en-t14 alone (before rule `formal-label-withheld`; with it none, Decision 104). The rewritten tests are logged in
+`tests/README.md`; the regression tests are
+`tests/overseer/test_c1_push_check_round5.py` with `tests/overseer/data/meta_note_attack_round5.json`.
+
+**Decision 104 (rule `formal-label-withheld`, delivery; attack round 6 on condition 6b, critical).** Six attack rounds show
+that no reader of free text closes condition 6b. Round 6 found assurances, self-grades and imitations of the label travelling
+under FORMALLY CHECKED on inputs the published base 16d5a4a withholds, outside every reader the fix added or inside the text
+those readers drop: words glued to a claim the engine verifies ("The speed is 15 km/h, FORMALLY CHECKED.", "..., VERIFIED.",
+"..., double-checked.", "..., which the solver proved.", "The speed is 15 km/h [2/2].", "Nothing to fix: the speed is 15
+km/h."), separate quantitative self-grades the verifier confirms ("Score: 10/10.", "Accuracy: 100% (3 of 3 values)."),
+assurances written as eligible claims (a sentence that states its own reason with "so", "because", "therefore", or an
+"Overall," link with supporting claims), and visible combining letters (U+0363 to U+036F and U+1DD3 to U+1DF4 on a no-break
+space) or hidden zero-width, LRM/RLM, invisible-operator and variation-selector payloads that `meta_notes.reader_text` removes
+before reading, so a freed note or source list carried them. For the round-8 release the delivery policy therefore never
+grants the label: the refusal-only rule `formal-label-withheld` (DELIVERY.md condition 6d, `delivery_policy.FORMAL_LABEL_RULE`
+and `FORMAL_LABEL_REASON`) adds its reason to the formal path of every deliverable, so the formal path never completes and
+every answer follows the existing fallback exactly as an answer refused by any other formal condition does. It is a constant,
+not a configuration. Rules `self-report-disclosed`, `meta-note`, `lead-blocks`, `non-material-text` and `unverified-claims`
+still run and name their reasons on the receipt (they will govern the label when a label policy that holds under attack
+returns it, planned for round 9); their readers are linear (the timing tests of the push-check files). The integration kit
+agrees: `integration/delivery.summarize` and the Worker's `decision-table.js` never return `formally_checked` (an answer whose
+every material eligible claim is positive and permitted is `partly_checked`), `PROTOCOL.md` section 8 says so, the two
+affected vectors were regenerated and the website patch set M was re-tested on fresh disposable exports (the same counts, the
+same three Playwright failures, `--verify` exact, anchors as expected, the rollback rehearsal 1 to 4 PASS). Receipts,
+findings, statuses, engine verdicts, the overseer audit, the fallback selection and the harness are unchanged. The replay of
+the 24 recorded round-8 deliveries against the tree before this rule, real and under the three claim counterfactuals: every
+receipt identical and verifying, and the only differences are the label rule's reason added on the 22 tasks whose formal path
+reaches a deliverable (bi-t14 and ph-p8b end before one, every answer excluded, and differ only in the random message ids of
+their exclusion reasons) and, with every claim counted clean whatever its eligibility, en-t14 going from FORMALLY CHECKED to
+WITHHELD; no other mode or label changes. The rewritten tests are logged in `tests/README.md`; the regression tests are
+`tests/overseer/test_c1_push_check_round6.py` with `tests/overseer/data/meta_note_attack_round6.json`.

@@ -81,13 +81,19 @@ def speed_translation(claim_id: str, *, distance: int = 120, speed: int = 15, re
 
 
 def physics_report(agent: str, report_id: str, claims: Sequence[tuple[str, str]] = (("p1.1", "The speed is 15 km/h."),), *, prefix: str = "p1",
-                   ids: Mapping[str, str] = PHYSICS) -> SpecialistReport:
-    """A Physics answer: one supporting evidence claim (the task's figures) and the given quantitative material claims."""
-    evidence = "A car travels 120 km in 8 hours."
-    text = " ".join([evidence, *(t for _, t in claims)])
-    recs = [ClaimRecord(**ids, report_id=report_id, agent_id=agent, claim_id=f"{prefix}.0", claim_text=evidence, claim_role="evidence", materiality="supporting")]
+                   ids: Mapping[str, str] = PHYSICS, evidence: bool = True) -> SpecialistReport:
+    """A Physics answer: one supporting evidence claim (the task's figures) and the given quantitative material claims.
+
+    ``evidence=False`` (attack round 5, rule ``unverified-claims``): the same answer without its supporting evidence claim, so
+    every claim it holds is a quantitative claim the fixture verifier checks. FORMALLY CHECKED needs every claim of an answer
+    to carry a positive outcome of a signed engine result, and the evidence claim ``{prefix}.0`` carries none (the verifier
+    checks quantitative claims only), so only this answer can travel under the label."""
+    given = "A car travels 120 km in 8 hours."
+    text = " ".join([given, *(t for _, t in claims)] if evidence else [t for _, t in claims])
+    recs = [ClaimRecord(**ids, report_id=report_id, agent_id=agent, claim_id=f"{prefix}.0", claim_text=given, claim_role="evidence",
+                        materiality="supporting")] if evidence else []
     recs += [ClaimRecord(**ids, report_id=report_id, agent_id=agent, claim_id=cid, claim_text=t, claim_role="quantitative", proposed_claim_kind="arithmetic",
-                         supporting_claim_ids=[f"{prefix}.0"]) for cid, t in claims]
+                         supporting_claim_ids=[f"{prefix}.0"] if evidence else []) for cid, t in claims]
     return SpecialistReport(**ids, report_id=report_id, agent_id=agent, original_response=text, response_sha256=sha256_text(text), claims=recs, created_at=CREATED)
 
 
@@ -270,6 +276,44 @@ def assert_honest(decision) -> None:
         assert decision.message_id == rec.delivered_message_id == decision.answer.message_id
     else:
         assert decision.answer is None and rec.delivered_message_id is None and rec.delivered_payload_sha256 is None
+
+
+def assert_label_withheld_only(decision) -> None:
+    """Rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d): the decision is not FORMALLY CHECKED, its formal path
+    did not complete, and the ONLY reason the formal path gives is the label rule's own: every other condition of the formal
+    path held, so before the rule this answer was FORMALLY CHECKED. The fallback was taken exactly as for any other refusal."""
+    from epinoic_logic.overseer.delivery_policy import FORMAL_LABEL_REASON
+    rec = decision.receipt
+    assert decision.mode != "formally_checked" and rec.mode == decision.mode and not rec.formal.complete, (decision.mode, rec.formal.complete)
+    assert rec.formal.reasons == [FORMAL_LABEL_REASON], rec.formal.reasons
+    assert rec.fallback is not None and rec.fallback.why == [FORMAL_LABEL_REASON], rec.fallback
+    assert not decision.label.lower().startswith("formally checked")
+    assert_honest(decision)
+
+
+#: The first reason of a formal path whose consolidation excludes every answer: no deliverable is read, so the formal path
+#: never reaches the label rule (a pre-existing refusal, independent of conditions 6b to 6d).
+CONSOLIDATION_EXCLUDED = "the consolidation is NO_DELIVERABLE_OUTPUT: every answer is excluded"
+
+
+def assert_refused_beyond_the_label(decision, prefixes: Sequence[str]) -> list[str]:
+    """A refusal that does not rest on rule ``formal-label-withheld`` (condition 6d) alone: the decision is not FORMALLY
+    CHECKED, and the formal path gives at least one reason other than the label rule's, at least one of them starting with
+    one of ``prefixes`` (the reason of the rule the calling test says refuses the answer). The label rule's reason is the
+    formal path's last when it is given. The counterfactual without the label rule
+    (``test_c1_push_check_round6._without_label_rule``) removes that reason and completes the formal path exactly when no
+    other reason remains, so an answer this helper accepts is never FORMALLY CHECKED without the label rule either. Returns
+    the other reasons. It catches the removal of every rule ``prefixes`` names, not of one of them while another named rule
+    also refuses the answer: a test that must pin one rule asserts that rule's reason itself."""
+    from epinoic_logic.overseer.delivery_policy import FORMAL_LABEL_REASON
+    rec = decision.receipt
+    reasons = list(rec.formal.reasons)
+    assert decision.mode != "formally_checked" and rec.mode == decision.mode and not decision.label.lower().startswith("formally checked"), reasons
+    other = [r for r in reasons if r != FORMAL_LABEL_REASON]
+    assert other, ("refused by rule formal-label-withheld alone", reasons)
+    assert FORMAL_LABEL_REASON not in reasons or reasons[-1] == FORMAL_LABEL_REASON, reasons
+    assert any(r.startswith(tuple(prefixes)) for r in other), (tuple(p[:60] for p in prefixes), other)
+    return other
 
 
 # ============================================================================================ one task through the hub

@@ -43,7 +43,9 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
   all from one loaded pack, review a batch. The hub's entry points are ``RouterHub.consolidate``, ``repeats`` and
   ``review_pool``;
 * the delivery policy (``docs/DELIVERY.md``): :class:`DeliveryPolicy` decides, for one deliverable, between the formal
-  path (every material eligible claim clean within the four-minute translation budget: ``formally_checked``), the
+  path (every material eligible claim clean within the four-minute translation budget, and since attack round 5 every claim
+  of the answer carrying a positive outcome of a signed engine result, rule ``unverified-claims``: ``formally_checked``, which rule ``formal-label-withheld``, condition 6d, withholds from every
+  answer for the round-8 release, so every answer takes the fallback), the
   overseer-selected fallback (the candidate whose validated accuracy is highest and above 0.90:
   ``overseer_selected``), ``not_checked`` (only when an operator configures it) and ``withheld``, and records why in a
   signed :class:`DeliveryReceipt` (``delivery_receipt/1.0``, key id ``overseer-delivery``).
