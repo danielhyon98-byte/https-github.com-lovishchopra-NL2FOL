@@ -1504,3 +1504,11 @@ Work in progress after it is labelled as such.
   rule). On the 24 recorded round-8 answers every delivery keeps its mode and label; the genuine closing lines of 16 of
   18 recorded answers are now refused as well, so the label is rarely reachable until those readers are widened under
   attack. The third and last independent attack round is running.
+
+### Progress, 08:00 UTC (7 November)
+
+- The third independent attack round on the fix still found bypasses (85, 9 and 12 across its three lenses), all through
+  leads or labels outside a closed list (unlisted note-like leads, invisible characters inside a lead, list prefixes,
+  layout labels). A fourth fix round inverts the rule: every sentence the parser does not treat as a material claim must
+  be read positively as a note, a plain source list or a bare layout label, after the text is normalised, or the answer
+  is refused the formally checked label. A fourth attack round follows. Nothing from round 8 is uploaded yet.
