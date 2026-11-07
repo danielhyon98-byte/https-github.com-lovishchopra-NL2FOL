@@ -1541,3 +1541,9 @@ Work in progress after it is labelled as such.
   round 8, not only an older gap; and one reader of the fix skipped symbols written before a "Sources:" lead. A sixth fix
   round closes both: the label now requires every claim of the answer to carry a successful signed formal result, and
   every lead reader reads the whole block. A sixth attack round follows. Nothing from round 8 is uploaded yet.
+
+### Progress, 13:00 UTC (7 November)
+
+- The sixth fix round is running: the formally checked label will require every claim of the answer to carry a
+  successful signed formal result, and every lead reader reads the whole block. A sixth independent attack round, which
+  also compares each input with the published base, follows it. Nothing from round 8 is uploaded yet.
