@@ -1479,3 +1479,10 @@ Work in progress after it is labelled as such.
   A narrower rule (only study suggestions, first-person access limits and statements that a named part is not checked
   are notes) is being written and will be attacked again. Nothing from round 8 is uploaded until a new independent push
   check passes.
+
+### Progress, 05:00 UTC (7 November)
+
+- The narrower rule for the push check's open critical item: on 5,508 generated source and fidelity notes it frees none
+  (the held version freed 1,116), and its 1,047 targeted tests pass. It refuses 45 of 47 recorded genuine notes, so three
+  recorded English answers now also name their note as a self-report; every delivery decision keeps its mode, label and
+  delivered flag. A second independent attack on it is running.
