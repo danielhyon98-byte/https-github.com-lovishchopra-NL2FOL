@@ -28,6 +28,7 @@
   preserve/2026-10-16/review-stem-channel   640abcc Preservation snapshot (UNVERIFIED, not a release): review-stem-channel (STEM review fixes)
   preserve/2026-10-16/review-stem-checks    18d7202 Preservation snapshot (UNVERIFIED, not a release): review-stem-checks (STEM review fixes)
   preserve/2026-10-16/review-translate      f24d8b1 Preservation snapshot (UNVERIFIED, not a release): review-translate fix branch
++ r7-ovs-fix                                32a5c0e (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/r7-ovs-fix) Fix the c1 clearance findings
 + review-engine                             f902edd (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine) Review fixes (engine)
 + review-metrics                            2b1cad3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics) Review fixes (metrics)
 + review-stem-channel                       eb66038 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel) STEM review fixes (stem-channel)

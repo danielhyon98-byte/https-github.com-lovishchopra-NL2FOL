@@ -16,6 +16,7 @@
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-retarget                                       c853ecb [kit-agents-retarget]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer                                           502fcff [overseer-build]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/probe                                              3147d08 (detached HEAD)
+/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/r7-ovs-fix                                         32a5c0e [r7-ovs-fix]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine                                      f902edd [review-engine]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics                                     2b1cad3 [review-metrics]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel                                eb66038 [review-stem-channel]
