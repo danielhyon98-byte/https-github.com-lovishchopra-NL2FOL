@@ -6,6 +6,32 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
 
+## 7 Nov 19:3x UTC: ROUND 8 FINISHED ON THE DEVELOPMENT SIDE; the upload waits for Daniel's gate decision
+- Commit 32a5c0e "Fix the c1 clearance findings" (tree 85dd7c9, parent fda19ec) is on origin dev: the follow-up to f2329df (whose
+  push check held). Suite 22503 passed, 12 skipped, 45 deselected, 0 failed; harness r1 30/30, r1-adv 150/151, r2-r6 46/46,
+  r7 177/177, c1 203/203 (= f2329df); c1 deliveries 24/24 withheld (22 receipts name rule formal-label-withheld). Rules: 6b readers
+  (meta-note closed allowlist, lead-blocks, source-list, non-material-text, layout), 6c unverified-claims, 6d formal-label-withheld
+  (FORMALLY CHECKED withheld for EVERY answer: my decision 7 Nov, Daniel may overrule), fail-closed wrapper in DeliveryPolicy._formal.
+  Built in the worktree R/.worktrees/c1-metanote (wf_c72b10ea-9be: 6 fix rounds, 7 attack rounds, round 7 clean), landed via
+  S/landing/ (review wf_d6b75cda-ca7: 3 majors fixed by wf_6a7ad6d7-220 in S/landing/fixwt; push-check lenses wf_a0428f52-bfb;
+  challenger+judge wf_75d55e6d-247).
+- Push check S/push-check/32a5c0e83b185171ed6da7be1c0cd8e215862efe.json: hold=false, critical_open [], supersedes [f2329df full sha].
+  The LIVE publish_final.sh still holds every candidate because f2329df's own check holds; the proposed gate S/publish_final.sh.new
+  (refused by the permission check on 7 Nov 01:4x; never install it without Daniel's explicit go) accepts the real case
+  (S/gate-test/gate.py evaluated 19:2x). Detached presim of 32a5c0e started 19:12 (log S/presim-20261107-1912.log, cache
+  S/simcache/translator-32a5c0e...txt). After Daniel's go: install the gate, event_push.sh (outside hh:56-hh:03), read back,
+  release_prototype.sh (--dry-run first), handoff refresh (state the corrections below).
+- Corrections to 32a5c0e's message (record them in the handoff refresh): "can only remove the label" holds against f2329df, not
+  against 16d5a4a (the allowlist frees some notes the base blocked; on a reader exception the fallback now decides the mode); the five
+  end-to-end tests accept a reason from any of the rules they name; the renamed tests' cases are unchanged against the landing, not
+  against the parent; with no overseer pool every answer is withheld.
+- Round-9 items queued (tasks 209-212, 214, 215): label policy that holds under attack (then the label returns); 6b paths outside
+  the note rule; genuine closing lines; Unicode tag characters and the quadratic English segmenter; kit per-claim "Formally checked"
+  text; raw bidi controls in scripts/arena/test_arena_rules.py; gate1 docstring wording.
+- NEXT: resume phase 2 (wf_eee12853-0ae, scriptPath S/wf-scripts/phase2-cont.js unchanged since 1 Nov 17:33, ORIGINAL args
+  S/wf/phase2-cont-args.json: only continueAfterRound8 differs from the r8only args, and it is used only in control flow) for the
+  architecture step (decision:architecture reads S/wf/phase2/DECISION.json; absent = option 1) and rounds 9 and 10.
+
 ## Daniel's latest instruction (2 Nov ~14:40 UTC): "finish round 8 then create handoff for yourself"
 This section is that handoff. Order: (1) FINISH ROUND 8 with phase 2 resumed so that it STOPS after round 8 (args file
 S/wf/phase2-cont-args-r8only.json, continueAfterRound8 false: the script returns "stopped after round 8" after the prototype step);
