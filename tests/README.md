@@ -1512,3 +1512,9 @@ Work in progress after it is labelled as such.
   layout labels). A fourth fix round inverts the rule: every sentence the parser does not treat as a material claim must
   be read positively as a note, a plain source list or a bare layout label, after the text is normalised, or the answer
   is refused the formally checked label. A fourth attack round follows. Nothing from round 8 is uploaded yet.
+
+### Progress, 09:00 UTC (7 November)
+
+- The fourth fix round (the inverted rule: every sentence the parser does not treat as a material claim must be read
+  positively, after normalisation, or the answer is refused the formally checked label) is still being written and
+  tested; a fourth independent attack round follows it. Nothing from round 8 is uploaded yet.
