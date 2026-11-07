@@ -1547,3 +1547,9 @@ Work in progress after it is labelled as such.
 - The sixth fix round is running: the formally checked label will require every claim of the answer to carry a
   successful signed formal result, and every lead reader reads the whole block. A sixth independent attack round, which
   also compares each input with the published base, follows it. Nothing from round 8 is uploaded yet.
+
+### Progress, 14:00 UTC (7 November)
+
+- The sixth fix round is still running (the formally checked label to require a successful signed formal result for
+  every claim; earlier tests that pinned the weaker behaviour are being rewritten to the stricter rule, none deleted).
+  A sixth independent attack round follows it. Nothing from round 8 is uploaded yet.
