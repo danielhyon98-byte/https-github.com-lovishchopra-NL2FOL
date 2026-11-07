@@ -1486,3 +1486,12 @@ Work in progress after it is labelled as such.
   (the held version freed 1,116), and its 1,047 targeted tests pass. It refuses 45 of 47 recorded genuine notes, so three
   recorded English answers now also name their note as a self-report; every delivery decision keeps its mode, label and
   delivered flag. A second independent attack on it is running.
+
+### Progress, 06:00 UTC (7 November)
+
+- Second independent attack on the narrower rule: the rule itself held (one lens tried 40,000 inputs with no bypass and
+  no regression; 238 attack paragraphs reached the rule and none was freed). The remaining bypasses travel outside it,
+  through how answers are split into blocks: a one-line "Sources:" block (introduced by the round-8 citation change) and
+  a note-led block whose later sentence is not a note (present before round 8). Both are being closed in the delivery
+  decision itself, without changing the parser. Nothing from round 8 is uploaded until a new independent push check
+  passes.
