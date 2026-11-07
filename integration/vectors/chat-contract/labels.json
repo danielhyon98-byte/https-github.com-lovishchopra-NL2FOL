@@ -130,8 +130,8 @@
     },
     {
       "badge": [
-        "Automatic checks passed",
-        "is-ok"
+        "Partly checked",
+        null
       ],
       "claims": [
         {
@@ -161,7 +161,7 @@
       ],
       "name": "every-material-claim-positive-and-permitted",
       "policy": "verified-v1",
-      "summary": "formally_checked"
+      "summary": "partly_checked"
     },
     {
       "badge": [

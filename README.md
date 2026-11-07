@@ -312,11 +312,15 @@ What the router may hand on for one deliverable (a specialist's answer, or the c
 answered one input) is decided by `overseer.delivery_policy.DeliveryPolicy` and recorded in a signed delivery receipt
 (`delivery_receipt/1.0`, key id `overseer-delivery`). Full rules: [`docs/DELIVERY.md`](docs/DELIVERY.md).
 
-- **Formally checked** only when, within the translation budget (240 s by default, on an injectable monotonic clock),
+- **Formally checked**: withheld for every answer in this release (rule `formal-label-withheld`, `docs/DELIVERY.md`
+  condition 6d), so every answer takes the fallback below until a label policy holds under adversarial attack. The
+  conditions the label will need: within the translation budget (240 s by default, on an injectable monotonic clock),
   every material eligible claim was translated, decided positively by the engine as encoded and passed the release rule
   (premises established, grounding checks passed, a current faithful fidelity review), and the transfer audit cleared
   the answer, and the receipt names no working left unchecked (a STEM relation outside the grammar or the encodings, a
-  value not stated, a pack that failed, a check undecided) and no agent self-report. A claim the deadline reaches
+  value not stated, a pack that failed, a check undecided) and no agent self-report, and every claim of the answer,
+  whatever its materiality, carries a positive outcome of a signed engine result (rule `unverified-claims`, condition
+  6c). A claim the deadline reaches
   unstarted is never started; one that finishes after it is late.
 - **Otherwise the fallback.** Overseer agents built from the exported knowledge pack review every candidate (every
   answer to the input; a single answer is one candidate) through the package's runner and the self-duplicating pool,

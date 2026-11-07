@@ -6,7 +6,8 @@
 // - rows in order, first match wins; only material claims count where a row says so;
 // - a verdict the service issued after an unexpected exception (refusal internal_error) is refuse_incomplete
 //   (KIT-DL-900) before every row: it never delivers;
-// - an answer whose required checks did not complete is never summarised as formally_checked, whatever the policy;
+// - an answer whose required checks did not complete is never summarised as formally_checked, whatever the policy; while
+//   rule formal-label-withheld holds (docs/DELIVERY.md condition 6d) no answer is;
 // - row 5 continues only under the qualify policy: verified-v1 and any policy it does not know refuse (fail closed);
 // - every row reads the verdict's fields and counts, never its capped list of claims, so the Worker and the service
 //   decide from the same numbers.
@@ -84,11 +85,12 @@ export function decide(inp) {
   return ["deliver", []];
 }
 
-/** The summary of a delivered answer, from its counts. */
+/** The summary of a delivered answer, from its counts. Rule formal-label-withheld (docs/DELIVERY.md condition 6d, the
+ * round-8 release): never formally_checked, as the service's delivery.summarize; an answer whose every material eligible
+ * claim is positive and permitted is partly_checked. */
 export function summarize(counts) {
   if (counts.unavailable > 0) return "incomplete";
   if (counts.positive === 0) return "not_formally_checkable";
-  if (counts.permitted === counts.eligible) return "formally_checked";
   if (counts.permitted > 0) return "partly_checked";
   return "formal_only";
 }

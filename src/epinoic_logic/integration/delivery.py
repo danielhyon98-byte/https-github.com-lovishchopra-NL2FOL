@@ -22,7 +22,10 @@ the verdict it receives (``integration/website/src/verify/decision-table.js``, s
 
 NOT_ELIGIBLE, UNSUPPORTED and INVALID_FORMALIZATION neither block nor make the checks incomplete: they are labelled as
 not formally checked. **An answer whose required checks did not complete is never labelled as checked, whatever the
-policy**: a non-definitive status never yields the summary ``formally_checked`` (property-tested).
+policy**: a non-definitive status never yields the summary ``formally_checked`` (property-tested). While rule
+``formal-label-withheld`` holds (``docs/DELIVERY.md`` condition 6d, the round-8 release) no answer does: :func:`summarize`
+never returns ``formally_checked``, and an answer whose every material eligible claim is positive and permitted is
+``partly_checked``.
 
 Every row reads the verdict's own fields and its ``counts``, never the list of claims: the list is capped at 32 and
 leaves out a claim without a verbatim excerpt, so a decision read from it could differ from the one the service made
@@ -46,9 +49,12 @@ from .protocol import (
 __all__ = [
     "REVISION_POLICIES", "QUALIFY_POLICY", "BUDGET_ATTEMPTS", "INTEGRITY_REFUSALS", "ClaimFields", "DecisionInput", "decide", "summarize",
     "count_claims", "decision_input_of", "signable_bytes", "sign_verdict", "verify_verdict_signature", "BindingContext",
-    "counts_problem", "binding_problem",
+    "counts_problem", "binding_problem", "FORMAL_LABEL_RULE",
 ]
 
+#: Rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d): :func:`summarize` never returns ``formally_checked``
+#: while the delivery policy withholds the FORMALLY CHECKED label from every answer (the round-8 release).
+FORMAL_LABEL_RULE = "formal-label-withheld"
 #: Policies that allow one bounded revision (decision D5: none by default, so ``revise`` is never produced in v1).
 REVISION_POLICIES: frozenset[str] = frozenset()
 #: The one policy under which a material eligible claim without a definitive result does not refuse (row 5, decision D2).
@@ -178,13 +184,18 @@ def decide(inp: DecisionInput) -> tuple[str, list[str]]:
 
 
 def summarize(counts: Mapping[str, int]) -> str:
-    """The ``summary`` of a delivered answer (PROTOCOL.md section 8), from its counts."""
+    """The ``summary`` of a delivered answer (PROTOCOL.md section 8), from its counts.
+
+    Rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, :data:`FORMAL_LABEL_RULE`): while the delivery policy
+    withholds the FORMALLY CHECKED label from every answer, the summary never reports ``formally_checked`` either. An answer
+    whose every material eligible claim is positive with its release permitted is summarised as the delivery policy treats
+    it, like an answer whose checks did not all establish the label: ``partly_checked`` when at least one claim is
+    permitted, else ``formal_only``. The Worker's ``decision-table.js`` applies the same rule, so a verdict that says
+    ``formally_checked`` fails its binding check (KIT-DL-030)."""
     if counts["unavailable"] > 0:
         return "incomplete"
     if counts["positive"] == 0:
         return "not_formally_checkable"
-    if counts["permitted"] == counts["eligible"]:
-        return "formally_checked"
     if counts["permitted"] > 0:
         return "partly_checked"
     return "formal_only"

@@ -4,8 +4,10 @@ One or more tests per blocker and major finding of the clearance on the overseer
 every reader the clearance added or touched (each linear in its input, measured with ``tests/timing.py``):
 
 * rule ``meta-note`` (``overseer/meta_notes.py``): a "Next step:" or "Note:" paragraph of an English answer (ES-META-001)
-  that reports nothing is a note, never a self-report, so it no longer keeps a clean answer from the FORMALLY CHECKED label;
-  a note that reports a check or an assurance still does (the recorded en-t14 answer and its note);
+  that the rule's closed allowlist reads as a note (a study suggestion, an inability to see a named source, content not
+  checked; narrowed after the push check, ``test_c1_push_check_meta_note.py``) is no self-report, so it no longer keeps a
+  clean answer from the FORMALLY CHECKED label; a note that reports a check or an assurance still does (the recorded en-t14
+  answer and its note);
 * rule ``derived-figures`` (``checks/translation.py``): the figures an IR takes from the texts with their stated precision,
   in spaced thousands, at another scale, through a written operation or a constant a text writes, from a supplied table or
   from the task text are traced (OVS-TRN-005 named them as invented); a figure nothing states is still named; the reading is
@@ -88,12 +90,25 @@ EN_T14 = ("The writer uses the tuning of the piano to present a family that trea
           "Next step: write your own paragraph on the same two strands and paste it here for feedback.\n\n"
           "Sources: The Tuner extract (supplied text)")
 
+#: Rewritten to the stricter rule after the push check held the clearance commit and an attack beat the first rewrite
+#: (tests/README.md): rule meta-note now reads a note only through a closed allowlist (a study suggestion about the
+#: student's own work or the source, a first-person inability to see or open a named source, named content not checked).
+#: The notes it still reads stay here, with the allowlist's own reading of the three recorded notes it now refuses (the
+#: inability of ll-t14's note, the suggestion of lit-t14's, the not-checked status of en-p8c's).
 NOTES = [
     "Next step: write your own paragraph on the same two strands and paste it here for feedback.",
+    "Next step: check your quotations against the extract before you submit.",
+    "Note: I can't see the image.",
+    "Next step: plan your second analysis on the other passage now.",
+    "Note: the dates are unchecked here.",
+]
+#: Notes this test pinned as notes until the push check: each is outside the closed allowlist (the task's own wording, a
+#: provenance clause, a status other than not checked, a possessive, the answer's own sentence as an object, a use ruled
+#: out), so each is now a self-report, and the answer that carries it falls back from the formal path, as before the rule.
+NOTES_OUTSIDE_THE_ALLOWLIST = [
     "Next step: the HL paper asks for one analysis on each passage, so plan your second analysis on the other passage now.",
     "Note: I can't see the image, so the visual points rest on the image descriptions in your pasted text.",
     "Note: ungraded practice, not for handing in; the dates are the History specialist's and unchecked here.",
-    "Next step: check your quotations against the extract before you submit.",
     "Note: the figures in Table 1 are fictional practice data.",
     "Next steps: rewrite the topic sentence so it names the technique.",
     "Caveat: the second source is an extract, so its full context is not shown.",
@@ -135,7 +150,16 @@ SELF_REPORTS = [
 
 @pytest.mark.parametrize("text", NOTES)
 def test_a_next_step_or_a_note_that_reports_nothing_is_a_note(text):
+    """A note the closed allowlist of rule meta-note reads is no self-report."""
     assert is_note_paragraph(text)
+
+
+@pytest.mark.parametrize("text", NOTES_OUTSIDE_THE_ALLOWLIST)
+def test_a_note_outside_the_closed_allowlist_is_now_a_self_report(text):
+    """Rewritten to the stricter rule (it asserted each of these was a note): the push check found that a note form wide
+    enough to read them freed assurances, so these genuine notes are now self-reports by design. A self-report only keeps
+    the answer off the formal path, as every answer was before rule meta-note existed."""
+    assert not is_note_paragraph(text)
 
 
 @pytest.mark.parametrize("text", SELF_REPORTS)
@@ -176,10 +200,17 @@ def test_the_note_reader_is_linear_on_hostile_paragraphs(name):
 
 
 def test_the_note_reader_reads_an_answer_of_two_thousand_notes_in_linear_time():
-    answer = "Body paragraph one is here.\n\n" + "\n\n".join("Note: the figures are practice data." for _ in range(2000))
+    """Rewritten to the stricter rule: "Note: the figures are practice data." was a note and is now a self-report (a status
+    other than not checked is outside the closed allowlist), so the 2,000 notes are now "Note: the figures are unverified."
+    (all read as notes) and the old paragraph's 2,000 are read as self-reports, each within the same bound."""
+    answer = "Body paragraph one is here.\n\n" + "\n\n".join("Note: the figures are unverified." for _ in range(2000))
     timing = measure(lambda: note_paragraphs(answer), bound=2.0, label="2,000 note paragraphs")
     assert timing.holds, timing
     assert all(len(r) == 2000 for r in timing.results)
+    old = "Body paragraph one is here.\n\n" + "\n\n".join("Note: the figures are practice data." for _ in range(2000))
+    timing = measure(lambda: note_paragraphs(old), bound=2.0, label="2,000 status paragraphs")
+    assert timing.holds, timing
+    assert all(len(r) == 0 for r in timing.results)
 
 
 # ============================================================================================ rule derived-figures (major)

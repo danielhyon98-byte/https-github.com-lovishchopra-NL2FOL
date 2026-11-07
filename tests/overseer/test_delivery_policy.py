@@ -1,7 +1,9 @@
 """The delivery policy's formal path and its budget (``docs/DELIVERY.md``): the founder's four-minute translation budget,
 measured on an injected fake monotonic clock, with fixture translators and reviewers only (no model, no network).
 
-Covered here: a fast clean answer delivered FORMALLY CHECKED with a signed delivery receipt (and no overseer call); a slow
+Covered here: a fast clean answer whose formal path meets every condition but rule ``formal-label-withheld`` (condition 6d:
+the policy never grants FORMALLY CHECKED in the round-8 release), withheld with a signed delivery receipt or overseer-selected
+through the fallback; a slow
 translator (no fallback while the formal stage is inside 240 s, the fallback after it: a claim finishing after the
 deadline is late, a claim the deadline reaches unstarted is never started); every way the formal path ends unresolved
 (no or a negative fidelity review, an ambiguous, invalid or unsupported translation, no outcome, a solver cut-off, a
@@ -24,7 +26,7 @@ from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.integrity.contracts import payload_hash
 from epinoic_logic.overseer import load_pack
 from epinoic_logic.overseer.delivery_policy import (
-    DELIVERY_SCOPE_STATEMENT, FOUNDER_MIN_SELECTED_ACCURACY, FOUNDER_TRANSLATION_BUDGET_S, DeadlineVerifier, DeliveredAnswer, DeliveryConfig,
+    DELIVERY_SCOPE_STATEMENT, FORMAL_LABEL_REASON, FOUNDER_MIN_SELECTED_ACCURACY, FOUNDER_TRANSLATION_BUDGET_S, DeadlineVerifier, DeliveredAnswer, DeliveryConfig,
     NOT_CHECKED_CODES, DeliveryPolicy, TranslationStage, is_fallback_label_honest, verify_delivered_answer, verify_delivery_receipt,
 )
 from epinoic_logic.overseer.export import export_pack
@@ -33,7 +35,7 @@ from epinoic_logic.translate.contracts import SpecialistReport
 
 from .conftest import CFG, KEY, make_keyring
 from .delivery_support import (
-    ESSAY, ESSAY_QUESTION, PHYSICS, Agents, FakeClock, ScriptedOverseer, Verifier, assert_honest, essay_report, physics_report, refuted_outcome,
+    ESSAY, ESSAY_QUESTION, PHYSICS, Agents, FakeClock, ScriptedOverseer, Verifier, assert_honest, assert_label_withheld_only, essay_report, physics_report, refuted_outcome,
     run_task, silent, speed_translation,
 )
 
@@ -74,30 +76,59 @@ def test_the_founders_budget_and_threshold_are_the_defaults():
     assert cfg.on_overseer_timeout == "withhold" and cfg.overseer_budget_s == 240.0
 
 
-def test_a_fast_clean_answer_is_delivered_formally_checked_with_a_signed_receipt(clock):
+def test_a_fast_clean_answer_is_refused_by_the_label_rule_alone_and_its_signed_receipt_verifies(clock, pack):
+    """A fast answer whose every claim is clean: every condition of the formal path holds, the label rule alone withholds the
+    label, and its signed receipt verifies (withheld without an overseer agent, overseer-selected and delivered with one).
+    Renamed after the pre-commit review of the c1 landing from
+    ``test_a_fast_clean_answer_is_delivered_formally_checked_with_a_signed_receipt``, whose name stated the opposite of what it
+    asserts since rule ``formal-label-withheld``; its assertions are unchanged. It used to say: a fast answer whose every
+    claim is clean travels FORMALLY CHECKED with a signed receipt.
+
+    Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``. One verifier call of 5 s
+    is made (before, two: the evidence claim and the material claim, 10 s).
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so this answer, which every other condition of the formal path admits, is no longer delivered
+    FORMALLY CHECKED: the formal path's only reason is the label rule's, and the answer takes the fallback exactly as an answer
+    refused by any other formal condition does (with no overseer agent configured, withheld; with one, overseer-selected and
+    delivered with its signed receipt and the label rule's reason as its formal reasons). The formal path's facts (the clean
+    claim, the budget, the times, the signed receipt and its scope statement) are as before."""
     verifier = Verifier(clock, delays={"*": 5})
-    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a"))], verify=verifier)
+    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=verifier)
     try:
         d, rec = run.decision, run.receipt
-        assert d.mode == "formally_checked" and d.delivered
-        [mid] = list(run.receipts)
-        assert d.message_id == mid == rec.delivered_message_id and rec.delivered_agent_id == AGENT and rec.delivered_report_id == "rep-a"
-        assert d.label.startswith("FORMALLY CHECKED within the 240 s translation budget") and "properties of the encodings only" in d.label
-        assert_honest(d)
+        assert d.mode == "withheld" and not d.delivered and d.answer is None
+        assert_label_withheld_only(d)
+        assert not d.label.startswith("FORMALLY CHECKED") and "properties of the encodings only" not in d.label
         # the formal path: the one material eligible claim is clean (translated, ENTAILED, release permitted), within budget
-        assert rec.formal.complete and rec.formal.within_budget and rec.formal.reasons == [] and rec.formal.receipt_error_codes == []
+        assert rec.formal.within_budget and rec.formal.reasons == [FORMAL_LABEL_REASON] and rec.formal.receipt_error_codes == []
         [claim] = rec.formal.claims
         assert (claim.claim_id, claim.eligible, claim.outcome, claim.translation_status, claim.display_status) == ("p1.1", True, "clean", "TRANSLATED", "ENTAILED")
         assert claim.result_id and claim.reasons == [] and rec.formal.clearance == "AUDIT_PASSED"
-        # the times: two verifier calls of 5 s each (the evidence claim and the material claim); no overseer stage
-        assert rec.translation_s == rec.time_to_decision_s == 10.0 and rec.overseer_s is None and rec.fallback is None
+        # the times: one verifier call of 5 s (the material claim, the answer's only claim); no overseer agent to run
+        assert rec.translation_s == rec.time_to_decision_s == 5.0 and rec.overseer_s is None and not rec.fallback.overseer.ran
         assert rec.translation_budget_s == 240.0 and rec.consolidation_status in ("CONSOLIDATED", "CONSOLIDATED_WITH_FINDINGS")
-        # the receipt is signed under the delivery key and keeps the scope statement; the payload is the journaled one
+        # the receipt is signed under the delivery key and keeps the scope statement
         assert verify_delivery_receipt(rec, run.keyring) and rec.signature_key_id == DELIVERY_KEY_ID == "overseer-delivery"
         assert rec.scope_statement == DELIVERY_SCOPE_STATEMENT and rec.scope_statement.startswith(SCOPE_STATEMENT)
-        assert verify_delivered_answer(d.answer, rec, run.keyring)
+    finally:
+        run.close()
+    # with an overseer agent the same answer is delivered through the fallback, its payload the journaled one
+    policy, agents = with_agents(clock, pack)
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock, delays={"*": 5}))
+    try:
+        d, rec = run.decision, run.receipt
+        assert d.mode == "overseer_selected" and d.delivered and agents.calls
+        assert_label_withheld_only(d)
+        [mid] = list(run.receipts)
+        assert d.message_id == mid == rec.delivered_message_id and rec.delivered_agent_id == AGENT and rec.delivered_report_id == "rep-a"
+        assert verify_delivery_receipt(rec, run.keyring) and verify_delivered_answer(d.answer, rec, run.keyring)
         assert d.answer.payload == run.messages[mid].payload and d.answer.payload_sha256 == run.messages[mid].payload_sha256
-        assert (d.answer.formal_reasons, d.answer.selection, d.answer.accuracy_fraction) == ([], [], None)
+        assert d.answer.formal_reasons == [FORMAL_LABEL_REASON] and d.answer.accuracy_fraction is not None
     finally:
         run.close()
 
@@ -143,26 +174,55 @@ def test_every_receipt_code_saying_a_check_was_not_built_or_a_pack_failed_is_unc
 
 
 def test_the_formal_path_makes_no_overseer_call(clock, pack):
+    """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the formal path never completes and the overseer agents are called, by the fallback, after it:
+    the formal stage itself still makes no overseer call (the overseer stage starts when the formal stage ends, and the formal
+    path's only reason is the label rule's)."""
     policy, agents = with_agents(clock, pack)
-    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock, delays={"*": 1}))
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock, delays={"*": 1}))
     try:
-        assert run.decision.mode == "formally_checked" and agents.made == {} and agents.calls == []
+        rec = run.receipt
+        assert run.decision.mode == "overseer_selected" and agents.calls == ["overseer-pool-1"]
+        assert_label_withheld_only(run.decision)
+        assert rec.translation_s == 1.0 and rec.fallback.overseer.started_at_s == rec.translation_s
     finally:
         run.close()
 
 
-def test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean(clock, pack):
+def test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_when_every_one_is_clean(clock, pack):
+    """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``. Three verifier calls of
+    10 s are made (before, four: the evidence claim too, 40 s).
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the answer whose three claims are clean is refused by the label rule alone and takes the
+    fallback (its overseer agent is called); the answer with an unresolved claim is refused for that claim as before.
+
+    Renamed after the re-review of the c1 landing, from
+    ``test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean``; its assertions are unchanged:
+    the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     policy, agents = with_agents(clock, pack)
-    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", THREE))], verify=Verifier(clock, delays={"*": 10}))
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", THREE, evidence=False))], verify=Verifier(clock, delays={"*": 10}))
     try:
         rec = run.receipt
-        assert run.decision.mode == "formally_checked" and [c.outcome for c in rec.formal.claims] == ["clean"] * 3
-        assert "each of the 3 material eligible claim(s)" in run.decision.label and rec.translation_s == 40.0 and agents.calls == []
+        # rule formal-label-withheld (condition 6d): every claim clean, the label withheld by the rule alone, the fallback taken
+        assert run.decision.mode == "overseer_selected" and [c.outcome for c in rec.formal.claims] == ["clean"] * 3
+        assert_label_withheld_only(run.decision)
+        assert "each of the 3 material eligible claim(s)" not in run.decision.label and rec.translation_s == 30.0 and agents.calls
     finally:
         run.close()
     # one of the three unresolved (an unfaithful review): the formal path does not complete
     policy, agents = with_agents(clock, pack)
-    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", THREE))], verify=Verifier(clock, reviews={"p1.2": "unfaithful"}))
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", THREE, evidence=False))], verify=Verifier(clock, reviews={"p1.2": "unfaithful"}))
     try:
         rec = run.receipt
         assert run.decision.mode != "formally_checked" and not rec.formal.complete
@@ -172,16 +232,60 @@ def test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is
         run.close()
 
 
+def test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked(clock, pack):
+    """Rule ``unverified-claims`` (attack round 5; ``docs/DELIVERY.md``, beside condition 6b): FORMALLY CHECKED needs every claim
+    of the answer, whatever its materiality, to carry a positive outcome of a signed engine result. The Physics fixture's answer
+    as the earlier tests delivered it holds a supporting evidence claim (``p1.0``) the verifier never checks: its material
+    claim is clean, but the answer is never FORMALLY CHECKED any more, and the reason names the claim by id, kind and outcome
+    (never by its words). With overseer agents configured it falls back; without them it is withheld.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the formal path's reasons end with the label rule's reason after this rule's."""
+    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock, delays={"*": 5}))
+    try:
+        d, rec = run.decision, run.receipt
+        assert d.mode == "withheld" and not d.delivered and not rec.formal.complete and rec.formal.within_budget
+        assert [(c.claim_id, c.outcome) for c in rec.formal.claims] == [("p1.1", "clean")]
+        assert rec.formal.reasons == ["the answer holds claims that carry no formal outcome in the success set of a signed engine result (rule "
+                                      "unverified-claims): p1.0 (supporting evidence: not_attempted)", FORMAL_LABEL_REASON], rec.formal.reasons
+        assert "A car travels" not in " ".join(rec.formal.reasons)
+        assert_honest(d)
+    finally:
+        run.close()
+    policy, agents = with_agents(clock, pack)
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock, delays={"*": 1}))
+    try:
+        assert run.decision.mode == "overseer_selected" and agents.calls and not run.receipt.formal.complete
+        assert_honest(run.decision)
+    finally:
+        run.close()
+
+
 # ============================================================================================ the budget
 @pytest.mark.parametrize("seconds", [1.0, 200.0, 239.0, 240.0])
-def test_inside_the_budget_there_is_no_fallback(clock, pack, seconds):
-    """A translation that ends at or before 240 s on the policy's clock: the formal path decides, no overseer agent runs."""
+def test_inside_the_budget_the_formal_path_names_no_budget_reason(clock, pack, seconds):
+    """A translation that ends at or before 240 s on the policy's clock: the formal path names no budget reason.
+    Renamed after the pre-commit review of the c1 landing from ``test_inside_the_budget_there_is_no_fallback``: since rule
+    ``formal-label-withheld`` the fallback runs inside the budget too (for the label rule only), which the test asserts; its
+    assertions are unchanged.
+
+    Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the fallback runs inside the budget too, but only for the label rule: the formal path names
+    no budget reason (within budget, the translation time as measured) and its only reason is the label rule's."""
     policy, agents = with_agents(clock, pack)
-    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock, delays={"p1.1": seconds}))
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock, delays={"p1.1": seconds}))
     try:
         rec = run.receipt
-        assert run.decision.mode == "formally_checked" and rec.formal.within_budget and rec.translation_s == seconds
-        assert rec.fallback is None and agents.made == {} and rec.overseer_s is None
+        # rule formal-label-withheld (condition 6d): inside the budget the label rule is the formal path's only reason
+        assert run.decision.mode == "overseer_selected" and rec.formal.within_budget and rec.translation_s == seconds
+        assert_label_withheld_only(run.decision)
+        assert rec.fallback.overseer.started_at_s == seconds and agents.calls == ["overseer-pool-1"]
     finally:
         run.close()
 
@@ -373,12 +477,26 @@ def test_the_label_check_refuses_every_claim_of_checking_outside_the_formal_path
         assert not is_fallback_label_honest("withheld", bad), bad
 
 
-def test_a_tampered_receipt_or_payload_no_longer_verifies(clock):
-    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock))
+def test_a_tampered_receipt_or_payload_no_longer_verifies(clock, pack):
+    """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``. The claim reworded in the
+    payload is the answer's quantitative claim, its first claim now (before, its second).
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the delivered answer is the fallback's (overseer-selected, through the policy's overseer agent),
+    and the mode change tried on the receipt is to ``formally_checked`` (before, to ``overseer_selected``, the mode it now has);
+    the accuracy change is to "0/1" (before, "1/1", the fraction it may now carry)."""
+    policy, _agents = with_agents(clock, pack)
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock))
     try:
         d, rec, keyring = run.decision, run.receipt, run.keyring
+        assert d.mode == "overseer_selected" and d.delivered
+        assert_label_withheld_only(d)
         assert verify_delivery_receipt(rec, keyring) and verify_delivered_answer(d.answer, rec, keyring)
-        for change in ({"mode": "overseer_selected"}, {"label": rec.label + " "}, {"time_to_decision_s": 1.0}, {"delivered_message_id": "m-other"},
+        for change in ({"mode": "formally_checked"}, {"label": rec.label + " "}, {"time_to_decision_s": 1.0}, {"delivered_message_id": "m-other"},
                        {"signature_key_id": "overseer-audit"}, {"signature": None}):
             assert not verify_delivery_receipt(rec.model_copy(update=change), keyring), change
         other = make_keyring()  # same engine keys, same secret: verifies; another secret does not
@@ -389,13 +507,13 @@ def test_a_tampered_receipt_or_payload_no_longer_verifies(clock):
         # a payload edited after the decision (a claim reworded, a figure widened) no longer matches the receipt
         edited = dict(d.answer.payload)
         claims = [dict(c) for c in edited["claims"]]
-        claims[1]["claim_text"] = "The speed is about 15 km/h."
+        claims[0]["claim_text"] = "The speed is about 15 km/h."
         edited["claims"] = claims
         forged = DeliveredAnswer(**{**d.answer.model_dump(), "payload": edited, "payload_sha256": payload_hash(edited)})
         assert not verify_delivered_answer(forged, rec, keyring)
         relabelled = d.answer.model_copy(update={"label": "FORMALLY CHECKED by everyone"})
         assert not verify_delivered_answer(relabelled, rec, keyring)
-        for change in ({"formal_reasons": ["none"]}, {"selection": ["selected by the agents"]}, {"accuracy_fraction": "1/1"}):
+        for change in ({"formal_reasons": ["none"]}, {"selection": ["selected by the agents"]}, {"accuracy_fraction": "0/1"}):
             assert not verify_delivered_answer(d.answer.model_copy(update=change), rec, keyring), change
     finally:
         run.close()
@@ -449,8 +567,17 @@ def test_the_policy_decides_only_with_the_transfer_auditor_attached():
 
 
 def test_the_session_restores_the_channels_verifier_and_decides_once(clock):
+    """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the decision made once is the fallback's (withheld: no overseer agent is configured), refused by
+    the label rule alone."""
     verifier = Verifier(clock)
-    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a"))], verify=verifier, decide=False)
+    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=verifier, decide=False)
     try:
         ch = run.session.channel
         assert isinstance(ch.verify_claim_fn, DeadlineVerifier) and ch.verify_claim_fn.inner is verifier
@@ -458,23 +585,48 @@ def test_the_session_restores_the_channels_verifier_and_decides_once(clock):
         assert ch.verify_claim_fn is verifier  # restored
         clock.advance(500)
         again = run.session.decide(request_message_ids=run.mids, receipts=run.receipts)
-        assert again is first and first.mode == "formally_checked"
+        assert again is first and first.mode == "withheld"
+        assert_label_withheld_only(first)  # rule formal-label-withheld (condition 6d)
     finally:
         run.close()
 
 
-def test_a_decision_never_waits_for_another_deliverables_overseer_stage(clock, pack):
-    """One policy, two deliverables: while A's overseer agent is still working, B's formal path is decided at once
-    (FORMALLY CHECKED, no translation time spent waiting); A is decided when its agent replies."""
+def test_a_formal_path_never_waits_for_another_deliverables_overseer_stage(clock, pack):
+    """One policy, two deliverables: while A's overseer agent is still working, B's formal path is decided at once (no
+    translation time spent waiting); A is decided when its agent replies. Renamed after the pre-commit review of the c1
+    landing from ``test_a_decision_never_waits_for_another_deliverables_overseer_stage``: since rule ``formal-label-withheld``
+    B's DECISION (its fallback) waits for A's overseer stage, which the test asserts; only B's formal path never waits. Its
+    assertions are unchanged.
+
+    Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``. (B's answer; A's is
+    the fallback's anyway).
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so B's formal path no longer completes: it is decided at once (its translation time is 0.0 and
+    its only reason is the label rule's, read while A's overseer stage is under way), and B's fallback then waits for A's
+    overseer stage, one overseer stage at a time, as every fallback does. The wait is counted in neither B's translation time
+    nor its formal path."""
     gate, entered = threading.Event(), threading.Event()
+    formal_done: dict = {}
+    real_formal = DeliveryPolicy._formal
+
+    def spy(self, session, *a, **k):
+        out = real_formal(self, session, *a, **k)
+        formal_done[session.task_key] = not gate.is_set()
+        return out
 
     def slow(d):
         entered.set()
         gate.wait(30)
         return silent(d)
     policy, agents = with_agents(clock, pack, reply=slow)
+    policy._formal = spy.__get__(policy)
     a = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock, reviewer=False), decide=False)
-    b = run_task(policy, [(AGENT, physics_report(AGENT, "rep-b"))], verify=Verifier(clock), decide=False)
+    b = run_task(policy, [(AGENT, physics_report(AGENT, "rep-b", evidence=False))], verify=Verifier(clock), decide=False)
     out: dict = {}
     try:
         ta = threading.Thread(target=lambda: out.setdefault("a", a.session.decide(request_message_ids=a.mids, receipts=a.receipts)))
@@ -482,12 +634,18 @@ def test_a_decision_never_waits_for_another_deliverables_overseer_stage(clock, p
         assert entered.wait(30)  # A's overseer stage is under way
         tb = threading.Thread(target=lambda: out.setdefault("b", b.session.decide(request_message_ids=b.mids, receipts=b.receipts)))
         tb.start()
-        tb.join(30)
-        assert not tb.is_alive() and "a" not in out, "B waited for A's overseer stage"
-        assert out["b"].mode == "formally_checked" and out["b"].receipt.translation_s == 0.0
+        for _ in range(3000):  # B's formal path is read while A's overseer stage still holds its gate
+            if b.plan.task_id in formal_done:
+                break
+            threading.Event().wait(0.01)
+        assert formal_done.get(b.plan.task_id) is True and "a" not in out, "B's formal path waited for A's overseer stage"
         gate.set()
         ta.join(30)
-        assert out["a"].mode == "overseer_selected" and agents.calls == ["overseer-pool-1"]
+        tb.join(30)
+        assert not tb.is_alive() and not ta.is_alive()
+        assert out["b"].receipt.translation_s == 0.0 and out["b"].mode == "overseer_selected"
+        assert_label_withheld_only(out["b"])
+        assert out["a"].mode == "overseer_selected" and agents.calls == ["overseer-pool-1", "overseer-pool-1"]
     finally:
         gate.set()
         a.close()
@@ -539,11 +697,23 @@ def test_no_input_with_an_answer_is_withheld(clock):
         run.close()
 
 
-def test_the_delivered_payload_is_the_journaled_report(clock):
-    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a"))], verify=Verifier(clock))
+def test_the_delivered_payload_is_the_journaled_report(clock, pack):
+    """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
+    claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
+    every claim of the answer to carry a positive outcome of a signed engine result; the answer is the same answer without
+    that claim (``physics_report(..., evidence=False)``), every claim of which the engine checks. The refusal of the answer
+    with it is pinned by ``test_an_answer_holding_a_claim_no_signed_engine_result_decides_is_never_formally_checked``.
+
+    Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
+    policy never grants FORMALLY CHECKED in the round-8 release, so the payload checked is the one the fallback delivers (overseer-selected through the policy's
+    overseer agent): the journaled report, byte for byte, as before."""
+    policy, _agents = with_agents(clock, pack)
+    run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock))
     try:
         d = run.decision
+        assert d.mode == "overseer_selected" and d.delivered
+        assert_label_withheld_only(d)
         delivered = SpecialistReport.model_validate(d.answer.payload)
-        assert delivered == physics_report(AGENT, "rep-a") and payload_hash(d.answer.payload) == run.messages[d.message_id].payload_sha256
+        assert delivered == physics_report(AGENT, "rep-a", evidence=False) and payload_hash(d.answer.payload) == run.messages[d.message_id].payload_sha256
     finally:
         run.close()
