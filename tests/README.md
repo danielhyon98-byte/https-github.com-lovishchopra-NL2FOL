@@ -1939,3 +1939,15 @@ Work in progress after it is labelled as such.
   in the delivery-policy, gate and clearance files). Replaying the 24 recorded round-8 deliveries changed only the
   label and its reason. A seventh independent attack round is checking that nothing reaches the label and nothing else
   changed. Nothing from round 8 is uploaded yet.
+
+### Progress, 20:00 UTC (7 November)
+
+- The follow-up fix 32a5c0e ("Fix the c1 clearance findings") is committed: the full suite gave 22,503 passed, 12 skipped,
+  45 deselected and 0 failed; the harness is unchanged on every recorded round (r1 30/30, r1-adv 150/151, r2 to r6 46/46,
+  r7 177/177, c1 203/203); the 24 recorded round-8 deliveries are all withheld, as before. Its independent push check holds
+  nothing and states that it resolves the hold on f2329df. Nothing from round 8 is uploaded yet.
+- Corrections to the commit message of 32a5c0e: "every rule can only remove the label" holds against f2329df, not against the
+  published base 16d5a4a (the closed note allowlist frees some notes the base blocked, and when a refusal rule raises, the
+  fallback now decides the mode instead of withholding the answer); the five end-to-end tests accept a reason from any of the
+  rules they name, not only the one rule; the renamed tests keep their cases against the landing, while against the parent
+  commit their assertions changed to the withheld label. With no overseer agents configured, every answer is withheld.
