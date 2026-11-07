@@ -1462,3 +1462,12 @@ Work in progress after it is labelled as such.
   passed, 45 deselected, 0 failed, and the harness on round 7 gave 177 of 177; the contained run on the recorded rounds
   is in progress. The upload follows only if every gate passes.
 - Arena round 8: the overseer lenses are running.
+
+### Progress, 03:00 UTC (7 November)
+
+- Arena round 8 (integrated round c1): the fixes are verified and committed ("Fix the c1 clearance findings"): the suite
+  gave 18,395 passed, 12 skipped, 0 failed, and the harness gave r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177
+  and c1 203/203, with no drop. The prototype documentation is committed ("Prototype: integrated translator after round 8").
+- The independent push check held the round-8 upload: one critical item is open (a note in an answer's meta-text that
+  asserts the answer is sound could still lift the formally checked label). Its fix is in progress; nothing from round 8
+  is uploaded until a new independent check passes.
