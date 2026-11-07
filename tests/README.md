@@ -1495,3 +1495,12 @@ Work in progress after it is labelled as such.
   a note-led block whose later sentence is not a note (present before round 8). Both are being closed in the delivery
   decision itself, without changing the parser. Nothing from round 8 is uploaded until a new independent push check
   passes.
+
+### Progress, 07:00 UTC (7 November)
+
+- The fix now also reads every answer's text for blocks opened by a note or sources lead, including leads the parser
+  reads as body or as a source list; such a block must be read positively as a note or as a plain source list, or the
+  answer is refused the formally checked label. Its targeted tests pass (295 for the new reader, 1,047 for the note
+  rule). On the 24 recorded round-8 answers every delivery keeps its mode and label; the genuine closing lines of 16 of
+  18 recorded answers are now refused as well, so the label is rarely reachable until those readers are widened under
+  attack. The third and last independent attack round is running.
