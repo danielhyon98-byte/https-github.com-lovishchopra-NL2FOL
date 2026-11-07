@@ -1471,3 +1471,11 @@ Work in progress after it is labelled as such.
 - The independent push check held the round-8 upload: one critical item is open (a note in an answer's meta-text that
   asserts the answer is sound could still lift the formally checked label). Its fix is in progress; nothing from round 8
   is uploaded until a new independent check passes.
+
+### Progress, 04:00 UTC (7 November)
+
+- The fix for the push check's open critical item: the first version passed its own 364 targeted tests, but an
+  independent attack freed 196 of 244 assurance paragraphs written as source or fidelity notes, so it was not accepted.
+  A narrower rule (only study suggestions, first-person access limits and statements that a named part is not checked
+  are notes) is being written and will be attacked again. Nothing from round 8 is uploaded until a new independent push
+  check passes.
