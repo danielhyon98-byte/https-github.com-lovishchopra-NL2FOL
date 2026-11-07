@@ -1532,3 +1532,12 @@ Work in progress after it is labelled as such.
 - The fifth fix round (closing the flaws the fourth attack found in the fix's own readers: the open part-label slot
   after STEM layout labels, source-list words that name no source, and look-alike letters in leads) is running; a scoped
   fifth attack round follows it. Nothing from round 8 is uploaded yet.
+
+### Progress, 12:00 UTC (7 November)
+
+- Fifth independent attack round on the fix, scoped to compare with the published base: assurances that a branch's
+  parser reads as claims of the answer reach the formally checked label on answers the published base withheld (219
+  inputs on one recorded English answer that carries a note, and the physics text path), so they are a regression of
+  round 8, not only an older gap; and one reader of the fix skipped symbols written before a "Sources:" lead. A sixth fix
+  round closes both: the label now requires every claim of the answer to carry a successful signed formal result, and
+  every lead reader reads the whole block. A sixth attack round follows. Nothing from round 8 is uploaded yet.
