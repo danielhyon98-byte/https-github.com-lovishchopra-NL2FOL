@@ -1518,3 +1518,11 @@ Work in progress after it is labelled as such.
 - The fourth fix round (the inverted rule: every sentence the parser does not treat as a material claim must be read
   positively, after normalisation, or the answer is refused the formally checked label) is still being written and
   tested; a fourth independent attack round follows it. Nothing from round 8 is uploaded yet.
+
+### Progress, 10:00 UTC (7 November)
+
+- Fourth independent attack round on the fix: the inverted rule closed the lead and label channels; two lenses found
+  flaws in the fix's own new readers (an open part-label slot after STEM layout labels such as "Working (fine):", and a
+  source-list reader that accepts words naming no source), which a short fifth fix round closes. Assurances that a
+  branch's parser reads as claims of the answer (for example "All good." after a physics result) still pass; that gap
+  predates round 8 and is scheduled for round 9. Nothing from round 8 is uploaded yet.
