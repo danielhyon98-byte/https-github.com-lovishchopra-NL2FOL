@@ -1526,3 +1526,9 @@ Work in progress after it is labelled as such.
   source-list reader that accepts words naming no source), which a short fifth fix round closes. Assurances that a
   branch's parser reads as claims of the answer (for example "All good." after a physics result) still pass; that gap
   predates round 8 and is scheduled for round 9. Nothing from round 8 is uploaded yet.
+
+### Progress, 11:00 UTC (7 November)
+
+- The fifth fix round (closing the flaws the fourth attack found in the fix's own readers: the open part-label slot
+  after STEM layout labels, source-list words that name no source, and look-alike letters in leads) is running; a scoped
+  fifth attack round follows it. Nothing from round 8 is uploaded yet.
