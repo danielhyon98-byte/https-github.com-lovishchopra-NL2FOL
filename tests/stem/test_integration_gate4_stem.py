@@ -255,9 +255,20 @@ def test_a_wrong_step_with_the_emoji_selector_is_checked():
 @pytest.mark.parametrize("mark", ["\u200e", "\u200f", "\u2066", "\u202a", "\u00ad", "\u2062", "\u2064", "\ufe0f", "\U000e0041", "\u061c"])
 def test_an_invisible_mark_between_numerals_reads_as_a_blank(mark):
     # before: 'x = 3\u200e4 = 12' (with a left-to-right mark the reader cannot see) read as '4 = 12', an error; with a blank the relation is
-    # named unread
+    # named unread.
+    # Rewritten to a stricter rule by the round-8 clearance's handoff fixer (rule bidi-text): an answer holding a bidirectional isolate
+    # or embedding (U+2066, U+202A) is now refused by the channel before it is parsed (INT-REQ-009, REJECTED, nothing checked or
+    # delivered); what the STEM pack reads in it (no failed check, the relation named ST-PARSE-001) is kept, asserted on the pack.
     for answer in (f"x = 3{mark}4 = 12", f"x = 3 {mark} 4 = 12"):
         rc = receive(AA, answer, "Find x.")
+        if mark in ("\u2066", "\u202a"):
+            assert rc.status.value == "REJECTED" and codes(rc).count("INT-REQ-009") == 1 and f"U+{ord(mark):04X}" in message(rc, "INT-REQ-009") \
+                and not rc.formal_checks and not rc.structural_findings, (answer, codes(rc))
+            clear_document_cache()
+            plan = build_checks(build_document(answer, "Find x.", "mathematics_aa"), report_id="r", request_id="q")
+            st = [f.code for f in (*build_document(answer, "Find x.", "mathematics_aa").findings, *plan.findings)]
+            assert not plan.checks and "ST-PARSE-001" in st, (answer, plan.checks, st)
+            continue
         assert not failed(rc) and not errors(rc) and "ST-PARSE-001" in structural(rc), (answer, rc.formal_checks, codes(rc))
     view = reading_view(f"a{mark}b")
     assert view == "a b" and len(view) == 3

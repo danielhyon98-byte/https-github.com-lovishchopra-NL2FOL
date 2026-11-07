@@ -39,6 +39,7 @@ from epinoic_logic.overseer.pack import PACK_VERSION, installed_pack_dir  # noqa
 from epinoic_logic.stem import build_document, clear_document_cache  # noqa: E402
 from epinoic_logic.stem.checks import build_checks  # noqa: E402
 
+from .conftest import without_the_translators_semantic_gate  # noqa: E402
 from .test_stem_completion import material_round  # noqa: E402
 
 R7 = json.loads((Path(__file__).resolve().parents[1] / "channel" / "data" / "r7_material.json").read_text(encoding="utf-8"))["specialists"]
@@ -267,16 +268,29 @@ def test_the_rewrite_t23br_uses_drops_the_identity_clause_alone():
 
 
 @pytest.mark.timeout(2400)
-def test_the_repair_12_probes_name_every_plant_and_keep_every_control_clean(tmp_path):
+def test_the_repair_12_probes_name_every_plant_and_keep_every_control_clean(tmp_path, monkeypatch):
     """The probes on copies of the recorded answers the repository keeps: every plant named by its code with the overseer agreeing and
     the dossier showing it, every control clean (the two false failures among them), no forbidden code. The translation plant on the
     recorded translation the material keeps (cs-t13's) is named OVS-TRN-006 and an agent built from the exported pack accusing it as
-    translation_circular is CONFIRMED (before: REFUTED)."""
+    translation_circular is CONFIRMED (before: REFUTED).
+
+    Round-8 clearance c1 (rewritten to a stricter rule; every assertion kept): the translator's own semantic circularity rule
+    now withholds the planted 'lin − 1000 = 0' itself (E112 at translation, by the arithmetic of the conjunct's own symbols), so
+    nothing reaches the receipt for the auditor to name: the probe's outcome is ``withheld`` (rule circularity-agreement, a plant
+    caught), asserted first. The assertions above are then made, as before, with the translator as it was before the clearance
+    (its semantic rule off), where the overseer must name what the translator delivered."""
     rnd = material_round(tmp_path / "rounds")
     pack = H.export_and_load_pack(tmp_path / "pack")[0]
-    chosen = tuple(p for p in SP.REPAIR12_PROBES if p.translation is None) + (SP.probe("boolean-translation-restated-affine"),)
-    doc = SP.run_probes(tmp_path / "probes", rnd.parent, pack=pack, probes=chosen)
-    rows = {r["probe_id"]: r for r in doc["probes"]}
+    translation = SP.probe("boolean-translation-restated-affine")
+    current = SP.run_probes(tmp_path / "probes-current", rnd.parent, pack=pack, probes=(translation,))
+    (w,) = current["probes"]
+    assert w["outcome"] == "withheld" and SP.probe_ok(w) and current["gate"]["failing"] == [], w
+    assert any(t["translation_status"] == "INVALID_FORMALIZATION" and any("E112" in d for d in t["diagnostics"]) for t in w["translations"])
+    doc = SP.run_probes(tmp_path / "probes", rnd.parent, pack=pack, probes=tuple(p for p in SP.REPAIR12_PROBES if p.translation is None))
+    without_the_translators_semantic_gate(monkeypatch)
+    before = SP.run_probes(tmp_path / "probes-before-c1", rnd.parent, pack=pack, probes=(translation,))
+    assert before["gate"]["failing"] == [] and before["gate"]["translator_gaps"] == []
+    rows = {r["probe_id"]: r for r in doc["probes"] + before["probes"]}
     for pid, expected in REPAIR12_PROBES.items():
         r = rows[pid]
         assert r["outcome"] == "named" and r["overseer_agrees"] and r["dossier"]["finding"] and r["forbidden_raised"] == [], (pid, r)

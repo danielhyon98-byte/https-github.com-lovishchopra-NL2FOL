@@ -34,8 +34,11 @@ delivered nothing, so its outcomes reached no one, as for the fidelity checks):
   the texts supplied with it (rule ``supplied-text``: verbatim text of a supplied document is real text, not invented;
   whether using it is faithful to the claim is the overseer agents' question), or a number in the IR that none of the
   report's texts states in any spelling (task-setting premises may also take their numbers from the request the report
-  answers). 0 and 1 are structural and always traced. A warning: a number may be spelled in a way the fixed spelling
-  rules below do not read. The narrower question (content outside the claim and the claims it cites, the texts the
+  answers; since round-8 clearance c1, rule ``derived-figures``, every assertion may take its figures from that request and
+  the texts supplied with it, and a figure is also traced through its stated precision, its spaced thousands, its other
+  scales and the constants, roots, function values, quotients and reciprocals a text writes: :data:`DERIVED_FIGURES_RULE`).
+  0 and 1 are structural and always traced. A warning: a number may be spelled in a way the fixed spelling rules below do
+  not read. The narrower question (content outside the claim and the claims it cites, the texts the
   translator was given as the claim; a quotation of a supplied text that none of them quotes counts as outside) is
   recorded per translation (``outside_cited_claims``), not reported: the adapters' citation links are incomplete, so
   it is no evidence of a fault, but it shows a reviewer where the translator went beyond the claim.
@@ -774,6 +777,8 @@ _OTHER_WORDS = {"hundred": 100, "thousand": 1000, "dozen": 12, "half": Fraction(
 _WORD_RE = re.compile(r"\b(" + "|".join(sorted(set(_TENS) | set(_UNITS) | set(_OTHER_WORDS), key=len, reverse=True))
                       + r")(?:-(" + "|".join(sorted(_UNITS, key=len, reverse=True)) + r"))?\b", re.IGNORECASE)
 _SCALE_AFTER_RE = re.compile(r"^\s+(hundred|thousand|million|billion)\b", re.IGNORECASE)
+#: How far after a figure :func:`text_numbers` looks for its scale word or per cent sign (a bounded slice per figure).
+_TAIL_CHARS = 64
 _PERCENT_RE = re.compile(r"(per\s*cent|percent|%)", re.IGNORECASE)
 # fraction-words: a numerator (word, digits, a/an) and a denominator word, hyphenated or spaced
 _DENOMINATORS = {"half": 2, "halves": 2, "third": 3, "thirds": 3, "quarter": 4, "quarters": 4, "fourth": 4, "fourths": 4, "fifth": 5, "fifths": 5,
@@ -914,7 +919,17 @@ def _fraction_words(text: str) -> set[Fraction]:
 
 
 def text_numbers(text: str) -> set[Fraction]:
-    """Every number ``text`` states under the fixed spelling rules (module docstring)."""
+    """Every number ``text`` states under the fixed spelling rules (module docstring). Memoised per text (round-8 clearance
+    c1: the audit reads the same report text for every claim of the report, so a long answer was read once per claim)."""
+    return set(_text_numbers(text)) if text else set()
+
+
+@functools.lru_cache(maxsize=64)
+def _text_numbers(text: str) -> frozenset:
+    return frozenset(_read_text_numbers(text))
+
+
+def _read_text_numbers(text: str) -> set[Fraction]:
     out: set[Fraction] = set()
     if text:
         out |= _fraction_words(text)
@@ -931,7 +946,9 @@ def text_numbers(text: str) -> set[Fraction]:
         if denom and int(denom) != 0 and not dec:
             out.add(Fraction(int(whole), int(denom)))
             out.add(Fraction(int(denom)))
-        tail = text[m.end():]
+        # a bounded look after the figure (round-8 clearance c1: the whole remainder was copied and stripped for every figure,
+        # quadratic in a long answer's figures); a scale word or a per cent sign more than a line's width away states nothing
+        tail = text[m.end():m.end() + _TAIL_CHARS]
         sc = _SCALE_AFTER_RE.match(tail)
         if sc:
             out.add(value * _SCALES[sc.group(1).lower()])
@@ -944,7 +961,7 @@ def text_numbers(text: str) -> set[Fraction]:
             continue
         value = Fraction(base) + (Fraction(_UNITS[unit]) if unit and w in _TENS else 0)
         out.add(value)
-        sc = _SCALE_AFTER_RE.match(text[m.end():])
+        sc = _SCALE_AFTER_RE.match(text[m.end():m.end() + _TAIL_CHARS])
         if sc:
             out.add(value * _SCALES[sc.group(1).lower()])
     # rule frequency-words (decision 55): a frequency adverb states its number of periods a year ("monthly" is 12)
@@ -1004,6 +1021,227 @@ def number_traced(value: Fraction, known: set[Fraction], *, date_encoded: bool =
             or (date_encoded and v in DATE_DIVISORS))
 
 
+# ============================================================================================ TRN-005: derived tracing (c1)
+#: Round-8 clearance c1 (rule ``derived-figures``): the figures a translation derives from what the texts state, which TRN-005
+#: traced before only by luck. Each reading below is a named rule, read only from figures the texts state (nothing of a
+#: text is evaluated; Python computes the ends, roots and function values of numbers the readers parsed):
+#:
+#: * ``stated-precision`` (extended): every figure states the ends of the interval its last stated digit gives, for every
+#:   form: a decimal (``9.8``: 9.75, 9.85), a whole number (``128``: 127.5, 128.5; with trailing zeros each reading of them,
+#:   ``2900``: also 2850 and 2950, 2895 and 2905), a mantissa times a power of ten (``1.0 × 10⁴``: 9500 and 10500;
+#:   ``3.400 × 10⁶``: 3399500 and 3400500), a percentage (``41%``: 0.405 and 0.415 as fractions too) and a figure with a
+#:   scale word (``12.70 million``);
+#: * ``spaced-thousands``: a numeral whose thousands are separated by a space, a no-break space or a thin space
+#:   (``46 379.41``, ``23 425``) states its whole value (before, only its parts were read);
+#: * ``scale-change``: a figure with a scale word states its value in each other scale word (``12.70 million`` is 12,700
+#:   thousand);
+#: * ``task-and-supplied``: every assertion of the IR may take its figures from the request the report answers and from the
+#:   texts supplied with it (a supplied table's cell included), not only a task-setting premise: such a figure is the
+#:   task's, not the translator's invention (a figure the report and its sources state nowhere is still named);
+#: * ``derived-constants``: a rational value within 10⁻³ (relative) of a simple multiple of π (``6.28318`` for 2π) when a
+#:   text writes π or "pi"; of the square root of a stated figure (``1.7320 < √3 < 1.7321``, ``√16 379.41``) when a text
+#:   writes a root; within 10⁻⁶ of the sine, cosine or tangent of a stated angle (in degrees or radians) when a text
+#:   writes the function; the exact quotient of two stated figures whose decimal expansion does not end (``115/4608`` for
+#:   1.15 ÷ 46.08); and the reciprocal of a stated figure (``0.2`` for the ``/5`` of ``√3/5``);
+#: * ``prefix-factor``: a unit symbol written with an SI prefix (``kJ``, ``cm``) states the factor between it and the unit
+#:   without the prefix (1000, 1/100), so a translation that converts J to kJ by it is not named for the factor;
+#: * ``written-operation``: a product or quotient the text writes between two figures (``120 tonnes × 4.212``) states its
+#:   exact value (505.44).
+#:
+#: A unit or time conversion the translator makes on its own (minutes to seconds, years to months) is still named, as a
+#: warning (Inspection I91), and so is a figure no reading derives.
+DERIVED_FIGURES_RULE = "derived-figures"
+_SPACE_CHARS = " \u00a0\u2009\u202f"
+_THOUSANDS_SEP = r"(?:[" + _SPACE_CHARS + r"]|\\,|\{,\})"
+#: A numeral with space-separated thousands (``46 379.41``, LaTeX ``16\,379.41`` and ``16{,}379``); a match starts only at the
+#: first group of a run (no digit and separator before it), so a long run of groups is read once, in linear time.
+_SPACED_THOUSANDS_RE = re.compile(r"(?<![\w.,])(?<!\d[" + _SPACE_CHARS + r"])(?<!\d\\,)(?<!\d\{,\})(\d{1,3}(?:" + _THOUSANDS_SEP + r"\d{3})+)"
+                                  r"(?:\.(\d+))?(?![\d])")
+_THOUSANDS_SEP_RE = re.compile(_THOUSANDS_SEP)
+#: A unit symbol written with an SI prefix (rule ``prefix-factor``): the texts that write ``kJ`` beside ``J`` state the factor
+#: 1000 between them.
+_PREFIXED_UNIT_RE = re.compile(r"(?<![A-Za-zΩµμ])([kMGcmµμnp])(mol|Pa|Hz|eV|m|g|s|L|N|J|W|V|A|C|Ω)(?![A-Za-zΩ])")
+#: A product or quotient the text writes between two figures, a unit word or two after the first allowed ("120 tonnes ×
+#: 4.212", "6000 ÷ 2.00"): rule ``written-operation`` reads its exact value.
+_WRITTEN_OPERATION_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:[ \t]+[A-Za-z]{1,12}){0,2}[ \t]*([×xX*·÷/])[ \t]*"
+                                   r"(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?![\d])")
+#: Every figure, for its stated precision: digits with comma thousands, optional decimals.
+_FIGURE_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?![\d])")
+_PI_RE = re.compile(r"π|\bpi\b|\\pi", re.IGNORECASE)
+_ROOT_RE = re.compile(r"√|\bsqrt\b|\\sqrt|square[ -]root|\broot\b", re.IGNORECASE)
+_TRIG_RE = re.compile(r"\b(?:sin|cos|tan)\b|\\(?:sin|cos|tan)", re.IGNORECASE)
+_PI_MULTIPLES = (Fraction(1, 6), Fraction(1, 4), Fraction(1, 3), Fraction(1, 2), Fraction(2, 3), Fraction(3, 4), Fraction(1), Fraction(4, 3),
+                 Fraction(3, 2), Fraction(2), Fraction(3), Fraction(4))
+_DERIVED_MAX_KNOWN = 4000  # bounds the root and quotient readings (each linear in the figures the texts state)
+
+
+def _half_units(whole: str, decimals: Optional[str]) -> list[Fraction]:
+    """The half-units of a figure's last stated digit: one for a decimal; for a whole number one per reading of its trailing
+    zeros (``2900``: 1/2, 5 and 50)."""
+    if decimals:
+        return [Fraction(1, 2 * 10 ** len(decimals))]
+    digits = whole.replace(",", "").lstrip("0")
+    zeros = len(digits) - len(digits.rstrip("0")) if digits else 0
+    return [Fraction(5) * Fraction(10) ** (k - 1) for k in range(0, min(zeros, 12) + 1)]
+
+
+def _ends(value: Fraction, halves: Iterable[Fraction]) -> set[Fraction]:
+    out: set[Fraction] = set()
+    for h in halves:
+        out.update({value - h, value + h})
+    return out
+
+
+def derived_numbers(text: str) -> set[Fraction]:
+    """Rules ``stated-precision`` (extended), ``spaced-thousands`` and ``scale-change`` (:data:`DERIVED_FIGURES_RULE`): the
+    values ``text`` states beyond :func:`text_numbers`. Linear in the text: each pattern is read once, left to right, and
+    each text once per audit (memoised, as :func:`text_numbers`)."""
+    return set(_derived_numbers(text)) if text else set()
+
+
+@functools.lru_cache(maxsize=64)
+def _derived_numbers(text: str) -> frozenset:
+    return frozenset(_read_derived_numbers(text))
+
+
+def _read_derived_numbers(text: str) -> set[Fraction]:
+    out: set[Fraction] = set()
+    if not text:
+        return out
+    readings: list[tuple[int, str, Optional[str]]] = []
+    for m in _FIGURE_RE.finditer(text):
+        readings.append((m.end(), m.group(1), m.group(2)))
+    for m in _SPACED_THOUSANDS_RE.finditer(text):
+        readings.append((m.end(), _THOUSANDS_SEP_RE.sub("", m.group(1)), m.group(2)))
+    for end, whole, dec in readings:
+        if not _digits_ok(whole, dec):
+            continue
+        value = Fraction(int(whole.replace(",", ""))) + (Fraction(int(dec), 10 ** len(dec)) if dec else 0)
+        halves = _half_units(whole, dec)
+        out.add(value)
+        out |= _ends(value, halves)
+        tail = text[end:end + 24]
+        if _PERCENT_RE.match(tail.lstrip()[:8]) or tail.startswith("%"):
+            out |= {v / 100 for v in _ends(value, halves)} | {value / 100}
+        sc = _SCALE_AFTER_RE.match(tail)
+        if sc:
+            scale = _SCALES[sc.group(1).lower()]
+            for other in (1, 100, 1000, 10 ** 6, 10 ** 9):
+                factor = Fraction(scale, other)
+                out.add(value * factor)
+                out |= _ends(value * factor, [h * factor for h in halves])
+    for rx, groups in ((_SCI_TIMES_RE, (2, 3, 4)), (_SCI_E_RE, (2,))):
+        for m in rx.finditer(text):
+            mant = m.group(1)
+            e = _exponent(*(m.group(g) for g in groups))
+            if e is None or not _digits_ok(mant):
+                continue
+            dec = mant.split(".", 1)[1] if "." in mant else ""
+            value = Fraction(mant) * Fraction(10) ** e
+            out |= _ends(value, [Fraction(1, 2 * 10 ** len(dec)) * Fraction(10) ** e])
+    # rule prefix-factor: a unit symbol written with an SI prefix states the factor between it and the unprefixed unit
+    for m in _PREFIXED_UNIT_RE.finditer(text):
+        f = _SI_PREFIXES.get(m.group(1))
+        if f is not None:
+            out.update({f, 1 / f})
+    # rule written-operation: a product or quotient written between two figures states its exact value
+    for m in _WRITTEN_OPERATION_RE.finditer(text):
+        if not _digits_ok(m.group(1), m.group(2), m.group(4), m.group(5)):
+            continue
+        a = Fraction(int(m.group(1).replace(",", ""))) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0)
+        b = Fraction(int(m.group(4).replace(",", ""))) + (Fraction(int(m.group(5)), 10 ** len(m.group(5))) if m.group(5) else 0)
+        if m.group(3) in "÷/":
+            if b != 0:
+                out.add(a / b)
+        else:
+            out.add(a * b)
+    return out
+
+
+class _DerivedConstants:
+    """Rule ``derived-constants`` (:data:`DERIVED_FIGURES_RULE`), read ONCE per translation: whether a value is a simple
+    multiple of π, the root of a stated figure, a function value of a stated angle, the exact quotient of two stated figures
+    or the reciprocal of one, each only when a text writes the operation. ``known`` holds the stated figures; nothing of a
+    text is evaluated. Everything a value is compared with is built here, bounded (:data:`_DERIVED_MAX_KNOWN` figures, of
+    which the first :data:`_QUOTIENT_MAX_FIGURES` for quotients) and sorted, so each value costs a few bisections and at most
+    :data:`_QUOTIENT_MAX_FIGURES` exact products: a hostile answer with many figures and an IR with many numbers stays linear
+    in its size (``tests/overseer/test_clearance_c1_overseer.py``)."""
+
+    __slots__ = ("known", "figures", "recips", "pi", "squares", "trig")
+
+    def __init__(self, known: set[Fraction], texts: list[str]) -> None:
+        import math
+        joined = [t for t in texts if t]
+        self.known = known
+        figures: list[Fraction] = []
+        for k in known:
+            if k != 0:
+                figures.append(k)
+                if len(figures) >= _DERIVED_MAX_KNOWN:
+                    break
+        self.figures = figures
+        self.recips = {1 / k for k in figures}
+        self.pi = any(_PI_RE.search(t) for t in joined)
+        self.squares = sorted({float(k) for k in figures if k > 0}) if any(_ROOT_RE.search(t) for t in joined) else []
+        values: set[float] = set()
+        if any(_TRIG_RE.search(t) for t in joined):
+            for k in figures:
+                for angle in (math.radians(float(k)), float(k)):
+                    for f in (math.sin, math.cos, math.tan):
+                        try:
+                            y = abs(f(angle))
+                        except (OverflowError, ValueError):
+                            continue
+                        if math.isfinite(y):
+                            values.add(y)
+        self.trig = sorted(values)
+
+    def holds(self, v: Fraction) -> bool:
+        import math
+        a = abs(v)
+        if a == 0:
+            return False
+        if a in self.recips:
+            return True  # the reciprocal of a stated figure: dividing by it, written as a product
+        if a.denominator != 1:
+            d = a.denominator
+            for p in (2, 5):
+                while d % p == 0:
+                    d //= p
+            if d != 1 and any(a * k in self.known for k in self.figures[:_QUOTIENT_MAX_FIGURES]):
+                return True  # the exact quotient of two stated figures (115/4608 for 1.15 ÷ 46.08)
+        fa = float(a)
+        if not math.isfinite(fa):
+            return False
+        if self.pi and any(abs(fa - float(c) * math.pi) <= 1e-3 * float(c) * math.pi for c in _PI_MULTIPLES):
+            return True
+        if self.squares:
+            # |fa² − k| <= 1e-3·k for a stated k  <=>  fa²/(1 + 1e-3) <= k <= fa²/(1 − 1e-3)
+            sq = fa * fa
+            i = bisect.bisect_left(self.squares, sq / (1 + 1e-3))
+            if i < len(self.squares) and self.squares[i] <= sq / (1 - 1e-3):
+                return True
+        if self.trig:
+            i = bisect.bisect_left(self.trig, fa - 1e-6 * max(1.0, fa) * 1.001)
+            for y in self.trig[i:i + _TRIG_WINDOW]:
+                if y > fa + 1e-6 * max(1.0, y) * 1.001:
+                    break
+                if abs(fa - y) <= 1e-6 * max(1.0, y):
+                    return True
+        return False
+
+
+#: The stated figures the quotient reading multiplies a value by (the first of them: a bound per value, so the reading stays
+#: linear), and the trigonometric values a value is compared with around its place in the sorted list.
+_QUOTIENT_MAX_FIGURES = 512
+_TRIG_WINDOW = 64
+
+
+def _derived_value(v: Fraction, known: set[Fraction], texts: list[str]) -> bool:
+    """Rule ``derived-constants`` for one value (:class:`_DerivedConstants`, built for it alone)."""
+    return _DerivedConstants(known, texts).holds(v)
+
+
 def _excerpts(grounding: Any) -> list[str]:
     if grounding is None:
         return []
@@ -1043,12 +1281,26 @@ def untraced_content(problem: Problem, problem_obj: Optional[dict], scope_texts:
         # in the same unit with no prefix and in the coherent SI unit
         known = known | set().union(*(_compound_conversions(t) for t in texts))
         known = known | set().union(*(_table_conversions(t, stated=known) for t in supplied_texts if t and "|" in t))
+    sources = [t for t in request_texts if t] + supplied_texts
     task_known = set().union(*(text_numbers(t) for t in request_texts if t)) if request_texts else set()
     numbers = list(_assertion_numbers(problem_obj))
     date_encoded = any(_date_encoding(abs(v), known | (task_known if kind == "task_setting" else set())) for _a, kind, v in numbers)
+    derived: Optional[set[Fraction]] = None
+    constants: Optional[_DerivedConstants] = None
     for aid, kind, v in numbers:
-        if not number_traced(v, known | task_known if kind == "task_setting" else known, date_encoded=date_encoded, exact_scale=exact_scale):
-            out.append((aid, f"{aid} uses the number {v}"))
+        if number_traced(v, known | task_known if kind == "task_setting" else known, date_encoded=date_encoded, exact_scale=exact_scale):
+            continue
+        if derived is None:
+            # rule derived-figures (round-8 clearance c1): read only when a figure is not traced as written; every assertion may
+            # take its figures from the request and the supplied texts (rule task-and-supplied), and the figures the texts
+            # state are read with their stated precision, spaced thousands and other scales, and through the constants,
+            # roots, function values, quotients and reciprocals a text writes
+            stated = known | task_known | set().union(*(text_numbers(t) for t in supplied_texts)) if supplied_texts else known | task_known
+            derived = stated | set().union(*(derived_numbers(t) for t in texts + sources)) if (texts or sources) else set(stated)
+            constants = _DerivedConstants(derived, texts + sources)
+        if number_traced(v, derived, date_encoded=date_encoded, exact_scale=exact_scale) or (constants is not None and constants.holds(v)):
+            continue
+        out.append((aid, f"{aid} uses the number {v}"))
     return list(dict.fromkeys(out))
 
 
@@ -2959,8 +3211,9 @@ class _Readings:
       (:func:`_atom_key`: ``gt`` as the reversed ``lt``, ``ge`` as the reversed ``le``, ``ne`` as not ``eq``, the sides of
       ``eq`` in a fixed order, its terms in the normal form of :func:`_canon_term`: numbers exact, the terms of a sum or a
       product in a fixed order, an identity element beside a symbol dropped). So ``e or e``, ``true implies e``,
-      ``not not e``, ``(e and b) or (e and c)`` and ``b and (b implies e)`` restate ``e``, ``105 = q25`` restates
-      ``q25 = 105``, and ``x + 0 = 5`` restates ``x = 5``.
+      ``not not e`` and ``(e and b) or (e and c)`` restate ``e``, ``105 = q25`` restates ``q25 = 105``, and ``x + 0 = 5``
+      restates ``x = 5``. A premise's own links are opaque (rule ``packed-link``, round-8 clearance c1, as the translator's
+      semantic rule reads them): ``b and (b implies e)`` argues for ``e``, it does not restate it.
     * **Order**: the conjunct is EQUIVALENT to the premise, to one of its conjuncts (:func:`nnf_conjuncts`), or to the
       conjunction of its conjuncts that mention only the conjunct's symbols, read with the order of the numbers (each
       symbol of its declared sort, numbers exact) but with every arithmetic term (a sum, a difference, a product, a
@@ -3025,26 +3278,34 @@ class _Readings:
             self._atoms[(mode, key)] = z3.Bool(f"{mode[0]}{len(self._atoms)}", self._context())
         return self._atoms[(mode, key)]
 
-    def _formula(self, node: Any, mode: str) -> Any:
-        """The Boolean structure of ``node`` over the atoms of ``mode`` (``boolean`` or ``order``)."""
+    def _formula(self, node: Any, mode: str, *, links_opaque: bool = False) -> Any:
+        """The Boolean structure of ``node`` over the atoms of ``mode`` (``boolean`` or ``order``). With ``links_opaque`` (a
+        premise's Boolean reading, round-8 clearance c1) each implication whose antecedent is not a Boolean constant is one
+        opaque atom: a premise that states a link and its antecedent ("b and (b implies e)", a packed modus ponens) argues
+        for the conclusion, which the engine decides, as the translator's own rule reads it (``translate.restatement``);
+        "true implies e" is still ``e`` written another way."""
         import z3
         ctx = self._context()
         op = node.get("op") if isinstance(node, dict) else None
+        lo = links_opaque
         if op == "bool":
             return z3.BoolVal(bool(node.get("value")), ctx)
         if op == "not":
-            return z3.Not(self._formula(node.get("arg"), mode), ctx)
+            return z3.Not(self._formula(node.get("arg"), mode, links_opaque=lo), ctx)
         if op in ("and", "or"):
-            kids = [self._formula(a, mode) for a in node.get("args") or []]
+            kids = [self._formula(a, mode, links_opaque=lo) for a in node.get("args") or []]
             if len(kids) < 2:
                 return kids[0] if kids else z3.BoolVal(op == "and", ctx)
             return z3.And(*kids) if op == "and" else z3.Or(*kids)
         if op == "implies":
-            return z3.Implies(self._formula(node.get("left"), mode), self._formula(node.get("right"), mode), ctx)
+            if lo and not (isinstance(node.get("left"), dict) and node["left"].get("op") == "bool"):
+                return self._atom(mode, "link|" + canonical_json(node))  # rule packed-link: a link is an argument, never a restatement
+            return z3.Implies(self._formula(node.get("left"), mode, links_opaque=lo), self._formula(node.get("right"), mode, links_opaque=lo), ctx)
         if op == "iff":
-            return self._formula(node.get("left"), mode) == self._formula(node.get("right"), mode)
+            return self._formula(node.get("left"), mode, links_opaque=lo) == self._formula(node.get("right"), mode, links_opaque=lo)
         if op == "ite" and self._is_boolean(node):
-            return z3.If(self._formula(node.get("cond"), mode), self._formula(node.get("then"), mode), self._formula(node.get("otherwise"), mode), ctx)
+            return z3.If(self._formula(node.get("cond"), mode, links_opaque=lo), self._formula(node.get("then"), mode, links_opaque=lo),
+                         self._formula(node.get("otherwise"), mode, links_opaque=lo), ctx)
         if op == "ne":
             return z3.Not(self._formula({"op": "eq", "left": node.get("left"), "right": node.get("right")}, mode), ctx)
         if op in _COMPARE_OPS and mode in ("order", "arithmetic") and _expr_symbols(node):
@@ -3142,7 +3403,7 @@ class _Readings:
         """Whether ``conjunct`` follows from ``premise`` alone by Boolean structure (None when undecided)."""
         import z3
         try:
-            p, c = self._formula(premise, "boolean"), self._formula(conjunct, "boolean")
+            p, c = self._formula(premise, "boolean", links_opaque=True), self._formula(conjunct, "boolean")
             alone = self._decide(self._context(), p)
             if alone is not False:
                 return None if alone is None else False  # a premise that contradicts itself restates nothing
@@ -3272,9 +3533,12 @@ RESTATEMENT_WAYS = {"syntactic": "as written", "verbatim": "the whole conclusion
                     "order": "in another form: equivalent once the order of numbers is read (no arithmetic evaluated)",
                     "arithmetic": "in another form: equivalent by the arithmetic of its own symbols (terms moved across, both sides scaled; arithmetic of "
                                   "numbers alone, the working the engine checks, not evaluated)",
-                    "undecided": "possibly in another form: the bounded check was undecided, read as a restatement"}
-#: The ways of rule ``semantic-restatement`` (a restatement in another form than as written).
-SEMANTIC_WAYS = frozenset({"boolean", "order", "arithmetic", "undecided"})
+                    "undecided": "possibly in another form: the bounded check was undecided, read as a restatement",
+                    "translator": "as the translator's own semantic circularity rule reads it (translate.restatement: in another form, a "
+                                  "calculation's stated result asserted, or the consequence the claim draws asserted as a fact; rule "
+                                  "circularity-agreement, round-8 clearance c1)"}
+#: The ways of rule ``semantic-restatement`` (a restatement in another form than as written), and the translator's own.
+SEMANTIC_WAYS = frozenset({"boolean", "order", "arithmetic", "undecided", "translator"})
 
 
 @dataclass(frozen=True)
@@ -3322,18 +3586,44 @@ class Restatement:
     shown: tuple[str, ...] = ()
     undecided: tuple[str, ...] = ()
     undecided_disclosed: tuple[str, ...] = ()
+    #: round-8 clearance c1: restating premises the overseer's own readings exempt (rules ``stated-step`` and
+    #: ``definitional-identity``), each with the rule, and the premises the translator's own semantic rule names
+    #: (rule ``circularity-agreement``, :func:`translator_semantic_floor`), never exempt
+    exempt: tuple[tuple[str, str], ...] = ()
+    translator_floor: tuple[str, ...] = ()
+    translator_floor_kind: Optional[str] = None
 
 
 def restatement(problem: Optional[Problem], report: SpecialistReport, request_texts: Iterable[str] = (), problem_obj: Optional[dict] = None,
-                request_documents: Iterable[Any] = (), *, request_constraints: Iterable[str] = ()) -> Restatement:
+                request_documents: Iterable[Any] = (), *, request_constraints: Iterable[str] = (), task: Optional[TaskRecord] = None,
+                claim_text: Optional[str] = None, translator_floor: bool = True) -> Restatement:
     """Rules ``circularity-agreement``, ``semantic-restatement``, ``grounded-transcription`` and ``receipt-disclosure``
     on ``problem`` re-grounded against ``report``. ``request_texts`` are the journaled request's input and constraint
     texts and ``request_documents`` the texts supplied with it (rules ``data-standing`` and ``same-quantity``);
     ``request_constraints`` are the constraint texts among them, each figure of which states a requirement on the answer
     (rule ``statement-context``); ``problem_obj`` is the IR as journaled JSON, for the verbatim reading (else dumped from
-    ``problem``). Deterministic: the syntactic readings, then the bounded solver checks of rule ``semantic-restatement``."""
+    ``problem``). Deterministic: the syntactic readings, then the bounded solver checks of rule ``semantic-restatement``.
+
+    Round-8 clearance c1: ``task`` (the task record of the journaled request) and ``claim_text`` (the delivered claim; looked
+    up in ``report`` when not given) let the translator's own semantic rule be re-run as a floor (rule
+    ``circularity-agreement``, :func:`translator_semantic_floor`), and the overseer's own readings exempt a restating premise
+    that is the claim's stated step input (rule ``stated-step``) or a definition the conclusion is an identity of (rule
+    ``definitional-identity``). ``translator_floor=False`` reads the overseer's own rules alone (what they give where the
+    translator's semantic rule names nothing), for a caller that measures them apart."""
     if problem is None or problem.query != "entailment" or problem.conclusion is None:
         return Restatement()
+    if claim_text is None:
+        claim_text = next((c.claim_text for c in report.claims if c.claim_id == problem.claim_id), None)
+    req_list = [x for x in request_texts if x]
+    if task is None and req_list:
+        # the floor re-grounds the IR as the translator's pipeline does in production, with the task record of the request
+        # the report answers (the journaled request's input; its constraint texts are its own words), so a task figure the
+        # record states is not read as assumed
+        try:
+            task = TaskRecord.of(report.task_id, problem.request_id, "\n".join(dict.fromkeys(req_list)))
+        except Exception:
+            task = None
+    floor_kind, floor = translator_semantic_floor(problem, report, task=task, claim_text=claim_text) if translator_floor else (None, ())
     req = list(request_texts)
     docs = list(request_documents or ())
     grounded = _regrounded(problem, report)
@@ -3387,12 +3677,34 @@ def restatement(problem: Optional[Problem], report: SpecialistReport, request_te
         if hit:
             restates[pr.id] = hit
             ways[pr.id] = list(dict.fromkeys(how))
+    # rules stated-step and definitional-identity (round-8 clearance c1): a premise the overseer's own readings name only in
+    # another form than as written is no restatement when it is the claim's stated step input or a definition the
+    # conclusion is an identity of; the translator's floor and a restatement as written are never exempt
+    exempt: list[tuple[str, str]] = []
+    for pid in list(restates):
+        if pid in floor or set(ways.get(pid, ())) & {"syntactic", "verbatim"} or pid in named:
+            continue
+        rule = _exemption(grounded, pid, [n for k, n in needed.items() if k in restates[pid]], readings, claim_text)
+        if rule is not None:
+            exempt.append((pid, rule))
+            del restates[pid]
+    # rule circularity-agreement (round-8 clearance c1): every premise the translator's own semantic rule names restates the
+    # conclusion here too (never looser than the translator), as the writer's own
+    for pid in floor:
+        if pid in by_id and pid not in restates:
+            restates[pid] = set(needed) if floor_kind == "full" else set()
+            ways[pid] = ["translator"]
     if not restates:
-        return Restatement(named=named, translator_holds=translator_holds)
+        return Restatement(named=named, translator_holds=translator_holds, exempt=tuple(exempt), translator_floor=tuple(floor),
+                           translator_floor_kind=floor_kind)
     order = [pr.id for pr in grounded.premises if pr.id in restates]
     sorts = {s.name: s.sort for s in grounded.symbols}
     # rule data-standing (decision 55): what a deterministic check shows of each restating premise
     standing = {pid: premise_standing(by_id[pid], report, req, sorts, docs, grounded, request_constraints=tuple(request_constraints)) for pid in order}
+    for pid in floor:
+        if pid in standing and standing[pid].kind not in SHOWN_STANDINGS:
+            standing[pid] = Standing(OWN_KIND, f"the translator's own semantic circularity rule (translate.restatement, kind {floor_kind}) reads it as "
+                                               f"assumed, and the overseer is never looser than the translator (rule {AGREEMENT_RULE})")
     why = {pid: (None if standing[pid].kind == TRANSCRIPTION else standing[pid].reason) for pid in order}
     own = tuple(pid for pid in order if why[pid] is not None)
     how_all = tuple((pid, tuple(ways[pid])) for pid in order)
@@ -3401,19 +3713,161 @@ def restatement(problem: Optional[Problem], report: SpecialistReport, request_te
     undecided = tuple(pid for pid in own if standing[pid].kind == UNDECIDED)
     undecided_disclosed = tuple(pid for pid in undecided if disclosed_by_the_receipt(by_id[pid].grounding))
     whole = (bool(needed) and set().union(*restates.values()) >= set(needed)) or translator_holds
+    extra = dict(exempt=tuple(exempt), translator_floor=tuple(floor), translator_floor_kind=floor_kind)
     if whole:
         return Restatement(named=named, holds=bool(own), own=own, grounded=tuple(pid for pid in order if why[pid] is None), translator_holds=translator_holds,
                            why_own=tuple((pid, why[pid]) for pid in own), how=how_all, standings=standings, shown=shown, undecided=undecided,
-                           undecided_disclosed=undecided_disclosed)
+                           undecided_disclosed=undecided_disclosed, **extra)
     if not own:
         # restated in part by transcriptions only: they are its evidence, the rest is derived (nothing to grade)
-        return Restatement(named=named, translator_holds=translator_holds)
+        return Restatement(named=named, translator_holds=translator_holds, **extra)
     # the conclusion is not restated as a whole: its unrestated conjuncts are derived (or left open). A writer's-own premise
-    # restating one of the others is graded by what the receipt discloses about it (rule receipt-disclosure)
-    undisclosed = tuple(pid for pid in own if not disclosed_by_the_receipt(by_id[pid].grounding))
+    # restating one of the others is graded by what the receipt discloses about it (rule receipt-disclosure); a premise the
+    # translator's own rule names is graded whatever the receipt discloses (the translator withholds it)
+    undisclosed = tuple(pid for pid in own if pid in floor or not disclosed_by_the_receipt(by_id[pid].grounding))
     return Restatement(named=named, translator_holds=translator_holds, why_own=tuple((pid, why[pid]) for pid in own), partial_own=undisclosed,
                        disclosed_own=tuple(pid for pid in own if pid not in undisclosed), how=tuple((pid, h) for pid, h in how_all if pid in own),
-                       standings=standings, shown=shown, undecided=undecided, undecided_disclosed=undecided_disclosed)
+                       standings=standings, shown=shown, undecided=undecided, undecided_disclosed=undecided_disclosed, **extra)
+
+
+# ============================================================================================ round-8 clearance c1
+#: Rule ``stated-step``: a restating premise that is the claim's stated step input is no restatement.
+STATED_STEP_RULE = "stated-step"
+#: Rule ``definitional-identity``: a restating premise that only names an expression the conclusion is an identity of.
+DEFINITION_RULE = "definitional-identity"
+#: The words and signs with which a claim draws its step's result from its stated input ("x − 4 > 0, so x > 4").
+_STEP_MARKER_RE = re.compile(r"(?:,[ \t]*|[ \t])(?:so|therefore|hence|thus|giving|gives)\b|⇒|=>|∴", re.IGNORECASE)
+_STEP_TEXT_MAX = 4_000
+
+
+def translator_semantic_floor(problem: Problem, report: SpecialistReport, *, task: Optional[TaskRecord] = None,
+                              claim_text: Optional[str] = None) -> tuple[Optional[str], tuple[str, ...]]:
+    """Rule ``circularity-agreement`` extended to the translator's semantic rule (round-8 clearance c1): ``(kind, premises)``
+    the translator's own step 4c (``translate.restatement.semantic_restatement``) names on ``problem`` as its pipeline
+    re-grounds it (the supplied texts and the task record), or ``(None, ())``. The pipeline withholds such an encoding (E112),
+    so one that reaches a receipt came past the translator's own rule. Never raises: a rule that is absent or fails names
+    nothing (the overseer's own readings still run)."""
+    try:
+        from ...translate.restatement import semantic_restatement
+        from ...engine.runner import conclusion_valid_alone, premises_inconsistent
+    except ImportError:  # pragma: no cover - a translator without the semantic rule
+        return None, ()
+    try:
+        grounded, checks = check_problem_grounding(problem, list(report.supplied_texts), task)
+        located = {c.target_id for c in checks if c.verified is True and c.method in ("verbatim_match", "normalized_match")}
+        found = semantic_restatement(grounded, located, claim_text=claim_text)
+        if found is None or premises_inconsistent(grounded) or conclusion_valid_alone(grounded):
+            return None, ()
+        return found.kind, tuple(found.premises)
+    except Exception:  # noqa: BLE001 - a rule that fails names nothing
+        return None, ()
+
+
+def _step_relations(text: str, sorts: dict[str, str]) -> list[dict]:
+    """The relations the STEM front end reads in ``text`` (data, nothing evaluated), as IR over the problem's own symbols
+    (:func:`_stem_relation_ir`); a relation it cannot encode exactly is left out."""
+    if not text or not text.strip() or len(text) > _STEP_TEXT_MAX:
+        return []
+    try:
+        from ...stem import build_document
+        doc = build_document("", text, "mathematics_aa")
+    except Exception:
+        return []
+    out = []
+    for left, op, right in doc.request.relations:
+        ir_op = _TASK_RELATION_OPS.get(op)
+        if ir_op is None or left.error or right.error or len(left.readings) != 1 or len(right.readings) != 1:
+            continue
+        budget = [_TASK_NODES_MAX]
+        lhs, rhs = _stem_relation_ir(left.node, sorts, budget), _stem_relation_ir(right.node, sorts, budget)
+        if lhs is not None and rhs is not None:
+            out.append({"op": ir_op, "left": lhs, "right": rhs})
+    return out
+
+
+def stated_step(claim_text: Optional[str], premise: dict, conjuncts: list[dict], sorts: dict[str, str], readings: "_Readings") -> bool:
+    """Rule ``stated-step`` (round-8 clearance c1): whether the restating ``premise`` (IR JSON) is the claim's stated step
+    input. The claim draws a result from an input ("Domain: x + 4 > 0 and x − 4 > 0, so x > 4"): the text before the first
+    step marker ("so", "therefore", "hence", "thus", "gives", ⇒, ∴) writes each conjunct of the premise as a relation (the
+    STEM front end's reading, equivalent by the arithmetic of the problem's own symbols), the text after it writes each
+    restated ``conjunct``, and no relation written before the marker is the one written after it as written (a claim
+    that writes "x > 4, so x > 4" states no step). The engine's result then checks the claim's own step from its stated
+    input, which the specialist wrote: a step, never the claim assumed. Data only; the reading is bounded."""
+    if not claim_text or len(claim_text) > _STEP_TEXT_MAX or not conjuncts:
+        return False
+    m = _STEP_MARKER_RE.search(claim_text)
+    if m is None:
+        return False
+    before, after = _step_relations(claim_text[:m.start()], sorts), _step_relations(claim_text[m.end():], sorts)
+    if not before or not after:
+        return False
+    if {canonical_json(r) for r in before} & {canonical_json(r) for r in after}:
+        return False
+
+    def written_in(node: dict, rels: list[dict]) -> bool:
+        return any(canonical_json(node) == canonical_json(r) or readings.arithmetic(r, node) is True for r in rels)
+    parts = nnf_conjuncts(premise)
+    return bool(parts) and all(written_in(q, before) for q in parts) and all(written_in(c, after) for c in conjuncts)
+
+
+def _substituted(node: Any, name: str, value: Any) -> Any:
+    """``node`` (IR JSON) with every ``var`` named ``name`` replaced by ``value``, iteratively (data only)."""
+    if isinstance(node, dict):
+        if node.get("op") == "var" and node.get("name") == name:
+            return value
+        return {k: (_substituted(v, name, value) if k != "value" else v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_substituted(v, name, value) for v in node]
+    return node
+
+
+def definitional_identity(problem: Problem, pid: str, readings: "_Readings") -> bool:
+    """Rule ``definitional-identity`` (round-8 clearance c1): whether premise ``pid`` only NAMES an expression (``v iff E``
+    or ``v = E``, ``E`` over other symbols, ``v`` in no other premise) and the conclusion with ``v`` replaced by ``E`` holds
+    under every assignment (the engine's own compiler: :meth:`_Readings.valid`). The claim is then an identity of the named
+    expression (a show-that simplification, a circuit's case analysis), which the engine verifies; the definition asserts
+    nothing about the world beyond the name, so it is no restatement of the claim. A value given a name (``v = 5``) is no
+    definition."""
+    by_id = {pr.id: pr for pr in problem.premises}
+    pr = by_id.get(pid)
+    if pr is None or problem.conclusion is None:
+        return False
+    expr = pr.expr.model_dump(mode="json", exclude_none=True)
+    op = expr.get("op")
+    if op not in ("iff", "eq"):
+        return False
+    for name_side, value_side in (("left", "right"), ("right", "left")):
+        v, e = expr.get(name_side), expr.get(value_side)
+        if not (isinstance(v, dict) and v.get("op") == "var" and isinstance(e, dict)):
+            continue
+        name = str(v.get("name"))
+        others = _expr_symbols(e)
+        if name in others or not (others - {name}):
+            continue
+        if any(name in _expr_symbols(q.expr.model_dump(mode="json", exclude_none=True)) for q in problem.premises if q.id != pid):
+            continue
+        concl = problem.conclusion.expr.model_dump(mode="json", exclude_none=True)
+        if name not in _expr_symbols(concl):
+            continue
+        if readings.valid(_substituted(concl, name, e)) is True:
+            return True
+    return False
+
+
+def _exemption(problem: Problem, pid: str, conjuncts: list[dict], readings: "_Readings", claim_text: Optional[str]) -> Optional[str]:
+    """The rule that exempts the restating premise ``pid`` (rules ``stated-step``, ``definitional-identity``), or None."""
+    pr = next((x for x in problem.premises if x.id == pid), None)
+    if pr is None:
+        return None
+    sorts = {sym.name: sym.sort for sym in problem.symbols}
+    try:
+        if stated_step(claim_text, pr.expr.model_dump(mode="json", exclude_none=True), conjuncts, sorts, readings):
+            return STATED_STEP_RULE
+        if definitional_identity(problem, pid, readings):
+            return DEFINITION_RULE
+    except Exception:  # noqa: BLE001 - a reading that fails exempts nothing
+        return None
+    return None
 
 
 def withheld_as_circular(o: ClaimVerificationOutcome) -> Optional[str]:
@@ -3946,7 +4400,7 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
             # without them decides whether the result rests on them)
             problem_obj6 = json.loads(problem_json) if problem_json else None
             rs = restatement(tr.problem, report, request_texts, problem_obj6, request_documents=_request_documents(ctx.view, t),
-                             request_constraints=_request_constraints(ctx.view, t))
+                             request_constraints=_request_constraints(ctx.view, t), task=_task_of(ctx, t), claim_text=claim.claim_text)
             entailed = o.verification is not None and o.verification.status is VerificationStatus.ENTAILED
             partial = not rs.holds and bool(rs.partial_own) and entailed
             circ = list(rs.own) if rs.holds else (list(rs.partial_own) if partial else [])
@@ -3968,9 +4422,20 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                 # runs are memoised in the store, so asking again for a run of the same reduced problem cites the same signed run.
                 undecided_c = [pid for pid in circ if pid in rs.undecided]
                 reasons_of = {pid: why for pid, why in rs.why_own}
+                floor_named = [pid for pid in circ if pid in rs.translator_floor]
                 if rs.translator_holds:
                     whose = (f"the translator's own circularity rule (E112) holds on this IR as re-grounded here, so it reached the receipt past that rule "
                              f"(rule {AGREEMENT_RULE})")
+                elif floor_named and not partial and not set(floor_named) & set(rs.named):
+                    whose = (f"the translator's own semantic circularity rule (translate.restatement, its {rs.translator_floor_kind} reading) names "
+                             f"{', '.join(floor_named[:4])} on this IR as its pipeline re-grounds it, so it reached the receipt past that rule, which "
+                             f"withholds it (E112; rule {AGREEMENT_RULE}, round-8 clearance c1); its rule as written reads a restating premise grounded "
+                             f"in the task or a text as a transcription on its label alone, and no deterministic check verified the premise(s) named "
+                             f"here (rules {TRANSCRIPTION_RULE} and {SEMANTIC_RULE})")
+                elif floor_named:
+                    whose = (f"the translator's own semantic circularity rule (translate.restatement, its {rs.translator_floor_kind} reading) names "
+                             f"{', '.join(floor_named[:4])} on this IR as its pipeline re-grounds it, so it reached the receipt past that rule, which "
+                             f"withholds it (E112; rule {AGREEMENT_RULE}, round-8 clearance c1; rules {DISCLOSURE_RULE} and {TRANSCRIPTION_RULE})")
                 elif partial:
                     whose = (f"the translator's circularity rule (E112) reads only a conclusion every conjunct of which is restated as written by the writer's "
                              f"own premises, so it delivered this encoding (rules {DISCLOSURE_RULE} and {TRANSCRIPTION_RULE})")
@@ -4055,6 +4520,13 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                          f"{in_form(list(rs.disclosed_own))} as the writer's own, and the receipt discloses each as an ungrounded or unverified dependency "
                          f"while the rest of the conclusion is derived (rule {DISCLOSURE_RULE}: no finding; whether the part assumed is the claim's point "
                          "rather than a fact it states is a meaning question for overseer agents)")
+            for pid, rule in rs.exempt:
+                why_exempt = ("the claim's stated step input: the claim writes its relation(s) before the step marker and the restated part after it, so "
+                              "the result checks the claim's own step" if rule == STATED_STEP_RULE else
+                              "a definition: it names an expression and the conclusion, with the name replaced by it, holds under every assignment, so "
+                              "the result checks an identity of the named expression")
+                ctx.note(f"translation of claim {claim.claim_id} on {t.kind} {t.message_id}: premise {pid} restates the conclusion in another form but is "
+                         f"{why_exempt} (rule {rule}: no OVS-TRN-006)")
             if transcribed:
                 ctx.note(f"translation of claim {claim.claim_id} on {t.kind} {t.message_id} transcribes a grounded fact: premise(s) {', '.join(transcribed[:6])} "
                          f"restate the conclusion{in_form(transcribed)} under a grounding a deterministic check verified against the request or a located "

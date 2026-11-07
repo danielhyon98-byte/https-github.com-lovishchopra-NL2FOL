@@ -386,6 +386,15 @@ table), the inspection rule I99 (what a named diagnostic on a receipt asks of th
 info record is no fault), K8 and the kinds-and-codes §9 table of every code the translator and the channel emit (generated rows checked
 against ``overseer.emitted`` by a drift test), and a Never rule (N14); every header and footer names 1.4 (Example 13 still
 names 1.1).
+
+**Pack 1.5** (round-8 clearance, integrated round c1; a MINOR version: contracts, kinds and dossier version unchanged; 1.0 to
+1.4 stay pinned and unchanged, 1.4 being the pack the round ran with). The STEM pack now reads a decimal written with its digits
+cut inside an expression as one value whose half-width is a whole unit in its last written digit (rule cut-decimal,
+``docs/STEM_DESIGN.md`` section 39), so D32 and the dossier guide's reading of a cut decimal say that "0.333… × 3 = 1" holds
+and "0.333… × 3 = 1.5" fails, while a cut value set equal to a symbol, an ellipsis in a sum and a cut value after a power
+beyond 12 stay ST-UNDEC-001; the README notes the sizes; every header and footer names 1.5 (Example 13 still names 1.1). Before
+its first commit the clearance's handoff fixer added the row of CORE-SRC-008 (warning, no label: the core pack's rule case-name,
+a near miss of a name the supplied case states) to the code table of Kinds and codes, section 8, and the README's sizes with it.
 """
 from __future__ import annotations
 
@@ -421,7 +430,7 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.4"
+PACK_VERSION = "1.5"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -431,6 +440,10 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     (PACK_NAME, "1.2"): "bb2ab43e20d0d08956041775201192cbe528038f0a154258b4966a448a02f13a",
     (PACK_NAME, "1.3"): "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67",
     (PACK_NAME, "1.4"): "a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc",
+    # round-8 clearance c1: D32 and the cut-decimal reading of D31 (a cut value inside an expression is decided); 1.4 was the
+    # pack of the round, so the correction is a new version. Before 1.5 was first committed, the clearance's handoff fixer added
+    # the code table's row of CORE-SRC-008 (rule case-name) to its section 8, so 1.5 is pinned with that row
+    (PACK_NAME, "1.5"): "cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab",
 })
 
 MANIFEST_VERSION = "1.0"

@@ -148,7 +148,11 @@ What the STEM branches do:
   concentration (`[H⁺] = 10^(−8.2) = 6.31 × 10⁻⁹ mol dm⁻³`), which is the concentration in mol dm⁻³
   the pH scale is defined in: read as a bare number in SI it would accept an exponent 3 too small.
   Units may be written with Unicode or caret exponents or in ASCII glued to the atom (`m s-1`,
-  `mol dm-3`, `cm3`, `m/s2`).
+  `mol dm-3`, `cm3`, `m/s2`). Since round 8's clearance (`docs/STEM_DESIGN.md` section 39) a decimal cut by an ellipsis
+  (`0.309017…`, `16 379.41\ldots`) is one value whose half-width is a whole unit in its last written digit, a symbolic step
+  reads the answer's own definitions with a cancelled factor non-zero, a wrong value stated for a booklet constant and a
+  wrong mole ratio are named (warnings), and a relation a bidirectional control reaches is decided in neither order; the
+  channel refuses any specialist response that holds such a control (INT-REQ-009, rule bidi-text).
 - **Name every fault it can see, and never flag correct work as an error.** An error comes only
   from an engine result about a relation that rests on what the answer and the request state.
   Anything that depends on a reading the answer did not state (a booklet value for an unstated
@@ -274,8 +278,11 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL
   audit; `policy.may_release` gates the student-facing synthesis on it.
 - **Overseer agents** are model-based reviewers built only from exportable parts: the package's code and a versioned
-  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.4/`, with 1.0 to 1.3 kept beside it: `master_prompt.txt` and
-  numbered documents, generated schemas, a manifest of digests). `python -m epinoic_logic.overseer.export --out DIR`
+  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.5/`, with 1.0 to 1.4 kept beside it: `master_prompt.txt` and
+  numbered documents, generated schemas, a manifest of digests; 1.5, installed by the round-8 clearance, differs from 1.4,
+  the pack round 8 ran with, only in D32 and the cut-decimal reading, a decimal cut by an ellipsis inside an expression being
+  decided, and in the code table's row of CORE-SRC-008, the core pack's warning on a near miss of a name the supplied case
+  states). `python -m epinoic_logic.overseer.export --out DIR`
   writes the pack out with a README for whoever deploys it with any model. `hub.review(task, runners)` issues each agent
   a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory
   and decides nothing: only an accusation a deterministic check confirms reaches the router, through that check's own
@@ -454,7 +461,12 @@ coverage warning. The harness reports transport (the functional count), fixture 
 translation fidelity (only where adjudicated) and claim counts (extracted, eligible,
 attempted, completed, faithful, approved, and apart from them the claims whose release
 assessment permits releasing the answer) as separate measures, never combined into one rate,
-and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). Every group of a round
+and qualifies a replay that loses recorded translations (`scripts/arena/README.md`). A replay runs what production runs
+wherever a recording allows it and names what it cannot ("Replay configuration" in `summary.md`): the translator gets the
+task record of each request, as production's verifier does; a recorded translation is bound to the claim text it was
+produced for by the digest recorded with it (`scripts/arena/bind_translations.py`, a step of recording a round), else
+the run is qualified; a retry, served the same recorded output, is reported as not exercised; and a synthesis is stamped
+when it is relayed. Every group of a round
 that carries syntheses has exactly one synthesis record, whatever happened to its members,
 so the number of transmissions never depends on what crashed. The listing that briefs the agents and the translation
 agent (`scripts/arena/list_claims.py`) prints the claim ids the hub delivers, the agent-qualified ids of a group's second

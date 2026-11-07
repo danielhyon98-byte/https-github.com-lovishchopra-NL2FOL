@@ -158,10 +158,19 @@ class TurnChecker:
                 if fn is not None:
                     by_agent[hub_agent_id(a.agent_id)] = fn  # the delivered report names the hub's agent
 
-        def inner(claim: Any, report: Any) -> Any:
+        # The fixture corpus is task-aware, as the arena's verifier is since round 8's clearance: the channel passes the task
+        # record of the request, and the budgeted verifier passes it on, as the live branch does, so the encoded problems
+        # (and the simulation's G-EQ-ARENA digests) equal the arena's. A corpus verifier that declares no ``task`` (a test
+        # double wrapping the corpus's) is called as before (the channel's own rule, ``channel.bus._accepts_task``).
+        from ..channel.bus import _accepts_task
+
+        def inner(claim: Any, report: Any, task: Any = None) -> Any:
             fn = by_agent.get(report.agent_id)
-            return fn(claim, report) if fn is not None else None
-        return BudgetedVerifier(inner, deadline=deadline, cap=self.cfg.max_translated_claims, live=False, clock=self.clock, log=log).plain()
+            if fn is None:
+                return None
+            return fn(claim, report, task=task) if task is not None and _accepts_task(fn) else fn(claim, report)
+        return BudgetedVerifier(inner, deadline=deadline, cap=self.cfg.max_translated_claims, live=False, clock=self.clock,
+                                task_aware=True, log=log).with_task()
 
     def _plan(self, req: TurnCheckRequest, deadline_wall: str) -> Any:
         from ..integrity.contracts import WorkPlan, seal_plan

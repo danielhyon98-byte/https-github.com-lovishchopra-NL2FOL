@@ -113,7 +113,7 @@ _BRANCH_ROWS: tuple[tuple[str, str], ...] = (
     ("BM-STR-001", "info"), ("BR-INTERNAL-001", "warning"), ("CORE-CHR-001", "warning"), ("CORE-INTERNAL-001", "error"),
     ("CORE-QNT-001", "warning"), ("CORE-SELF-001", "warning"), ("CORE-SRC-001", "error"), ("CORE-SRC-002", "info"),
     ("CORE-SRC-003", "warning|info"), ("CORE-SRC-004", "warning"), ("CORE-SRC-005", "error|warning"), ("CORE-SRC-006", "error"),
-    ("CORE-STR-001", "error"), ("EC-STR-001", "info"), ("EC-STR-002", "info"), ("ES-INTERNAL-001", "warning"),
+    ("CORE-SRC-008", "warning"), ("CORE-STR-001", "error"), ("EC-STR-001", "info"), ("EC-STR-002", "info"), ("ES-INTERNAL-001", "warning"),
     ("ES-META-001", "warning"), ("ES-SRC-001", "error"), ("ES-SRC-002", "error|warning"), ("ES-SRC-003", "warning"),
     ("ES-SRC-004", "warning"), ("ES-SRC-005", "warning"), ("ES-SRC-006", "warning"), ("ES-SRC-007", "info"),
     ("ES-SRC-008", "error|warning"), ("ES-STR-001", "warning"), ("ES-STR-002", "info"), ("ES-STY-001", "info"),

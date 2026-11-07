@@ -1,0 +1,302 @@
+{
+ "description": "Round-8 recorded material (integrated round c1, genuine pass): the Economics specialist's answer ec-p8a, its supplied text and the recorded translation of claim g1.2, verbatim. Used by tests/overseer/test_c1_handoff_shadow.py (rule composition of the shadow replay).",
+ "item": {
+  "task_id": "ec-p8a",
+  "subject": "Economics",
+  "agent_id": "economics-specialist",
+  "task_type": "data_response",
+  "question": "I'm an HL Economics student (the course first assessed in 2022; my exams are in May 2027). Paper 3 practice, part (a), using the supplied data on Calvessa's steel tariff. A Business Management student will use your answer to analyse a firm that buys steel, so state each result clearly with its units. (i) Calculate the quantity of steel imported by Calvessa before and after the tariff. [2] (ii) Calculate the government's revenue from the tariff. [1] (iii) Calculate the change in the revenue of Calvessa's domestic steel producers. [2] (iv) Calculate the change in the total amount spent on steel by buyers in Calvessa. [2] (v) Calculate the welfare loss resulting from the tariff. [2] (vi) Using a tariff diagram, explain who gains and who loses from the tariff. [3] Write no more than 350 words, plus working and your diagram.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-calvessa",
+    "title": "Calvessa steel tariff (data, supplied text)",
+    "author": "Task data",
+    "text": "Calvessa: the market for steel (practice data written for this exercise; Calvessa is a fictional country)\n\nCalvessa is a small open economy that can import any quantity of steel at the world price of $600 per tonne. On 1 January 2026 its government imposed a tariff of $150 per tonne on imported steel.\n\nTable 1: The market for steel in Calvessa\nPeriod | Price in Calvessa ($ per tonne) | Domestic quantity supplied (million tonnes per year) | Domestic quantity demanded (million tonnes per year)\nBefore the tariff (2025) | 600 | 4.0 | 10.0\nAfter the tariff (2026) | 750 | 5.5 | 9.0\n\nAssume that the domestic demand and supply curves are straight lines, and that the world price and all other factors were unchanged between 2025 and 2026."
+   }
+  ],
+  "response_text": "All figures are practice data for the fictional economy of Calvessa. I assume, as the data show, that the whole $150 tariff passes into the price paid in Calvessa, so the price rises from $600 to $750 per tonne.\n\n(i) Quantity of steel imported [2]\n\nFormula: imports = domestic quantity demanded − domestic quantity supplied (Table 1)\nBefore the tariff (2025): 10.0 − 4.0 = 6.0 million tonnes per year\nAfter the tariff (2026): 9.0 − 5.5 = 3.5 million tonnes per year\nImports fall by 2.5 million tonnes per year.\n\n(ii) Government revenue from the tariff [1]\n\nFormula: tariff revenue = tariff per tonne × imports after the tariff\n= $150 per tonne × 3.5 million tonnes per year\n= $525 million per year\n\n(iii) Change in revenue of domestic steel producers [2]\n\nFormula: revenue = price × domestic quantity supplied\nBefore: $600 × 4.0 million = $2,400 million per year\nAfter: $750 × 5.5 million = $4,125 million per year\nChange = $4,125 million − $2,400 million = +$1,725 million per year (an increase of 71.88%)\n\n(iv) Change in total spending on steel by buyers in Calvessa [2]\n\nFormula: spending = price paid × quantity demanded\nBefore: $600 × 10.0 million = $6,000 million per year\nAfter: $750 × 9.0 million = $6,750 million per year\nChange = +$750 million per year (an increase of 12.5%)\n\n(v) Welfare loss from the tariff [2]\n\nFormula: each welfare-loss triangle = ½ × tariff × horizontal gap\nProduction triangle (extra domestic output costing more than the world price): ½ × $150 × (5.5 − 4.0) = $112.50 million per year\nConsumption triangle (consumption given up): ½ × $150 × (10.0 − 9.0) = $75.00 million per year\nWelfare loss = $112.50 + $75.00 = $187.50 million per year\n\n(vi) Who gains and who loses, with a tariff diagram [3]\n\nDiagram 1: Calvessa's market for steel, with a $150 per tonne tariff on imports\nAxes: vertical — price of steel ($ per tonne); horizontal — quantity of steel (million tonnes per year)\nCurves: D, domestic demand, downward sloping; S, domestic supply, upward sloping; Pw, world supply, horizontal at $600 per tonne; Pw + t, world supply with the tariff, horizontal at $750 per tonne\nChange: the tariff raises the import price by $150, so the Pw line moves up to Pw + t (arrow from Pw to Pw + t)\nEquilibria: before, price $600, domestic supply 4.0 and domestic demand 10.0 (imports 6.0); after, price $750, domestic supply 5.5 and domestic demand 9.0 (imports 3.5)\nAreas: a, producer surplus gain, $712.50 million per year (a rectangle of $600 million on the original 4.0 million tonnes, plus a triangle of $112.50 million on the extra output); b, production triangle, $112.50 million per year; c, tariff revenue, $525 million per year (the rectangle over the 3.5 million tonnes imported); d, consumption triangle, $75 million per year\n\nDomestic steel producers gain. Their revenue rises by $1,725 million per year, but their gain after costs, producer surplus, rises by area a, $712.50 million per year. Revenue is larger because it ignores the cost of the extra output.\n\nThe government gains tariff revenue, area c, of $525 million per year.\n\nConsumers lose. They pay $750 instead of $600 per tonne, a rise of 25%, and buy 9.0 instead of 10.0 million tonnes. Their surplus falls by areas a, b, c and d together, $1,425 million per year. A firm that buys steel in Calvessa faces this 25% price rise.\n\nForeign exporters lose. Imports fall from 6.0 to 3.5 million tonnes, so their sales to Calvessa fall from $3,600 million to $2,100 million per year at the unchanged world price of $600 per tonne, a fall of $1,500 million per year.\n\nOverall, producers and the government gain $1,237.50 million per year in total ($712.50 + $525), which is less than the $1,425 million per year that consumers lose. The difference, $187.50 million per year, is the welfare loss (areas b and d).\n\nNext step: check the totals: consumers' loss ($1,425 million) = producers' gain ($712.50 million) + government revenue ($525 million) + welfare loss ($187.50 million).\n\nSources: Calvessa steel tariff data (supplied text); general Economics course knowledge (course notes)"
+ },
+ "claim_id": "g1.2@economics-specialist",
+ "translation": {
+  "problem": {
+   "ir_version": "1.0",
+   "problem_id": "ec-p8a-g1-2",
+   "request_id": "req-p8a",
+   "claim_id": "g1.2@economics-specialist",
+   "query": "entailment",
+   "symbols": [
+    {
+     "name": "price_b",
+     "sort": "Real",
+     "meaning": "price in Calvessa before the tariff ($ per tonne)",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "Before the tariff (2025) | 600 | 4.0 | 10.0"
+       }
+      ],
+      "certainty": "established"
+     }
+    },
+    {
+     "name": "price_a",
+     "sort": "Real",
+     "meaning": "price in Calvessa after the tariff ($ per tonne)",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "After the tariff (2026) | 750 | 5.5 | 9.0"
+       }
+      ],
+      "certainty": "established"
+     }
+    },
+    {
+     "name": "tariff",
+     "sort": "Real",
+     "meaning": "tariff per tonne ($)",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "a tariff of $150 per tonne on imported steel"
+       }
+      ],
+      "certainty": "established"
+     }
+    },
+    {
+     "name": "passthrough",
+     "sort": "Bool",
+     "meaning": "the whole tariff passes into the price paid in Calvessa (the specialist's assumption)",
+     "grounding": {
+      "kind": "assumption",
+      "source_refs": [],
+      "certainty": "probable"
+     }
+    },
+    {
+     "name": "rise_is_tariff",
+     "sort": "Bool",
+     "meaning": "the price rise equals the tariff",
+     "grounding": {
+      "kind": "specialist_inference",
+      "source_refs": [],
+      "certainty": "probable"
+     }
+    }
+   ],
+   "premises": [
+    {
+     "id": "pin-price_b",
+     "expr": {
+      "op": "eq",
+      "left": {
+       "op": "var",
+       "name": "price_b"
+      },
+      "right": {
+       "op": "real",
+       "value": "600"
+      }
+     },
+     "label": "Table 1 / supplied text: price in Calvessa before the tariff ($ per tonne) is 600",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "Before the tariff (2025) | 600 | 4.0 | 10.0"
+       }
+      ],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "pin-price_a",
+     "expr": {
+      "op": "eq",
+      "left": {
+       "op": "var",
+       "name": "price_a"
+      },
+      "right": {
+       "op": "real",
+       "value": "750"
+      }
+     },
+     "label": "Table 1 / supplied text: price in Calvessa after the tariff ($ per tonne) is 750",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "After the tariff (2026) | 750 | 5.5 | 9.0"
+       }
+      ],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "pin-tariff",
+     "expr": {
+      "op": "eq",
+      "left": {
+       "op": "var",
+       "name": "tariff"
+      },
+      "right": {
+       "op": "real",
+       "value": "150"
+      }
+     },
+     "label": "Table 1 / supplied text: tariff per tonne ($) is 150",
+     "grounding": {
+      "kind": "quotation",
+      "source_refs": [
+       {
+        "document_id": "doc-calvessa",
+        "excerpt": "a tariff of $150 per tonne on imported steel"
+       }
+      ],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "as-pass",
+     "expr": {
+      "op": "var",
+      "name": "passthrough"
+     },
+     "label": "assumption: the whole $150 tariff passes into the price paid",
+     "grounding": {
+      "kind": "assumption",
+      "source_refs": [],
+      "certainty": "probable"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "link-pass",
+     "expr": {
+      "op": "implies",
+      "left": {
+       "op": "var",
+       "name": "passthrough"
+      },
+      "right": {
+       "op": "var",
+       "name": "rise_is_tariff"
+      }
+     },
+     "label": "full pass-through makes the price rise equal the tariff",
+     "grounding": {
+      "kind": "specialist_inference",
+      "source_refs": [],
+      "certainty": "probable"
+     },
+     "materiality": "material"
+    },
+    {
+     "id": "data-rise",
+     "expr": {
+      "op": "eq",
+      "left": {
+       "op": "sub",
+       "left": {
+        "op": "var",
+        "name": "price_a"
+       },
+       "right": {
+        "op": "var",
+        "name": "price_b"
+       }
+      },
+      "right": {
+       "op": "var",
+       "name": "tariff"
+      }
+     },
+     "label": "the table's price rise (750 − 600) equals the tariff of 150",
+     "grounding": {
+      "kind": "arithmetic_fact",
+      "source_refs": [],
+      "certainty": "established"
+     },
+     "materiality": "material"
+    }
+   ],
+   "conclusion": {
+    "id": "point",
+    "expr": {
+     "op": "and",
+     "args": [
+      {
+       "op": "var",
+       "name": "rise_is_tariff"
+      },
+      {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "price_a"
+       },
+       "right": {
+        "op": "real",
+        "value": "750"
+       }
+      }
+     ]
+    },
+    "label": "the whole $150 tariff passes into the price, which rises from $600 to $750 per tonne",
+    "grounding": {
+     "kind": "specialist_inference",
+     "source_refs": [],
+     "certainty": "probable"
+    },
+    "materiality": "material"
+   }
+  },
+  "interpretation": {
+   "reading": "The assumption of full pass-through is kept as an assumption premise; the table's rise (750 − 600 = 150) is checked against the tariff.",
+   "glossary": [
+    {
+     "symbol": "price_b",
+     "meaning": "price in Calvessa before the tariff ($ per tonne)",
+     "grounding": null
+    },
+    {
+     "symbol": "price_a",
+     "meaning": "price in Calvessa after the tariff ($ per tonne)",
+     "grounding": null
+    },
+    {
+     "symbol": "tariff",
+     "meaning": "tariff per tonne ($)",
+     "grounding": null
+    },
+    {
+     "symbol": "passthrough",
+     "meaning": "the whole tariff passes into the price paid in Calvessa (the specialist's assumption)",
+     "grounding": null
+    },
+    {
+     "symbol": "rise_is_tariff",
+     "meaning": "the price rise equals the tariff",
+     "grounding": null
+    }
+   ],
+   "ambiguity_flags": []
+  },
+  "ambiguous": false,
+  "unsupported_reason": null
+ }
+}

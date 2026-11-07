@@ -1282,6 +1282,7 @@ a synthetic task. Each writes a manifest entry `{fault_id, class, injected ident
 | T10 | x > 5 and x < 3 under one glossary in two specialists, per-response cross-check patched out, synthesis without a conflict record | JOINT-001 + SYN-003, citing the auditor's signed run |
 | T10b | control: the channel named the contradiction | none |
 | T10c | false-conflict variant | JOINT-003 |
+| T10d | a conflict that exists only through pooling a candidate a claim tests and rejects (round-8 clearance c1, maa-t14; section 50) | JOINT-003, rule pooled-only-conflict |
 | T11 | an insider re-signs a rewritten status with the engine key | signature OK; replay gives RES-007 |
 | T12 | a journal entry edited | CUST-005 |
 | T13 | a message injected with `log.accept` directly | CUST-003 |
@@ -5031,3 +5032,118 @@ checks a cut leaves are never shown as success: the receipt states them undecide
 delivery policy incomplete (rule `unchecked-working`), and R1 and R2 have no run of them to vouch for. Journaling a channel's
 effective STEM check budget with each event (`channel.events._channel_json`) would let the shadow hold the stated budget to
 the channel's; it is outside the overseer and noted for the channel's owner.
+
+## 50. The round-8 clearance (integrated round c1) on the overseer: what changed and why
+
+The clearance of arena round 8 (the integrated round c1) found ten faults on the overseer's paths. Each is fixed at its cause
+with regression tests (`tests/overseer/test_clearance_c1_overseer.py`, `test_delivery_policy.py`,
+`test_corrections_adjudicated_faults.py`, the tampering case T10d); the tests rewritten to a stricter rule say so in their
+docstrings and are listed in the clearance's hand-off for `tests/README.md`. No test was weakened or deleted.
+
+**Decision 88 (rule `unchecked-working`, extended; critical).** The formal path of the delivery policy never completes over a
+receipt code that says working was read and not checked. The prose branches' own undecided codes were missing: CORE-QNT-001
+(stated arithmetic, a derived figure or a relation over dated figures with no engine problem, or beyond the check limit) and
+CORE-CHR-001 (a stated order of dated events that could not be decided or paired), so a Physics answer with "The speed rose by
+20%." beside a clean calculation was delivered FORMALLY CHECKED. The sweep of every receipt code below error severity by which a
+pack says it failed found one more: ES-INTERNAL-001 (the English pack catches its own failure, so the hub's BR-INTERNAL-001
+never accompanies it). All three are codes of the rule now.
+
+**Decision 89 (rule `meta-note`, major).** The self-report rule (`self-report-disclosed`) read every paragraph-level ES-META-001
+as a self-report, so a tutor's "Next step: write your own paragraph ... for feedback." (en-t14) kept a clean English answer
+from the FORMALLY CHECKED label. `overseer/meta_notes.py` splits the paragraph by kind: a "Next step:", "Note:" or "Caveat:"
+paragraph is a note only when it is positively read as one: no JSON, no narration, no sentence the shared self-report readers
+name, no assurance word in any clause (`assurance_words`: checked, verified, confirmed, exact, correct, matches, word for word,
+free of errors, a first-person past act of checking, each unless the clause negates it once), and the note's own form
+(`note_form`: after "Next step" a suggestion verb opens the clause, after two lead words at most; otherwise a limitation word
+or "n't"). Everything else stays a self-report (fail closed). Each reading is linear and bounded (20,000 characters a
+paragraph).
+
+**Decision 90 (rule `derived-figures`, major).** OVS-TRN-005 named as invented the figures an encoding takes from the texts
+other than as written: the bounds of a stated precision, numerals with spaced or LaTeX thin-space thousands, a figure at
+another scale, the factor of an SI prefix the texts write beside the bare unit, a product or quotient a text writes, a
+multiple of π, a root, a function value of a stated angle, a reciprocal or an exact quotient of stated figures (each only when
+a text writes the operation), and any assertion's figure that the task text or a supplied table states (rule
+`task-and-supplied`). Each is traced now; a figure no reading derives is still named. The readings are built once per
+translation and bounded (`_DerivedConstants`: 4,000 figures, 512 for quotients, sorted values bisected), every text is read
+once per audit (memoised), and the look after a figure for its scale word or per cent sign is bounded (it copied the whole
+remainder of the answer for every figure, quadratic in a long answer).
+
+**Decision 91 (rule `circularity-agreement`, extended; critical).** The translator's pipeline applies its own semantic
+circularity rule before a verdict is shown (`translate.restatement`, E112 at translation). The overseer reads that rule as
+its floor: `translator_semantic_floor` re-runs it on the delivered problem, grounded as the pipeline grounds it with the task
+record of the journaled request, and every premise it names restates the conclusion for the overseer too, as the writer's own
+unless a check already shows more (never looser than the translator). An encoding delivered past the translator's rule (a
+tampered receipt, or a translator without the rule) is OVS-TRN-006; a withheld one gets no OVS-TRN finding. The B-class
+restatements of c1 (hi-t14 h1.12, ph-p8b s6.2, ph-t14 s3.2 and s4.4: the claim's own result or consequence asserted) are
+caught both ways.
+
+**Decision 92 (rules `stated-step`, `definitional-identity` and `packed-link`, major).** Three readings of the overseer's own
+rule `semantic-restatement` read faithful encodings as circles. A premise that is the claim's stated step input (maa-t14
+m6.1, "Domain: x + 4 > 0 and x − 4 > 0, so x > 4": the text before the step marker writes each conjunct of the premise, the
+text after it the conclusion, and no relation is written on both sides as written) is exempt; so is a definition that only
+names an expression the conclusion is an identity of (`v ↔ E` or `v = E`, `v` in no other premise, the conclusion valid with
+`v` replaced). A premise's own links are opaque in the Boolean reading: "b and (b implies e)" argues for "e", as the same link
+and antecedent in two premises do ("true implies e" is still "e"). The translator adopted the same exemptions and the same
+opacity in this clearance, so receipt and audit agree; the floor of decision 91 and a restatement as written are never exempt.
+
+**Decision 93 (rule `pooled-only-conflict`, major).** OVS-JOINT-003 named a false conflict only when the pooled claims were
+consistent. A conflict that exists only through pooling, a symbol two claims gloss as different quantities or a candidate value
+a claim tests and rejects ("x = −5 is rejected because it does not satisfy x > 4", maa-t14) under the unknown another claim
+solves for, was upheld. The auditor re-runs the named set with those symbols read apart, as the integrity layer reads them
+before it charges a conflict (`split_by_gloss`, `rename_candidates_apart`): CONSISTENT is OVS-JOINT-003 naming the rule, a
+re-check that cannot decide is OVS-JOINT-002, and an agent's `false_conflict` accusation it leaves undecided stays unresolved,
+never refuted. Tampering case T10d plants the maa-t14 shape.
+
+**Decision 94 (record version 8 of the adjudicated genuine faults).** The translator now withholds the three restored entries'
+recorded encodings, so version 8 retires them by a new kind, `translator_semantic`: the harness re-runs the translator's
+semantic rule on the embedded IR as the pipeline grounds it and the pipeline on the recorded proposal (withheld, E112), and
+re-derives the entry's own evidence with its recorded pipeline run taken on the pipeline without the semantic rule and the
+overseer's own rules reading it as they did then. A translator that would deliver the encodings again refuses the record.
+
+**Decision 95 (the scoring gold, majors and minors).** The gold of an arena mutation whose injected fault the receipt did not
+name holds it as an agent-scorable fault of class `unnamed_injection`, matched by an accusation of any kind naming its claim;
+a dossier whose supplied texts address AI assistants is an injection dossier; a reviewed fidelity reference
+(`--fidelity-reference`) turns the auditor's findings on faithful translations into `false_finding` faults an agent is
+credited for disputing and adds the unfaithful translations as `translation_unfaithful` faults; green-light accuracy counts
+only agent-scorable faults. The reference decides the score only: a router-facing outcome stays unresolved when no check
+decides it.
+
+**Pack 1.5.** The STEM pack decides a decimal cut by an ellipsis inside an expression (rule cut-decimal): D32 and the dossier
+guide's reading of a cut decimal say so. 1.4, the pack the round ran with, stays pinned and unchanged. Before 1.5 was first
+committed, the clearance's handoff fixer added one row to its code table (Kinds and codes, section 8): CORE-SRC-008, warning,
+no defect label, the core pack's rule case-name (a name the answer writes that no supplied text and not the request states, a
+near miss of a name the supplied case states: 'Tidewater Kayaks' on the Tidewell Kayaks case; the core fixer's handoff item 2
+and the parsers fixer's item 7, breadth item 19). 1.5 is pinned with that row (`pack.PACK_DIGESTS`), so the completeness test
+(`tests/overseer/test_integration_codes.py`) knows the code the core pack raises.
+
+**Decision 96 (rules `declined-bound` and `per-part-bound`, the clearance's handoff fixer; critical finding).** R2 recounts
+a request's word bounds with the channel's own function (`channel.request_parser.bound_word_measure`), so the receipt and the
+audit read one bound alike. A bound the request sets on each of its parts ("Write no more than 250 words for each answer",
+ps-t14: 216 and 211 words, where the whole reply is 427) is measured on each answer, the longest for a maximum and the
+shortest labelled one for a minimum, and never paired into a range problem; the answer is cut only where each of the
+request's part labels opens exactly one paragraph, in order, and otherwise the whole answer is measured (never a laxer
+reading). A bound set on a deliverable the answer declines (ge-t14) is recorded not applicable (satisfied None, method
+`not_checkable`, no formal result, no INT-REQ-005, the detail opening with `channel.bus.DECLINED_BOUND_PREFIX`), and R2
+accepts exactly that record exactly when `channel.bus.withheld_deliverable` reads a decline in the journaled response; the
+same record on an answer that declines nothing is OVS-FORM-004. An "about N words" band missed by at most a quarter of N is
+INT-REQ-005 at warning, a gross miss an error (rule `about-band`): the live check requires at least a warning for a band, and
+R2 decides the exact severity on its own recount with the channel's own `word_bound_severity`; a hard bound reported at
+warning is still RCPT-004.
+
+**Decision 97 (rule `composition` of the shadow replay, the clearance's handoff fixer).** The genuine c1 p8a channel failed
+every audit with OVS-RCPT-004 (INT-ARG-001 on g1.2@economics-specialist that the receipt lacked), handed over as a time- or
+order-dependent finding of the channel. Its cause was the shadow's: production's verifier (`translate.outcome.verify_claim`)
+composes each outcome with the report it verifies and the task record, and the argument diagnosis reads them (EVD-AUTH-001:
+"as the data show" is attributed when a text was supplied), while the shadow composed every outcome without them, as the
+hand-built fixtures of the overseer's tests do. The shadow now serves the fixture's composition first, as before, and
+production's when the fixture's argument diagnosis is not the journaled outcome's; a tampered diagnosis is still compared
+against a composition the auditor makes itself (`tests/overseer/test_c1_handoff_shadow.py`).
+
+**Decision 98 (rule `bidi-text` re-derived, the clearance's handoff fixer; STEM-integration finding 17, major).** The channel
+refuses a specialist's response whose own text holds a bidirectional embedding, override or isolate (INT-REQ-009, REJECTED,
+never delivered: a reader may be shown that text in another order than every check reads it), as the combinator port's text
+rule refuses one in a synthesis. The auditor re-derives the rule from the journaled input with the channel's own functions,
+bound at import (`channel.bus.bidi_control_message` on the raw text, `channel.bus.report_bidi_findings` on a journaled
+report; `checks.receipts._bidi_implied`): a receipt that delivers such a response lacks the INT-REQ-009 its input implies
+and is OVS-RCPT-004; a refusal passes (`tests/overseer/test_c1_handoff_bidi_audit.py`). No code, severity or pack text
+changed: INT-REQ-009 is the existing named rejection.

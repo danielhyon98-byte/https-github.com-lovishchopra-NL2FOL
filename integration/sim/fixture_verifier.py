@@ -3,9 +3,11 @@
 The service's fixture provider (``epinoic_logic.integration.verifier.FixtureCorpus``) serves a corpus item's
 translation fixtures exactly as ``scripts/arena/run_arena.py`` does for the same item: by claim id, bound to the claim
 text each fixture was produced for (a changed text is refused as stale), nothing for a claim id outside the fixtures,
-and called as ``fn(claim, report)`` without a task. This module delivers one item's recorded answer on a fresh hub the
-way the arena's genuine pass does, so ``tests/integration/test_fixture_parity.py`` can show, item by item, that both
-serve the same fixtures to the same claims, leave the same ones unserved and reach the same statuses.
+and called as ``fn(claim, report, task=...)`` with the task record of the request, as the arena's verifier is since round
+8's clearance (the channel passes the record to a verifier that declares ``task``). This module delivers one item's
+recorded answer on a fresh hub the way the arena's genuine pass does, so ``tests/integration/test_fixture_parity.py``
+can show, item by item, that both serve the same fixtures to the same claims, leave the same ones unserved, reach the
+same statuses and encode the same problems (the same result digests).
 
 It never edits the arena harness and never stands in for it: the parity test runs ``run_arena.run_round`` itself on a
 copy of the corpus and compares.

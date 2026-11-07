@@ -499,7 +499,7 @@ ONE_BYTE = {
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
     # the footer names another version than the pack's own (the pack is 1.3 since the translator merge)
-    "titles_and_footers": ("08-never.md", "Pack version 1.4 · overseer-knowledge-docs", "Pack version 1.5 · overseer-knowledge-docs"),
+    "titles_and_footers": ("08-never.md", "Pack version 1.5 · overseer-knowledge-docs", "Pack version 1.6 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

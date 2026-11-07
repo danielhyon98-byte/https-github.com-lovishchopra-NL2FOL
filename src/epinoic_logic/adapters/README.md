@@ -361,4 +361,48 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
 - `fixtures_multi_subject.py` — Mathematics, Physics, Economics, Computer Science,
   History and English fixtures with expected statuses.
 
+## Round 8 (integrated round c1) clearance: what the shared readers read since
+
+- **Notes read by what they say** (`markdown.is_answer_note`, wired into `split_note_clauses`, so every parser and the channel's word
+  and paragraph counts read it): an omission for want of a confirmed source ("Casualty and cost figures are left out, because I cannot
+  confirm exact numbers here; take them from your textbook and cite them."), the writer having no source for what was asked or leaving it
+  out, a decline of the deliverable or of part of it, an offer of help, a request to send work back, a remark that the student's work is
+  the student's, a pointer to the textbook or the teacher, an examiner's rule on the length of the student's work. A short label before it
+  ("Real-world weight: ...") is read past. A sentence holding a digit (a count of words aside) is never one, so no figure is taken out of
+  its checks. `declined_deliverable(response)` returns the sentence with which an answer declines its deliverable, for the channel's bounds.
+- **A list of sources** ("Sources:", "Source:", "References:", "Sources used:", "Bibliography:", "Works cited:") is a note
+  (`is_sources_note`, read in `split_note_clauses`, so every parser and the channel's counts read it): a sentence the lead opens, with no
+  quotation and at most 60 words, is role `other`, never material, no words of a bound, and a paragraph of nothing else is no paragraph of
+  a bound. A quotation or more words written after the list ('Sources: ... The narrator also insists that "..."') are read, counted and
+  checked as any other sentence. The English parser reads a block that is such a list and nothing else (`is_sources_block`) as a paragraph
+  of its own kind (`sources`): one `other` claim with the id its point had (`p3-point`), no body paragraph and no ES-META-001; "Source A:"
+  is no such lead.
+- **Framing remarks** (`markdown.is_framing_remark`: practice or invented data, the course level assumed, the answer's own form,
+  provisional marks) keep their role but are never their paragraph's point (`branches.generic_parser`).
+- **Self-reports** in more wordings: the structural rule's items include the answer's working and results ("All calculations above were
+  checked by the verification engine ...", "All working above is verified correct."), and Spanish self-reports are read
+  (`_ES_SELF_REPORT_RE`, in `self_cert_vocabulary`: "Todas las cifras han sido comprobadas por ...", "VERIFICADO: todas las respuestas
+  han sido comprobadas ..."; a definite subject credited to another, a negation or a modal is none), with the Spanish participles among the
+  verification-label words.
+- **Mentions** (`absent_mentions`, read by the core pack, the channel and the Overseer): a quoted statement the sentence judges true or
+  false ('so "more than twenty" is false') and the word the reader is told to reply with ('Reply "approve" ...') besides the words a text
+  lacks; `sources.attribute_excerpt` credits such a span to no text with a mention assumption.
+- **The writer's own model sentence**: a quotation under a "Model:" or "Rewrite:" label that no supplied text holds, is no altered
+  quotation of one (no text holds all its words but one or two) and shares no four words in a row with one, is the writer's own words
+  (`sources.own_model_words`: no source reference, nothing to verify). A model label over words taken from a text, altered or not,
+  leaves them a quotation (repair round 4, INV-Q1).
+- **Credit by clause**: the clause-aware credit reader of the English structural checks names the text under analysis by more kinds
+  ("the text", "the advertisement", "the infographic", ...: `english_specialist.parser._TEXT_KIND_CUE_RE`; `sources._GENERIC_SOURCE_RE`
+  likewise), and a colleague named in a later clause after a quotation (", and the Psychology specialist explains ...") credits nothing
+  of it (`english_specialist.structural._governing_document`). The whole-sentence naming the generic, History and STEM parsers share
+  (`documents_named`, `_TEXT_CUE_RE`) keeps the literary kinds only: over a whole sentence, 'the trap is "toda", since the text says
+  almost half was lost' would credit to the article a word of the request (round 7 sp-t13). "The History
+  specialist supplies the frame: ..." is a colleague's view (`PEER_ATTRIBUTION_RE`), and "puts ... at", "estimates", "calculates" are
+  reporting verbs of a colleague's figure (`sources.credited_spans`, the channel's INT-REQ-014).
+- **Excerpts**: every parser records a quotation's excerpt without the sentence punctuation written inside its closing mark
+  (`strip_trailing_punctuation`), and `sources.nearest_text` compares figures as well as words, so an altered figure inside a quotation is
+  an altered quotation.
+- **Splitting and claim text**: "et al." ends no sentence (the shared splitter's abbreviations and the English parser's), and a run of
+  three or more underscores is a blank to fill in, kept as written by `strip_markup`.
+
 Rule sources cited in findings are the agent's working rules, not official IB rules.

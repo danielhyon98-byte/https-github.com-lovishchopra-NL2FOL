@@ -123,11 +123,18 @@ def _strip_labels(text: str) -> str:
     return "".join(out)
 
 
+#: A mark-scheme code ("M1", "A1", "B2", "R1", "A1ft", "(A1)", "M1A1"): a mark annotation, never a figure of the claim (round-8
+#: clearance c1: "M1 for substituting into the formula, A1 for the correct answer." was decided QUANTITATIVE_CLAIM). Each
+#: code is a capital M, A, B, R, C or E glued to one digit, optionally "ft", standing alone as a word.
+_MARK_CODE_RE = re.compile(r"(?<![\w.])(?:[MABRCE][1-9](?:ft)?)+(?!\w|\.\d)")
+
+
 def figure_text(text: str) -> str:
-    """``text`` without the numerals that are no figure of the claim (mark annotations, part and list labels, named
-    items: :data:`_MARK_ANNOTATION_RE`, :data:`_LABEL_RE`, :data:`_NAMED_ITEM_RE`): what the numeric cues are read on, so
-    a mark heading "(a) [2]" or "Paper 1 is the unseen-text paper" is no quantitative claim."""
-    return _NAMED_ITEM_RE.sub(" ", _strip_labels(_MARK_ANNOTATION_RE.sub(" ", text)))
+    """``text`` without the numerals that are no figure of the claim (mark annotations, mark-scheme codes, part and list
+    labels, named items: :data:`_MARK_ANNOTATION_RE`, :data:`_MARK_CODE_RE`, :data:`_LABEL_RE`, :data:`_NAMED_ITEM_RE`): what
+    the numeric cues are read on, so a mark heading "(a) [2]", "M1 for substituting, A1 for the answer" or "Paper 1 is the
+    unseen-text paper" is no quantitative claim."""
+    return _NAMED_ITEM_RE.sub(" ", _strip_labels(_MARK_CODE_RE.sub(" ", _MARK_ANNOTATION_RE.sub(" ", text))))
 
 
 def _figure_count(text: str) -> int:

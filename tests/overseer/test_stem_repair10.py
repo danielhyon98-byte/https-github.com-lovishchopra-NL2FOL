@@ -268,17 +268,27 @@ def test_d31_says_what_is_no_cell_and_the_code_fails_none_of_it(d31, tid, line):
 
 
 def test_d32_says_which_integrals_and_ellipses_are_checked():
+    """Round-8 clearance c1 (rewritten to the stricter rule; pack 1.5): the STEM pack decides a decimal written with its digits
+    cut inside an expression (rule cut-decimal, docs/STEM_DESIGN.md section 39), the critical finding that a GDC-style answer was
+    essentially unchecked. D32 says so, "0.333… × 3 = 1" moved from the undecided constructs to the decided ones (its kind "eq",
+    ENTAILED) and "0.333… × 3 = 1.5" must now fail; every other undecided construct still is ST-UNDEC-001, as before."""
     d32 = _section(_pack_text("02-dossier.md"), "**D32 ", "\n## ")
     assert ("Two of ST-UNDEC-001's constructs are checked where D31 reads them: a definite integral of a polynomial in one variable with "
             "whole-number limits, and its evaluation bracket") in d32
     assert ('set equal or approximately equal to a closed expression on either side or restated as a value, in a relation that holds no other '
             'construct outside the encodings ("8/3 = 2.66…", "0.333… = 1/3"') in d32
-    assert ('Every other integral and ellipsis (a cut value inside an expression, "0.333… × 3 = 1", or set equal to a symbol, "x = 2.66…"), and a '
-            'cut value after a power beyond 12, stays ST-UNDEC-001.') in d32
-    for text, kind, status in (("∫₀¹ 6t dt = [3t²]₀¹ = 3", None, "ENTAILED"), ("8/3 = 2.66…", "eq", "ENTAILED"), ("0.333… = 1/3", "eq", "ENTAILED")):
+    assert ('A decimal written with its digits cut inside an expression is one value whose half-width is a whole unit in its last written digit '
+            '("0.333… × 3 = 1" holds, "0.333… × 3 = 1.5" fails; rule cut-decimal). Every other integral and ellipsis (a cut value set equal to a '
+            'symbol, "x = 2.66…", an ellipsis in a sum, "1 + 2 + ⋯ + 10 = 55"), and a cut value after a power beyond 12, stays ST-UNDEC-001.') in d32
+    for text, kind, status in (("∫₀¹ 6t dt = [3t²]₀¹ = 3", None, "ENTAILED"), ("8/3 = 2.66…", "eq", "ENTAILED"), ("0.333… = 1/3", "eq", "ENTAILED"),
+                               ("0.333… × 3 = 1", "eq", "ENTAILED")):
         checks, findings = _decided(text, "mathematics_aa")
         assert checks and all(_holds(k, s) for k, s, _d in checks) and not findings, (text, checks, findings)
-    for text in ("∫₀¹ √x dx = 2/3", "$1 + 2 + \\cdots + 10 = 55$", "$A = 4787.58\\ldots$", "0.333… × 3 = 1", "x = 2.66…"):
+        if kind is not None:
+            assert kind in {k for k, _s, _d in checks}, (text, checks)
+    checks, findings = _decided("0.333… × 3 = 1.5", "mathematics_aa")
+    assert checks and not all(_holds(k, s) for k, s, _d in checks), (checks, findings)
+    for text in ("∫₀¹ √x dx = 2/3", "$1 + 2 + \\cdots + 10 = 55$", "$A = 4787.58\\ldots$", "x = 2.66…"):
         checks, findings = _decided(text, "mathematics_aa")
         assert checks == [] and [c for c, _m in findings] == ["ST-UNDEC-001"], (text, findings)
 

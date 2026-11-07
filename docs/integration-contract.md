@@ -408,7 +408,12 @@ Above the engine, the package turns specialist reports into IR. This translation
     student-facing text) holds a control character other than a tab or a line break, a
     bidirectional embedding, override or isolate, or no visible character, or a claim citing one
     source claim twice (the combinator port's published text rule,
-    `integrity.contracts.SYNTHESIS_TEXT_PATTERN`); INT-REQ-014 is a failed check in the response
+    `integrity.contracts.SYNTHESIS_TEXT_PATTERN`); since round 8's clearance INT-REQ-009 also
+    refuses a specialist's response whose own text (the response, or a structured report's claims,
+    assumptions and source references; never the router's supplied texts) holds a bidirectional
+    embedding, override or isolate (U+202A to U+202E, U+2066 to U+2069, the bidirectional class of
+    that rule), raw text before it is parsed (rule bidi-text, `channel.bus.bidi_control_message`):
+    a reader may be shown such text in another order than every check reads it; INT-REQ-014 is a failed check in the response
     gate; INT-HANDOFF-013 also refuses a router forward that replies to another message than the
     delivery of the report it carries.
   - **Claim ids:** the generic parser qualifies its claim ids with the agent

@@ -57,7 +57,8 @@ from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
 from .layout import annotation_ranges, label_only_rest, plain_line
 from .normalize import blank_ranges, reading_view
 from .parser import STEM_NAMES
-from .units import compound_part, english_word_atom, is_unit_atom, prefixed_greek_unit, unit_group
+from .units import compound_part, english_word_atom, prefixed_greek_unit, unit_group
+from .units import stem_is_unit_atom as is_unit_atom  # rule count-noun: the STEM readings
 
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
@@ -69,6 +70,10 @@ _STOPWORDS = frozenset({"is", "so", "of", "to", "be", "in", "by", "or", "if", "a
                         "both", "some", "such", "what", "which", "will", "were", "have", "has", "had", "not", "but", "are", "was", "its", "one", "two",
                         "per", "all", "any", "can", "may", "our", "out", "own", "too", "via", "who", "why", "how", "yet", "nor", "let", "use", "using",
                         "take", "taking", "given", "where", "since", "thus", "hence", "gives"})
+#: round-8 clearance (rule glued-run): English words written glued to a slash or a sign that are no product of symbols ('and/or', 'per/each')
+_GLUED_RUN_WORDS = frozenset({"and", "or", "per", "the", "not", "nor", "yes", "no", "with", "via", "from", "into", "onto", "each", "both", "then",
+                              "than", "this", "that", "who", "how", "why", "what", "when", "true", "false", "unit", "units", "item", "page",
+                              "line", "step", "part", "rate", "time", "mass", "area", "load", "cost", "net", "max", "min", "avg", "mean", "sum"})
 _ARTICLES = frozenset({"the", "a", "an", "of", "all", "some", "this", "that", "each"})
 #: bracket depth up to which a relation inside brackets that open a run is read from inside them
 _MAX_ASIDE_DEPTH = 3
@@ -520,6 +525,16 @@ def _emphasis_pairs(view: str, start: int, end: int, pos: int, covered: "_Cover"
             if single and (line.startswith(marker * 2, k) or (k > 0 and line[k - 1] == ch)):
                 k += 1
                 continue
+            if ch == "_" and (k == 0 or line[k - 1] in " \t(=:") and not (k > 0 and line[k - 1] == "_"):
+                r = k
+                while r < n and line[r] == "_":
+                    r += 1
+                if r - k >= 3 and (r >= n or line[r] in " \t.,;:)"):
+                    # round-8 clearance: a run of three or more underscores standing alone ('= ____ mol', a template's blank) is a blank to
+                    # fill, never an emphasis marker: two blanks of one line had been paired as bold italic and blanked with the text
+                    # between them, and the claim lost its blanks
+                    k = r
+                    continue
             if marker in _NOT_IN_MATH and _inside(start + k, covered):
                 k += 1
                 continue
@@ -580,12 +595,12 @@ def _furniture(view: str, ln: Line, markup: list[tuple[int, int]], covered: "_Co
 
 
 def _list_is_math(view: str, a: int, b: int, marker: str) -> bool:
-    """A leading ``- 2 = x``? A minus followed by a number and a relation is maths, not a list marker."""
-    m = marker.strip()
-    if m not in ("-", "–", "—"):
-        return False
-    rest = view[a:b].lstrip()
-    return bool(rest) and (rest[0].isdigit()) and ("=" in rest[:40])
+    """A leading dash written with a blank after it is a list marker, never a minus. Round-8 clearance (rule list-marker): a dash list of
+    working ('- 181 − 128 = 53', '- 20 − 4.0 = 16 m s⁻¹') had been read with each marker as the minus of its first number (−181 − 128 =
+    53), so every correct line of the list failed (INT-SUBJ-001); the two readings of '- 2 = x' differ, and the design never lets that
+    ambiguity become an error (P4): the marker reading is kept, as Markdown renders it. A minus written glued to its number ('-2 = x') is
+    no list marker and is read as before."""
+    return False
 
 
 # ----------------------------------------------------------------------------------------- math runs
@@ -661,6 +676,13 @@ class _RunFinder:
         if self.mathy_start(t):
             return True
         nxt = self.t[k + 1] if k + 1 < len(self.t) else None
+        if t.kind == "IDENT" and 2 <= len(t.text) <= 4 and t.text.isascii() and t.text.isalpha() and t.text.lower() not in _STOPWORDS \
+                and t.text.lower() not in _GLUED_RUN_WORDS and nxt is not None and not nxt.space and nxt.start == t.end \
+                and ((nxt.kind == "OP" and nxt.text in ("/", "×", "·", "*")) or (nxt.kind == "SUP" and nxt.value is not None) or nxt.kind == "CARET"):
+            # round-8 clearance (rule glued-run): a short run of letters glued to an operator or a power ('GMm/r² = mv²/r', 'kx²/2') is a
+            # product of symbols, never prose: the run starts there. It had started nowhere, so a force balance written that way was not
+            # read at all, and the step after it ('so v² = GM/r²') was checked against nothing
+            return True
         return (t.kind == "IDENT" and 2 <= len(t.text) <= 3 and t.text.isascii() and t.text.isalpha() and t.text.lower() not in _STOPWORDS
                 and nxt is not None and nxt.kind == "REL" and nxt.text in ("=", "≈"))
 
@@ -880,6 +902,15 @@ class _RunFinder:
                 elif kind in ("SUB", "SUP", "CARET") and k > i and toks[k - 1].kind in ("UNSUP", "SUB", "SUP", "CARET", "NUM") and not t.space \
                         and any(x.kind == "UNSUP" for x in toks[max(i, k - 4):k]):
                     pass  # the limits of an integral or a sum: ∫₁³, \sum_{i=1}^{n}
+                elif kind == "SUP" and k > i and toks[k - 1].kind == "FUNC" and not t.space:
+                    # round-8 clearance: the power of a function written on its name ('cos²(10t)', 'sin²x'): the operand goes on. It had ended
+                    # the run, so '100x² = 1600 cos²(10t)' was read as the equation '100x² = 1600' (a cut relation that a later root was then
+                    # checked against, INT-SUBJ-001 on correct work) and 'y = 3 cos²(2t)' as the binding 'y = 3'
+                    pass
+                elif kind == "CARET" and k > i and toks[k - 1].kind == "FUNC" and not t.space and k + 1 < n and toks[k + 1].kind == "NUM" \
+                        and not toks[k + 1].space:
+                    k += 2  # 'cos^2(10t)': the power of the function written with a caret
+                    continue
                 elif kind == "INF":
                     operand, prev_value = False, False
                 elif kind == "BOOL" and t.text == "¬":

@@ -15,8 +15,9 @@ the call's budget (``integration/PROTOCOL.md`` section 5.3).
   ``{report_id, claims: {claim_id: object}, claim_text_sha256}``), each item found by the SHA-256 of its recorded answer
   and each fixture bound to its claim by claim id and claim-text digest. It serves exactly what
   ``scripts/arena/run_arena.py`` serves for the same item (``tests/integration/test_fixture_parity.py`` runs both on the
-  corpus); like the arena's verifier it is called as ``fn(claim, report)``, so the outcomes equal the arena's. A live
-  provider's verifier is task-aware (``fn(claim, report, task=...)``).
+  corpus); like the arena's verifier (since round 8's clearance) it is task-aware, called as ``fn(claim, report,
+  task=...)`` with the task record of the request (``BudgetedVerifier.with_task``), so the outcomes, and the digests of the
+  encoded problems, equal the arena's. A live provider's verifier is task-aware too.
 """
 from __future__ import annotations
 
@@ -99,13 +100,15 @@ class BudgetedVerifier:
         return out
 
     def plain(self) -> Callable[[Any, Any], Any]:
-        """``fn(claim, report)``: the arena's calling convention (the fixture corpus)."""
+        """``fn(claim, report)``: a verifier that takes no task record (the arena's calling convention before round 8's
+        clearance; the fixture corpus now uses :meth:`with_task`, as the arena passes the task record)."""
         def fn(claim: Any, report: Any) -> Any:
             return self._call(claim, report, None)
         return fn
 
     def with_task(self) -> Callable[..., Any]:
-        """``fn(claim, report, task=...)``: the live providers' calling convention (the channel passes the task record)."""
+        """``fn(claim, report, task=...)``: the live providers' and the fixture corpus's calling convention (the channel
+        passes the task record, as it does to the arena's verifier)."""
         def fn(claim: Any, report: Any, task: Any = None) -> Any:
             return self._call(claim, report, task)
         return fn
@@ -234,10 +237,13 @@ class FixtureCorpus:
         return self._index.get(answer_sha256)
 
     def verifier_for(self, answer_sha256: str, *, config: Any, signing_key: bytes, key_id: Optional[str] = None,
-                     prefetch: bool = False) -> tuple[Optional[Callable[[Any, Any], Any]], Optional[Any]]:
-        """``(fn(claim, report), provider)`` serving the item's fixtures exactly as ``run_arena.make_verify_fn`` does
-        (claim ids outside the fixtures get no outcome; a claim whose text changed is refused as stale), or
-        ``(None, None)`` when no item has this answer. A fixture recorded under the arena's request id of its item
+                     prefetch: bool = False) -> tuple[Optional[Callable[..., Any]], Optional[Any]]:
+        """``(fn(claim, report, task=...), provider)`` serving the item's fixtures exactly as ``run_arena.make_verify_fn``
+        does, called as ``run_arena.make_verify_fn``'s verifier is: with the task record of the request, which the
+        translator validates task-authority premises against (round 8's clearance; without it the encoded problems of an
+        item whose fixtures carry task_setting or arithmetic_fact premises differed from the arena's, so the simulation's
+        G-EQ-ARENA digests differed). Claim ids outside the fixtures get no outcome; a claim whose text changed is refused as
+        stale; ``(None, None)`` when no item has this answer. A fixture recorded under the arena's request id of its item
         (``req-<item>``, or ``req-<group>``) is served under the request id of the claim being translated
         (:class:`RekeyingFixtureProvider`; a no-op in the arena, whose claims carry that id); a fixture recorded for
         another request is served as it is, and refused as the arena refuses it. A fixture recorded under the other form
@@ -258,7 +264,7 @@ class FixtureCorpus:
         translator = Translator(provider)
         ids = frozenset(doc["claims"])
 
-        def fn(claim: Any, report: Any) -> Any:
+        def fn(claim: Any, report: Any, task: Any = None) -> Any:
             key = claim.claim_id if claim.claim_id in ids else None
             if key is None:
                 other = other_id_form(claim.claim_id, qualification_tag(report))
@@ -269,7 +275,7 @@ class FixtureCorpus:
             if key != claim.claim_id:
                 use = Translator(RekeyingFixtureProvider({claim.claim_id: fixture_for_claim(doc["claims"][key], key, claim.claim_id)},
                                                          {claim.claim_id: doc["claim_text_sha256"][key]}, arena_request_id=self._arena_request_ids.get(item)))
-            return verify_claim(claim, report, use, config=config, signing_key=signing_key, key_id=key_id)
+            return verify_claim(claim, report, use, config=config, signing_key=signing_key, key_id=key_id, task=task)
         return fn, provider
 
 

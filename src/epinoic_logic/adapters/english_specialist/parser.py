@@ -176,7 +176,7 @@ from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, Sup
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
+    find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution, is_sources_block,
     is_self_certification, mask_json_spans, parser_quotation_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
 )
 from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
@@ -190,7 +190,7 @@ __all__ = [
 
 AGENT_ID = "english-specialist"
 DEFAULT_SUBJECT = "English A: Literature"
-ParagraphKind = Literal["thesis", "body", "conclusion", "meta", "list"]
+ParagraphKind = Literal["thesis", "body", "conclusion", "meta", "list", "sources"]
 
 LINK_SIGNPOSTS: tuple[str, ...] = ("Effectively", "Thus", "Ultimately", "Therefore", "Consequently", "Hence")
 #: Sentence leads that draw the paragraph's strands together ("Read together, the clear air ... suggest that ..."): a link
@@ -239,7 +239,7 @@ _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
     "mr", "mrs", "ms", "dr", "st", "vs", "etc", "cf", "no", "l", "ll", "p", "pp", "ch", "vol", "ed", "eds",
-    "trans", "fig", "sc", "e.g", "i.e", "ibid", "op", "cit", "prof", "sr", "jr",
+    "trans", "fig", "sc", "e.g", "i.e", "ibid", "op", "cit", "prof", "sr", "jr", "al",
 })
 #: A label line that narrates checking rather than analysing (``VERIFIED: all claims checked``).
 META_LABEL_RE = re.compile(
@@ -257,8 +257,16 @@ META_NARRATION_RE = re.compile(
 )
 _BULLET_RE = re.compile(r"^\s*(?:[-*•–]|\d+[.)])\s+")
 _HEADING_RE = re.compile(r"^\*\*[^*\n]+\*\*\s*$|^#{1,6}\s")
-#: Generic ways a sentence names the one literary text supplied (never a relayed peer report).
+#: Generic ways a sentence names the one literary text supplied (never a relayed peer report), read over the whole sentence by
+#: :func:`documents_named` (which the generic, History and STEM parsers share).
 _TEXT_CUE_RE = re.compile(r"\bthe (?:poem|sonnet|extract|passage|novel|play|story|source text|supplied text)\b", re.IGNORECASE)
+#: The cue the clause-aware credit reader of the structural checks reads (``structural._governing_document``): a non-literary text under
+#: analysis named by its kind names it too (Language and Literature: "the text gives "RRP £240"", "the advertisement", "the
+#: infographic"), so a quotation its own clause credits to the text is not credited to a colleague named in a later clause (c1). It is
+#: read by clause only: over a whole sentence, 'the trap is "toda", since the text says almost half was lost' would credit to the
+#: article a word of the request (round 7, sp-t13).
+_TEXT_KIND_CUE_RE = re.compile(r"\bthe (?:poem|sonnet|extract|passage|novel|play|story|source text|supplied text|text|advertisement|advert|infographic"
+                               r"|poster|cartoon|leaflet|article|editorial|brochure|website|photograph)\b", re.IGNORECASE)
 _PEER_DOCUMENT_PREFIX = "peer:"
 _MAX_META_WORDS = 25
 _MAX_HEADING_WORDS = 12
@@ -698,7 +706,12 @@ def segment(text: str) -> tuple[Paragraph, ...]:
     raw = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(normalised) if p.strip()]
     units: list[tuple[ParagraphKind, str]] = []
     for block in raw:
-        if is_meta_block(block):
+        if is_sources_block(block):
+            # the answer's list of sources ("Sources: The Tuner extract (supplied text); course notes ..."): provenance meta-text the knowledge
+            # bases ask for, one claim of role 'other' (its id the paragraph's 'point', as when it was read as a body paragraph), no body
+            # paragraph and no meta-text finding (c1 bug 4)
+            units.append(("sources", block))
+        elif is_meta_block(block):
             units.append(("meta", block))
         elif is_list_block(block):
             if units and units[-1][0] == "list":
@@ -713,7 +726,7 @@ def segment(text: str) -> tuple[Paragraph, ...]:
     for i, (kind, block) in enumerate(units, start=1):
         if kind == "body":
             kind = next(prose_kinds)
-        raw_sentences = _list_sentences(block) if kind == "list" else split_sentences(block)
+        raw_sentences = _list_sentences(block) if kind == "list" else [" ".join(block.split())] if kind == "sources" else split_sentences(block)
         sentences: list[Sentence] = []
         argued = 0  # sentences that are neither meta nor a note: the first of them is the point
         in_fixes = False  # a list of fixes is open ("Fix it: 1. ...", "2. ...") until another labelled line
@@ -722,7 +735,7 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         note_led = kind in ("thesis", "body", "conclusion") and bool(_BARE_NOTE_BLOCK_RE.match(block.strip())) and not _block_quotations(block)
         for j, s in enumerate(raw_sentences, start=1):
             notes: tuple[str, ...] = ()
-            if note_led:
+            if note_led or kind == "sources":
                 role: ClaimRole = "other"
             elif kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
                 role = "other"
@@ -1074,6 +1087,12 @@ def parse_response(
     for para in paragraphs:
         if not para.sentences or para.kind == "meta":
             continue  # meta-text is never part of the argument
+        if para.kind == "sources":
+            # the list of sources: one note, never part of the argument and never material
+            add(f"p{para.index}-point{suffix}", para.sentences[0].text, "other", proposed_claim_kind="unknown", materiality="supporting",
+                certainty="possible", parent_claim_id=None,
+                assumptions=["the answer's list of sources: provenance meta-text, not a claim of the answer; it counts toward no bound"])
+            continue
         point_sentence = next((s for s in para.sentences if s.role == "point"), None) if para.kind == "body" else None
         point_id = f"p{para.index}-point{suffix}" if point_sentence is not None else None
         paragraph_start = len(claims)

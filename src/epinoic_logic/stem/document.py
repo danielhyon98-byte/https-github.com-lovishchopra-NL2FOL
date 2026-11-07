@@ -31,7 +31,7 @@ from .chem import latex_to_chem, parse_equation
 from .datatables import parse_data_tables
 from .lexer import RELATION_LOOKALIKES, Token, is_sign_error, lex, sign_outside_grammar
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
-from .nodes import BinOp, Neg, Num, Operand, Percent, Quantity, Sym, is_value, render, shape_key, value_of
+from .nodes import BinOp, Neg, Num, Operand, Percent, Quantity, Sym, is_value, render, shape_key, symbols, value_of
 from .normalize import SIGN_FORMS, blank_ranges, reading_view
 from .numbers import scan_number
 from .parser import ParseContext, ParsedMath, ParseIssue, parse_math
@@ -201,10 +201,12 @@ def _sha(text: str) -> str:
 _SIGN_TABLE = {ord(k): v for k, v in SIGN_FORMS.items()}
 
 
-def _operand_view(text: str, emphasis: tuple[tuple[int, int], ...]) -> str:
-    """``StemDocument.operand_view``: ``text`` with the forms of a sign mapped one for one and the emphasis markers blanked."""
+def _operand_view(text: str, emphasis: tuple[tuple[int, int], ...], list_markers: tuple[tuple[int, int], ...] = ()) -> str:
+    """``StemDocument.operand_view``: ``text`` with the forms of a sign mapped one for one and the emphasis markers blanked. Round-8
+    clearance (rule list-marker): the list markers are blanked too, so the dash of '- 181 − 128 = 53' is no operator adjoining the operand."""
     view = text.translate(_SIGN_TABLE)
-    return blank_ranges(view, emphasis) if emphasis else view
+    blanks = tuple(sorted(emphasis + list_markers))
+    return blank_ranges(view, blanks) if blanks else view
 
 
 def build_document(text: str, request_text: Optional[str] = None, profile: "str | StemProfile" = "physics", *,
@@ -839,7 +841,31 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
     series, years = _request_series(rd)
     return RequestReading(bindings=bindings, quantities=tuple(quantities), relations=tuple(req_relations), targets=tuple(targets), text=request_text,
                           restricts_domain=restricts, tables=tables, values=values, named_quantities=_named_quantities(request_text, quantities),
-                          series=series, years=years), scope
+                          series=series, years=years, bool_defs=_request_bool_defs(rd)), scope
+
+
+#: round-8 clearance (rule boolean-output): the most Boolean definitions of a request that are kept
+_MAX_REQUEST_BOOL_DEFS = 16
+
+
+def _request_bool_defs(rd) -> tuple:
+    """The names the request defines as Boolean expressions of other inputs ('output X = (A AND B) OR (NOT A AND C)'): a Boolean relation
+    whose one side is a lone name the other side does not use and whose other side is an expression (rule boolean-output)."""
+    out: list[tuple[str, object]] = []
+    seen: set[str] = set()
+    for item in rd.items:
+        for br in item.booleans:
+            if br.op not in ("=", "≡", "⇔"):
+                continue
+            for name_side, expr_side in ((br.left, br.right), (br.right, br.left)):
+                if isinstance(name_side, Sym) and not isinstance(expr_side, (Sym, Num)) and name_side.name not in symbols(expr_side) \
+                        and name_side.name not in seen:
+                    seen.add(name_side.name)
+                    out.append((name_side.name, expr_side))
+                    break
+            if len(out) >= _MAX_REQUEST_BOOL_DEFS:
+                return tuple(out)
+    return tuple(out)
 
 
 #: argument diagnostics (ST-RANGE-001): a list of bare numbers right before a value with a unit, which shares the unit ('10, 20 and 30 °C'),
@@ -847,6 +873,13 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
 _SHARED_UNIT_LIST_RE = re.compile(r"(?<![\w.,])((?:\d{1,12}(?:\.\d{1,12})?\s*,\s*){0,24}\d{1,12}(?:\.\d{1,12})?)\s*,?\s+(?:and|or)\s+$")
 _SERIES_NUMERAL_RE = re.compile(r"\d{1,12}(?:\.\d{1,12})?")
 _SHARED_UNIT_WINDOW = 240
+
+
+#: round-8 clearance (ST-RANGE-001): the words right before a year that make it a course's or an exam's year, never a year the data name
+#: ('the course first assessed in 2025', 'my exams are in May 2027'), read in a window before the year, anchored at its end
+_EXAM_YEAR_WINDOW = 48
+_EXAM_YEAR_RE = re.compile(r"\b(?:assessed|exams?|examinations?|syllabus|course|curriculum|graduat\w{0,4}|class\s+of|cohort)\b[^.;:\d]{0,30}$",
+                           re.IGNORECASE)
 
 
 def _request_series(rd) -> tuple[tuple, tuple]:
@@ -887,6 +920,8 @@ def _request_series(rd) -> tuple[tuple, tuple]:
 
     for pv in rd.prose_values:
         v = value_of(pv.node)
+        if _year(v) and _EXAM_YEAR_RE.search(rd.reading[max(0, pv.start - _EXAM_YEAR_WINDOW):pv.start]):
+            continue  # round-8 clearance: a course's or an exam's year ('first assessed in 2025', 'my exams are in May 2027') names no data
         if _year(v):
             per_year.setdefault(pv.statement_id, set()).add(v[0])
         elif v is not None and v[2] is not None:
@@ -981,7 +1016,7 @@ def _supplied_units(text: str) -> str:
     """A supplied text's units written with ASCII exponents, in superscripts ('50.0 cm3' -> '50.0 cm³', 'mol dm-3' -> 'mol dm⁻³'), and
     '+/-' as '±': the forms the unit reader reads. Only an atom the table of units knows, right after a number or another unit, is
     rewritten (a formula 'H2O' or a label 'Q1' is not). The answer's own text is never rewritten; this is the supplied data's reading."""
-    from .units import is_unit_atom, parse_unit
+    from .units import stem_is_unit_atom as is_unit_atom, stem_parse_unit as parse_unit
     out: list[str] = []
     last = 0
     for m in _ASCII_UNIT_EXP_RE.finditer(text):
@@ -1035,7 +1070,7 @@ _UNC_UNIT_RE = re.compile(r"[ \t]*([^\s;,()]+(?:[ \t]+[^\s;,()]+){0,3})")
 def _uncertainty_unit(text: str, end: int):
     """The unit written after an uncertainty's number ('±0.5 °C; stopwatch …' -> °C): the longest run of at most four words from
     ``end`` that the table of units reads with a dimension, a final full stop dropped; None when there is none."""
-    from .units import parse_unit
+    from .units import stem_parse_unit as parse_unit
     m = _UNC_UNIT_RE.match(text, end, min(len(text), end + 80))
     if m is None:
         return None
@@ -1172,4 +1207,4 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
                         statements=rd.seg.statements, paragraphs=rd.seg.paragraphs, items=tuple(rd.items), relations=tuple(relations),
                         findings=tuple(findings), bindings=bindings, formulas=formulas, substitutions=substitutions, names=frozenset(all_names | set(scope.names)), request=request,
                         prose_values=tuple(rd.prose_values), overflow=rd.seg.overflow, limits=limits, _by_id=by_id, changes=changes,
-                        operand_view=_operand_view(text, rd.spans.emphasis), dots=rd.dots)
+                        operand_view=_operand_view(text, rd.spans.emphasis, rd.spans.list_markers), dots=rd.dots)

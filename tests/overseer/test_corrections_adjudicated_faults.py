@@ -75,6 +75,19 @@ recorded E111 (COUNTEREXAMPLE relying on no premise, as before; standings, grade
 Version 7 records that, keeping version 6's runs (``engine_runs_v6``); the version-6 record is rebuilt from the shipped
 one and pinned as refused on the merged engine. The tests marked "version 6" assert on the shipped record (version 7)
 what they asserted on version 6, which holds the same adjudication.
+
+Round-8 clearance c1 (record version 8): the translator's pipeline now applies its SEMANTIC circularity rule
+(``translate.restatement``, its step 4c beyond a restatement as written; E112 at translation), so it withholds the three
+restored entries' recorded encodings (no problem is delivered, the engine is not run, no verdict is displayed). Version 8
+retires them by a new kind of retirement (``translator_semantic``): the translator's semantic rule, re-run on the embedded
+IR as the pipeline grounds it, names exactly the premises the retirement states, and the pipeline served the recorded
+proposal withholds it; each keeps every field (its restoration and its version-7 evidence), and that evidence is re-derived
+with the pipeline run it records taken on the pipeline WITHOUT its semantic rule and the overseer's own rules reading it as
+they did then (``pipeline_superseded``). The version-7 record is rebuilt from the shipped one (``V7``) and pinned as refused.
+The tests marked "version 3" to "version 7" keep every assertion on the data they read (the version-7 entries as the gate
+saw them) and assert on the shipped record (version 8) what it now holds; where an assertion re-derives a pipeline run that
+version 7 recorded, it is made, as then, on the translator before the clearance (its semantic rule off,
+``without_the_translators_semantic_gate``), and what the translator as it is gives is asserted beside it.
 """
 from __future__ import annotations
 
@@ -96,7 +109,9 @@ from epinoic_logic.engine import SolverConfig, verify  # noqa: E402
 from epinoic_logic.ir.canonical import canonical_json  # noqa: E402
 from epinoic_logic.overseer.codes import ovs_finding  # noqa: E402
 
-RECORD = json.loads(RC.ADJUDICATIONS_FILE.read_text(encoding="utf-8"))  # the shipped record (version 7)
+from .conftest import without_the_translators_semantic_gate  # noqa: E402
+
+RECORD = json.loads(RC.ADJUDICATIONS_FILE.read_text(encoding="utf-8"))  # the shipped record (version 8)
 CS = "r7/cs-t13/g11.3/OVS-TRN-006"
 ESS = "r7/ess-t13/g4.3/OVS-TRN-006"
 P7A = "r7/p7a/g4.1@economics-specialist/OVS-TRN-006"
@@ -108,6 +123,20 @@ _RETIREMENT = ("retired_in_version", "why_retired", "retirement_evidence")
 
 def _retired_in(version: int) -> list[dict]:
     return [e for e in RECORD["retired"] if e["retired_in_version"] == version]
+
+
+def _as_in_version_7(e: dict) -> dict:
+    """An entry version 8 retired, as version 7 held it: every field but the version-8 retirement (version 8 keeps the
+    restored entry whole, with the evidence version 7 re-derived for it)."""
+    return {k: v for k, v in e.items() if k not in _RETIREMENT}
+
+
+#: The version-7 record (the three restored entries beside the retirements of versions 2 and 4), rebuilt from the shipped
+#: record: version 8 retired the three (kind translator_semantic, round-8 clearance c1), each keeping every field and its
+#: version-7 evidence. The harness on the translator as it is refuses it (the translator withholds each recorded encoding).
+V7 = {**{k: v for k, v in RECORD.items() if k not in ("entries", "retired", "changes")}, "version": 7,
+      "entries": [_as_in_version_7(e) for e in _retired_in(8)], "retired": [e for e in RECORD["retired"] if e["retired_in_version"] < 8],
+      "changes": [c for c in RECORD["changes"] if c["version"] <= 7]}
 
 
 #: The version-1 record (the two adjudicated entries), rebuilt from the entries the shipped record retired in version 2,
@@ -127,7 +156,8 @@ V3 = {**{k: v for k, v in RECORD.items() if k not in ("entries", "retired", "cha
 #: versions 2 and 4), rebuilt from the shipped record (the entries are the ones version 5 retired, with every field and their
 #: original evidence): the corrected harness refuses it (rule engine-shown, part two).
 def _restored_in(version: int) -> list[dict]:
-    return [e for e in RECORD["entries"] if e.get("restored_in_version") == version]
+    """The entries ``version`` restored, as version 7 held them (version 8 retired them, keeping every field)."""
+    return [e for e in V7["entries"] if e.get("restored_in_version") == version]
 
 
 def _as_in_version_4(e: dict) -> dict:
@@ -161,10 +191,19 @@ def _as_in_version_6(e: dict) -> dict:
     return {**e, "retirement_evidence": {**{k: v for k, v in rev.items() if k != "engine_runs_v6"}, "engine_runs": rev["engine_runs_v6"]}}
 
 
-#: The version-6 record (the three restored entries, the three retirements), rebuilt from the shipped record (version 7
-#: changed only p7a's recorded engine runs, version 6's kept): the harness on the merged engine refuses it.
-V6 = {**{k: v for k, v in RECORD.items() if k not in ("retired", "changes")}, "version": 6,
-      "retired": [_as_in_version_6(e) for e in RECORD["retired"]], "changes": [c for c in RECORD["changes"] if c["version"] <= 6]}
+#: The version-6 record (the three restored entries, the three retirements), rebuilt from the version-7 record (version 7
+#: changed only p7a's recorded engine runs, version 6's kept), itself rebuilt from the shipped one: the harness on the merged
+#: engine refuses it.
+V6 = {**{k: v for k, v in V7.items() if k not in ("retired", "changes")}, "version": 6,
+      "retired": [_as_in_version_6(e) for e in V7["retired"]], "changes": [c for c in RECORD["changes"] if c["version"] <= 6]}
+_SHIPPED: dict = {}
+
+
+def _shipped() -> dict:
+    """The shipped record as the harness loads it (loaded once, on the translator as it is; a copy each time)."""
+    if "a" not in _SHIPPED:
+        _SHIPPED["a"] = RC.load_adjudications()
+    return copy.deepcopy(_SHIPPED["a"])
 _V1: dict = {}
 
 
@@ -239,15 +278,23 @@ def test_version_2_a_record_whose_retirements_do_not_hold_is_refused(tmp_path, d
 
 
 @pytest.mark.parametrize("kind", ["task_setting", "rubric_rule"])
-def test_version_2_a_retirement_the_translator_no_longer_supports_refuses_the_record(tmp_path, kind):
+def test_version_2_a_retirement_the_translator_no_longer_supports_refuses_the_record(tmp_path, monkeypatch, kind):
     """A retired encoding the translator would deliver again (its restating premise grounded in the task, or under another
     label the translator's own rule reads as a transcription, so that rule does not hold and its gate passes it) refuses
     the record: the entry must be restored. Record version 5 (rule data-standing): on the original input, a task_setting
     premise with no excerpt in an entry that embeds no request, the entry's evidence no longer certifies a fault either (the
     standing of that premise needs the request), and the loader names both; under ``rubric_rule`` (a source no check reads:
-    shown not to be data without the request) the original evidence still reproduces, as the test asserted before."""
+    shown not to be data without the request) the original evidence still reproduces, as the test asserted before.
+
+    Round-8 clearance c1 (rewritten to a stricter rule; every assertion kept): the translator's pipeline now also applies its
+    SEMANTIC circularity rule (``translate.restatement``), which withholds the relabelled encoding as well (its premise
+    restates the conclusion under a label no check verifies), so on the translator as it is the gate no longer "would
+    deliver" it; the retirement still fails, because the rule as written that it states (every restating premise the
+    writer's own) no longer holds, and the record is still refused. That the gate would deliver it is asserted, as before,
+    on the translator as it was before the clearance (its semantic rule off)."""
     from epinoic_logic.ir.canonical import problem_digest
     from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.translate.pipeline import Translator, _Rejected
     doc = copy.deepcopy(V2)
     e = doc["retired"][0]
     prob = e["translation"]["problem"]
@@ -258,6 +305,14 @@ def test_version_2_a_retirement_the_translator_no_longer_supports_refuses_the_re
                                           "re-derive their standing (rule data-standing)"]
     else:
         assert RC._evidence_faults(e) == []  # the original evidence still reproduces (ENTAILED; COUNTEREXAMPLE without the premise)
+    faults = "; ".join(RC._retirement_faults(e))
+    assert "no longer holds" in faults and "would deliver" not in faults, faults
+    with pytest.raises(_Rejected) as rejected:  # the translator's semantic rule withholds the relabelled encoding (E112)
+        Translator._circularity(Problem.model_validate(prob), "retirement")
+    assert rejected.value.status.value == "INVALID_FORMALIZATION" and any("E112" in d for d in rejected.value.diagnostics)
+    with pytest.raises(H.HarnessError, match="restore the entry"):
+        RC.load_adjudications(_write(tmp_path, doc))
+    without_the_translators_semantic_gate(monkeypatch)  # the translator as it was before round-8 clearance c1
     assert "no longer holds" in "; ".join(RC._retirement_faults(e)) and "would deliver" in "; ".join(RC._retirement_faults(e))
     with pytest.raises(H.HarnessError, match="restore the entry"):
         RC.load_adjudications(_write(tmp_path, doc))
@@ -433,12 +488,19 @@ def _entry(entry_id: str) -> dict:
 
 
 def _retired(entry_id: str) -> dict:
-    """A retired entry of the shipped record, or a version-5 retirement as the restored entry keeps it."""
-    return next(e for e in RECORD["retired"] + V5["retired"] if e["id"] == entry_id)
+    """A retirement of the version-7 record (rebuilt from the shipped one), or a version-5 retirement as the restored entry
+    keeps it (the restorations version 8 retired again are :func:`_retired_v8`)."""
+    return next(e for e in V7["retired"] + V5["retired"] if e["id"] == entry_id)
 
 
 def _restored(entry_id: str) -> dict:
-    return next(e for e in RECORD["entries"] if e["id"] == entry_id)
+    """A restored entry as version 7 held it (version 8 retired it, keeping every field)."""
+    return next(e for e in V7["entries"] if e["id"] == entry_id)
+
+
+def _retired_v8(entry_id: str) -> dict:
+    """A restored entry as the shipped record keeps it: retired in version 8 (kind translator_semantic)."""
+    return next(e for e in RECORD["retired"] if e["id"] == entry_id and e["retired_in_version"] == 8)
 
 
 def test_version_3_the_record_version_3_is_refused_its_entry_is_not_one_the_engine_shows(tmp_path):
@@ -469,7 +531,7 @@ def test_version_3_the_record_version_3_is_refused_its_entry_is_not_one_the_engi
                       "['C-g4.2'] (keeping ['T-q25']) gives ENTAILED, so the result does not rest on a premise shown not to be data"]
 
 
-def test_version_6_restores_the_task_restatements_version_5_retired_with_evidence_the_harness_re_derives():
+def test_version_6_restores_the_task_restatements_version_5_retired_with_evidence_the_harness_re_derives(monkeypatch):
     """Rewritten from ``test_version_5_retires_the_task_restatements_version_4_adjudicated_with_evidence_the_harness_re_derives``
     (record version 6, the fourth repair of the translator merge, decision 56). Every assertion that test made on the
     version-5 retirements and on the version-4 evidence they kept is made on them as the restored entries keep them
@@ -482,9 +544,26 @@ def test_version_6_restores_the_task_restatements_version_5_retired_with_evidenc
     restatement OVS-TRN-011. Two assertions pinned the fault the review of the third repair found and are reversed: the
     retirement no longer reproduces (the corrected rules show the Boolean premises are not data, and rule engine-shown
     grades the restatement OVS-TRN-006: the entry must be restored), and the entry is no longer refused (restored, its
-    evidence re-derived from the same sources, it reproduces; its version-4 evidence alone is still refused)."""
-    a = RC.load_adjudications()  # the shipped record: version 7 holds version 6's adjudication (the second translator merge)
-    assert a["version"] == 7 and [x["id"] for x in a["entries"]] == [LIT, M11, M71] and [x["id"] for x in a["retired"]] == [CS, ESS, P7A]
+    evidence re-derived from the same sources, it reproduces; its version-4 evidence alone is still refused).
+
+    Record version 8 (round-8 clearance c1; rewritten to a stricter rule, every assertion kept): the translator's pipeline
+    now withholds the three recorded encodings by its semantic circularity rule, so version 8 retired the restored entries
+    (kind translator_semantic), keeping each whole: version 7's adjudication (version 6's) is the rebuilt ``V7``. On the
+    translator as it is, each restored entry's evidence no longer reproduces as recorded (the pipeline delivers no problem)
+    and reproduces with its recorded pipeline run re-derived on the pipeline without its semantic rule, the overseer's own
+    rules reading it as they did then (``pipeline_superseded``, which replaces the assertion that it reproduces as recorded);
+    its version-8 retirement reproduces. Every other assertion is made, as before, on the translator as versions 6 and 7
+    recorded it (its semantic rule off)."""
+    a = RC.load_adjudications()  # the shipped record: version 8 retired the restored entries (the translator withholds them)
+    assert a["version"] == 8 and a["entries"] == [] and [x["id"] for x in a["retired"]] == [CS, ESS, P7A, LIT, M11, M71]
+    assert [x["id"] for x in V7["entries"]] == [LIT, M11, M71] and [x["id"] for x in V7["retired"]] == [CS, ESS, P7A]  # version 7 (and 6)
+    for entry_id in (LIT, M11, M71):
+        restored = _restored(entry_id)
+        withheld = "; ".join(RC._evidence_faults(restored))
+        assert "the pipeline delivered no problem, so no circular encoding reached the receipt" in withheld, withheld
+        assert RC._evidence_faults(restored, pipeline_superseded=True) == []  # re-derived: the run without the semantic rule, as recorded
+        assert RC._retirement_faults(_retired_v8(entry_id)) == []
+    without_the_translators_semantic_gate(monkeypatch)  # the translator as versions 6 and 7 recorded it
     m11 = _retired(M11)  # the version-5 retirement, as the restored entry keeps it (every field and its original evidence)
     assert (m11["round"], m11["pass"], m11["channel"], m11["task_id"], m11["agent_id"], m11["claim_id"], m11["recorded_claim_id"], m11["code"]) == (
         "r7", "rekeyed", "mai-t13", "mai-t13", "mathematics-ai-specialist", "m1.1", "g2.1", "OVS-TRN-006")
@@ -522,11 +601,12 @@ def test_version_6_restores_the_task_restatements_version_5_retired_with_evidenc
         # restatement OVS-TRN-006, so the entry must be restored
         rf = "; ".join(RC._retirement_faults(e))
         assert "rule engine-shown grades the restatement OVS-TRN-006" in rf and "the entry must be restored" in rf, rf
-        # restored: the entry's evidence, re-derived from the same sources, reproduces, and so does its restoration
+        # restored: the entry's evidence, re-derived from the same sources, reproduces (asserted above, its pipeline run on
+        # the pipeline without the semantic rule), and so does its restoration
         restored = _restored(entry_id)
         rv = restored["evidence"]
         assert restored["restored_in_version"] == 6 and restored["superseded_retirement"]["retired_in_version"] == 5 and restored["superseded_evidence"]["version"] == 4
-        assert RC._evidence_faults(restored) == [] and RC._restoration_faults(restored, 6) == []
+        assert RC._restoration_faults(restored, 6) == []
         assert (rv["shown_premises"], rv["undecided_premises"]) == shown_of[entry_id]
         assert {rv["standings"][pid] for pid in rv["shown_premises"]} == {"uncheckable"} and all("Boolean content" in rv["why_own"][pid] for pid in rv["shown_premises"])
         assert all(rv["standings"][pid] == "undecided" for pid in rv["undecided_premises"])
@@ -543,20 +623,29 @@ def test_version_6_restores_the_task_restatements_version_5_retired_with_evidenc
     assert _restored(M11)["evidence"]["standings"]["t_comp"] == "undecided" and "stated nowhere" not in _restored(M11)["evidence"]["why_own"]["t_comp"]
 
 
-def test_version_6_a_restoration_the_harness_cannot_re_derive_is_refused(tmp_path):
+def test_version_6_a_restoration_the_harness_cannot_re_derive_is_refused(tmp_path, monkeypatch):
     """Record version 6: an entry is restored only with evidence. A restored entry that drops its superseded retirement,
     names a version the record is not, or keeps a retirement embedding other sources than its evidence is refused; and so
     is a restoration whose superseded retirement still holds (the entry stays retired: here the p7a retirement, which the
-    corrected rules still uphold, presented as superseded)."""
+    corrected rules still uphold, presented as superseded).
+
+    Record version 8 (round-8 clearance c1): the restorations are the version-7 record's (``V7``, rebuilt from the shipped
+    one, whose restored entries version 8 retired), loaded on the translator as version 7 recorded them (its semantic
+    circularity rule off) with the restored entries p1-point and m7.1, which load undamaged there (asserted first: the
+    control the damages are measured against). m1.1 is left out: on that translator the overseer's reading of it now
+    includes the translator's floor (round-8 clearance c1), which version 7's evidence does not state."""
+    without_the_translators_semantic_gate(monkeypatch)
+    base = {**V7, "entries": [e for e in V7["entries"] if e["id"] in (LIT, M71)]}
+    assert RC.load_adjudications(_write(tmp_path, base))["version"] == 7
     for damage, why in ((lambda e: e.pop("superseded_retirement"), "lacks superseded_retirement"),
-                        # a version after the record's (version 7 since the second translator merge; the test named 7 against version 6)
-                        (lambda e: e.update(restored_in_version=RECORD["version"] + 1), "names a version this record is not"),
+                        # a version after the record's (the test named 7 against version 6, then the shipped version + 1)
+                        (lambda e: e.update(restored_in_version=base["version"] + 1), "names a version this record is not"),
                         (lambda e: e["superseded_retirement"].update(retired_in_version=6), "no version before the restoration")):
-        doc = copy.deepcopy(RECORD)
+        doc = copy.deepcopy(base)
         damage(next(x for x in doc["entries"] if x["id"] == M71))
         with pytest.raises(H.HarnessError, match=why):
             RC.load_adjudications(_write(tmp_path, doc))
-    doc = copy.deepcopy(RECORD)
+    doc = copy.deepcopy(base)
     sup = next(x for x in doc["entries"] if x["id"] == M71)["superseded_retirement"]["retirement_evidence"]
     sup["recorded_answer"]["question"] = sup["recorded_answer"]["question"] + " "
     _rehash(sup, "recorded_answer")
@@ -569,14 +658,23 @@ def test_version_6_a_restoration_the_harness_cannot_re_derive_is_refused(tmp_pat
     assert any("it still reproduces, so the entry stays retired" in f for f in RC._restoration_faults(holding, 6))
 
 
-def test_version_6_the_records_versions_4_and_5_are_refused(tmp_path):
+def test_version_6_the_records_versions_4_and_5_are_refused(tmp_path, monkeypatch):
     """Rewritten from ``test_version_5_the_record_version_4_is_refused_its_entries_are_not_faults_the_engine_shows``:
     the corrected harness still refuses the version-4 record, rebuilt from the shipped one (the same assertion), and names
     for each entry why: its evidence states the second repair's reading of the overseer's rules (rule
     figure-transcription's reasons, and for m1.1 and m7.1 figure premises read as transcriptions), not the corrected
     rules', and it does not state which premises a check shows are not data. (The test asserted the third repair's
     reason, that no premise was shown not to be data, which decision 56 withdrew: each entry's Boolean premises are.) The
-    version-5 record, rebuilt the same way, is refused too: each of its version-5 retirements no longer holds."""
+    version-5 record, rebuilt the same way, is refused too: each of its version-5 retirements no longer holds.
+
+    Record version 8 (round-8 clearance c1): both are refused on the translator as it is (it withholds the encodings their
+    entries and retirements record it delivering), and, for the reasons above, on the translator as versions 6 and 7
+    recorded them (its semantic circularity rule off)."""
+    with pytest.raises(H.HarnessError, match="does not reproduce"):
+        RC.load_adjudications(_write(tmp_path, V4))
+    with pytest.raises(H.HarnessError, match="restore the entry"):
+        RC.load_adjudications(_write(tmp_path, V5))
+    without_the_translators_semantic_gate(monkeypatch)
     for e in V4["entries"]:
         faults = "; ".join(RC._evidence_faults(e))
         assert "the reasons the overseer's rule gives are not the record's" in faults, faults
@@ -592,11 +690,15 @@ def test_version_7_re_derives_the_p7a_runs_on_the_merged_engine_and_refuses_vers
     and retirements, each with every field), every piece of evidence re-derived on the merged tree. Only p7a's recorded
     run without T-q25 and C-g4.2 changes: COUNTEREXAMPLE relying on no premise, with the merged engine's advisory W111
     where the earlier engine gave E111 (no figure about q25 that the encoding omits is asserted by a source); version 6's
-    runs are kept. The version-6 record, rebuilt from the shipped one, is refused on the merged engine."""
+    runs are kept. The version-6 record, rebuilt from the shipped one, is refused on the merged engine.
+
+    Record version 8 (round-8 clearance c1): version 7's adjudication is rebuilt from the shipped record (``V7``: version 8
+    retired its entries, keeping every field) and every assertion is made on it; p7a's retirement is version 8's as it was
+    version 7's."""
     a = RC.load_adjudications()
-    assert a["version"] == 7 and [x["id"] for x in a["entries"]] == [x["id"] for x in V6["entries"]] == [LIT, M11, M71]
-    assert [x["id"] for x in a["retired"]] == [x["id"] for x in V6["retired"]] == [CS, ESS, P7A]
-    assert RECORD["entries"] == V6["entries"] and [_as_in_version_6(x) for x in RECORD["retired"]] == V6["retired"]
+    assert a["version"] == 8 and [x["id"] for x in V7["entries"]] == [x["id"] for x in V6["entries"]] == [LIT, M11, M71]
+    assert [x["id"] for x in a["retired"]][:3] == [x["id"] for x in V7["retired"]] == [x["id"] for x in V6["retired"]] == [CS, ESS, P7A]
+    assert V7["entries"] == V6["entries"] and [_as_in_version_6(x) for x in V7["retired"]] == V6["retired"]
     p7a = next(x for x in RECORD["retired"] if x["id"] == P7A)
     rev = p7a["retirement_evidence"]
     assert rev["engine_runs"] == [{"without": ["T-q25", "C-g4.2"], "status": "COUNTEREXAMPLE", "premises_relied_on": [], "diagnostics": ["W111"]},
@@ -604,7 +706,7 @@ def test_version_7_re_derives_the_p7a_runs_on_the_merged_engine_and_refuses_vers
     assert [r["diagnostics"] for r in rev["engine_runs_v6"]] == [["E111"], []] and [r["status"] for r in rev["engine_runs_v6"]] == ["COUNTEREXAMPLE", "ENTAILED"]
     assert rev["grade"] == [["OVS-TRN-010", ["C-g4.2"], ["C-g4.2"]], ["OVS-TRN-011", ["T-q25"], ["T-q25", "C-g4.2"]]]
     assert rev["expected_findings_on_replay"] == ["OVS-TRN-010", "OVS-TRN-011"] and "Record version 7" in p7a["why_retired"]
-    assert RC._retirement_faults(p7a) == [] and RECORD["changes"][-1]["version"] == 7 and "decision 73" in RECORD["changes"][-1]["change"]
+    assert RC._retirement_faults(p7a) == [] and V7["changes"][-1]["version"] == 7 and "decision 73" in V7["changes"][-1]["change"]
     v6_faults = "; ".join(RC._retirement_faults(next(x for x in V6["retired"] if x["id"] == P7A)))
     assert "'diagnostics': ['W111']" in v6_faults and "'diagnostics': ['E111']" in v6_faults, v6_faults
     with pytest.raises(H.HarnessError, match="does not reproduce"):
@@ -624,7 +726,8 @@ def _rehash(src: dict, field: str) -> None:
 
 def _m11(doc) -> dict:
     """The entry m1.1 of ``doc``: an entry of version 4, retired (with every field and its original evidence) in version 5,
-    restored in version 6 (its evidence re-derived from the same sources; its retirement and its version-4 evidence kept)."""
+    restored in version 6 (its evidence re-derived from the same sources; its retirement and its version-4 evidence kept),
+    retired again in version 8 (the translator withholds it; every field kept)."""
     return next(e for e in doc["entries"] + doc["retired"] if e["id"] == M11)
 
 
@@ -668,8 +771,10 @@ def test_version_3_an_entry_whose_re_derived_evidence_does_not_hold_is_refused(t
     original evidence; version 6: restored, its evidence re-derived): everything is re-derived before the record is
     accepted (its pass and the fields a re-keyed entry needs, the core of the proof as recorded, the premises restating
     the conclusion and the translator's own rule, the sources it and its superseded retirement embed); every damage
-    refuses the record."""
-    assert _m11(RECORD)["restored_in_version"] == 6
+    refuses the record. Record version 8 (round-8 clearance c1): the shipped record keeps m1.1 retired by the translator's
+    semantic rule, every field kept; its evidence is re-derived as before, the pipeline run it records on the pipeline without
+    that rule (so a misstated pipeline run or translator's rule still refuses the record)."""
+    assert _m11(RECORD)["restored_in_version"] == 6 and _m11(RECORD)["retired_in_version"] == 8
     with pytest.raises(H.HarnessError, match=why):
         RC.load_adjudications(_v3_damaged(tmp_path, damage))
 
@@ -708,12 +813,38 @@ def _retired_proposal_delivered(doc):
     (lambda d: d["retired"][1]["retirement_evidence"].pop("recorded_answer"), "cannot be re-derived"),
     (_retired_proposal_delivered, "restore the entry"),
 ])
-def test_version_3_a_retirement_whose_merged_parse_or_pipeline_run_does_not_reproduce_is_refused(tmp_path, damage, why):
+def test_version_3_a_retirement_whose_merged_parse_or_pipeline_run_does_not_reproduce_is_refused(tmp_path, monkeypatch, damage, why):
     """Finding (c) of the independent test: the merged parse ids (c7.3, s4.3) and the pipeline run on the recorded
     proposal were read back from the JSON, never re-derived. They are re-derived now, from the sources the retirement
-    embeds, before the record is accepted (on the shipped record, version 4)."""
+    embeds, before the record is accepted (on the shipped record, version 4).
+
+    Round-8 clearance c1: the translator as it is still withholds the relabelled cs-t13 proposal (its semantic circularity
+    rule names the relabelled premise: :func:`test_version_8_a_relabelled_retired_proposal_is_still_withheld`), so that
+    damage is applied, as before, on the translator before the clearance (its semantic rule off), where the pipeline
+    delivers it, to the version-2 record (its two retirements, which load undamaged there: the control)."""
+    if damage is _retired_proposal_delivered:
+        without_the_translators_semantic_gate(monkeypatch)
+        assert RC.load_adjudications(_write(tmp_path, V2))["version"] == 2
+        doc = copy.deepcopy(V2)
+        damage(doc)
+        with pytest.raises(H.HarnessError, match=why):
+            RC.load_adjudications(_write(tmp_path, doc))
+        return
     with pytest.raises(H.HarnessError, match=why):
         RC.load_adjudications(_v3_damaged(tmp_path, damage))
+
+
+def test_version_8_a_relabelled_retired_proposal_is_still_withheld(tmp_path):
+    """The damage ``_retired_proposal_delivered`` (the retired cs-t13 proposal with every premise relabelled task_setting)
+    made the merged pipeline deliver the encoding until round-8 clearance c1. The translator as it is withholds it by its
+    semantic circularity rule (INVALID_FORMALIZATION with E112), so the retirement's statement, that the translator no
+    longer delivers the encoding, holds of the relabelled proposal too, and the record with it loads."""
+    doc = copy.deepcopy(V2)
+    _retired_proposal_delivered(doc)
+    x = doc["retired"][0]
+    assert x["retirement_evidence"]["pipeline_on_the_recorded_proposal"]["translation_status"] == "INVALID_FORMALIZATION"
+    assert RC._merged_retirement_faults(x) == []
+    assert RC.load_adjudications(_write(tmp_path, doc))["version"] == 2
 
 
 # ============================================================================================ version 4: a retirement by the overseer's rules
@@ -795,21 +926,33 @@ def _rekeyed_round(*, raised=(), false_alarms=(), retired=None) -> dict:
 
 
 def _confirmed() -> dict:
-    a = RC.load_adjudications()
+    """What a replay confirming every retirement of the shipped record shows (version 8: six)."""
+    a = _shipped()
     return {x["id"]: {"claim_id": x["merged_claim_id"], "pipeline": x["pipeline_on_the_recorded_proposal"], "trn_findings": list(x["expected_findings_on_replay"]),
                       "sources_match": True} for x in a["retired"]}
 
 
 def _v3_result(rounds: dict) -> dict:
-    """The run's result with the shipped record (version 5) loaded."""
-    return {"rounds": rounds, "adjudications": RC.load_adjudications(), "pack": {"source": "x"}}
+    """The run's result with the shipped record (version 8) loaded."""
+    return {"rounds": rounds, "adjudications": _shipped(), "pack": {"source": "x"}}
 
 
 def _v4_adjudications() -> dict:
     """The record as the gate saw version 4: the shipped record loaded, with the version-4 entries (kept by version 5 as
     retired entries, every field intact) and only the retirements version 4 had (the entry machinery is pinned on it)."""
-    a = RC.load_adjudications()
+    a = _shipped()
     return {**a, "version": 4, "entries": list(V4["entries"]), "retired": [x for x in a["retired"] if x["id"] not in (LIT, M11, M71)]}
+
+
+def _v7_adjudications() -> dict:
+    """The record as the gate saw versions 6 and 7 (the same adjudication): the shipped record loaded, with the three restored
+    entries version 8 retired (every field intact, ``V7``) and only the retirements of versions 2 and 4."""
+    a = _shipped()
+    return {**a, "version": 7, "entries": list(V7["entries"]), "retired": [x for x in a["retired"] if x["id"] not in (LIT, M11, M71)]}
+
+
+def _v7_result(rounds: dict) -> dict:
+    return {"rounds": rounds, "adjudications": _v7_adjudications(), "pack": {"source": "x"}}
 
 
 def _v4_result(rounds: dict) -> dict:
@@ -824,16 +967,17 @@ def test_version_3_the_gate_measures_the_re_keyed_entry_and_confirms_each_retire
     gate = g["adjudicated_genuine_faults_raised"]
     assert gate["ok"] and gate["value"] == 3 == gate["of"] and gate["retired_confirmed_on_replay"] == 3 == gate["retired_of"]
     assert g["no_false_alarm_on_genuine_transfers"]["ok"] and g["recorded_translations_served_under_merged_ids"]["ok"]
-    # record version 6 (shipped): the three restored entries raised on the passes they name (p1-point on the genuine pass,
-    # m1.1 and m7.1 on the re-keyed pass), and the three retirements confirmed on the re-keyed pass (record version 5 had no
-    # entry and six retirements; its three task restatements were the retirements version 6 restored)
+    # record version 6 (shipped until round-8 clearance c1, now the rebuilt version 7's adjudication): the three restored
+    # entries raised on the passes they name (p1-point on the genuine pass, m1.1 and m7.1 on the re-keyed pass), and the three
+    # retirements confirmed on the re-keyed pass (record version 5 had no entry and six retirements; its three task
+    # restatements were the retirements version 6 restored)
     rd6 = _round(raised=[LIT])
     rd6["fixtures_matching_no_delivered_claim"] = 1
     rd6["rekeyed"] = _rekeyed_round(raised=[M11, M71], retired=_confirmed())
-    g6 = RC.gates(_v3_result({"r7": rd6}))
+    g6 = RC.gates(_v7_result({"r7": rd6}))
     gate6 = g6["adjudicated_genuine_faults_raised"]
     assert gate6["ok"] and gate6["value"] == 3 == gate6["of"] and gate6["retired_confirmed_on_replay"] == 3 == gate6["retired_of"]
-    assert gate6["record_version"] == 7 and sorted(_confirmed()) == sorted([CS, ESS, P7A])  # version 7: version 6's adjudication
+    assert gate6["record_version"] == 7 and sorted(x["id"] for x in _v7_adjudications()["retired"]) == sorted([CS, ESS, P7A])
     assert g6["no_false_alarm_on_genuine_transfers"]["ok"] and g6["recorded_translations_served_under_merged_ids"]["ok"]
 
 
@@ -851,15 +995,22 @@ def test_version_3_the_gate_fails_when_the_re_keyed_entry_is_not_raised_or_its_p
     rd2["rekeyed"] = _rekeyed_round(raised=[M11, M71])
     gate = RC.gates(_v4_result({"r7": rd2}))["adjudicated_genuine_faults_raised"]
     assert not gate["ok"] and [m["entry"] for m in gate["missing"]] == [LIT] and gate["missing"][0]["pass"] == "genuine"
-    # record version 6 (shipped): a retirement is never counted confirmed on a pass the round did not run (listed, not
-    # measured), an entry of a pass the round did not run fails the gate, and an entry its pass did not raise fails it too
-    g6 = RC.gates(_v3_result({"r7": {**_round(raised=[LIT]), "fixtures_matching_no_delivered_claim": 1}}))
+    # record version 6 (version 7's adjudication, rebuilt): a retirement is never counted confirmed on a pass the round did
+    # not run (listed, not measured), an entry of a pass the round did not run fails the gate, and an entry its pass did not
+    # raise fails it too
+    g6 = RC.gates(_v7_result({"r7": {**_round(raised=[LIT]), "fixtures_matching_no_delivered_claim": 1}}))
     gate6 = g6["adjudicated_genuine_faults_raised"]
     assert gate6["retired_confirmed_on_replay"] == 0 and sorted(gate6["retired_not_measured"]) == sorted([CS, ESS, P7A])
     assert not gate6["ok"] and sorted(m["entry"] for m in gate6["missing"]) == sorted([M11, M71]) and not g6["recorded_translations_served_under_merged_ids"]["ok"]
     rd7 = {**_round(), "fixtures_matching_no_delivered_claim": 1, "rekeyed": _rekeyed_round(raised=[M11, M71])}  # the genuine pass did not raise p1-point
-    gate7 = RC.gates(_v3_result({"r7": rd7}))["adjudicated_genuine_faults_raised"]
+    gate7 = RC.gates(_v7_result({"r7": rd7}))["adjudicated_genuine_faults_raised"]
     assert not gate7["ok"] and [m["entry"] for m in gate7["missing"]] == [LIT] and gate7["missing"][0]["pass"] == "genuine"
+    # record version 8 (shipped): no entry; the re-keyed pass not run lists its five retirements as not measured (and fails the
+    # served gate), and p1-point's retirement, of the genuine pass, not observed on the replay fails the gate
+    g8 = RC.gates(_v3_result({"r7": {**_round(), "fixtures_matching_no_delivered_claim": 1}}))
+    gate8 = g8["adjudicated_genuine_faults_raised"]
+    assert gate8["of"] == 0 and sorted(gate8["retired_not_measured"]) == sorted([CS, ESS, P7A, M11, M71]) and not g8["recorded_translations_served_under_merged_ids"]["ok"]
+    assert not gate8["ok"] and [u["entry"] for u in gate8["retired_unconfirmed"]] == [LIT] and gate8["missing"] == []
 
 
 @pytest.mark.parametrize("change", [
@@ -906,13 +1057,14 @@ def test_version_6_a_retirement_or_entry_the_replay_does_not_confirm_fails_the_g
     OVS-TRN-011 for p7a; none for the two the translator withholds), on the pass it names, with the sources it embeds; and
     each restored entry must be raised on its pass (p1-point on the genuine pass, m1.1 and m7.1 on the re-keyed pass).
     The test changed the retirements of p1-point, m1.1 and m7.1, which version 6 restored, so their cases are now the
-    restored entry not raised; anything else fails the gate too."""
+    restored entry not raised; anything else fails the gate too. Record version 8 (round-8 clearance c1) retired the three
+    restored entries: the cases run on version 7's adjudication (version 6's, rebuilt), as the gate saw it."""
     obs = _confirmed()
     if change is not None:
         change(obs)
     rd = {**_round(raised=raised_genuine), "fixtures_matching_no_delivered_claim": 1}
     rd["rekeyed"] = _rekeyed_round(raised=raised_rekeyed, retired=obs)
-    gate = RC.gates(_v3_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
+    gate = RC.gates(_v7_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
     assert not gate["ok"] and gate["of"] == 3
     assert bool(gate["retired_unconfirmed"]) is (change is not None) and bool(gate["missing"]) is (change is None)
 
@@ -936,29 +1088,36 @@ def test_version_3_a_re_keyed_entry_absorbs_only_errors_of_its_own_pass():
             false_alarms, raised = RC.classify_genuine_errors("r7", channel, [finding], a, pass_name)
             assert ([x["entry"] for x in raised], len(false_alarms)) == (([entry_id], 0) if pass_name == own_pass else ([], 1))
             assert all(x["pass"] == pass_name for x in raised)
-    # record version 6 (shipped): the restored entries absorb exactly the errors of their own pass, as in version 4 (version
-    # 5, with no entry, absorbed neither: each was a false alarm)
-    a6 = RC.load_adjudications()
+    # record version 6 (version 7's adjudication, rebuilt): the restored entries absorb exactly the errors of their own pass,
+    # as in version 4 (version 5, with no entry, absorbed neither: each was a false alarm)
+    a6 = _v7_adjudications()
     for channel, finding, entry_id, own_pass in (("mai-t13", f, M11, "rekeyed"), ("lit-t13", g, LIT, "genuine")):
         for pass_name in RC.PASSES:
             false_alarms, raised = RC.classify_genuine_errors("r7", channel, [finding], {"entries": RC.entries_of_pass(a6, pass_name)}, pass_name)
             assert ([x["entry"] for x in raised], len(false_alarms)) == (([entry_id], 0) if pass_name == own_pass else ([], 1))
             false_alarms, raised = RC.classify_genuine_errors("r7", channel, [finding], a6, pass_name)
             assert ([x["entry"] for x in raised], len(false_alarms)) == (([entry_id], 0) if pass_name == own_pass else ([], 1))
+    # record version 8 (shipped): no entry, and a retired entry absorbs no error, so each is a false alarm on either pass
+    a8 = _shipped()
+    for channel, finding in (("mai-t13", f), ("lit-t13", g)):
+        for pass_name in RC.PASSES:
+            false_alarms, raised = RC.classify_genuine_errors("r7", channel, [finding], a8, pass_name)
+            assert raised == [] and len(false_alarms) == 1
 
 
 def test_stem_repair_4_an_entry_matches_and_is_raised_only_in_the_pass_it_names():
     """STEM repair 4 (the independent test: adjudication_gate pooled the entry ids raised in both passes, and finding_matches_entry
     ignored the pass): the gate requires each entry raised in the pass it names. Moving the lit-t13 raise from the genuine pass to
-    the re-keyed pass, or a re-keyed entry's raise to the genuine pass, fails the gate, naming the entry and its pass."""
-    a6 = RC.load_adjudications()
+    the re-keyed pass, or a re-keyed entry's raise to the genuine pass, fails the gate, naming the entry and its pass. Record
+    version 8 (round-8 clearance c1) retired the three entries: the test runs on version 7's adjudication, as the gate saw it."""
+    a6 = _v7_adjudications()
     by_pass = {p: [e["id"] for e in RC.entries_of_pass(a6, p) if e["round"] == "r7"] for p in RC.PASSES}
     assert by_pass == {"genuine": [LIT], "rekeyed": [M11, M71]}
 
     def gate(genuine, rekeyed):
         rd = {**_round(raised=genuine), "fixtures_matching_no_delivered_claim": 1}
         rd["rekeyed"] = _rekeyed_round(raised=rekeyed)
-        return RC.gates(_v3_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
+        return RC.gates(_v7_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
 
     ok = gate([LIT], [M11, M71])
     assert ok["ok"] and ok["missing"] == []
@@ -975,3 +1134,102 @@ def test_stem_repair_4_an_entry_matches_and_is_raised_only_in_the_pass_it_names(
     assert RC.finding_matches_entry(e, "r7", "mai-t13", f, "rekeyed") and not RC.finding_matches_entry(e, "r7", "mai-t13", f)
     with pytest.raises(ValueError):
         RC.finding_matches_entry(e, "r7", "mai-t13", f, "other")
+
+
+# ============================================================================================ version 8: the translator's semantic rule
+_V8_RULE = {LIT: ("genuine", "p1-point", ["A_p1_point"]), M11: ("rekeyed", "m1.1", ["t_wants_euro", "t_wants_value"]),
+            M71: ("rekeyed", "m7.1", ["t_whole"])}
+
+
+def test_version_8_retires_the_restored_entries_the_translator_now_withholds_with_evidence_the_harness_re_derives():
+    """Record version 8 (round-8 clearance c1): the translator's pipeline applies its semantic circularity rule
+    (``translate.restatement``; E112 at translation), so it withholds the three restored entries' recorded encodings. Each
+    is retired by kind ``translator_semantic``, keeping every field (its restoration and its version-7 evidence): the
+    translator's semantic rule, re-run on the embedded IR as the pipeline grounds it with the merged claim's text, names
+    exactly the premises the retirement states (a full restatement); the pipeline served the recorded proposal under the
+    merged id withholds it (INVALID_FORMALIZATION with E112: no problem, no engine run); the entry's own evidence still
+    reproduces, the pipeline run it records re-derived on the pipeline without the semantic rule; and the replay must show
+    no OVS-TRN finding on the claim (the overseer agrees: nothing reaches the receipt)."""
+    a = RC.load_adjudications()
+    assert a["version"] == 8 and a["entries"] == [] and RECORD["changes"][-1]["version"] == 8
+    assert "translator_semantic" in RECORD["changes"][-1]["change"] and "translator_semantic" in RC.RETIREMENT_KINDS
+    for entry_id, (pass_name, claim_id, premises) in _V8_RULE.items():
+        x = _retired_v8(entry_id)
+        rev, ev = x["retirement_evidence"], x["evidence"]
+        assert x["restored_in_version"] == 6 and "Round-8 clearance c1" in x["why_retired"] and x["claim_id"] == claim_id
+        assert rev["kind"] == "translator_semantic" and rev["pass"] == pass_name == x.get("pass", "genuine") and rev["expected_findings_on_replay"] == []
+        assert rev["translator_semantic_rule"] == {"kind": "full", "premises": premises} and RC.semantic_rule_on(x, rev) == rev["translator_semantic_rule"]
+        assert rev["pipeline_on_the_recorded_proposal"] == {"claim_id": claim_id, "translation_status": "INVALID_FORMALIZATION", "problem_delivered": False,
+                                                            "engine_run": False, "display_status": "INVALID_FORMALIZATION", "translation_diagnostic": "E112"}
+        assert rev["merged_parse"]["claim_id"] == claim_id and all(rev[f + "_sha256"] == ev[f + "_sha256"] for f in ("recorded_answer", "recorded_plan", "recorded_proposal"))
+        assert ev["pipeline_on_the_recorded_proposal"]["problem_delivered"] and ev["pipeline_on_the_recorded_proposal"]["result_status"] == "ENTAILED"  # version 7's run
+        assert set(premises) <= set(ev["restating_premises"])  # the semantic rule names premises the entry adjudicated as restating
+        assert RC._retirement_faults(x) == [] and RC._evidence_faults(x, pipeline_superseded=True) == [] and RC._same_sources_faults(x) == []
+        (summary,) = [r for r in a["retired"] if r["id"] == entry_id]
+        assert (summary["kind"], summary["pass"], summary["merged_claim_id"], summary["expected_findings_on_replay"]) == ("translator_semantic", pass_name, claim_id, [])
+
+
+def test_version_8_the_version_7_record_is_refused_and_a_translator_that_delivers_again_refuses_the_retirements(tmp_path, monkeypatch):
+    """The version-7 record (rebuilt from the shipped one) is refused on the translator as it is: each entry's recorded
+    pipeline run no longer reproduces (the pipeline withholds the encoding). A translator that would deliver the encodings
+    again (its semantic rule off) refuses the shipped record: the retirements no longer hold, so the entries must be restored."""
+    with pytest.raises(H.HarnessError, match="does not reproduce: the pipeline on the recorded proposal gives .*INVALID_FORMALIZATION"):
+        RC.load_adjudications(_write(tmp_path, V7))
+    without_the_translators_semantic_gate(monkeypatch)
+    rf = "; ".join(RC._retirement_faults(_retired_v8(M71)))
+    assert "the translator would deliver the encoding again" in rf, rf
+    with pytest.raises(H.HarnessError, match="the translator would deliver the encoding again; restore the entry"):
+        RC.load_adjudications()
+
+
+@pytest.mark.parametrize("damage, why", [
+    (lambda x: x["retirement_evidence"]["translator_semantic_rule"].update(premises=["t_whole", "t_threshold"]), "the translator's semantic rule gives"),
+    (lambda x: x["retirement_evidence"]["translator_semantic_rule"].update(kind="partial"), "the translator's semantic rule gives"),
+    (lambda x: x["retirement_evidence"].pop("translator_semantic_rule"), "the translator's semantic rule gives"),
+    (lambda x: x["retirement_evidence"]["pipeline_on_the_recorded_proposal"].update(translation_diagnostic="E111"), "withholds the encoding as circular"),
+    (lambda x: x["retirement_evidence"]["merged_parse"].update(claim_id="m7.2"), "merged parse"),
+    (lambda x: x["retirement_evidence"].update(kind="translator_semantics"), "restore the entry"),
+    (lambda x: x["evidence"]["pipeline_on_the_recorded_proposal"].update(result_status="COUNTEREXAMPLE"), "without its semantic circularity rule"),
+    (lambda x: x["evidence"].update(restating_premises=["t_whole"]), "does not reproduce"),
+])
+def test_version_8_a_semantic_retirement_that_does_not_reproduce_is_refused(tmp_path, damage, why):
+    """Every part of a ``translator_semantic`` retirement is re-derived before the record is accepted: the premises and kind
+    the translator's semantic rule names, the pipeline run that withholds the encoding, the merged parse, the retirement's
+    kind, and the entry's own evidence (its recorded pipeline run on the pipeline without the semantic rule, its restating
+    premises). Each damage to m7.1's retirement refuses the shipped record."""
+    doc = copy.deepcopy(RECORD)
+    damage(next(x for x in doc["retired"] if x["id"] == M71))
+    with pytest.raises(H.HarnessError, match=why):
+        RC.load_adjudications(_write(tmp_path, doc))
+
+
+def test_version_8_the_gate_confirms_each_retirement_on_the_pass_it_names_and_fails_when_the_translator_delivers_again():
+    """The shipped record (version 8) adjudicates no entry, so the gate measures six retirements: each is confirmed only on
+    the pass it names (p1-point's on the genuine pass, the others on the re-keyed pass) by exactly its pipeline outcome
+    (the three new ones withheld, E112), no OVS-TRN finding on the claim, and the sources it embeds. A translator that
+    delivers a retired encoding again, a restatement finding on a retired claim, other sources, or a retired claim the
+    replay never delivered fails the gate; so does p1-point's retirement observed on the re-keyed pass alone."""
+    obs = _confirmed()
+    assert sorted(obs) == sorted([CS, ESS, P7A, LIT, M11, M71])
+    assert all(obs[k]["pipeline"]["translation_diagnostic"] == "E112" and obs[k]["trn_findings"] == [] for k in (LIT, M11, M71))
+    rd = {**_round(), "fixtures_matching_no_delivered_claim": 1, "retired_on_replay": {LIT: obs[LIT]}}
+    rd["rekeyed"] = _rekeyed_round(retired=obs)
+    g = RC.gates(_v3_result({"r7": rd}))
+    gate = g["adjudicated_genuine_faults_raised"]
+    assert gate["ok"] and gate["of"] == 0 and gate["retired_confirmed_on_replay"] == 6 == gate["retired_of"] and gate["record_version"] == 8
+    assert g["no_false_alarm_on_genuine_transfers"]["ok"] and g["recorded_translations_served_under_merged_ids"]["ok"]
+    for change in (lambda o: o[M11].update(pipeline={**o[M11]["pipeline"], "translation_status": "TRANSLATED", "problem_delivered": True}),
+                   lambda o: o[M71].update(trn_findings=["OVS-TRN-006"]),
+                   lambda o: o[LIT].update(trn_findings=["OVS-TRN-011"]),
+                   lambda o: o[LIT].update(sources_match=False),
+                   lambda o: o.pop(M71)):
+        o = _confirmed()
+        change(o)
+        rd = {**_round(), "fixtures_matching_no_delivered_claim": 1, "retired_on_replay": {LIT: o[LIT]}}
+        rd["rekeyed"] = _rekeyed_round(retired=o)
+        gate = RC.gates(_v3_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
+        assert not gate["ok"] and gate["retired_unconfirmed"], gate
+    rd = {**_round(), "fixtures_matching_no_delivered_claim": 1}  # p1-point's retirement observed on the re-keyed pass only
+    rd["rekeyed"] = _rekeyed_round(retired=_confirmed())
+    gate = RC.gates(_v3_result({"r7": rd}))["adjudicated_genuine_faults_raised"]
+    assert not gate["ok"] and [(u["entry"], u["pass"]) for u in gate["retired_unconfirmed"]] == [(LIT, "genuine")]

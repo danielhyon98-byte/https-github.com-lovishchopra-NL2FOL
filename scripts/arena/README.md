@@ -11,11 +11,13 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
+| `bind_translations.py` | Records with each translation fixture the digest of the claim text it was produced for (`claim_text_sha256`), from the listings the translation agent was given or, as the recording step, from the current parse ("Replay configuration", below) |
 | `test_arena_rules.py` | Regression tests of the functional rule and the reporting (run by path, below) |
 
 A round directory holds `specialists/*.json` (the answers), and optionally `translations/*.json` (recorded translations,
-with `claim_text_sha256` binding each to the claim text it was produced for), `syntheses/*.json`, `relayed/*.json`,
-`router/*.json`, `tasks.json` and `adjudications/translation_fidelity.json`.
+with `claim_text_sha256` binding each to the claim text it was produced for, written by `bind_translations.py` when the
+translations are recorded), `syntheses/*.json`, `relayed/*.json`, `router/*.json`, `tasks.json` and
+`adjudications/translation_fidelity.json`.
 
 ## Claim ids in a group: what the listing prints and what a fixture is keyed by
 
@@ -212,6 +214,8 @@ r7 holds one, so no recorded count moved.
 ```
 python scripts/arena/run_arena.py <round>                           # results.json, summary.md; exit 0
 python scripts/arena/run_arena.py <round> --fail-on-qualification   # exit 1 when the run is qualified (below)
+python scripts/arena/run_arena.py <round> --without-task-record     # the replays' configuration before round 8's clearance, for comparison ("Replay configuration")
+python scripts/arena/bind_translations.py <round> --listings <dir>  # record each translation's claim-text digest when the round is recorded
 python scripts/arena/bind_adjudications.py <round> <judgments.json> --adjudicator "<who judged>"
 ```
 
@@ -241,12 +245,52 @@ open a figure no source asserts, which the question may leave open on purpose, o
 that no premise links). Neither count changes the transport
 measure.
 
-The harness's injected verifier keeps the two-argument signature `fn(claim, report)`, so a replay translates on the same
-path as the recorded rounds: task-authority premises are validated against the supplied texts only, and the rest stay
-unvalidated (listed as unverified dependencies). Passing the task record (`fn(claim, report, task=...)`, which the
-channel supports) validates them against the router's question too; it changes what a replay measures (round 7's
-recorded fixtures carry 338 grounding records of a task-authority kind, 174 of them on premises), so it is a methodology
-change for a new round, not for a replay.
+## Replay configuration: what a replay runs as production does, and what it cannot
+
+A replay runs what production runs wherever a recording allows it, and names what a recording cannot run, so a figure of
+the replay is never read as one of a configuration it did not have. results.json carries it as `metrics.replay`;
+summary.md gives it on one line, "Replay configuration", after the measures. None of it moves the transport measure.
+
+- **The task record.** The harness's claim verifier declares a `task` parameter, as production's does
+  (`integration.runtime.live_verifier`): the channel hands it the task record of the request each report answers
+  (`fn(claim, report, task=...)`, `channel.bus._accepts_task`; the delivery pass's deadline verifier passes it on), and
+  the translator validates a task-authority premise (`task_setting`, `arithmetic_fact`, `rubric_rule`) against the
+  router's question as well as the supplied texts. Each outcome says whether its translation was validated against a task
+  record (`task_record_given`); the configuration counts them. A harness that replaces `verify_claim` with a function
+  that declares no `task` parameter is called as before, and its outcomes say no record was given. Before round 8's
+  clearance the verifier kept the two-argument signature, so a replay validated such a premise against the supplied texts
+  only and left the rest unvalidated: round 8's translation-fidelity lens found seven of the round's outcomes that were
+  not production's for the same translations (ps-t14's unverified dependency `cr-obs`; E112 withheld verdicts resting on
+  a task figure no check had verified). `--without-task-record` (`run_round(..., task_record=False)`) replays as the
+  harness did then, for a comparison with the replays recorded before; the configuration says it was not passed.
+- **The binding of each translation to its claim text.** A recorded translation is bound to the claim text it was
+  produced for by the digest recorded with it (`claim_text_sha256` in the translations file); without one it is bound to
+  whatever text its claim id carries in the run (`served_by_claim_id_only`, the run qualified FIXTURES_UNBOUND, below).
+  Round 8's translations were recorded without digests: all 469 were matched by claim id only. Record the digests as a
+  step of recording a round, right after the translation agents wrote their files:
+
+  ```
+  python scripts/arena/bind_translations.py <round> --listings <dir>     # the list_claims.py --json listings the agents were given (<dir>/<task>.json)
+  python scripts/arena/bind_translations.py <round> --current-parse      # the listings list_claims.py prints now: only before any change to the code
+  ```
+
+  A fixture keyed by the other form of a claim id the hub may qualify takes the digest of the claim listed under that
+  form; a fixture the listing does not hold stays unbound and is named; a recorded digest that differs from the
+  listing's is a conflict (nothing written, exit status 2; `--force` replaces it); a listing of another report is never
+  bound. Only the `claim_text_sha256` map changes, so a fixture's digest (`fixture_sha256`, which an adjudication names)
+  does not move. The source of the digests is always named on the command line: the current parse is right only as the
+  recording step, since a later parse may carry another text under the same id.
+- **Retries.** A recorded translation is one provider output, and the fixture provider serves it on every attempt. When
+  the pipeline rejects the first attempt with a retryable diagnostic and asks again, the retry is served the same output
+  and fails the same way: the outcome is what the recorded output gives on its own, where production would retry with
+  the diagnostics and a new output. Such a retry is never shown as one that ran: each outcome carries `attempts` and
+  `retry_not_exercised`, and the configuration counts and names the genuine claims whose retry was not exercised (with
+  the total over every variant). It is no qualification and no transport failure: the claim was delivered and decided.
+- **Synthesis timestamps.** A synthesis is stamped when it is relayed (`relay_clock`, as the deployed combinator path
+  stamps it), so it never precedes the reports it cites; the record carries the stamp (`synthesis_created_at`). Until
+  round 8's clearance every synthesis was stamped 2026-10-11T15:00:00Z, and the time-order rule (INT-HANDOFF-016, which
+  the overseer's audit runs over the journaled transfers and reports as OVS-DIV-002) named every synthesis of every
+  replay made after that day.
 
 ## Injections no finding names
 
@@ -255,6 +299,16 @@ under `failures` with its reason. No rule takes a miss out of the count, whateve
 the injected claim of a STEM mutation undecided (an ST-UNDEC finding: a relation outside the encodings, or a symbol with
 no stated value), the failure reason quotes that finding and the record carries it as `undecided_on_injected_claims`, so
 a miss that a limit of the encodings leaves reads as one; it is still a miss.
+
+The code that must name a STEM injection depends on its site (round 8's clearance, STEM-integration finding 25;
+`stem_mutations.py`, "Sites"). A figure in code (a fenced block, an inline code span), in a mark annotation ("M1", "(A1)",
+"[2]") or on a line that states a mark is no site: the design never checks them as working, so the mutation takes the next
+site. A site inside a quotation of another text is also named by INT-REQ-003 (the change is an altered quotation the hub
+refutes; a relation in quotation marks is quoted text, never a root or a step), and a term of a sum in brackets right after
+the value it forms by INT-SUBJ-004 (the STEM pack reads that sum at warning severity), beside the mutation's own code
+(`StemInjection.site_codes`; `expected` itself is unchanged). On round c1 this credits maa-p8b's wrong unit inside the
+Physics specialist's quotation and ch-t14's substitution in '7 on the left (1 + 6)', each named on its injected claim by
+that code before and counted a miss; every mutated text of c1 and r7 is the one it was.
 
 An earlier version of the harness reported such a STEM injection "not applicable" (outside the count) when its own
 reading found no "x = value" binding for a symbol of the changed expression and no formal check moved. An independent
@@ -277,13 +331,15 @@ results.json carries `qualified` and `qualifications`:
 
 - `TRANSLATIONS_LOST`: recorded translations were not served (for example, claim ids changed after the parser changed);
 - `FIXTURES_UNBOUND`: served translations carry no recorded claim-text digest, so each is bound to whatever text its claim
-  id carries in this run;
+  id carries in this run (record the digests with `bind_translations.py` when the translations are recorded: "Replay
+  configuration", above);
 - `ADJUDICATIONS_NOT_APPLIED`: adjudications that do not apply to this run (their translation was not served, or a digest
   differs).
 
 With `--fail-on-qualification` a qualified run exits with status 1. Use it for a translation-regression run: it fails
 instead of reporting figures for a different set of translations. Re-record the translations (with `claim_text_sha256`,
-from `list_claims.py --json`) and re-adjudicate them when extraction changes; never re-key them by bare claim id. (The two
+from `list_claims.py --json`, written by `bind_translations.py`) and re-adjudicate them when extraction changes; never
+re-key them by bare claim id. (The two
 forms of one agent's STEM claim id, `s1.2` and `s1.2@<agent>`, name one claim of one parse; a fixture recorded under one
 serves the claim under the other, named on the record: "Claim ids in a group" above. An adjudication names the
 translation by its recorded id, and its verdict is counted for the claim it served.)
@@ -330,9 +386,10 @@ overseer agents (tests only: scripted providers).
 ## Tests
 
 ```
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, and two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form)
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), and the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)
+python -m pytest -q tests/stem/test_c1_handoff_mutation_sites.py # no STEM site in code or marks; the code a quotation or a bracketed sum is named by (default suite)
 python -m pytest -q tests/stem/test_e2e_run1_detection.py   # the e2e run1 injections: all six named, each as the harness injects it
 ```

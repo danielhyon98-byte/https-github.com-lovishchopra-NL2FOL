@@ -1587,6 +1587,17 @@ def _negations(text: str) -> int:
     return sum(1 for w in _words(text) if w in _NEGATORS or w.endswith(("n't", "n’t")))
 
 
+#: "X rather than Y", "X instead of Y", "X as opposed to Y" deny Y as "X, not Y" does (round-8 clearance c1).
+_SOFT_NEGATION_RE = re.compile(r"\brather\s{1,3}than\b|\binstead\s{1,3}of\b|\bas\s{1,3}opposed\s{1,3}to\b", re.IGNORECASE)
+
+
+def _soft_negations(text: str) -> int:
+    """How many contrast phrases that deny what follows them ``text`` holds (:data:`_SOFT_NEGATION_RE`): they cancel a "not"
+    on the other side of a comparison of polarity ("restrained rather than aimed at" and "restrained and not aimed at" state
+    one polarity) and never add one."""
+    return len(_SOFT_NEGATION_RE.findall(text))
+
+
 # --- aligned comparison: one statement copied with one word changed ---------------------------------------------------
 #: Tokens of the aligned comparison: a decade, a numeral (thousands separators removed), a word (an apostrophe inside it).
 _ALIGN_TOKEN_RE = re.compile(r"(?:1\d{2}0|20\d0)s(?!\w)|\d+(?:\.\d+)?|[^\W\d_]+(?:['’][^\W\d_]+)*")
@@ -2068,6 +2079,10 @@ def _align_opcodes(a: list[str], b: list[str], budget: _AlignBudget) -> list[tup
     return ops
 
 
+#: Articles an exchanged word may carry with it ("a" for "an"), set aside when one content word is read as replaced.
+_ARTICLES = frozenset({"a", "an", "the"})
+
+
 def _aligned_ops(syn: tuple[tuple[str, str], ...], src: tuple[tuple[str, str], ...], src_numerals: set[str], *, anchored: bool = False,
                  budget: Optional[_AlignBudget] = None) -> tuple[list[str], list[str]]:
     """The changes :func:`aligned_changes` reads between two token lists. With ``anchored`` (two sentences), the start and
@@ -2131,8 +2146,16 @@ def _aligned_ops(syn: tuple[tuple[str, str], ...], src: tuple[tuple[str, str], .
             meaning.append(f"it reverses {what} ('{here}' where its cited sources state '{there}')")
             continue
         if i2 - i1 != 1 or j2 - j1 != 1:
-            continue
-        (ka, sa), (kb, sb) = syn[i1], src[j1]
+            # one content word exchanged beside an article that changes with it ("a neutral stimulus" -> "an unconditioned
+            # stimulus", round-8 clearance c1, ps-t14): the article is set aside and the exchange read as one word
+            cs = [t for t in syn[i1:i2] if t[0] not in _ARTICLES]
+            ct = [t for t in src[j1:j2] if t[0] not in _ARTICLES]
+            if not (len(cs) == 1 and len(ct) == 1 and (i2 - i1) + (j2 - j1) <= 4
+                    and all(t[0] in _ARTICLES for t in [*syn[i1:i2], *src[j1:j2]] if t not in (cs[0], ct[0]))):
+                continue
+            (ka, sa), (kb, sb) = cs[0], ct[0]
+        else:
+            (ka, sa), (kb, sb) = syn[i1], src[j1]
         content = all(w.isalpha() and len(w) >= 4 and k not in _ALIGN_STOP and w.casefold() not in _ALIGN_STOP for k, w in ((ka, sa), (kb, sb)))
         sides = (_class_side(ka), _class_side(kb))
         enough = (lb >= 2 and la >= 2) if not (start_anchor or end_anchor) else (la >= 3 if start_anchor else lb >= 3)
@@ -2260,8 +2283,12 @@ def meaning_differences(synthesized_text: str, source_texts: list[str], transfor
     # meaning_inversions' (INT-LEDGER-030, the source's own content negated); every other polarity change is this warning
     if transformation in _EQUIVALENCE_LABELS and source_texts and not any("negation" in a for a in aligned):
         syn_neg, src_neg = _negations(synthesized_text), sum(_negations(t) for t in source_texts)
-        if (syn_neg == 0) != (src_neg == 0):
-            out.append("it drops the negation its cited sources state" if syn_neg == 0 else "it adds a negation its cited sources do not state")
+        syn_soft, src_soft = _soft_negations(synthesized_text), sum(_soft_negations(t) for t in source_texts)
+        # a "rather than", "instead of" or "as opposed to" on one side stands for the "not" on the other (one polarity)
+        if syn_neg and not src_neg and not src_soft:
+            out.append("it adds a negation its cited sources do not state")
+        elif src_neg and not syn_neg and not syn_soft:
+            out.append("it drops the negation its cited sources state")
     out += reversed_comparisons(synthesized_text, source_texts)
     out += reversed_voices(synthesized_text, source_texts)
     out += dropped_hedges(synthesized_text, source_texts)
@@ -2411,6 +2438,32 @@ def _negated_source_words(synthesized_text: str, source_text: str) -> list[str]:
     return out
 
 
+#: A true/false verdict a claim states as its answer (round-8 clearance c1, sp-t14: a synthesis that turned "F." into "V." got
+#: only the generic INT-LEDGER-010): the whole claim is the verdict ("F.", "V.", "Verdadero.", "False"), or it opens the
+#: claim and a mark follows it ("F. The text says ...", "Falso: ...", "True - ..."). A one-letter verdict is read only so.
+_VERDICT_RE = re.compile(r"^\W{0,3}(?P<v>verdaderos?|verdaderas?|falsos?|falsas?|true|false|vrai|faux|wahr|falsch|vero|falso|richtig|v|f|t)\b(?P<rest>.{0,4000})$",
+                         re.IGNORECASE | re.DOTALL)
+_VERDICT_TRUE = frozenset({"verdadero", "verdaderos", "verdadera", "verdaderas", "true", "vrai", "wahr", "vero", "richtig", "v", "t"})
+#: What may follow a verdict: a spaced dash ("F – the text says ...").
+_VERDICT_TAIL_RE = re.compile(r"^\s{0,3}[-–—]\s")
+
+
+def true_false_verdict(text: str) -> Optional[tuple[bool, str]]:
+    """``(is_true, word)`` when ``text`` states a true/false verdict as its answer (:data:`_VERDICT_RE`), else None. A
+    one-letter verdict ("V", "F", "T") must be the whole claim or be followed by a full stop, colon, dash or closing bracket
+    ("F. The text says ..."); a verdict word may also open a sentence ("False: the text ...")."""
+    m = _VERDICT_RE.match((text or "").strip())
+    if m is None:
+        return None
+    word, rest = m.group("v"), m.group("rest")
+    if len(word) == 1 and not word.isupper():
+        return None
+    marks = ".:)]" if len(word) == 1 else ".:;,)]!"
+    if rest.strip() and not _VERDICT_TAIL_RE.match(rest) and not (rest[:1] in marks and (len(rest) == 1 or rest[1:2].isspace())):
+        return None  # "V-shaped", "True to form", "F.M." are no verdicts
+    return word.casefold() in _VERDICT_TRUE, word
+
+
 def meaning_inversions(synthesized_text: str, source_texts: list[str], transformation: str) -> list[str]:
     """How a 'carried' or 'paraphrased' claim with ONE cited source states the opposite of it, as descriptions for an
     error (INT-LEDGER-030): a figure the source bounds one way ("children under nine") bounded the other way ("children
@@ -2423,12 +2476,17 @@ def meaning_inversions(synthesized_text: str, source_texts: list[str], transform
     if transformation not in _EQUIVALENCE_LABELS or len(source_texts) != 1:
         return []
     out: list[str] = []
+    verdict_syn, verdict_src = true_false_verdict(synthesized_text), true_false_verdict(source_texts[0])
+    if verdict_syn is not None and verdict_src is not None and verdict_syn[0] != verdict_src[0]:
+        out.append(f"it reverses the true/false verdict its cited source states ('{verdict_syn[1]}' where the source states '{verdict_src[1]}')")
     syn, src = _directions(synthesized_text), _directions(source_texts[0])
     for fig in sorted(set(syn) & set(src), key=lambda x: (len(x), x)):
         if syn[fig] != src[fig] and len(syn[fig]) == 1 and len(src[fig]) == 1:
             out.append(f"it bounds '{fig}' {'from below' if 'lower' in syn[fig] else 'from above'} where its cited source bounds it "
                        f"{'from below' if 'lower' in src[fig] else 'from above'} (a comparison turned the other way)")
-    if _negations(synthesized_text) > 0 and _negations(source_texts[0]) == 0:
+    if _negations(synthesized_text) > 0 and _negations(source_texts[0]) == 0 and _soft_negations(source_texts[0]) == 0:
+        # a source's "rather than", "instead of" or "as opposed to" denies what follows it: "X and not Y" restates "X rather
+        # than Y" (round-8 clearance c1, hi-t14 h1.2 and lit-t14 p1-s03: a faithful paraphrase charged INT-LEDGER-030)
         negated = _negated_source_words(synthesized_text, source_texts[0])
         if negated:
             out.append(f"it adds a negation its cited source does not state, negating the source's own {sorted(set(negated))}")
@@ -3220,7 +3278,11 @@ def reversed_comparisons(synthesized_text: str, source_texts: list[str]) -> list
         for kind2, x2, y2, phrase2 in src:
             if kind != kind2 or (x == x2 and y == y2):
                 continue
-            if len(x & y2) > len(x & x2) and len(y & x2) > len(y & y2):
+            exchanged = (len(x & y2) > len(x & x2) and len(y & x2) > len(y & y2)) or (
+                # the words a side changed are the other side's (round-8 clearance c1, lit-t14: "a domestic ritual of control
+                # rather than defeat" -> "... of defeat rather than control", where both sides keep the words before them)
+                bool((x - x2) & y2) and bool((y - y2) & x2) and not ((x - x2) & x2) and (x2 - x) <= y)
+            if exchanged:
                 out.append(f"it reverses the two sides of a comparison ('{phrase}' where its cited sources state '{phrase2}')")
                 break
     return list(dict.fromkeys(out))
@@ -3450,8 +3512,14 @@ def _figures_kept(text: str) -> tuple[_Figure, ...]:
     return _kept(_FIGURES_KEPT, text, text, lambda: _read_figures(text))
 
 
+#: A base-ten subscript after a numeral ("181₁₀"): the numeral is a decimal figure as written (round-8 clearance c1: an
+#: introduced "181₁₀" was read as no figure while "181" was named). A numeral in another base ("10110101₂") stays unread.
+_BASE_TEN_SUBSCRIPT_RE = re.compile(r"(?<=\d)₁₀(?![₀-₉\d])")
+
+
 def _read_figures(text: str) -> tuple[_Figure, ...]:
     if not text.isascii():
+        text = _BASE_TEN_SUBSCRIPT_RE.sub("", text)
         text = _MINUS_GLYPH_RE.sub("-", text)
     if "\\" in text:
         text = _LATEX_ELLIPSIS_RE.sub("…", text)
@@ -5100,17 +5168,33 @@ _CONNECTIVE_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(p).replace(r"\ ",
 _CONTENT_WORD_RE = re.compile(r"[^\W_]+")
 
 
+#: A list marker ("(2) ", "3. ", "4) ") that opens a claim where the claim sits in the normalised student-facing text: at
+#: the text's start or after a sentence or clause mark and one space (rule ``text-composition``, round-8 clearance c1). The
+#: claims' own markers are read the same way in the claims and in the joined text, so a synthesis whose text is its claims
+#: joined ("Fix it: (1) Do A. (2) Do B.") states nothing outside them; a marker anywhere else is content like any figure.
+_CLAIM_MARKER_PREFIX = r"(?:(?:^|(?<=[.!?:;] ))\(?\d{1,2}[.)] )?"
+
+
 def text_outside_claims(text: str, claim_texts: list[str]) -> list[str]:
     """The stretches of ``text`` (normalised: whitespace collapsed, case folded, list markers removed) that state
     something no synthesized claim states (rule ``text-composition``): every claim text is removed where it occurs as a
     whole (its final sentence mark optional), then every connective of :data:`_CONNECTIVE_PHRASES`; a stretch still
-    holding a letter or digit is returned. Empty when the text is a composition of its claims and connectives."""
+    holding a letter or digit is returned. Empty when the text is a composition of its claims and connectives.
+
+    A claim is matched as written (its list marker included, wherever the claim sits in the text: the markers of claims
+    joined into one line, "Fix it: (1) Do A. (2) Do B.", are not at a line start) and with its marker removed, the
+    marker then optional where the claim opens a sentence (:data:`_CLAIM_MARKER_PREFIX`), so list markers are read the
+    same way in the claims and in the text (round-8 clearance c1: the bm-t14 synthesis, exactly its claims joined, was
+    charged INT-LEDGER-031 for the markers '2' and '3')."""
     body = _norm(_strip_list_markers(text or ""))
-    forms = sorted({_norm(_strip_list_markers(c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}, key=len, reverse=True)
-    for form in forms:
+    written = {_norm(c).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}
+    stripped = {_norm(_strip_list_markers(c)).rstrip(" .!?;:") for c in claim_texts if c and c.strip()}
+    forms = sorted({(f, False) for f in written} | {(f, True) for f in stripped}, key=lambda x: (-len(x[0]), not x[1], x[0]))  # a form's marker variant first
+    for form, marker in forms:
         if not form:
             continue
-        pat = (r"(?<!\w)" if form[0].isalnum() or form[0] == "_" else "") + re.escape(form) + (r"(?!\w)" if form[-1].isalnum() or form[-1] == "_" else "")
+        pat = ((_CLAIM_MARKER_PREFIX if marker else "") + (r"(?<!\w)" if form[0].isalnum() or form[0] == "_" else "") + re.escape(form)
+               + (r"(?!\w)" if form[-1].isalnum() or form[-1] == "_" else ""))
         body = re.sub(pat, "\x00", body)
     out: list[str] = []
     for part in body.split("\x00"):

@@ -59,8 +59,17 @@ R2 (deterministic code on journaled data; nothing in agent text is executed):
   conclusion's operator and value (the problem id, which carries a random suffix, is not compared). A minimum and a
   maximum stated by one span ("about 250 words", "between 300 and 400 words") are decided by the channel as ONE range
   problem when the measurement lies within both (``_formal_range``: BOUND is an ``and`` of ``ge`` and ``le``), which both
-  constraints cite; R2 accepts that form for exactly that pair (rule ``range-bound``). A mismatch is FORM-003; a bound
-  with no formal constraint result is FORM-004;
+  constraints cite; R2 accepts that form for exactly that pair (rule ``range-bound``). A bound the request sets on each
+  of its parts ("no more than 250 words for each answer": rule ``per-part-bound``, round-8 clearance c1) is recounted over
+  each part of the answer with the channel's own function (``request_parser.bound_word_measure``: the longest part for a
+  maximum, the shortest for a minimum, the whole answer when its parts cannot be told apart) and is never paired into a
+  range. A mismatch is FORM-003; a bound with no formal constraint result is FORM-004, except a bound set on a deliverable
+  the answer declines (rule ``declined-bound``, round-8 clearance c1): the record ``satisfied`` None, method
+  ``not_checkable``, no formal result, its detail opening with ``channel.bus.DECLINED_BOUND_PREFIX``, is accepted exactly
+  when ``channel.bus.withheld_deliverable`` reads a decline in the journaled response (the channel's own reader, so the
+  two cannot disagree); the same record on a response that declines nothing is FORM-004; an "about N words" band not met
+  needs INT-REQ-005 at the severity the channel's own ``request_parser.word_bound_severity`` gives on the recount (a warning
+  within a quarter of N, else an error; rule ``about-band``, round-8 clearance c1), else RCPT-004;
 * the signed status of each bound's result is compared with the recount by integer arithmetic (the problem
   ``n = measured`` entails ``n <op> bound`` exactly when the comparison holds): a definitive status the arithmetic
   contradicts is RES-007, decided without the stored problem, so a re-signed status is exposed in R2 (the transfer is
@@ -78,8 +87,8 @@ from typing import Any, Optional
 
 from collections import Counter
 
-from ...channel.bus import _DETAIL_MAX, TranslatorChannel
-from ...channel.request_parser import count_paragraphs, measure_answer_words
+from ...channel.bus import _DETAIL_MAX, DECLINED_BOUND_PREFIX, TranslatorChannel, withheld_deliverable
+from ...channel.request_parser import about_band, bound_word_measure, count_paragraphs, measure_answer_words, per_part_bound, word_bound_severity
 from ...engine.statuses import VerificationStatus as S, is_definitive
 from ...ir.canonical import canonical_json, problem_digest
 from ...translate.common import truncate
@@ -87,7 +96,7 @@ from ..view import Transfer
 from . import CheckContext, Rederived
 
 __all__ = ["check_formal_status", "rederive", "check_branch_satisfied", "constraint_problem_mismatch", "R2_KINDS", "branch_image", "live_branch_image",
-           "check_rules_of", "identity_bindings", "identity_variables", "IDENTITY_RULE", "subject_label"]
+           "check_rules_of", "identity_bindings", "identity_variables", "IDENTITY_RULE", "subject_label", "declined_bound", "DECLINED_BOUND_RULE"]
 
 #: Rule ``identity-statement`` (STEM repair 12): an identity step's problem gives no symbol a value or a formula.
 IDENTITY_RULE = "identity-statement"
@@ -610,12 +619,12 @@ def _word_view(branch: Any, profile: Any):
 def _range_pairs(constraints: list, words_for, paras: int) -> dict[str, tuple[str, str]]:
     """Rule ``range-bound``: constraint id -> ``(low, high)`` for each minimum and maximum one span states ("about 250
     words": the same ``text``) whose decimal values bound the measurement on both sides, as the merged channel pairs them
-    for ``_formal_range``."""
+    for ``_formal_range``. A pair the request sets on each part is never paired (rule ``per-part-bound``)."""
     out: dict[str, tuple[str, str]] = {}
     for unit in ("words", "paragraphs"):
         spans: dict[str, dict[str, Any]] = {}
         for c in constraints:
-            if c.kind in (f"min_{unit}", f"max_{unit}") and c.value is not None:
+            if c.kind in (f"min_{unit}", f"max_{unit}") and c.value is not None and not per_part_bound(c):
                 spans.setdefault(c.text, {})[c.kind[:3]] = c
         for pair in spans.values():
             if "min" not in pair or "max" not in pair or not (str(pair["min"].value).isdecimal() and str(pair["max"].value).isdecimal()):
@@ -625,6 +634,23 @@ def _range_pairs(constraints: list, words_for, paras: int) -> dict[str, tuple[st
                 for c in pair.values():
                     out[c.constraint_id] = (str(pair["min"].value), str(pair["max"].value))
     return out
+
+
+#: Rule ``declined-bound`` (round-8 clearance c1).
+DECLINED_BOUND_RULE = "declined-bound"
+
+
+def declined_bound(cr: Any, response: Optional[str], *, declined: Optional[tuple[str, str]] = None) -> bool:
+    """Rule ``declined-bound``: ``cr`` is the record the channel writes for a word or paragraph bound set on a deliverable
+    the answer declines (``satisfied`` None, method ``not_checkable``, no formal result, its detail opening with
+    ``DECLINED_BOUND_PREFIX``), and ``channel.bus.withheld_deliverable`` reads a decline in ``response`` (``declined``, when
+    given, is that reading already made)."""
+    if cr is None or cr.satisfied is not None or cr.method != "not_checkable" or cr.formal_result_id:
+        return False
+    if not str(cr.detail or "").startswith(DECLINED_BOUND_PREFIX):
+        return False
+    found = declined if declined is not None else withheld_deliverable(response or "")
+    return found is not None and found[0] == "declined"
 
 
 def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
@@ -678,23 +704,29 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
                                             formal_result_id=c.formal_result_id, **ids))
     if req is not None:
         view = _word_view(branch, profile)
-        measures: dict[tuple[str, ...], int] = {}
+        measures: dict[tuple, int] = {}
 
         def words_for(c: Any) -> int:
-            key = tuple(sorted(getattr(c, "excludes", None) or ()))
+            # rule merged-measure, with rule per-part-bound: the channel's own function measures the bound
+            key = (tuple(sorted(getattr(c, "excludes", None) or ())), c.kind if per_part_bound(c) else None)
             if key not in measures:
-                measures[key] = measure_answer_words(rep.original_response, excludes=key, view=view)[0]
+                measures[key] = bound_word_measure(rep.original_response, c, request_text=req.user_input, view=view, measure=measure_answer_words)[0]
             return measures[key]
         paras = count_paragraphs(rep.original_response)
+        declined = withheld_deliverable(rep.original_response or "")
         ranges = _range_pairs(req.constraints, words_for, paras)
         held_c = {c.constraint_id: c for c in rc.constraint_results}
         for c in req.constraints:
             if c.kind not in _BOUND_OPS or c.value is None:
                 continue
-            measured = words_for(c) if c.kind.endswith("words") else paras
             cr = held_c.get(c.constraint_id)
+            if declined_bound(cr, rep.original_response, declined=declined or ("", "")):
+                continue  # rule declined-bound: the bound does not apply to a decline, as the channel records it
+            measured = words_for(c) if c.kind.endswith("words") else paras
             if cr is None or cr.method != "formal" or not cr.formal_result_id:
-                red.findings.append(ovs_finding("OVS-FORM-004", f"request constraint {c.constraint_id} ({c.kind} {c.value}) has no formal result on the receipt", **ids))
+                red.findings.append(ovs_finding("OVS-FORM-004", f"request constraint {c.constraint_id} ({c.kind} {c.value}) has no formal result on the receipt"
+                                                + (" (a bound recorded not applicable on a response that declines no deliverable: rule declined-bound)"
+                                                   if cr is not None and str(cr.detail or "").startswith(DECLINED_BOUND_PREFIX) else ""), **ids))
                 continue
             held_rec = ctx.store.get(cr.formal_result_id)
             wrong = _bound_status_contradicts(getattr(held_rec, "status", None), _BOUND_OPS[c.kind], c.value, measured)
@@ -713,4 +745,13 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
             if why:
                 red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} was decided on a problem the response does not yield: {why}",
                                                 formal_result_id=cr.formal_result_id, **ids))
+            if cr.satisfied is False and about_band(c):
+                # rule about-band (round-8 clearance c1): an "about N words" band missed by at most a quarter of N is a warning,
+                # a gross miss an error; the severity is decided on the auditor's own recount with the channel's own rule
+                want = word_bound_severity(c, measured)
+                held_sev = [f.severity for f in rc.findings if f.code == "INT-REQ-005" and f.formal_result_id == cr.formal_result_id]
+                if not held_sev or (want == "error" and "error" not in held_sev):
+                    red.findings.append(ovs_finding("OVS-RCPT-004", f"constraint {c.constraint_id} ({c.kind} {c.value}, an 'about N words' band) measures {measured} words on "
+                                                    f"the auditor's recount, so the channel raises INT-REQ-005 at {want} (rule about-band); the receipt carries "
+                                                    + (f"it at {', '.join(held_sev)}" if held_sev else "none"), formal_result_id=cr.formal_result_id, **ids))
     return red

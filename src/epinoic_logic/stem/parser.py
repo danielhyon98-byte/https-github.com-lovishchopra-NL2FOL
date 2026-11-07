@@ -54,7 +54,7 @@ makes the whole span Unparsed (ST-PARSE-001, the command named). Nothing raises 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Optional
 
 from .chem import ELEMENTS, canonical_formula, latex_to_chem, parse_species
@@ -65,7 +65,8 @@ from .nodes import (
     RealPower, Root, Sym, Unsupported, WithUnit, depth, replace_symbol, shape_key, walk,
 )
 from .numbers import ExactNumber, exact_based, exact_integer
-from .units import UnitExpr, compound_part, english_word_atom, is_unit_atom, lookup_atom, parse_unit, prefixed_greek_unit, unit_group
+from .units import UnitExpr, compound_part, english_word_atom, prefixed_greek_unit, unit_group
+from .units import stem_is_unit_atom as is_unit_atom, stem_lookup_atom as lookup_atom, stem_parse_unit as parse_unit  # rule count-noun
 
 __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM_NAMES", "parse_math", "segment", "symbol_name"]
 
@@ -190,6 +191,12 @@ def segment(word: str, names: frozenset[str], limits: StemLimits = DEFAULT_LIMIT
         return [(word,)]
     return [tuple(word)]
 
+
+
+def _odd_unit(unit: UnitExpr) -> bool:
+    """A known unit whose dimension has an odd exponent (``cm s⁻¹``, ``m``): no square root of it is a unit (round-8 clearance)."""
+    dim = unit.dim if unit is not None and unit.known else None
+    return dim is not None and (any(e % 2 for e in dim.exps) or dim.angle % 2 == 1)
 
 
 def _signed_limit(n: int, start: int, end: int) -> Node:
@@ -607,7 +614,7 @@ class _Parser:
             if self.ctx.profile.mode != "sciences" and isinstance(base, Sym) and base.name == "e" and base.kind == "symbol" and isinstance(tok.value, int):
                 return self._count(Func("exp", Num(exact_integer(tok.value), tok.start, tok.end), None, _start(base), tok.end))  # e² is exp(2)
             node = self._make_pow(base, tok.value, tok.end, exp_span=(tok.start, tok.end))
-            return self._nested_power_check(node)
+            return self._unit_after_power(base, self._nested_power_check(node))
         if tok.kind in ("CARET", "DSTAR"):
             euler = self._euler_power(base, d)
             if euler is not None:
@@ -625,8 +632,25 @@ class _Parser:
                 return self._count(Unsupported(exp.reason, exp.text, _start(base), exp.end))
             value, end = exp
             node = self._make_pow(base, value, end, exp_span=(self.t[first].start if first < len(self.t) else end, end))
-            return self._nested_power_check(node)
+            return self._unit_after_power(base, self._nested_power_check(node))
         return base
+
+    def _unit_after_power(self, base: Node, node: Node) -> Node:
+        """Round-8 clearance: a unit written after a power of a written number ('6.67 × 40⁻¹¹ N m² kg⁻²', a power of ten written with
+        another base) is the unit of the value, as after a number: it had ended the operand ('unexpected kg'), so a Given copied with a
+        wrong base was named only outside the grammar."""
+        if not isinstance(base, Num) or not isinstance(node, Pow):
+            return node
+        nxt = self.peek()
+        if nxt is None or not nxt.space or nxt.kind != "IDENT":
+            return node
+        unit = self._unit_after(self.i, glued_ok=False)
+        if unit is None:
+            return node
+        expr, j = unit
+        end = self.t[j - 1].end
+        self.i = j
+        return self._count(WithUnit(node, expr, _start(node), end))
 
     def _euler_power(self, base: Node, d: int) -> Optional[Node]:
         """``e^{2(0.693)}``, ``e^{1.386}``, ``e^-0.5`` in a mathematics or Computer Science reading: Euler's number raised
@@ -1075,6 +1099,15 @@ class _Parser:
         self.i += 1
         num: ExactNumber = tok.value
         nxt = self.peek()
+        if nxt is not None and nxt.kind == "UNSUP" and nxt.value == "an ellipsis" and not nxt.space and num.has_point and not num.scientific \
+                and "." in tok.text:
+            # round-8 clearance (rule cut-decimal): a decimal with an ellipsis written right after it ('7045.59…', '0.309017\ldots') is the
+            # value with its digits cut: one numeral whose half-width is a whole unit in its last written digit, so '23 425 − 7045.59… =
+            # 16 379.41…' is decided under the tolerance rule. It had been the numeral beside an unsupported marker, which left every
+            # relation holding it outside the encodings (ST-UNDEC-001), so a slip on such a line was never named. An ellipsis anywhere
+            # else ('1 + 2 + … + n') stays outside the encodings
+            self.i += 1
+            return self._count(Num(replace(num, cut=True), tok.start, nxt.end))
         # ratio a : b
         if nxt is not None and nxt.kind == "COLON" and self.peek(1) is not None and self.peek(1).kind == "NUM":
             other = self.peek(1)
@@ -1454,7 +1487,16 @@ class _Parser:
             power_after = nxt.value  # sin²θ
             self.i += 1
         if name == "sqrt":
+            first = self.peek()
+            bare = first is not None and first.kind == "NUM"
             arg = self._function_argument(d)
+            if bare and isinstance(arg, Quantity) and first is not None and _odd_unit(arg.unit):
+                # round-8 clearance: a unit written after a bare surd ('20√3 cm s⁻¹', '√2 m') is the unit of the whole value, never inside the
+                # radicand (the square root of cm s⁻¹ is no unit): it had been read as √(3 cm s⁻¹), so the SI reading of a correct exact
+                # conversion ('20√3 cm s⁻¹ = (√3/5) m s⁻¹') failed. A radicand whose unit has a square root ('√(25 m²)') keeps it inside
+                num = self._count(Num(arg.number, arg.start, first.end))
+                root = self._count(Root(num, 2, tok.start, first.end))
+                return self._count(WithUnit(root, arg.unit, tok.start, arg.end))
             return self._count(Root(arg, 2, tok.start, _end(arg)))
         if name == "cbrt":
             arg = self._function_argument(d)

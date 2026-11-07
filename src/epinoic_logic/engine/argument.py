@@ -51,8 +51,11 @@ What the rules are (``engine/ARGUMENT.md`` has each rule with its control):
   decided by a derived validity check), ARG-CIRC-003 (the writer's link derives the point from a fact whose gloss only
   restates it), ARG-AC-001 b and ARG-DA-001 b (the writer's link is the converse or the inverse of a stated rule),
   ARG-FD-001 (the writer's either/or, no tautology, options not complementary), ARG-HG-001 i (an open universal drawn
-  from instance facts), ARG-CL-001 (a cause read into a sequence in time, with no control cue anywhere in the problem)
-  and ARG-EQ-003 (a link defines the bare noun that a symbol's meaning qualifies by sense).
+  from instance facts; an "each" or "both" over a pair the facts name, "both species ... so each is more likely ...", is
+  no universal: round-8 clearance c1), ARG-CL-001 (a cause read into a sequence in time, with no control cue anywhere in
+  the problem; a cause the text is said to present, "the phone is made to look like the cause", "the figures present the
+  phone as the cause", describes the text and is no causal claim: round-8 clearance c1) and ARG-EQ-003 (a link defines
+  the bare noun that a symbol's meaning qualifies by sense).
 * **A COUNTEREXAMPLE's shape**: ARG-REFUTE-001 (the established premises entail the negated point), ARG-AC-001 a and
   ARG-DA-001 a (adding the converse or the inverse of a stated rule, which the facts match, makes the point follow),
   ARG-HG-001 ii (a universal point from instance facts no premise links to it), ARG-NS-001 (no premise mentions the
@@ -381,6 +384,11 @@ def _is_number(token: str) -> bool:
     return token.replace(",", "").replace(".", "").isdecimal() or token in cues.NUMBER_WORDS
 
 
+#: Facts that name a pair ("both species", "the two plants", "either parent"): an "each" said of them quantifies over that
+#: pair, never over an open class (round-8 clearance c1, bi-t14 s5.1).
+_STATED_PAIR_RE = re.compile(r"\b(?:both|either|neither|the\s{1,3}two|these\s{1,3}two|those\s{1,3}two)\b", re.IGNORECASE)
+
+
 def _open_universal(text: Optional[str]) -> Optional[str]:
     """The first open universal cue of ``text``: not closed by a number within the next three tokens ("all three",
     "each of the four"), and an "any" not in the scope of an earlier negation ("cannot find any")."""
@@ -563,7 +571,18 @@ _CAUSATIVE_VERBS = frozenset({"make", "makes", "made", "making"})
 _RESULT_COMPARATIVES = cues.COMPARATIVES | frozenset({"healthier", "fitter", "happier", "smarter", "safer", "cleaner", "quicker", "cheaper"})
 
 
+#: A cause the text is said to PRESENT ("the phone is made to look like the cause", "the figures present the phone as the
+#: cause", "portrays X as the reason"): a description of the text's rhetoric, not the writer's causal claim (round-8
+#: clearance c1, ll-t14 p1-point). Bounded runs only.
+_PRESENTED_CAUSE_RE = re.compile(
+    r"\b(?:made|make|makes|making)\s{1,3}(?:to\s{1,3})?(?:look|seem|appear|sound)\b|\b(?:looks?|looked|seems?|seemed|appears?|appeared|sounds?)\s{1,3}(?:like|as\s{1,3}if|to\s{1,3}be)\b"
+    r"|\b(?:present(?:s|ed|ing)?|portray(?:s|ed|ing)?|depict(?:s|ed|ing)?|frame(?:s|d)?|framing|cast(?:s|ing)?)\s{1,3}(?:[\w'’-]{1,40}\s{1,3}){0,5}?as\s{1,3}(?:the|a|an)\s{1,3}(?:cause|reason|source|culprit)\b",
+    re.IGNORECASE)
+
+
 def _causal(text: Optional[str]) -> Optional[str]:
+    if text and _PRESENTED_CAUSE_RE.search(text):
+        return None  # the text presents a cause; the writer describes that presentation and claims none
     toks = _tokens(text)
     found = lexis.find_cues(toks, cues.CAUSAL)
     if found:
@@ -1767,6 +1786,8 @@ class _Diagnosis:
                     cue, sampled = "the wider whole", True
                 if cue is None or not atoms:
                     continue
+                if cue in ("each", "both", "either", "every") and any(_STATED_PAIR_RE.search(t) for t in ante_texts):
+                    continue  # "each" over a pair the facts name ("both species ...", "the two plants"): no universal (round-8 clearance c1)
                 if not sampled and (any(_open_universal(t) for t in ante_texts) or not all(_instance(t) for t in ante_texts)):
                     continue
                 self.emit("ARG-HG-001", f"hasty generalisation: the writer's link {self.named(w)} draws the universal '{cue} ...' "

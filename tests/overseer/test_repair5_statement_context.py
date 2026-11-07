@@ -29,7 +29,7 @@ from epinoic_logic.ir.schema import Problem
 from epinoic_logic.overseer.checks import translation as T
 from epinoic_logic.translate.contracts import SuppliedText
 
-from .conftest import DOC, EN_TEXT, english_report
+from .conftest import DOC, EN_TEXT, english_report, withheld_as_circular_by_the_translator, without_the_translators_semantic_gate
 from .test_protocol_validate import review
 from .test_repair3_same_quantity import _run_on
 from .test_translation_agents import outcome_of, tr_acc
@@ -85,14 +85,26 @@ WORDS = ("80", "the answer is 80 words long", "the number of words of the answer
     ("quotation a prompt puts up for examination", 'Analyse the extract. "The extract mentions 3 workers." Discuss.', WORKERS,
      "inside a claim the answer must examine"),
 ])
-def test_a_figure_the_request_does_not_state_as_a_statement_never_reads_p_proves_p_as_data(case, user_input, figure, context):
+def test_a_figure_the_request_does_not_state_as_a_statement_never_reads_p_proves_p_as_data(case, user_input, figure, context, monkeypatch):
     """The review's probe and its class. The merged translator delivers the encoding (its rule reads the task_setting label
     as a transcription) and the engine gives ENTAILED: the router is shown ENTAILED. The request states the figure only
     where it asks, denies, puts up for examination, requires or limits it, so no check reads the premise as data: it is
     shown not to be data (uncheckable), the result rests on it, and the grade is OVS-TRN-006, the transfer AUDIT_FAILED,
     an agent's translation_circular accusation CONFIRMED. The fourth repair's code gave OVS-TRN-011 and
-    AUDIT_PASSED_WITH_FINDINGS for each."""
+    AUDIT_PASSED_WITH_FINDINGS for each.
+
+    Rewritten for round-8 clearance c1 to a stricter rule, every original assertion kept: where the translator's own
+    semantic rule now withholds the encoding itself (E112 at translation, no OVS-TRN finding), that is asserted first and
+    the original assertions are made on the encoding delivered past that gate."""
     value, label, meaning, *op = figure
+    a0, ch0, rc0 = _run_on(user_input, _count(value, label, meaning, op=op[0] if op else "eq"))
+    try:
+        o0 = next(x for x in rc0.outcomes if x.claim_id == POINT)
+        if o0.translation.problem is None:
+            assert withheld_as_circular_by_the_translator(o0) and trn(a0.audit(ch0.uid), "OVS-TRN-006") == []
+            without_the_translators_semantic_gate(monkeypatch)
+    finally:
+        a0.close()
     aud, ch, rc = _run_on(user_input, _count(value, label, meaning, op=op[0] if op else "eq"))
     try:
         o = next(x for x in rc.outcomes if x.claim_id == POINT)

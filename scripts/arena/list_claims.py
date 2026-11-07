@@ -35,7 +35,8 @@ parser records inline from-memory labels and single-quoted spans with no text to
 against there) and a claim that is an agent self-report shows its ``advisory_verification_status``
 (recorded for audit, never trusted). With ``--json`` every claim also carries ``claim_text_sha256``,
 the digest a translation fixture file may record so run_arena.py refuses the fixture once the
-claim's text changes.
+claim's text changes: keep the listings the translation agents were given, and bind_translations.py
+records the digests from them when the round's translations are recorded.
 
 The combinator's instructions are the combinator sub-project's (``combinator/``, package
 ``epinoic_combinator``): both outputs end with the synthesis format the combinator writes (``synthesis_format``

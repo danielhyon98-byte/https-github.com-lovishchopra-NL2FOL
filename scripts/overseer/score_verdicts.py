@@ -275,14 +275,32 @@ def _ids_of(x: dict) -> dict[str, set[str]]:
     return {k: set(x.get(k) or ()) for k in ID_KINDS + ("receipt_ids",)}
 
 
+#: Gold classes an accusation of ANY kind may name (round-8 clearance c1): a fault the receipt did not name has no check of
+#: its own (an arena injection the infrastructure missed, a false finding the infrastructure raised), so an agent names it
+#: by naming its identifiers, whatever kind it gives (``accepts_kinds`` on the fault narrows that).
+ANY_KIND_CLASSES = frozenset({"unnamed_injection", "false_finding"})
+
+
 def matches(kind: str, acc_ids: dict[str, set[str]], fault: dict, r2m: dict[str, str], claim_reports: Optional[dict[str, list[str]]] = None) -> bool:
     """An accusation matches a fault when its kind is the fault's class or maps to one of its expected codes
     (``KIND_CHECKS``), and it names at least one of the fault's identifiers (a receipt id through its message). A claim
     is named by its report (rule ``report-scoped-claims``, ``ovs_harness.claims_overlap``): claim ids are unique only
     within a report (two STEM agents of one branch both number ``s1.2``), so the accusation's claim, read in the reports
     it resolved to in the dossier (``claim_reports``, the validator's ``claim_report_ids``), matches the fault's claim
-    only in the fault's reports; a side that names no report compares claim ids alone."""
+    only in the fault's reports; a side that names no report compares claim ids alone. A fault of a class in
+    :data:`ANY_KIND_CLASSES` is matched by an accusation of any kind its ``accepts_kinds`` allows (all when it lists none)
+    that names its claims (round-8 clearance c1: the agents named the injected faults the receipts missed as ``other``)."""
     codes = set(KIND_CHECKS.get(kind, ()))
+    if fault.get("class") in ANY_KIND_CLASSES:
+        allowed = fault.get("accepts_kinds")
+        if allowed and kind not in allowed:
+            return False
+        fids = _ids_of(fault.get("identifiers") or {})
+        if not fids["claim_ids"]:
+            a_msgs = acc_ids["message_ids"] | {r2m[r] for r in acc_ids["receipt_ids"] if r in r2m}
+            return bool(a_msgs & (fids["message_ids"] | {r2m[r] for r in fids["receipt_ids"] if r in r2m}))
+        # the injected (or falsely flagged) claim must be named, in the fault's report when both sides name reports
+        return H.ids_overlap(acc_ids, fids, kinds=("claim_ids",), a_claim_reports=claim_reports)
     if kind != fault["class"] and not (codes & set(fault.get("expected_codes") or ())):
         return False
     fids = _ids_of(fault.get("identifiers") or {})
@@ -579,6 +597,7 @@ def _score_group(items: list[Assessed], gold: dict, adjudications: Optional[dict
         fa_state, fa_ok, fa_measured = "PENDING", False, False  # unadjudicated accusations decide it
     attest = {"runner": sum(1 for a in assessed if a.attestation == "runner"), "self_reported": sum(1 for a in assessed if a.attestation != "runner")}
     comb = combination(items)
+    green = green_light(assessed, gold)
     gates = {
         "no_contradiction_with_signed_results": _gate(contradictions == 0, bool(assessed), contradictions),
         "false_accusation_rate_at_most_2pct_of_clean_transfers": _gate(fa_ok, fa_measured,
@@ -615,11 +634,34 @@ def _score_group(items: list[Assessed], gold: dict, adjudications: Optional[dict
         "kappa_vs_auditor": kappa(kappa_pairs),
         "kappa_note": "blind dossiers only: an informed agent is told not to repeat the auditor's findings",
         "combined": comb,
+        "green_light": green,
         "latency_ms": {"n": len(latencies), "mean": round(statistics.mean(latencies), 2) if latencies else None,
                        "p50": round(statistics.median(latencies), 2) if latencies else None, "max": round(max(latencies), 2) if latencies else None},
         "tokens": {"input": tokens_in, "output": tokens_out}, "cost_usd": round(cost, 6) if cost_reported else "not reported",
         "transfers_reviewed": transfers, "gates": gates,
     }
+
+
+def green_light(assessed: list[Assessed], gold: dict) -> dict:
+    """Green-light accuracy (round-8 clearance c1): a variant is GREEN-LIT when its valid verdicts raise nothing (no
+    accusation confirmed or left unresolved), and a green light is accurate when the gold holds no agent-scorable fault
+    for it. Only gold faults count: a fault the receipt already named is no gold fault (the pack tells agents not to repeat
+    the receipt), so a green light on a mutation whose injected fault the receipt named is no miss; an injected fault the
+    receipt did NOT name (class ``unnamed_injection``) and every other agent-scorable fault is. Reported with the variants
+    each way, never pooled with recall."""
+    by_variant: dict[str, list[Assessed]] = defaultdict(list)
+    for a in assessed:
+        by_variant[a.variant_id].append(a)
+    lit, accurate, missed = [], [], []
+    for vid, items in sorted(by_variant.items()):
+        raises = any(x.outcome in ("confirmed", "unresolved") for a in items for x in a.assessment.accusations)
+        if raises:
+            continue
+        lit.append(vid)
+        faults = [f for f in (gold.get(vid) or {}).get("faults", []) if f.get("agent_scorable", True)]
+        (missed if faults else accurate).append(vid)
+    return {"green_lit": len(lit), "accurate": wilson(len(accurate), len(lit)), "inaccurate_variants": missed,
+            "note": "accurate: no agent-scorable gold fault (a fault the receipt named is not one); unnamed injections count"}
 
 
 def _gate(ok: bool, measured: bool, value: Any) -> dict:

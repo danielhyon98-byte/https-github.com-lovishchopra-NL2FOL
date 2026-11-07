@@ -320,6 +320,26 @@ def parse_boolean(tokens: "tuple[Token, ...] | list[Token]", *, limits: StemLimi
                 issues.append(ParseIssue("ST-PARSE-001", "a Boolean chain with more than one equivalence sign", seg[0].start, seg[-1].end))
             continue
         k = rel_idx[0]
+        if k == 0 and len(seg) > 1:
+            # round-8 clearance (rule boolean-derivation): a line of a derivation that opens with the equivalence sign ('= NOT B AND (NOT A
+            # OR A)') continues the expression of the line before it: its left side is that expression, which the planner supplies (a
+            # placeholder here). It had been named outside the grammar ('an expression ends where an operand was expected'), so a wrong
+            # step of a Boolean simplification was never checked
+            why = gate_order(seg[1:])
+            if why:
+                issues.append(ParseIssue("ST-PARSE-002", f"a Boolean expression with two readings: {why}", seg[0].start, seg[-1].end))
+                continue
+            try:
+                rp = _BoolParser(tuple(seg[1:]), limits)
+                right = rp.expr(0)
+                if rp.i != len(seg) - 1:
+                    raise ValueError("unexpected tokens after the expression")
+            except (ValueError, AssertionError) as exc:
+                issues.append(ParseIssue("ST-PARSE-001", f"a Boolean expression outside the grammar: {exc}", seg[0].start, seg[-1].end))
+                continue
+            lead = Sym("", kind="continuation", start=seg[0].start, end=seg[0].start)
+            rels.append(BoolRelation(lead, seg[0].text, right, seg[0].start, seg[-1].end))
+            continue
         why = gate_order(seg[:k]) or gate_order(seg[k + 1:])
         if why:
             # rule boolean-gates (STEM repair 6): never one reading chosen where the order of a gate is no standard

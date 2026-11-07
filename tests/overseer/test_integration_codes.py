@@ -792,7 +792,7 @@ def pack_completeness(d=None) -> list[str]:
 
 def test_the_installed_pack_lists_every_code_status_rule_and_policy_the_translator_emits():
     """The completeness test: pack 1.4 knows every code of the overseer's tables, with its severity and label."""
-    assert PACK_VERSION == "1.4" and pack_completeness() == []
+    assert PACK_VERSION == "1.5" and pack_completeness() == []  # round-8 clearance c1: 1.5 (1.4's D32 corrected), the same tables
 
 
 @pytest.mark.parametrize("cut", ["| INT-ARG-001 | error, warning |", "| ST-REF-001 | warning |", "`stem_symbol_conflict`:", "argdiag-2"])

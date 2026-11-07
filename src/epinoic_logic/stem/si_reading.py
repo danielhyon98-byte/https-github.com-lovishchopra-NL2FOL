@@ -47,7 +47,8 @@ from .document import StemDocument, build_document
 from .limits import PROFILES, profile_for
 from .normalize import masked_view, reading_view
 from .numbers import scan_number
-from .units import UNITS, Dimension, dimension_name, parse_unit
+from .units import UNITS, Dimension, dimension_name
+from .units import stem_parse_unit as parse_unit  # rule count-noun: the STEM readings
 
 __all__ = [
     "QuantReading", "SI_READING", "SI_SCALE_UNIT", "SI_SCALES", "SiUnit", "mask_number_marks", "si_digits_pattern", "si_number", "si_prose_view",

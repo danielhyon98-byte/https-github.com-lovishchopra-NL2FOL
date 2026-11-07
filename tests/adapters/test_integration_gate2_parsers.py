@@ -420,13 +420,18 @@ def _old_governing_document(sentence, quote_index, named, docs):
     plain = sentence.text
     spans = list(src.document_mentions(plain, doc))
     if not en.is_peer_document(doc):
-        spans += [(m.start(), m.end()) for m in en._TEXT_CUE_RE.finditer(plain)]
+        # the cue the structural reader reads by clause (c1: the text under analysis named by its kind, 'the text', 'the advertisement')
+        spans += [(m.start(), m.end()) for m in en._TEXT_KIND_CUE_RE.finditer(plain)]
     spans = [(a, b) for a, b in spans if not any(o.start <= a < o.end for o in sentence.quotations)]
     for a, b in spans:
         lo, hi = (b, q.start) if b <= q.start else (q.end, a)
         if lo > hi:
             continue
         if any(lo <= o.start < hi for o in others) or en_structural._CLAUSE_BREAK_RE.search(plain[lo:hi]):
+            continue
+        # the c1 clearance rule (rewritten to it, never weakened): a name after the quotation in a later clause (a sentence stop, a comma
+        # before a conjunction, a spaced dash between them: "..., and the Psychology specialist explains ...") credits nothing of it
+        if b > q.start and any(lo <= m.start() < hi for m in en_structural._LATER_CLAUSE_RE.finditer(plain)):
             continue
         return named[0]
     return None
@@ -435,7 +440,7 @@ def _old_governing_document(sentence, quote_index, named, docs):
 def _old_named_before(sentence, position, doc):
     spans = list(src.document_mentions(sentence.text, doc))
     if not en.is_peer_document(doc):
-        spans += [(m.start(), m.end()) for m in en._TEXT_CUE_RE.finditer(sentence.text)]
+        spans += [(m.start(), m.end()) for m in en._TEXT_KIND_CUE_RE.finditer(sentence.text)]
     return any(b <= position and not any(o.start <= a < o.end for o in sentence.quotations) for a, b in spans)
 
 

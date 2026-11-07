@@ -222,6 +222,103 @@ harness rates of the second layer have not dropped.
    bounded by the IR's 1,000-character label; each held to its old reading on random input and run on its worst-case input
    under a CPU bound and a growth ratio).
 
+   The round-8 clearance (integrated round c1) rewrote these existing tests to a stricter rule or to the rule a test's first
+   version waited for, and weakened or deleted none (each docstring says what changed):
+   - overseer (`tests/overseer/`): `test_repair4_label_only_data.py` (three tests), `test_repair5_statement_context.py` (one)
+     and `test_rebuild_merged_translator.py` (two): the translator's pipeline now withholds the label-only and other-form
+     circular encodings itself (E112, `translate/restatement.py`); each test first asserts that it does, then asserts what it
+     asserted before on the translator with its semantic rule off (`conftest.without_the_translators_semantic_gate`).
+     `test_rebuild_merged_translator.py::test_rule_semantic_restatement_reads_a_restatement_in_another_form`: "b and (b
+     implies e)" (a link packed with its antecedent) moved to the controls (rule packed-link): the translator's semantic rule
+     and the argument rules read it as an argument, and the overseer graded the delivered packed modus ponens OVS-TRN-006 (the
+     receipt and the audit disagreed); "true implies e" is still a restatement; one more packed control was added.
+     `test_corrections_adjudicated_faults.py`: record version 8 retires the three restored entries (kind
+     `translator_semantic`); the tests of versions 2 to 7 keep every assertion on the data they read (the version-7 record is
+     rebuilt from the shipped one), assert on the shipped record what it now holds, and make the assertions that re-derive a
+     pipeline run version 7 recorded on the translator before the clearance; five version-8 tests were added (one of them
+     parametrized eight ways). Two assertions are made differently, each said in its docstring: that a restored entry's
+     evidence reproduces is asserted with its recorded pipeline run re-derived on the pipeline without the semantic rule
+     (`pipeline_superseded`, which the loader now re-derives in full), since the pipeline as it is withholds it; and the
+     restoration damages run on the version-7 record with p1-point and m7.1, m1.1 left out because on the translator before
+     the clearance the overseer's reading of it now includes the translator's floor (its t_comp, named by the translator's
+     semantic rule on the request's task record). `test_stem_repair12.py::test_the_repair_12_probes_name_every_plant_and_keep_every_control_clean`:
+     the planted 'lin − 1000 = 0' is now withheld by the translator itself (probe outcome `withheld`, asserted first); the
+     earlier assertions run with the translator's semantic rule off. `test_stem_repair10.py::test_d32_says_which_integrals_and_ellipses_are_checked`:
+     pack 1.5's D32 (rule cut-decimal): "0.333… × 3 = 1" moved from the undecided constructs to the decided ones and "0.333… ×
+     3 = 1.5" must fail. `test_stem_completion.py`: mai-t13's pinned count 13 -> 15 (rule cut-decimal adds two holding checks,
+     the stated comparisons '5939.95… < 6000' and '6157.36… > 6000' on s12.3). The knowledge-pack tests that name "the next,
+     unpinned version" (`test_knowledge_pack.py`, `test_knowledge_export.py`, `test_knowledge_examples.py`,
+     `test_knowledge_drift.py`, `test_harness_contained_pack.py`) use 1.6, 1.5 being pinned now; the version pins
+     (`test_knowledge_pack.py`, `test_knowledge_runner.py`, `test_integration_codes.py`) name 1.5, with 1.4 still pinned and
+     loading.
+   - STEM: `tests/stem/test_stem_repair10.py::test_a_cut_value_inside_an_expression_is_named_undecided_never_failed` is now
+     `test_a_cut_value_inside_an_expression_is_decided_never_failed_when_correct`. It pinned ST-UNDEC-001 for every cut
+     decimal inside an expression ('0.333… × 3 = 1') whatever its value, so a GDC-style answer was essentially unchecked; the
+     STEM pack now reads a decimal cut by an ellipsis as one numeral whose half-width is a whole unit in its last digit (rule
+     cut-decimal, `docs/STEM_DESIGN.md` section 39), so the correct lines must still hold with no finding and the wrong value
+     ('0.333… × 3 = 1.5') must now fail. The fixes are pinned in `tests/stem/test_clearance_c1_stem.py` with the round's
+     recorded STEM answers in `tests/fixtures/stem/round8/`.
+   - parsers: `tests/adapters/test_integration_gate2_parsers.py::_old_governing_document` (the reference reading the gate-2
+     equivalence test `test_the_credit_of_each_quotation_is_that_of_the_per_quotation_reading` compares the fast reader with)
+     was rewritten to the c1 crediting rule: a name after a quotation in a later clause (a sentence stop, a comma before a
+     conjunction or a spaced dash between them) credits nothing of it, and its cue spans (and `_old_named_before`'s) are read
+     with the cue the structural reader reads by clause, `english_specialist.parser._TEXT_KIND_CUE_RE` (the literary kinds
+     plus 'the text', 'the advertisement', ...; the whole-sentence `_TEXT_CUE_RE` keeps the literary kinds only). The test
+     still checks equivalence on 6,000 random sentences. One reference datum was re-referenced, never weakened:
+     `tests/branches/data/quant_general_reference.json` changed on one text ('Some 9,000 banks failed between 1930 and 1933;
+     prices fell 25.5 per cent in January 1931.', since 'fell X per cent' with no 'by' is now read and named undecided,
+     CORE-QNT-001); the item keeps its earlier digest as 'sha256_before_c1', and
+     `tests/branches/test_c1_clearance_parsers.py::test_the_re_referenced_corpus_text_differs_by_the_fell_x_per_cent_rule_alone`
+     restores the earlier pattern and checks that every one of the 570 texts reproduces its earlier digest byte for byte. The
+     parsers' regressions are in `tests/branches/test_c1_clearance_parsers.py` (texts in `tests/branches/c1_texts.py`).
+   - the clearance's handoff fixer: `tests/channel/test_c1_clearance_core.py::test_a_decline_is_named_and_no_item_reads_as_addressed_and_its_bound_is_decided_naming_the_decline`
+     is now `..._its_bound_is_not_applicable_naming_the_decline`. Its first version asserted the interim behaviour it
+     described as waiting for the transfer auditor (the bounds of a declined deliverable decided and charged INT-REQ-005 at
+     error, naming the decline); the auditor now accepts the not-applicable record exactly when `withheld_deliverable` reads a
+     decline in the journaled response (rule declined-bound), so the test asserts that record, the decline named, no
+     INT-REQ-005 and no error. `tests/integration/test_turn_checker.py::test_prefetch_does_not_change_the_receipts`
+     prefetches after the request is dispatched, with the task record the channel builds for it: the fixture corpus's
+     verifier is task-aware now (the harness fixer's handoff), so the pipeline's first-attempt request carries the record;
+     its assertions (equal receipts with the prefetch on and off, the prefetched proposals served) are unchanged.
+     `tests/integration/test_fixture_parity.py`'s module fixture `arena_run` now comes from
+     `arena_capture`, which runs the same round and also observes each genuine delivery's result digests (it returns the
+     hub's own result unchanged), for the new G-EQ-ARENA digest test. The handoff fixer's regression tests are
+     `tests/overseer/test_c1_handoff_bounds.py` (rules declined-bound and per-part-bound, and rule about-band: an "about N
+     words" band missed by at most a quarter of N is a warning, a gross miss stays the error the round-5 test of en-t10
+     requires; each with the audit agreeing and a control the audit names), `tests/channel/test_c1_handoff_channel.py` (questions as items,
+     context and form sentences, "quoting", the short near miss), `tests/branches/test_c1_handoff_branches.py` (prose shares,
+     criterion marks, the English pack that cannot load, and two input stalls: the core pack compared every quotation key with
+     every other, and `nearest_text` read every supplied text again for every quotation, 10 s to receive 2,000 short
+     quotations against a 21,000-character text), `tests/overseer/test_c1_handoff_shadow.py` (the shadow's rule composition,
+     with the recorded ec-p8a material in `tests/overseer/data/`) and `tests/integration/test_fixture_parity.py` (the fixture
+     path's task record); each module it changed has a sweep test over the standard hostile inputs.
+     Its second pass (the STEM fixer's handoff items 2 and 4) rewrote three STEM tests to a stricter rule and weakened or
+     deleted none: the channel now refuses a specialist's response whose own text holds a bidirectional embedding, override
+     or isolate (INT-REQ-009, REJECTED, never delivered; rule bidi-text, STEM-integration finding 17), as the combinator
+     port's text rule refuses one in a synthesis, so `tests/stem/test_clearance_c1_stem.py::test_a_relation_before_a_bidirectional_control_on_its_line_is_still_checked`
+     and `::test_a_line_with_a_bidirectional_control_is_never_shown_as_checked` assert that refusal at the hub, and
+     `tests/stem/test_integration_gate4_stem.py::test_an_invisible_mark_between_numerals_reads_as_a_blank` asserts it for its
+     two bidirectional marks (U+2066, U+202A; the eight other marks as before); each keeps every assertion it made on what
+     the STEM pack decides (rule bidi-control: the relation the control reaches named ST-UNDEC-001 and not decided, the other
+     relations checked; ST-PARSE-001 and no failed check for the marks), now asserted on the pack itself, outside the channel.
+     Its regression tests are `tests/channel/test_c1_handoff_bidi.py` (every subject and every control refused, the marks
+     U+200E, U+200F and U+061C kept, a structured report refused on its claims' text, a supplied text the router's and not
+     read for it, the readers linear on the standard hostile inputs and on a 400,000-character response),
+     `tests/overseer/test_c1_handoff_bidi_audit.py` (the auditor re-derives the rule: a refusal passes, a channel that delivers
+     such a response is OVS-RCPT-004) and `tests/stem/test_c1_handoff_mutation_sites.py` (the arena's STEM mutation sites,
+     STEM-integration finding 25: no site in code, a mark annotation or a mark line; a site inside a quotation is also named
+     by INT-REQ-003 and a term of a bracketed sum after its value by INT-SUBJ-004, beside the mutation's own code, which
+     never changes; on c1 and r7 every mutated text is the one it was; the site readers linear), with the counting rule in
+     `scripts/arena/test_arena_rules.py`.
+     Its third pass (the core fixer's handoff item 2 and the parsers fixer's item 7, breadth item 19) rewrote no test: the
+     core pack names a near miss of a name the supplied case states (rule case-name, CORE-SRC-008, warning), registered in
+     `overseer.emitted` and in the code table of pack 1.5 before its first commit (1.5 pinned again with that row). Its
+     regression tests are in `tests/branches/test_c1_handoff_branches.py` ('Tidewater Kayaks' on the Tidewell Kayaks case,
+     the recorded bm-p8a answer with 'Brackwood' for Brackwater and the recorded answer clean, seven controls: a derived
+     form, a name the request states, a sentence's first word, a name inside a quotation, four shared letters, a two-word
+     place the case states and every name as the case writes it; the reader bounded on 15,000 to 20,000 hostile names and in
+     the module's sweep).
+
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`
    tests both at the cause. Finding 6: a figure that a supporting claim, a supplied text or the
@@ -353,7 +450,16 @@ harness rates of the second layer have not dropped.
    compared with its genuine record in its own id form. Round 7 replays as before (177 of 177,
    every record unchanged apart from the fixture coverage's new, empty
    `served_under_other_id_form`); rounds 1 to 6 hold no STEM report, so none of this applies
-   to them.
+   to them. Round 8's clearance made the replay run what production runs wherever a recording
+   allows it, and name what it cannot (`metrics.replay`, summary.md's "Replay configuration"
+   line): the claim verifier receives the task record of each request, as production's does
+   (`--without-task-record` replays as before); `scripts/arena/bind_translations.py` records with
+   each translation the digest of the claim text it was produced for, as a step of recording a
+   round; a retry served the same recorded output is reported as not exercised; and a synthesis
+   is stamped when it is relayed. Round 8 replays 201 of 203 with and without the task record
+   (10 genuine claims change their displayed status as production computes them;
+   `docs/ARENA_RESULTS.md`). The regression tests are in `scripts/arena/test_arena_rules.py` (the
+   round-8 section: each fails on the harness before the fix).
 
    Three independent overseer agents then judge the round:
    - **Results audit** checks every receipt against its input.

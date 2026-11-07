@@ -81,7 +81,7 @@ from ..english_specialist.parser import documents_named
 from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_memory_label,  # noqa: F401
                         is_self_certification, parser_quotation_spans, split_list_items, split_note_clauses, strip_markup, truncate_claim_text,
                         undelimited_quote_span)
-from ..sources import attribute_excerpt, check_excerpt  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
+from ..sources import attribute_excerpt, check_excerpt, strip_trailing_punctuation  # noqa: F401  (attribute_excerpt: the shared rule, re-exported here)
 from .chronology import MONTH_YEAR_RE as _MONTH_YEAR_RE  # noqa: F401  (re-exported for callers of the old name)
 from .chronology import chronology_findings_in, chronology_relations, date_in_aside, month_index  # noqa: F401
 from .sentences import split_sentences as _split_sentences, strip_json_spans
@@ -613,7 +613,8 @@ class HistorySpecialistAdapter:
                     # the reporting clause's outer speaker or the nearest named text is credited (sources.governing_document), never none
                     doc, notes_for_excerpt = attribute_excerpt(excerpt, named, docs, sentence=plain)
                     if doc:
-                        refs.append(SourceRef(document_id=doc, excerpt=excerpt[:2000]))
+                        # sentence punctuation inside the closing mark is the quoting sentence's, not the quoted words (c1 bm-p8a g2.2)
+                        refs.append(SourceRef(document_id=doc, excerpt=(strip_trailing_punctuation(excerpt) or excerpt)[:2000]))
                     assumptions.extend(notes_for_excerpt)
                     if role in ("analysis", "evidence"):
                         role = "evidence"

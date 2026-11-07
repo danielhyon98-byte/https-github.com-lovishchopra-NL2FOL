@@ -169,7 +169,9 @@ STEM_TASKS = ((("ph-t13",), "ph-t13"), (("maa-t13",), "maa-t13"), (("mai-t13",),
 #: model the request states, stem-mod, each holding); every other count and every ST code set is unchanged
 #: Round-7 parsers handoff (r7 history handoff A2): the SI reading checks a pair's direction word, ph-t13 18 -> 20 ('rises from 2.4 Ω to
 #: 4.0 Ω' and 'from 2.9 Ω to 4.5 Ω', each holding), bi-t13 7 -> 8 ('drops from 92 to 61 mm³ per g per hour', holding); every ST code set is unchanged
-STEM_TASK_CONTENT = {"ph-t13": (20, set()), "maa-t13": (16, {"ST-UNDEC-001"}), "mai-t13": (13, {"ST-UNDEC-001"}), "bi-t13": (8, set()),
+#: Round-8 clearance (rule cut-decimal, docs/STEM_DESIGN.md section 39): mai-t13 13 -> 15 (the stated comparisons '5939.95… < 6000'
+#: and '6157.36… > 6000' on s12.3, each holding); every other count and every ST code set is unchanged
+STEM_TASK_CONTENT = {"ph-t13": (20, set()), "maa-t13": (16, {"ST-UNDEC-001"}), "mai-t13": (15, {"ST-UNDEC-001"}), "bi-t13": (8, set()),
                      "ch-t13": (0, set()), "ess-t13": (13, set()), "cs-t13": (3, {"ST-SCOPE-001", "ST-UNDEC-001"}),
                      "p7b": (46, {"ST-SCOPE-001", "ST-UNDEC-001"})}
 

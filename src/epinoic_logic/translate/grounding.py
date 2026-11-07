@@ -114,6 +114,7 @@ cached answer is the answer the uncached code gives; both caches are thread-safe
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 import threading
@@ -915,6 +916,36 @@ def is_peer_document(doc: SuppliedText) -> bool:
     return doc.document_id.startswith("peer:") or author.endswith("-specialist") or author.endswith(" specialist")
 
 
+#: Sentence punctuation a writer places inside the closing quotation mark ("... in Calvessa." where the text goes on
+#: "... in Calvessa, ..."): the same set as ``adapters.sources.strip_trailing_punctuation`` reads, so the excerpt check of
+#: the adapters and this grounding check locate one quotation alike (round-8 clearance c1, bm-p8a g2.2).
+_TRAILING_SENTENCE_PUNCT = ".,;:!?"
+
+
+def trim_trailing_punctuation(excerpt: str) -> str:
+    """``excerpt`` without the sentence punctuation written inside its closing quotation mark (exactly
+    ``adapters.sources.strip_trailing_punctuation``)."""
+    return excerpt.strip().rstrip(_TRAILING_SENTENCE_PUNCT).strip()
+
+
+def locate_excerpt(excerpt: str, text: str, *, document_id: Optional[str] = None) -> Optional[QuotationMatch]:
+    """:func:`locate_quotation` of ``excerpt`` as written, then of the excerpt with the sentence punctuation written inside
+    its closing mark set aside (:func:`trim_trailing_punctuation`), as ``adapters.sources.check_excerpt`` locates it: a
+    quotation ending "... in Calvessa." of a text that goes on "... in Calvessa, ..." is located, never an invented
+    quotation. A match through the trimmed form carries a note saying so."""
+    match = locate_quotation(excerpt, text, document_id=document_id)
+    if match is not None:
+        return match
+    trimmed = trim_trailing_punctuation(excerpt)
+    if not trimmed or trimmed == excerpt.strip():
+        return None
+    match = locate_quotation(trimmed, text, document_id=document_id)
+    if match is None:
+        return None
+    note = "the sentence punctuation written inside the closing mark set aside"
+    return dataclasses.replace(match, note=f"{match.note}; {note}" if match.note else note)
+
+
 def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, SuppliedText], kind: str = "quotation", ref_index: Optional[int] = None) -> GroundingCheck:
     doc = docs.get(ref.document_id)
     if doc is None:
@@ -927,9 +958,10 @@ def _check_quotation_ref(target_id: str, ref: SourceRef, docs: dict[str, Supplie
             target_id=target_id, kind=kind, method="verbatim_match", verified=False,  # type: ignore[arg-type]
             document_id=ref.document_id, detail="quotation grounding carries no excerpt", ref_index=ref_index,
         )
-    match = locate_quotation(ref.excerpt, doc.text, document_id=doc.document_id)
+    match = locate_excerpt(ref.excerpt, doc.text, document_id=doc.document_id)
     if match is None:
-        inexact = locate_quotation_inexact(ref.excerpt, doc.text, document_id=doc.document_id) or locate_long_elision(ref.excerpt, doc.text, document_id=doc.document_id)
+        trimmed = trim_trailing_punctuation(ref.excerpt) or ref.excerpt
+        inexact = locate_quotation_inexact(trimmed, doc.text, document_id=doc.document_id) or locate_long_elision(trimmed, doc.text, document_id=doc.document_id)
         if inexact is not None:
             near, difference = inexact
             return GroundingCheck(
@@ -1150,6 +1182,23 @@ def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
     return out
 
 
+def _foreign_number_words_within(sources: list[SourceText], within) -> dict[int, str]:
+    """``{value: where}`` for the number words of another language than English (Spanish, French, German, Italian,
+    Portuguese: ``integrity.ledger.foreign_number_values``'s table) inside the located spans of ``sources`` (every source
+    when ``within`` is None): what a text written in its own language states as a whole number. One pass per span."""
+    from ..integrity.ledger import _FOREIGN_NUMBER_RE, _FOREIGN_NUMBER_WORDS
+    out: dict[int, str] = {}
+    for src in sources:
+        spans = within.get((src.kind, src.ident)) if within is not None else None
+        pieces = [(a, b) for a, b, _allowed in spans] if spans is not None else ([(0, len(src.text))] if within is None else [])
+        for a, b in pieces:
+            for m in _FOREIGN_NUMBER_RE.finditer(src.text, a, b):
+                value = _FOREIGN_NUMBER_WORDS.get(m.group(1).casefold())
+                if value is not None and value not in TRIVIAL_VALUES:
+                    out.setdefault(value, f"'{m.group(1)}' in {src.kind} {src.ident}")
+    return out
+
+
 def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources: list[SourceText], document_id: Optional[str], method: str,
                    what: str, within: Optional[dict[tuple[str, str], list[tuple[int, int, Optional[frozenset[Fraction]]]]]] = None
                    ) -> tuple[Optional[bool], Optional[GroundingCheck], list[_Literal]]:
@@ -1190,9 +1239,14 @@ def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources:
         else:
             unmatched.append((lit, why))
     tolerance = _tolerance_ends([lit for lit, _why in unmatched], figures, texts) if unmatched else {}
+    words = _foreign_number_words_within(sources, within) if unmatched and len(tolerance) < len(unmatched) else {}
     for k, (lit, why) in enumerate(unmatched):
         if k in tolerance:
             found.append(f"{lit.written} ({tolerance[k]})")
+        elif lit.required in (None, "eq") and lit.value.denominator == 1 and int(lit.value) in words:
+            # a figure the text writes as a number word of its own language ("con catorce alumnos" states 14; round-8
+            # clearance c1, sp-t14 g3.1): read as the whole number it names, exactly
+            found.append(f"{lit.written} ({words[int(lit.value)]}: a number word of the text's language, read as {int(lit.value)})")
         else:
             missing.append(lit)
             conflicts.extend(why[:2])
@@ -2829,6 +2883,11 @@ def _names_words(text: str, quoted: str) -> bool:
                for i in range(1, len(mt) - n + 1))
 
 
+#: A capital letter a quotation names after another word ("Just the A", "an F", "grade B"): a letter grade or label, which is
+#: content of the quotation, never the article "a" (round-8 clearance c1, en-t14 p2-point).
+_LETTER_NAME_RE = re.compile(r"(?<=[^\W\d_][ \t])[A-Z](?![\w'’])")
+
+
 def _literal_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceText, tuple[int, int], Optional[str]]],
                       symbols: dict[str, Symbol]) -> Optional[GroundingCheck]:
     """Whether the located excerpts of a proposition literal (an atom or its negation) say what it is cited for (repair round
@@ -2908,6 +2967,8 @@ def _literal_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceT
             elif not content:
                 if _names_words(meaning, quoted) or _names_words(assertion.label or "", quoted):
                     return None  # the literal is about these very words ("the repeated formula 'it was the'", "uses she"): no placeholder
+                if _LETTER_NAME_RE.search(quoted):
+                    return None  # a letter named in the quotation ("Just the A", a grade) is content, never a placeholder (round-8 clearance c1)
                 found = (2, "the excerpt holds no content word (a placeholder)", where)
             else:
                 return None  # some of the literal's words in other terms: a paraphrase is not judged here

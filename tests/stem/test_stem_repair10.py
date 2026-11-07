@@ -517,13 +517,19 @@ def test_an_approximate_link_to_a_cut_value_is_checked_with_the_approximate_tole
     assert "(rule ellipsis-rounding)" in checks[0][3] and "τ = 1/20" in checks[0][3], checks
 
 
-@pytest.mark.parametrize("text", ["0.333… × 3 = 1", "$0.333\\ldots \\times 3 = 1$", "0.333… + 0.666… = 1", "0.333… × 3 = 1.5"])
-def test_a_cut_value_inside_an_expression_is_named_undecided_never_failed(text):
-    """The ellipsis after a decimal takes nothing after it: '0.333… × 3' is the cut value times 3, an expression the rule does not read, so
-    the relation is named ST-UNDEC-001 whatever its value (before this was closed, the marker took '× 3' as its operand and the correct line
-    was read as '0.333…' restated as 1 and failed: a false INT-SUBJ-001)."""
+@pytest.mark.parametrize("text, status", [("0.333… × 3 = 1", "ENTAILED"), ("$0.333\\ldots \\times 3 = 1$", "ENTAILED"),
+                                          ("0.333… + 0.666… = 1", "ENTAILED"), ("0.333… × 3 = 1.5", "COUNTEREXAMPLE")])
+def test_a_cut_value_inside_an_expression_is_decided_never_failed_when_correct(text, status):
+    """The ellipsis after a decimal takes nothing after it: '0.333… × 3' is the cut value times 3 (before this was closed, the marker took
+    '× 3' as its operand and the correct line was read as '0.333…' restated as 1 and failed: a false INT-SUBJ-001).
+
+    Rewritten by the round-8 clearance to a stricter rule (rule cut-decimal): this test pinned ST-UNDEC-001 for every such line whatever its
+    value, so a GDC-style answer that writes its working with cut values ('23 425 − 7045.59… = 16 379.41…') was essentially unchecked and a
+    slip in it went unnamed. The grammar now reads the decimal and its ellipsis as one numeral whose half-width is a whole unit in its last
+    written digit (it covers the cut and the rounded readings): the correct lines still never fail and carry no finding, and the wrong value
+    ('= 1.5') now fails."""
     checks, findings = decide(text, None, "mathematics_aa")
-    assert checks == [] and [f[0] for f in findings] == ["ST-UNDEC-001"], (checks, findings)
+    assert [(k, s) for k, s, _sev, _d in checks] == [("eq", status)] and not findings, (checks, findings)
 
 
 @pytest.mark.parametrize("text", ["x = 2.66…", "$x = 2.66\\ldots$"])

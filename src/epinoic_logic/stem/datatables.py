@@ -18,7 +18,8 @@ from fractions import Fraction
 from typing import Optional
 
 from .numbers import ExactNumber, scan_number
-from .units import UnitExpr, parse_unit
+from .units import UnitExpr
+from .units import stem_parse_unit as parse_unit  # rule count-noun: the STEM readings
 
 __all__ = ["DataColumn", "DataTable", "MAX_TABLES", "parse_data_tables"]
 

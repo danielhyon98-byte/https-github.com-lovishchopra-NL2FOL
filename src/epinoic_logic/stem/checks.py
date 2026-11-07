@@ -61,16 +61,17 @@ from .models import render_model
 from .models import _walk as model_nodes
 from .nodes import (
     Abs, BinOp, BoolOp, Degrees, Func, IntOp, Neg, Node, Num, Operand, Percent, PlusMinus, Pow, Quantity, Ratio, RealPower, Root, Sym, Unsupported, WithUnit,
-    children, is_closed, is_value, render, symbols, value_of, walk,
+    children, is_closed, is_value, render, replace_symbol, symbols, value_of, walk,
 )
 from .numbers import ExactNumber
-from .relations import ST_SEVERITY, Relation
+from .relations import ST_SEVERITY, Relation, split_run
 from .scaling import LiteralTooLong, Term, align as align_terms, floor_log10, frame_for, lit, literal_in_frame, literal_text, nary, real, to_frame, var_term
 from .scope import Binding, si_value
 from .tolerance import SHORT_RULE, STEM_SCOPE, TAU_APPROX, TAU_EQUAL, approx_word_before, approx_word_in, band_expr, half_width, is_measured
 from .to_ir import IR_LIMITS, EncodeError, Encoder, IntervalLeaf, ProblemBuilder, Reading, SymbolDomain, _round_out, grounding, inspect_ir, real_power_value
 from .reference import unit_written_once
-from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, is_data_unit, parse_unit
+from .units import DIMENSIONLESS, Dimension, UnitAtom, UnitExpr, is_data_unit
+from .units import stem_parse_unit as parse_unit  # rule count-noun: the STEM readings
 
 __all__ = ["CHECK_KIND_NAMES", "CheckFinding", "CheckPlan", "PlannedCheck", "build_check", "build_checks"]
 
@@ -517,7 +518,14 @@ def _strip_relation_text(gap: str) -> str:
     rest = " " + "".join(out).lower() + " "
     for w in _RELATION_WORDS:
         rest = rest.replace(" " + w + " ", " ")
+    # round-8 clearance: a mark annotation between a line of working and its continuation ('… cos 72°$ M1' then '$= 9025 + …') is marking
+    # furniture, never prose between the two sides: the link was withheld (ST-PARSE-001), so a slip in the substitution was never checked
+    rest = _MARK_GAP_RE.sub(" ", rest)
     return rest.strip()
+
+
+#: mark annotations in the gap between two operands ('M1', 'A1', 'R1', 'B1', 'AG', 'FT', '(M1)', '[2]'), lower-cased
+_MARK_GAP_RE = re.compile(r"(?<![a-z0-9])(?:\(?[mabr]\d{1,2}\)?|ag|ft|\[\d{1,2}\])(?![a-z0-9])")
 
 
 # --------------------------------------------------------------------------- per-check context
@@ -565,6 +573,11 @@ class _Ctx:
         b = self.builder
         if self.query == "entailment" and self.conclusion is None:
             raise EncodeError("ST-INTERNAL-001", "an entailment problem without a conclusion")
+        if any(p["id"].startswith("ENC_") for p in b.premises) and not any("numeric enclosures computed by the STEM pack" in d for d in self.details):
+            # round-8 clearance: every check whose problem holds an enclosure (π, e, a function value) says that its bounds are the STEM
+            # pack's numeric enclosures, not engine results, whatever the check kind (four algebra steps of round 8 had not said so)
+            self.detail("function values and constants as numeric enclosures computed by the STEM pack (width at most 10⁻¹⁵ relative), not "
+                        "engine results; the engine decides the stated relation over every value in them")
         problem = b.problem(self.query, self.conclusion)
         rep = inspect_ir(problem)
         if rep.symbols > IR_LIMITS["symbols"]:
@@ -656,14 +669,44 @@ def _min_sig_figs(node: Node) -> Optional[int]:
     return min(figs) if figs else None
 
 
+def _constant_statement(cnode: Node, snode: Node) -> bool:
+    """Round-8 clearance (rule constant-statement): one side is a lone named constant (π) and the other one decimal value written with a
+    point and no unit ('π = 3.12')."""
+    if not (isinstance(cnode, Sym) and cnode.kind == "constant"):
+        return False
+    v = value_of(snode) if is_value(snode) else None
+    return v is not None and v[1] is not None and v[1].has_point and not v[1].scientific and v[2] is None and not v[3]
+
+
+def _bound_figures(ctx: "_Ctx", node: Node) -> Optional[int]:
+    """Round-8 clearance (rule bound-figures): the smallest significant-figure count among the measured operands of an evaluation of
+    ``node``: its own measured numerals and the stated values of its bound symbols (section 5.1); None when it has none."""
+    figs = [bd.number.sig_figs for name in symbols(node) for bd in ctx.doc.bindings.get(name, ())
+            if is_measured(bd.number, bd.unit is not None)]
+    own = _min_sig_figs(node)
+    if own is not None:
+        figs.append(own)
+    return min(figs) if figs else None
+
+
 def _all_exact(node: Node) -> bool:
-    """Every numeral is exact as written (no point, no scientific notation, no unit)."""
+    """Every numeral is exact as written (no point, no scientific notation, no unit). Round-8 clearance (rule count-noun): a whole number
+    of things a count noun names ('334 items', '60 plants') is as exact as the bare number, so exact work keeps its exact mode ('1,000 ÷ 3
+    = 334 items' fails, as '1,000 ÷ 3 = 334' does; read as a measured quantity, τ = 1/100 had let it hold)."""
     for n in walk(node):
         if isinstance(n, (Quantity, WithUnit)):
-            return False
-        if isinstance(n, Num) and (n.number.has_point or n.number.scientific):
+            if not (isinstance(n, Quantity) and _count_only(n.unit)):
+                return False
+        if isinstance(n, (Num, Quantity)) and (n.number.has_point or n.number.scientific):
             return False
     return True
+
+
+def _count_only(unit) -> bool:
+    """Rule count-noun: a unit that is only the dimensionless count of a count noun ('items', 'plants', 'beats')."""
+    readings = getattr(unit, "readings", ()) or ()
+    return bool(readings) and not getattr(unit, "unknown", ()) and all(
+        len(r.atoms) == 1 and r.atoms[0].unit is not None and r.atoms[0].unit.symbol == "count" and r.atoms[0].power == 1 for r in readings)
 
 
 def _data_count_exact(node: Node) -> bool:
@@ -1844,6 +1887,10 @@ def _uncertainty(cnode: Node, snode: Node) -> Optional[tuple[Node, Node]]:
 
 #: STEM repair 3: why a check a rule sets against a definition fails at warning severity (rules percentage-change and half-lives)
 _TITLED_WARNINGS = {
+    # round-8 clearance
+    "rule mole-ratio": "which balanced equation the stated mole ratio is taken from is a reading: the last one the answer writes before it that "
+                       "holds both species (rule mole-ratio)",
+    "rule booklet-value": "that the symbol stands for the data booklet's constant is a reading (rule booklet-value)",
     "rule percentage-change": "which of the two values is the starting one is read from the word the statement or its part's question writes (increase or "
                               "decrease), a reading the answer did not state as a formula (rule percentage-change)",
     "rule half-lives": "the number of half-lives is read from the prose, and the half-life is the value the answer states for its half-life symbol "
@@ -1863,6 +1910,9 @@ _TITLED_WARNINGS = {
                        "and the STEM pack forms the statistic from them (rule statistics)",
     "rule rounded-digits": "which value the rounding the prose states is of is read from the prose, and the place a value is written to from its "
                            "numeral (rule rounded-digits)",
+    # round-8 clearance
+    "rule parenthetical-sum": "that the bracket after the value writes how the value is formed is a reading the answer did not state with a "
+                              "relation sign (rule parenthetical-sum)",
 }
 
 
@@ -1946,7 +1996,9 @@ def _eq(ctx: _Ctx) -> None:
         pairs.append((cnode, snode))
         hs.append(h)
         extra.append((cnode if (is_value(cnode) and not exact) else None, snode))  # type: ignore[arg-type]
-        intervals.update(_interval_leaves(ctx, cnode, exact_mode=exact))
+        # round-8 clearance (rule restated-line): the line before wrote these numerals itself, as they stand ('T = 2π/10' then 'T = π/5 s'):
+        # no carried reading widens them (a carried '10' ranged over [5, 15] and let 'T = π/4 s' hold)
+        intervals.update(_interval_leaves(ctx, cnode, exact_mode=exact or "(rule restated-line)" in (rel.reason or "")))
     if rel.cut_spans:
         # STEM repair 11 (rule inequality-solution): a numeral of the computed bound written with its digits cut ('135.36…') ranges over
         # [w − u/2, w + u] (cut, or rounded, digits), u a unit in its last written digit
@@ -1973,6 +2025,14 @@ def _eq(ctx: _Ctx) -> None:
             tau = precision
         else:
             precision = None
+    if not approx and rel.op in ("=", "≡") and pairs and all(_constant_statement(c, sn) for c, sn in pairs):
+        # round-8 clearance (rule constant-statement): a line that states a constant's own value ('π = 3.12', 'π = 3.142') states its digits:
+        # the value is within half a unit in its last written digit of the constant, with no relative slack (τ = 0); before, τ = 1/100 let
+        # 'π = 3.12' hold
+        tau, precision = Fraction(0), None
+        hs = [2 * h for h in hs]
+        ctx.detail("a constant's own value stated: its written digits, rounded or cut ('π = 3.1415'), within a unit in the last written digit, "
+                   "τ = 0 (rule constant-statement)")
     if rel.title and "(rule given-function)" in (rel.reason or ""):
         # STEM repair 9 (rule given-function): a Given restates the request's data as written: the request's function at the Given's
         # argument against the Given value with τ = 0, every written digit of the Given counting (rule given-digits)
@@ -2325,7 +2385,11 @@ def _cnv(ctx: _Ctx) -> None:
     rel = ctx.rel
     combos = _operand_combos(rel.left, rel.right)
     approx = _approx(ctx)
-    if rel.title:
+    if rel.title and "rule unit-restatement" in (rel.reason or ""):
+        # round-8 clearance (rule unit-restatement): the value a line gives a symbol in another unit of its dimension ('T = (1.075 × 10⁴ s)/
+        # (3600 s h⁻¹) = 2.99 h' after 'T = … = 1.075 × 10⁴ s') restates the symbol's value: compared in SI
+        ctx.detail(f"compared: {rel.reason}")
+    elif rel.title:
         # rule prose-conversion (STEM repair 5): a value the prose restates right after it in another unit ('55.0 cm³, that is 0.0550 dm³')
         ctx.detail("a value the prose states and restates right after it in another unit of the same dimension (rule prose-conversion)")
     tau = TAU_APPROX if approx else Fraction(0)
@@ -2541,6 +2605,13 @@ _GIV_RULES: dict[str, dict[str, str]] = {
                "unbound-substitution)",
         "w": "the value the working substitutes", "cand": "the request's value", "states": "the request states",
         "concl": "the value the working substitutes is the request's value the answer substitutes for the symbol elsewhere (R7, the data exact)"},
+    # round-8 clearance (rule booklet-value): a value the answer states for a data-booklet constant's usual symbol, in its dimension
+    "booklet-value": {
+        "why": "that the symbol stands for the data booklet's constant (its usual symbol, in the constant's dimension) is a reading, and an answer "
+               "may take another value on purpose (rule booklet-value)",
+        "w": "the value the answer states", "cand": "the data booklet's", "states": "the data booklet gives",
+        "concl": "the value the answer states for the constant's symbol is one of the data booklet's accepted values at its stated precision (R7, "
+                 "the booklet values exact)"},
     "table-terms-quantity": {
         "why": "that the working's number stands for a value the request or its supplied texts state for the table's quantity is a reading "
                "(rule table-terms)",
@@ -2561,6 +2632,7 @@ def _giv(ctx: _Ctx) -> None:
         ctx.detail(f"compared: {rel.reason}")  # STEM repair 2: which request or table values the stated value is set against
     reason = rel.reason or ""
     r8 = (_GIV_RULES["condition-value"] if "(rule condition-value)" in reason else _GIV_RULES["name-list"] if "(rule name-list)" in reason else
+          _GIV_RULES["booklet-value"] if "(rule booklet-value)" in reason else
           _GIV_RULES["named-component"] if "(rule named-component)" in reason else
           _GIV_RULES["same-shape"] if "(rule same-shape)" in reason else _GIV_RULES["unbound-substitution"] if "(rule unbound-substitution)" in reason else
           _GIV_RULES["row-terms"] if "rule row-terms)" in reason and "in place of the supplied table's" in reason else
@@ -2587,6 +2659,11 @@ def _giv(ctx: _Ctx) -> None:
         ctx.warn("that the Given restates one of the request's values of its kind is a reading (rule given-kinds)")
     elif "of the same dimension" in rel.reason:
         ctx.warn("that the Given restates one of the request's quantities of the same dimension is a reading")
+    elif _cites_request(ctx, rel):
+        # round-8 clearance (rule cited-given): the Given's own statement says it is the question's value ('G = 6.67 × 10⁻¹¹ N m² kg⁻² (from
+        # the question)') for the symbol the request gives a value: that the two are the same quantity is stated, no reading, so a value
+        # copied wrongly fails as an error. A Given that cites nothing keeps the warning: symbol identity is then a reading
+        ctx.detail("the Given's statement says the value is the question's, for the symbol the request gives it (rule cited-given)")
     else:
         ctx.warn("symbol identity across the request and the answer is a reading")
     b = ctx.builder
@@ -2664,7 +2741,8 @@ def _giv(ctx: _Ctx) -> None:
                    if stated_rule else
                    f"the supplied table gives {cand.number.text}{(' ' + cand.unit.text) if cand.unit else ''}" if rel.exact_candidates else
                    f"the {'supplied text' if cand.source == 'supplied' else 'request'} states {cand.number.text}{(' ' + cand.unit.text) if cand.unit else ''}"),
-                  grounding("request"))
+                  grounding("booklet", f"data-booklet value supplied by the STEM pack ({c_written}), not by the report (rule booklet-value)")
+                  if cand.source == "booklet" else grounding("request"))
         disjuncts.append(band_expr({"op": "var", "name": wname}, {"op": "var", "name": cname}, literal_in_frame(tol, frame), Fraction(0)))
     ctx.readings = ["SI" if use_si else "as written"]
     if not rel.exact_candidates and not named_result:
@@ -3201,8 +3279,13 @@ def _sub_evaluate(ctx: _Ctx) -> None:
     # STEM repair 11 (rule exact-rounding): a stated value of two or more significant figures against a rational symbolic side under exact
     # bindings is stated to its last written digit, as in written arithmetic (a whole value exactly, one that is not whole at the nearest whole
     # number); a one-figure value keeps h = 0
+    # round-8 clearance (rule bound-figures): the bound symbols are the measured operands of the evaluation, so R1's trailing-zero rule reads a
+    # stated whole number ending in zero with their significant figures, as written arithmetic does with its numerals ('R₁ = 4.0 Ω and
+    # R₂ = 5.0 Ω', then 'R = R₁ + R₂ = 10 Ω': h(10) = 0.5, as for '4.0 Ω + 5.0 Ω = 10 Ω'); before, the one-figure half-width 5 let the wrong
+    # total hold
     hs = [(_value_half_width(num, min_sf=_EVERY_DIGIT) if (exact_mode and _rational_form(sym) and _written_figures(num) >= 2)
-           else _value_half_width(num, exact_mode=exact_mode)) if is_value(num) else Fraction(0) for num, sym in pairs]
+           else _value_half_width(num, min_sf=_bound_figures(ctx, sym), exact_mode=exact_mode)) if is_value(num) else Fraction(0)
+          for num, sym in pairs]
 
     def env_for(rd: Reading, tag: str):
         env, hulls, needs = _install_domains(ctx, domains, rd, tag)
@@ -3278,6 +3361,15 @@ def _step(ctx: _Ctx) -> None:
     pl0, pr0, cl0, cr0 = combos[0]
     prem_syms = set(symbols(pl0)) | set(symbols(pr0))
     conc_syms = set(symbols(cl0)) | set(symbols(cr0))
+    split = _split_runs(prem_syms | conc_syms)
+    if split:
+        # round-8 clearance (rule letter-run): a run of letters the name pre-pass declared ('kx' of 'kx = mg', 'mgh' of 'mgh = ½mv²') is the
+        # product of its letters in a step that writes those letters apart ('so x = k/(mg)', 'so v = √(2gh)')
+        combos = [tuple(_with_products(n, split) for n in c) for c in combos]  # type: ignore[misc]
+        pl0, pr0, cl0, cr0 = combos[0]
+        prem_syms = set(symbols(pl0)) | set(symbols(pr0))
+        conc_syms = set(symbols(cl0)) | set(symbols(cr0))
+        ctx.detail("read as products of their letters: " + ", ".join(f"{n} = {'·'.join(split[n])}" for n in sorted(split)) + " (rule letter-run)")
     if any(n.endswith("()") for n in prem_syms | conc_syms):
         raise EncodeError("ST-UNDEC-001", "a function of an unknown")
     diff = (prem_syms ^ conc_syms)
@@ -3291,7 +3383,19 @@ def _step(ctx: _Ctx) -> None:
     # entailment is never asked to hold for every value the symbol takes elsewhere in the answer
     bound: dict[str, SymbolDomain] = {}
     written = {abs(v[0]) for side in (cl0, cr0) for leaf in _leaves(side) if (v := value_of(leaf)) is not None}
+    # round-8 clearance (rule step-definition): a symbol of one side that the answer defines by a formula in the step's own symbols
+    # ('ω = √(k/m)' beside 'a = −(k/m)x = −ω²x', 'T = 2π√(m/k)' before 'T′ = 2π√(2m/k) = √2 × T') is read by that definition, never
+    # pinned to a computed or rounded value of it (ω = 10.0, T = 0.63 s): a symbolic step holds for every value of the other symbols
+    # only through the definition. Before, ω was pinned to 10 with k and m free, and a correct identity was refuted at error severity
+    defined: dict[str, tuple[Node, str]] = {}
+    symbolic = not is_closed(cl0) and not is_closed(cr0)  # a step to a value ('λ = 0.087 h⁻¹') reads its data by their values, as before
+    for name in sorted(diff - quantified) if symbolic else ():
+        definition = _step_definition(ctx, name, prem_syms | conc_syms)
+        if definition is not None:
+            defined[name] = definition
     for name in sorted(diff - quantified):
+        if name in defined:
+            continue
         bd = _step_binding(ctx, name, written)
         if bd is not None:
             dom = SymbolDomain(name)
@@ -3302,6 +3406,9 @@ def _step(ctx: _Ctx) -> None:
     formulas: list[tuple[str, Node, str]] = []
     for name in sorted(diff - quantified):
         if name in bound:
+            continue
+        if name in defined:
+            formulas.append((name, defined[name][0], defined[name][1]))
             continue
         for f in ctx.doc.formulas.get(name, ())[-2:]:
             if len(formulas) >= ctx.doc.limits.max_formulas_per_step:
@@ -3378,6 +3485,23 @@ def _step(ctx: _Ctx) -> None:
             b.premise("SIDE_POS", {"op": "gt", "left": env[name].expr, "right": {"op": "real", "value": "0"}},
                       f"side condition: {name} is a power of e, so {name} > 0", grounding("side"))
             ctx.detail(f"the unknown appears only in powers of e: read in {name} > 0 (an exact change of variable)")
+    # round-8 clearance (rule cancelled-factor): a symbol every term of the preceding relation carries as a factor, which the step's
+    # conclusion no longer holds, is cancelled by the step ('½mv² − GMm/R = 0, so v = √(2GM/R)' divides by the mass m): the step is
+    # decided under the division it makes, the factor non-zero. Before, a model with m = 0 satisfied the premise for every v, so a
+    # textbook derivation was refuted at error severity; a wrong conclusion ('v = √(GM/R)') still fails under the side condition
+    substituted = (pl0, pr0)
+    for name, expr, _sid in formulas:
+        if name in prem_syms and name not in conc_syms:
+            # the premise read through the formula of a symbol it alone holds ('a = −ω²x' with 'a = −(k/m)x': −(k/m)x = −ω²x)
+            sl, sr = replace_symbol(substituted[0], name, expr), replace_symbol(substituted[1], name, expr)
+            if sl is not None and sr is not None:
+                substituted = (sl, sr)
+    for name in _cancelled_factors(substituted[0], substituted[1], conc_syms):
+        if name in env and name not in bound and name not in quantified:
+            b.premise("SIDE_NZ", {"op": "ne", "left": env[name].expr, "right": {"op": "real", "value": "0"}},
+                      f"side condition: the step cancels the factor {name} that every term of the preceding relation carries, so {name} ≠ 0",
+                      grounding("side"))
+            ctx.detail(f"side condition: {name} ≠ 0 (a factor of every term of the preceding relation, which the step cancels; rule cancelled-factor)")
     guards = [p for p in b.premises if p["id"].startswith("GUARD")]
     if guards:
         ctx.detail("side conditions: every divisor is non-zero")
@@ -3422,6 +3546,136 @@ def _step(ctx: _Ctx) -> None:
         ctx.conclusion = ("STEP", {"op": "and", "args": [forward, converse]}, "the next relation holds exactly when the preceding one does")
         return
     ctx.conclusion = ("STEP", nary("or", conc_alts) if len(conc_alts) > 1 else conc_alts[0], "the next relation follows from the preceding one")
+
+
+#: rule cited-given (round-8 clearance): the words with which a Given's statement says its value is the question's
+_CITED_RE = re.compile(r"\b(?:from|in|as\s+given\s+in|as\s+stated\s+in|stated\s+in|given\s+in|taken\s+from|quoted\s+from)\s+the\s+(?:question|request|task|data)"
+                       r"\b|\bthe\s+(?:question|request)\s+(?:gives|states)\b", re.IGNORECASE)
+
+
+def _cites_request(ctx: _Ctx, rel: Relation) -> bool:
+    """Rule ``cited-given``: a Given written for a symbol (``G = …``) the request also gives a value with '=' whose own statement says the
+    value comes from the question ('(from the question)', 'given in the question')."""
+    head = rel.left.node if rel.left is not None else None
+    if not isinstance(head, Sym) or head.kind != "symbol" or not rel.candidates:
+        return False
+    if not all(c.symbol == head.name and c.source == "request" for c in rel.candidates):
+        return False
+    sid = rel.statement_ids[-1] if rel.statement_ids else ""
+    text = ctx.doc.statement_text(sid) if sid else ""
+    return bool(text) and _CITED_RE.search(text[:2000]) is not None
+
+
+def _split_runs(names: set[str]) -> dict[str, tuple[str, ...]]:
+    """Rule ``letter-run`` (round-8 clearance): the short letter runs among a step's symbols whose every letter the step also writes as a
+    symbol of its own ('kx' beside 'x = k/(mg)'), with their letters."""
+    out: dict[str, tuple[str, ...]] = {}
+    for name in names:
+        letters = split_run(name)
+        if letters is not None and all(ch in names for ch in set(letters)):
+            out[name] = letters
+    return out
+
+
+def _with_products(node: Node, split: dict[str, tuple[str, ...]]) -> Node:
+    """``node`` with each run of ``split`` replaced by the product of its letters (rule letter-run)."""
+    for name, letters in split.items():
+        product: Node = Sym(letters[0])
+        for ch in letters[1:]:
+            product = BinOp("*", product, Sym(ch), implicit=True)
+        rewritten = replace_symbol(node, name, product)
+        if rewritten is not None:
+            node = rewritten
+    return node
+
+
+_MAX_CANCEL_TERMS = 32
+
+
+def _additive_terms(node: Node, out: list[Node], depth: int = 0) -> bool:
+    """The terms of a sum or difference (a negation's term is its argument), in ``out``; False past the bounds."""
+    if depth > 24 or len(out) > _MAX_CANCEL_TERMS:
+        return False
+    if isinstance(node, BinOp) and node.op in ("+", "-"):
+        return _additive_terms(node.left, out, depth + 1) and _additive_terms(node.right, out, depth + 1)
+    if isinstance(node, Neg):
+        return _additive_terms(node.arg, out, depth + 1)
+    out.append(node)
+    return True
+
+
+def _factor_symbols(node: Node, depth: int = 0) -> Optional[set[str]]:
+    """The symbols that are factors of a product (``½mv²``: m and v; ``GMm/R``: G, M and m, never R), or None when the term is zero."""
+    if depth > 24:
+        return set()
+    if isinstance(node, Sym) and node.kind in ("symbol", "word"):
+        return {node.name}
+    if isinstance(node, Pow) and node.exp > 0:
+        return _factor_symbols(node.base, depth + 1)
+    if isinstance(node, BinOp) and node.op in ("*", "×", "·"):
+        left, right = _factor_symbols(node.left, depth + 1), _factor_symbols(node.right, depth + 1)
+        if left is None or right is None:
+            return None
+        return left | right
+    if isinstance(node, BinOp) and node.op in ("/", "÷"):
+        return _factor_symbols(node.left, depth + 1)
+    if isinstance(node, Neg):
+        return _factor_symbols(node.arg, depth + 1)
+    v = value_of(node) if is_value(node) else None
+    if v is not None and v[0] == 0:
+        return None
+    return set()
+
+
+def _cancelled_factors(pl: Node, pr: Node, conc_syms: set[str]) -> list[str]:
+    """Rule ``cancelled-factor`` (round-8 clearance): the symbols that are a factor of every non-zero term of the preceding relation (both
+    sides) and that the conclusion no longer holds: the step divides by them."""
+    terms: list[Node] = []
+    if not (_additive_terms(pl, terms) and _additive_terms(pr, terms)):
+        return []
+    common: Optional[set[str]] = None
+    for term in terms:
+        fs = _factor_symbols(term)
+        if fs is None:
+            continue  # a written zero ('… = 0')
+        common = set(fs) if common is None else common & fs
+        if not common:
+            return []
+    return sorted((common or set()) - set(conc_syms))
+
+
+def _step_definition(ctx: _Ctx, name: str, step_syms: set[str]) -> Optional[tuple[Node, str]]:
+    """Rule ``step-definition`` (round-8 clearance): the formula the answer states for ``name`` in the step's other symbols only, as the
+    step reads it: one stated before the step (never in the statement the step concludes in), or, for a link of one chain (an identity
+    step inside it), one stated after it in the same part ('a = −(k/m)x = −ω²x', then 'ω = √(k/m) = …'). ``(expression, statement id)``,
+    the latest before the step first, else the first after it; None when there is none."""
+    rel = ctx.rel
+    others = set(step_syms) - {name}
+    if not others:
+        return None
+    in_chain = rel.premise_right is rel.left
+    conclusion_ids = set(rel.statement_ids) if in_chain else set(rel.statement_ids) - set(rel.premise_ids or ())
+    statement = ctx.doc.statement(rel.statement_ids[-1]) if rel.statement_ids else None
+    part = statement.part if statement is not None else rel.part
+    before: list = []
+    after: list = []
+    for f in ctx.doc.formulas.get(name, ()):
+        fsyms = set(symbols(f.expr))
+        if not fsyms or not fsyms <= others or any(n.endswith("()") for n in fsyms) or name in fsyms:
+            continue
+        if f.source == "request":
+            before.insert(0, f)  # the request's formula: stated before every line of the answer
+            continue
+        if f.statement_id in conclusion_ids or (f.start < rel.end and f.end > rel.start):
+            continue
+        if f.end <= rel.start:
+            before.append(f)
+        elif in_chain and f.start >= rel.end:
+            fs = ctx.doc.statement(f.statement_id)
+            if fs is not None and fs.part == part:
+                after.append(f)
+    pick = before[-1] if before else (after[0] if after else None)
+    return (pick.expr, pick.statement_id) if pick is not None else None
 
 
 def _step_binding(ctx: _Ctx, name: str, written: set[Fraction]) -> Optional[Binding]:

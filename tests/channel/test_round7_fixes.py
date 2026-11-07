@@ -88,7 +88,24 @@ POOLED = {"ph-t13": {"ph-t13": ["g1.1", "g3.1"]}, "p7b": {"ph-p7b": ["g1.1", "g4
 
 
 @pytest.mark.parametrize("group", ["ph-t13", "cs-t13", "p7b"])
-def test_glossary_conflations_are_neither_a_contradiction_nor_an_undisclosed_one(group):
+def test_glossary_conflations_are_neither_a_contradiction_nor_an_undisclosed_one(group, monkeypatch):
+    """Rewritten for the round-8 clearance (c1) to a stricter rule, every original assertion kept: the second recorded
+    fixture of ph-t13 and of p7b encodes the mark annotation "(c) [1]" as 'marks = 1' proved by the premise 'part (c) carries
+    1 marks, as printed in the question' (a task label on a structural figure no check reads, the claim restated as
+    written), which the translator's semantic circularity rule now withholds itself (E112 at translation; the transfer
+    auditor's rule data-standing reads it the same way). That is asserted first; the original assertions are then made on
+    the encodings delivered past that gate, as the translator before c1 delivered them, so the pool's glossary rule is still
+    tested on both conflated symbols."""
+    from epinoic_logic.translate.pipeline import Translator
+
+    first = Run(group, pooled=POOLED[group])
+    withheld = [o for rc in first.receipts.values() for o in rc.outcomes
+                if o.translation.problem is None and any("E112" in d and "rule semantic-restatement" in d for d in o.translation.diagnostics)]
+    assert len(first.ch.formalized) + len(withheld) == sum(len(v) for v in POOLED[group].values())
+    for rc in first.receipts.values():
+        assert "INT-CONFLICT-001" not in codes(rc.findings)
+    if withheld:
+        monkeypatch.setattr(Translator, "_semantic_circularity", staticmethod(lambda *a, **k: None))
     run = Run(group, pooled=POOLED[group])  # the recorded translations that conflated one symbol for two quantities, pooled through the hub
     assert len(run.ch.formalized) == sum(len(v) for v in POOLED[group].values())
     for rc in run.receipts.values():

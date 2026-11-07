@@ -146,7 +146,7 @@ Exit 0, gate PASS, 17 s: every check module, when disabled, makes at least one o
 | translation | T22 | none |
 | peer | T7b, T7c | T7 (a control) |
 | synthesis | T6b, T10 | T6 (a control) |
-| joint | T10, T10c, T19 | T10b (controls) |
+| joint | T10, T10c, T10d (since the round-8 clearance), T19 | T10b (controls) |
 | divergence | T18 | none |
 | shadow | T19 | none |
 | replay | T11 | T17 (AUDIT-003 is raised by the auditor itself) |
@@ -4537,3 +4537,25 @@ after).
 - **The fast profile's compact pack and the oversight planner** (integration step, design section 47): deferred with the
   fast profile; no compact pack exists on this tree, so only the standard pack (1.4) was regenerated and pinned. The
   flash router and the twofold steps come after arena round 8.
+
+## 35. After the round-8 clearance (design section 50)
+
+The overseer's fixes of the round-8 clearance (integrated round c1), on the working tree, not committed. Python 3.13; measured
+2026-11-06 on fresh copies of the recorded round c1 (the recorded round was not written). The installed knowledge pack is 1.5
+(1.4 pinned beside it).
+
+| Measure | Before | After |
+| --- | --- | --- |
+| c1 replayed through an audited hub, every variant: functional transmissions (the harness's count) | 192 of 203 as recorded | 201 of 203 (with the other owners' fixes) |
+| c1's 20 genuine channels audited (the clearance's starting tree, then this one) | 18 AUDIT_PASSED_WITH_FINDINGS, 2 AUDIT_FAILED | 19 AUDIT_PASSED_WITH_FINDINGS, 1 AUDIT_FAILED (p8a: OVS-RCPT-004 on an INT-ARG-001 the channel's receipt lacks, present before too) |
+| errors on the 20 genuine channels | 3: OVS-FORM-004 2, OVS-RCPT-004 1 | 1: OVS-RCPT-004; warnings OVS-DIV-002 20, OVS-FID-006 5, OVS-TRN-005 3, OVS-TRN-008 2, OVS-TRN-004 1, OVS-TRN-010 1, OVS-JOINT-002 1 |
+| a Physics answer with "The speed rose by 20%." (CORE-QNT-001) or an unpaired dated order (CORE-CHR-001) beside a clean calculation | FORMALLY CHECKED | withheld, the reason naming the code and the claim |
+| the recorded en-t14 answer's "Next step:" note (ES-META-001) | a self-report | a note; a self-report note beside it is still one |
+| an IR of 200 untraced figures against an answer stating 20,000 figures | 17 s per translation | 1.0 s, then 0.3 s per further claim of the same report |
+| a conflict that exists only through pooling a rejected candidate (T10d) | upheld | OVS-JOINT-003, rule pooled-only-conflict |
+
+The re-adjudication of the c1 overseer-agent wave's gold (scratch, data only): of the 30 agent-scorable faults its gold held
+(all derived from the auditor's findings), 22 sit on translations the round's reviewed fidelity lens judged faithful (now
+false findings an agent is credited for disputing), 7 are no longer raised by the corrected auditor, and 1 remains; the 11
+injected faults the round's recorded receipts did not name (its records with injected claims and no naming code) are now
+agent-scorable gold. The wave's recorded verdicts were not re-validated against the corrected gold.

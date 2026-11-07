@@ -116,7 +116,12 @@ Tolerance rule (:data:`TOLERANCE_RULE`): the stated derived figure must lie with
 The band is symmetric around the COMPUTED value, not around the stated one, so a
 specialist who understates a change does not earn a wider band than one who overstates
 it. Per-cent and percentage-point figures also pass when within 0.5 points of the
-computed value (rounding to the nearest whole per cent is never a finding). ``more
+computed value (rounding to the nearest whole per cent is never a finding). A per cent change
+written with decimals states its own precision, so the half-point floor does not apply to it: it
+passes within 5 per cent of the computed value, or within half a unit in its last written digit
+plus 1 per cent of the computed value plus what rounding the pair's figures at their own written
+precision can move the change by (:data:`PRECISION_RULE`), so 'from 112.0 to 115.4, an increase of
+3.40%' (the change is 3.04%) is a COUNTEREXAMPLE while 3.04% holds. ``more
 than``/``over`` before a stated change makes the check one-sided (a lower bound only),
 ``under``/``less than`` an upper bound only. ``nearly``/``almost``/``just under``/``not
 quite`` approach the stated figure from below: the computed value may exceed it by no more
@@ -279,7 +284,8 @@ _DIR_VERB = (r"(rose|grew|increased|expanded|climbed|fell|dropped|declined|decre
 _PCT_CHANGE_RE = re.compile(
     rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)"
     rf"|(?:an?\s+)?(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}\s+{_DIR_NOUN}"
-    rf"|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)",
+    # 'rose by 5%', and 'fell 12% from $250 to $230' with no 'by' (c1 breadth F23: the change was neither decided nor named undecided)
+    rf"|{_DIR_VERB}\s+(?:by\s+)?(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)",
     re.IGNORECASE)
 #: 'a change of 20 per cent', 'changed by −6 per cent': the direction is the figures' own (a sign is read as stated).
 _CHANGE_OF_RE = re.compile(rf"(?:(?:an?\s+)?(?:net\s+|overall\s+|total\s+)?change\s+of|\bchanged\s+by)\s+(?:({_QUAL})\s+)?{_AMOUNT}\s*{_PCT_UNIT}(?!\s*points?\b)", re.IGNORECASE)
@@ -660,6 +666,59 @@ def _within(expr: dict, stated: Fraction, tolerance: Fraction, floor: Fraction =
 
 
 _within_general = _within
+
+#: The band of a per cent change written with decimals ('an increase of 3.40%'): the figure states its own precision, so instead of
+#: the half-point floor it passes within h + tau * |C| + k * |C + 100| of the computed change C (or within the relative tolerance):
+#: h is half a unit in its last written digit, tau = 1/100 (the STEM rule for '='), and k * |C + 100| bounds what rounding the
+#: pair's figures at their written precision can move the change by (k = (r_a + r_b) / (1 - r_a) for the figures' relative half-units
+#: r_a, r_b; |C + 100| is 100 times the later figure over the earlier, so the band is computed by the engine, not in Python).
+PRECISION_RULE = ("the per cent is written with decimals, so it states its own precision: it must lie within {tol}% of the value computed from "
+                  "the report's own figures, or within half a unit in its last written digit plus 1% of the computed value plus what rounding the "
+                  "pair's figures at their written precision can move the change by (no half-point floor)")
+PRECISION_TAU = Fraction(1, 100)
+_WRITTEN_FIGURE_RE = re.compile(r"\d[\d,]*+(?:\.(\d++))?")
+
+
+def _written_places(text: str, value: Optional[Fraction] = None) -> Optional[int]:
+    """The decimal places of the written figure of ``text`` (of value ``value`` when given): None when no figure in digits is found."""
+    for m in _WRITTEN_FIGURE_RE.finditer(text):
+        try:
+            v = Fraction(m.group(0).replace(",", ""))
+        except (ValueError, ZeroDivisionError):
+            continue
+        if value is None or v == abs(value):
+            return len(m.group(1) or "")
+    return None
+
+
+def _relative_half_unit(shown: str) -> Optional[Fraction]:
+    """Half a unit in the last written digit of the figure ``shown`` opens with ('112.0', '$4.03 billion in 2020'), relative to the
+    figure's written value; None when the figure is not written in digits or is zero."""
+    m = _WRITTEN_FIGURE_RE.search(shown)
+    if m is None:
+        return None
+    try:
+        v = Fraction(m.group(0).replace(",", ""))
+    except (ValueError, ZeroDivisionError):
+        return None
+    if v == 0:
+        return None
+    return Fraction(1, 2) / Fraction(10) ** len(m.group(1) or "") / v
+
+
+def _precision_band(change: dict, stated: Fraction, tolerance: Fraction, places: int, values: "_Values") -> Optional[dict]:
+    """:data:`PRECISION_RULE` for ``change`` (a per cent change expression) against ``stated``, or None when the pair's figures carry
+    no written precision (the default band then applies)."""
+    ra, rb = _relative_half_unit(values.shown_a), _relative_half_unit(values.shown_b)
+    if ra is None or rb is None or ra >= 1:
+        return None
+    h = Fraction(1, 2) / Fraction(10) ** places
+    k = (ra + rb) / (1 - ra)
+    ratio = {"op": "add", "args": [change, _real(Fraction(100))]}
+    slack = {"op": "add", "args": [_real(h), {"op": "mul", "args": [_real(PRECISION_TAU), _abs(change)]}, {"op": "mul", "args": [_real(k), _abs(ratio)]}]}
+    diff = {"op": "sub", "left": change, "right": _real(stated)}
+    relative = {"op": "le", "left": _abs(diff), "right": {"op": "mul", "args": [_real(tolerance), _abs(change)]}}
+    return {"op": "or", "args": [relative, {"op": "le", "left": _abs(diff), "right": slack}]}
 
 
 def _abs(expr: dict) -> dict:
@@ -1346,6 +1405,12 @@ def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction
             change = {"op": "neg", "arg": change}
         how = "the stated sign's direction" if d.direction else "the figures' own direction"
         label = f"stated {direction} of {_fmt(d.stated)} per cent against the computed change" if d.kind == "percent_change" else f"stated change of {_fmt(d.stated)} per cent ({direction}, {how}) against the computed change"
+        places = _written_places(d.words, d.stated) if d.side == "both" else None
+        band = _precision_band(change, d.stated, tolerance, places, values) if places else None
+        if band is not None:
+            # a per cent written with decimals states its own precision: no half-point floor (PRECISION_RULE)
+            return _Spec("percent_change", statement, before_after, premises, ("STATED_CHANGE", band, label + " at its written precision"), Fraction(0), d.side, note, basis,
+                         d.words, rule=PRECISION_RULE.format(tol=f"{float(tolerance) * 100:g}")), ""
         return _Spec("percent_change", statement, before_after, premises, ("STATED_CHANGE", _within(change, d.stated, tolerance, POINT_FLOOR, d.side), label), POINT_FLOOR, d.side, note, basis, d.words), ""
     if d.kind == "fraction_change":
         change = {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(base)}
@@ -1944,6 +2009,7 @@ _TOTAL_PHRASE_RE = re.compile(rf"\b(?:a\s+(?:combined\s+)?total\s+of|totall?ing|
 #: The subject of a total that refers to its parts without stating them ('The two received a total of ...', 'Together they had ...').
 _PARTS_ANAPHOR_RE = re.compile(r"\b(?:the\s+(?:two|three|four|five|six|pair)|both|these|those|they|between\s+them|together)\b", re.IGNORECASE)
 _PART_HINT_RE = re.compile(r"of\s+(?:which|whom|these)\b|\balone\b|\btotal\b|\btotall?ing\b|\bcombined\b|\bsum\b|\bwhole\b|\baggregate\b|\barrivals\b|"
+                           r"\d\s?(?:%|per\s?cent|percent)\s+of\s|"
                            r"more\s+than|less\s+than|fewer\s+than|higher\s+than|lower\s+than|larger\s+than|smaller\s+than|greater\s+than|"
                            r"(?:^|;)\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s|\d\s+(?:out\s+)?of\s", re.IGNORECASE)
 _MONTH_NOUN_RE = re.compile(r"^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b", re.IGNORECASE)
@@ -2056,8 +2122,11 @@ def _no_pair_reason(clause: str, d: Optional[_Derived]) -> str:
 #: two unit words between the first figure and the operator ('105 million litres ×', '2.4 Ω +'); a figure with a letter attached ('6t') is a term
 #: of algebra, not a figure, and the end of a range label ('aged 15–64 × 100') is no operand.
 _OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:US)?[$£€¥]?[ \t]?[-−]?[ \t]?\({0,3}(?:US)?[$£€¥]?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
-#: The result of a link of a worked equation: a figure (a sign or a currency sign before it allowed).
-_RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-\u2212]?[ \t]?(?:US)?[$£€¥]?[ \t]?[-\u2212]?\d")
+#: A restatement in brackets inside a line of working: an '=' and a word of three letters, and no arithmetic operator ('(762 thousand =
+#: 0.762 million)', '(1 tonne = 1,000 kg)'). Bounded: at most 120 characters inside the brackets, each lookahead too.
+_EQ_COMMENT_RE = re.compile(r"\((?=[^()\n]{0,120}?=)(?=[^()\n]{0,120}?[A-Za-z]{3})[^()\n+×÷*/−–^\-]{1,120}\)")
+#: The result of a link of a worked equation: a figure (a sign or a currency sign before it allowed; a plus sign too, '= +$53,900').
+_RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-+\u2212]?[ \t]?(?:US)?[$£€¥]?[ \t]?[-+\u2212]?\d")
 #: A line that continues the equation of the line before it ('= 20 ÷ 10').
 _CONTINUATION_LINE_RE = re.compile(r"^\s*(?:\$\s*)?[=≈]")
 #: The reason a worked equation is reported undecided (``CORE-QNT-001``): written arithmetic in '=' form has no reader on this branch.
@@ -2089,7 +2158,9 @@ def worked_equations(text: str) -> list[WorkedEquation]:
     cut at semicolons and full stops) whose '=' links put an arithmetic operator between two figures before a link whose value is a figure
     with no further arithmetic ('$6,000 ÷ $2.00 = 3,000 loaves', '(12 − 8) − 0 = 4', '= 31 ÷ 69 × 100 = 44.9'). A formula with no figures
     on both sides of an operator ('Dependency ratio = (aged 0–14 + aged 65 and over) ÷ aged 15–64'), an expression of algebra ('a = 6 − 6t')
-    and a stated value ('PED = −0.67') are not worked equations."""
+    and a stated value ('PED = −0.67') are not worked equations. A restatement in brackets that holds an '=' and words and no operator
+    ('(762 thousand = 0.762 million)', :data:`_EQ_COMMENT_RE`) cuts no link: it is set aside before the links are cut, and the
+    statement keeps it as written."""
     out: list[WorkedEquation] = []
     if "=" not in text and "≈" not in text:
         return out
@@ -2109,7 +2180,13 @@ def worked_equations(text: str) -> list[WorkedEquation]:
         shown_line = " ".join(line.split())
         cuts = [0] + [m.end() for m in _WORKING_SEGMENT_RE.finditer(line)] + [len(line)]
         for a, b in zip(cuts, cuts[1:]):
-            segment = " ".join(line[a:b].split())  # one space between words: every pattern below reads at most one blank in a row
+            statement = " ".join(line[a:b].split())  # one space between words: every pattern below reads at most one blank in a row
+            segment = statement
+            if "(" in segment and "=" in segment:
+                # a restatement in brackets inside the working ('0.762 million ÷ 12.70 million × 100 (762 thousand = 0.762 million) = 6.50%'):
+                # its '=' is no link of the chain, so it is set aside before the links are cut; the statement keeps it, as written (c1
+                # adversarial ec-t14-unemp)
+                segment = " ".join(_EQ_COMMENT_RE.sub(" ", segment).split())
             bounds = [-1] + [m.start() for m in re.finditer(r"[=≈]", segment)] + [len(segment)]
             links = [segment[x + 1: y] for x, y in zip(bounds, bounds[1:])]
             if len(links) < 2:
@@ -2131,7 +2208,7 @@ def worked_equations(text: str) -> list[WorkedEquation]:
                 p_start = bounds[first] + 1 + (lead.end() if lead else 0)
                 stop = _RESULT_END_RE.search(links[k])
                 p_end = bounds[k] + 1 + (stop.start() if stop else len(links[k]))
-                out.append(WorkedEquation(start, end, shown_line, segment, segment[p_start:p_end].strip().rstrip(" .,;:")))
+                out.append(WorkedEquation(start, end, shown_line, statement, segment[p_start:p_end].strip().rstrip(" .,;:")))
                 break
     return out
 
@@ -2220,6 +2297,23 @@ _N_OF_M_SHARE_RE = re.compile(
     rf"(?:(?:about|around|roughly|some|nearly)\s+)?(?P<cw>{_CUR})?\s?(?P<nw>{_NUMX})(?:\s*(?P<uw>{_SCALE_UNIT})\b)?(?P<noun>{_NOUN})"
     rf"\s*(?:,|\()\s*(?:or\s+|that\s+is\s+|i\.e\.\s+)?(?:(?P<q>{_QUAL})\s+)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})(?![\w-])",
     re.IGNORECASE)
+#: A part stated as a share of a whole whose figure the clause states after 'of' (round-8 clearance c1, critical finding: a wrong per
+#: cent in prose crossed silently): '$40m, which is 25% of total sales of $200m', 'Labour costs of $30,000 are 30% of total costs of
+#: $120,000', 'Exports came to $40m, or 20 per cent of the $200m total' is read by _N_OF_M_SHARE_RE's kin below. Neither figure is a per
+#: cent. Every run is bounded, so a search is linear in the clause.
+_IS_SHARE_OF_RE = re.compile(
+    rf"(?<![\w.,])(?P<cp>{_CUR})?\s?(?P<np>{_NUMX})(?:\s*(?P<up>{_SCALE_UNIT})\b)?(?![ \t]{{0,3}}(?:per[ \t]?cent|percent|%))"
+    rf"(?:[ \t]{{1,3}}[a-z][a-z'’-]*){{0,3}}?[ \t]{{0,3}},?[ \t]{{1,3}}(?:(?:which|that)[ \t]{{1,3}})?"
+    rf"(?:is|was|are|were|represents?|represented|makes?[ \t]up|made[ \t]up|accounts?[ \t]for|accounted[ \t]for|equals?|equalled|equaled|comes?[ \t]to|came[ \t]to)[ \t]{{1,3}}"
+    rf"(?:(?P<q>{_QUAL})[ \t]{{1,3}})?(?P<pn>\d+(?:\.\d+)?)[ \t]{{0,3}}{_PCT_UNIT}[ \t]{{1,3}}of[ \t]{{1,3}}(?:(?:the|its|their|all(?:[ \t]the)?)[ \t]{{1,3}})?"
+    rf"(?:[a-z][a-z'’-]*[ \t]{{1,3}}){{0,4}}?(?:of[ \t]{{1,3}})?(?P<cw>{_CUR})?\s?(?P<nw>{_NUMX})(?:\s*(?P<uw>{_SCALE_UNIT})\b)?"
+    rf"(?![ \t]{{0,3}}(?:per[ \t]?cent|percent|%))(?P<noun>{_NOUN})",
+    re.IGNORECASE)
+#: The share stated in brackets a few words after a part ('Of the 60 households surveyed, 27 owned a car (45%)'): the part's own
+#: sentence states it, the whole opens the clause.
+_PAREN_SHARE_AFTER_RE = re.compile(
+    rf"(?:[ \t]{{1,3}}[a-z][a-z'’-]*){{1,6}}?[ \t]{{0,3}}\([ \t]{{0,3}}(?:(?P<q>{_QUAL})[ \t]{{1,3}})?(?P<pn>\d+(?:\.\d+)?)[ \t]{{0,3}}{_PCT_UNIT}[ \t]{{0,3}}\)",
+    re.IGNORECASE)
 #: A share stated right after a part, with no 'of the total' ('..., the list was guaranteed 356, about three-quarters').
 _BARE_SHARE_TAIL_RE = re.compile(
     rf"\s*(?:,|\()\s*(?:or\s+)?(?:(?P<q>{_QUAL})\s+)?(?:(?P<frac>{_FRAC})|(?P<pn>\d+(?:\.\d+)?)\s*{_PCT_UNIT})(?![\w-])"
@@ -2274,7 +2368,7 @@ _TOO_MANY_PARTS_REASON = (f"it states more than {_MAX_CLAUSE_PART_MARKERS} parts
 def _part_markers_over_bound(clause: str) -> bool:
     """True when ``clause`` holds more than :data:`_MAX_CLAUSE_PART_MARKERS` part markers (counted up to the bound)."""
     count = 0
-    for pattern in (_OF_WHICH_RE, _ALONE_RE, _SHARE_OF_TOTAL_RE, _N_OF_M_SHARE_RE, _DIFF_RE):
+    for pattern in (_OF_WHICH_RE, _ALONE_RE, _SHARE_OF_TOTAL_RE, _N_OF_M_SHARE_RE, _IS_SHARE_OF_RE, _DIFF_RE):
         for _m in pattern.finditer(clause):
             count += 1
             if count > _MAX_CLAUSE_PART_MARKERS:
@@ -2333,6 +2427,20 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                     undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
                 else:
                     specs.append(_parts_spec(clause, whole, parts, tolerance, phrase, f"the parts stated after the total that opens the clause ('{lead.group(0).strip(' ,')}')"))
+                # 'Of the 60 households surveyed, 27 owned a car (45%)': a share in brackets a few words after a part, before the next one
+                # (round-8 clearance c1: a wrong per cent there crossed silently)
+                for k, part in enumerate(parts if not why else ()):
+                    stop_at = parts[k + 1].start if k + 1 < len(parts) else len(rest)
+                    paren = _PAREN_SHARE_AFTER_RE.match(rest[:stop_at], part.end)
+                    if paren is None or _BARE_SHARE_TAIL_RE.match(rest, part.end) is not None:
+                        continue
+                    share_phrase = " ".join(rest[part.start: paren.end()].split()).strip(" ,")
+                    spec, why_share = _share_spec(clause, whole, part, None, paren.group("pn"), paren.group("q"), tolerance, share_phrase,
+                                                  f"the share in brackets after the part, of the total that opens the clause ('{lead.group(0).strip(' ,')}')")
+                    if spec is not None:
+                        specs.append(spec)
+                    elif why_share:
+                        undecided.append(QuantUndecided(pi, si + 1, sent.strip(), share_phrase, why_share))
                 # 'Of the 535 seats, the list was guaranteed 356, about three-quarters': a share stated right after the last part
                 tail = _BARE_SHARE_TAIL_RE.match(rest, parts[-1].end)
                 if tail is not None and not why:
@@ -2416,6 +2524,18 @@ def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> 
                 continue
             phrase = " ".join(m.group(0).split()).strip(" ,(")
             spec, why = _share_spec(clause, whole, part, m.group("frac"), m.group("pn"), m.group("q"), tolerance, phrase, "the part and the whole stated as 'N of the M'")
+            if spec is not None:
+                specs.append(spec)
+            elif why:
+                undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+        # '$40m, which is 25% of total sales of $200m': a part stated as a share of the whole named after 'of' (round-8 clearance c1)
+        for m in (_IS_SHARE_OF_RE.finditer(clause) if " of " in clause else ()):
+            part, whole = _share_fig(m, "p"), _share_fig(m, "w")
+            if _year_like(part.num, part.unit or part.cur) or _year_like(whole.num, whole.unit or whole.cur):
+                continue
+            phrase = " ".join(m.group(0).split()).strip(" ,(")
+            spec, why = _share_spec(clause, whole, part, None, m.group("pn"), m.group("q"), tolerance, phrase,
+                                    "the part stated as a share of the whole named after 'of'")
             if spec is not None:
                 specs.append(spec)
             elif why:

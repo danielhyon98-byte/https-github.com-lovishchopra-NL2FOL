@@ -44,8 +44,8 @@ from .numbers import SUPERSCRIPT_DIGITS, SUPERSCRIPT_SIGNS, is_ascii_digit, supe
 
 __all__ = [
     "BASE_NAMES", "DIMENSIONLESS", "Dimension", "ENGLISH_NOT_UNITS", "GLUED_UNITS", "GREEK_PREFIXABLE", "PREFIXES", "UNITS", "UnitAtom", "UnitDef", "UnitExpr", "UnitReading",
-    "compound_part", "dimension_name", "english_word_atom", "is_unit_atom", "lookup_atom", "parse_unit", "prefixed_greek_unit", "unit_dimension",
-    "unit_group",
+    "compound_part", "dimension_name", "english_word_atom", "is_unit_atom", "lookup_atom", "parse_unit", "prefixed_greek_unit", "stem_is_unit_atom",
+    "stem_lookup_atom", "stem_parse_unit", "unit_dimension", "unit_group",
 ]
 
 BASE_NAMES = ("m", "kg", "s", "A", "K", "mol", "cd")
@@ -184,6 +184,9 @@ def _units() -> dict[str, UnitDef]:
     add("%", "per cent", DIMENSIONLESS, Fraction(1, 100), prefixable=False)
     add("ppm", "part per million", DIMENSIONLESS, Fraction(1, 10 ** 6), prefixable=False)
     add("count", "count (a number of events or items)", DIMENSIONLESS, Fraction(1), prefixable=False)  # 'counts min⁻¹', 'counts per minute'
+    # round-8 clearance (rule count-noun): a quadrat is a sampling frame of an area the text states apart ('60 quadrats, each 1 m²'): an
+    # area of no fixed size, so '189 ÷ 60 quadrats = 3.15 plants per m²' is read as written and its sides agree in dimension
+    add("quadrat", "quadrat (a sampling area of the size the text states)", _d(m=2), None, prefixable=False)
     # stem-soundness-12 (round 7): amounts of data, a count of bits ('32 bits = 4 bytes'); the binary multiples here, whose factor is exact.
     # A kilobyte is 1000 or 1024 bytes by convention: integration gate 1 reads kB, KB, MB, GB and TB with both readings (_DATA_DECIMAL in
     # _resolve, ST-UNIT-002); before, 'MB' after a value was dropped and the bare numeral compared alone
@@ -222,6 +225,25 @@ _WORDS["percent"] = "%"
 _WORDS["bits"] = "bit"
 _WORDS["bytes"] = "byte"
 _WORDS["counts"] = "count"  # a count rate: '1600 counts min⁻¹' (STEM repair 1: an unread word ended the maths span)
+#: round-8 clearance (rule count-noun): the nouns a number counts ('189 ÷ 60 quadrats = 3.15 plants per m²', '60 s ÷ 85 beats = 0.71 s'),
+#: read as the dimensionless count, so the worked line is one chain. An unread count noun ended the maths span, and the '=' after it was
+#: read as a label binding: the line was neither checked nor named. Words that also name units, marks or quantities ('units', 'points',
+#: 'samples', 'steps') are left out
+COUNT_NOUNS = frozenset({
+    "plant", "plants", "beat", "beats", "individual", "individuals", "organism", "organisms", "animal", "animals",
+    "insect", "insects", "beetle", "beetles", "bird", "birds", "tree", "trees", "seed", "seeds", "cell", "cells", "colony", "colonies",
+    "bacterium", "bacteria", "leaf", "leaves", "flower", "flowers", "person", "people", "patient", "patients", "participant", "participants",
+    "student", "students", "item", "items", "loaf", "loaves", "egg", "eggs", "birth", "births", "death", "deaths", "molecule", "molecules",
+    "atom", "atoms", "ion", "ions", "electron", "electrons", "photon", "photons", "nucleus", "nuclei", "decay", "decays", "pixel", "pixels",
+    "colour", "colours", "color", "colors", "breath", "breaths", "visitor", "visitors", "worker", "workers", "customer", "customers",
+    "species", "specimen", "specimens", "snail", "snails", "worm", "worms", "fish", "mice", "rat", "rats", "larva", "larvae",
+})
+for _n in COUNT_NOUNS:
+    _WORDS.setdefault(_n, "count")
+_WORDS["quadrat"] = "quadrat"
+_WORDS["quadrats"] = "quadrat"
+#: the words rule count-noun added: read as units by the STEM front end only (``counts``), never by the table's other readers
+_COUNT_WORDS = frozenset({w for w in COUNT_NOUNS if _WORDS.get(w) == "count"} | {"quadrat", "quadrats"})
 _WORDS["degrees"] = "°"
 _WORDS["degree"] = "°"
 
@@ -333,9 +355,12 @@ def is_data_unit(unit: Optional["UnitExpr"]) -> bool:
     return all(r.atoms and all(a.unit is not None and a.unit.symbol in DATA_UNIT_SYMBOLS and a.power == 1 for a in r.atoms) for r in unit.readings)
 
 
-def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[tuple[UnitDef, str]]:
+def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False,
+             counts: bool = False) -> list[tuple[UnitDef, str]]:
     """Every (unit, prefix) reading of a letter run, best first: an exact symbol, then prefix +
-    symbol (longest prefix first). The bare ``M`` and the tonne follow the profile."""
+    symbol (longest prefix first). The bare ``M`` and the tonne follow the profile. The count nouns of rule count-noun are read
+    only with ``counts`` (the STEM front end's readings): the table's other readers (the translator's figures, the ledger) keep
+    reading 'items' or 'plants' after a number as words."""
     out: list[tuple[UnitDef, str]] = []
     if word in _OHM_ALIASES:
         return [(UNITS["Ω"], "")]
@@ -369,7 +394,7 @@ def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega"
                     break
     if not out:
         low = word.lower()
-        if low in _WORDS:
+        if low in _WORDS and (counts or low not in _COUNT_WORDS):
             out.append((UNITS[_WORDS[low]], ""))
         else:
             for pw, _f in _PREFIX_WORDS.items():
@@ -416,9 +441,10 @@ def _glued_split(word: str, tonne: bool) -> Optional[list[tuple[UnitDef, str, st
     return best
 
 
-def lookup_atom(word: str, profile_key: str = "", *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False) -> list[UnitAtom]:
+def lookup_atom(word: str, profile_key: str = "", *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False,
+                counts: bool = False) -> list[UnitAtom]:
     """Readings of one letter run as a single unit atom (power 1): empty when the run is no unit."""
-    return [UnitAtom(word, u, p) for u, p in _resolve(word, profile_key, bare_m, tonne)]
+    return [UnitAtom(word, u, p) for u, p in _resolve(word, profile_key, bare_m, tonne, counts)]
 
 
 #: unit symbols of the table that are not Latin letters and take an SI prefix (the ohm). The lexer reads a Greek letter as
@@ -435,12 +461,12 @@ def prefixed_greek_unit(prefix: str, symbol: str) -> bool:
     return symbol in GREEK_PREFIXABLE and prefix.isascii() and prefix in PREFIXES and bool(_resolve(prefix + symbol))
 
 
-def is_unit_atom(word: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, glued: bool = True) -> bool:
+def is_unit_atom(word: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, glued: bool = True, counts: bool = False) -> bool:
     """True when ``word`` reads as a unit atom (exact, prefixed, spelled out) or, with ``glued``,
     as two or three glued atoms (``Nm``)."""
     if not word:
         return False
-    if _resolve(word, "", bare_m, tonne):
+    if _resolve(word, "", bare_m, tonne, counts):
         return True
     return glued and _glued(word, tonne) is not None
 
@@ -638,18 +664,33 @@ def _ascii_exponent(s: str, j: int, n: int) -> tuple[int, Optional[int]]:
 
 
 def parse_unit(text: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, profile_key: str = "",
-               ascii_exponents: bool = False) -> Optional[UnitExpr]:
+               ascii_exponents: bool = False, counts: bool = False) -> Optional[UnitExpr]:
     """Parse a unit expression as written (``"m s⁻²"``, ``"kg·m/s²"``, ``"J mol⁻¹ K⁻¹"``,
     ``"\\text{m s}^{-1}"``, ``"ms⁻¹"``, ``"kJ m⁻² yr⁻¹"``). Returns None when the text is not
     a unit expression at all (empty, malformed, a digit inside, too long, no known atom).
     Unknown atoms are kept and listed in ``unknown`` (ST-UNIT-001). With ``ascii_exponents`` an
     exponent glued to its atom with no caret is read too (``"m s-1"``, ``"mol dm-3"``, ``"cm3"``,
     ``"g/cm3"``; :func:`_lex_unit`)."""
-    return _parse_unit_cached(text, bare_m, tonne, ascii_exponents)
+    return _parse_unit_cached(text, bare_m, tonne, ascii_exponents, counts)
+
+
+def stem_parse_unit(text: str, **kw: object) -> Optional[UnitExpr]:
+    """:func:`parse_unit` as the STEM front end reads units: with the count nouns of rule count-noun."""
+    return parse_unit(text, counts=True, **kw)  # type: ignore[arg-type]
+
+
+def stem_is_unit_atom(word: str, **kw: object) -> bool:
+    """:func:`is_unit_atom` as the STEM front end reads units: with the count nouns of rule count-noun."""
+    return is_unit_atom(word, counts=True, **kw)  # type: ignore[arg-type]
+
+
+def stem_lookup_atom(word: str, profile_key: str = "", **kw: object) -> list[UnitAtom]:
+    """:func:`lookup_atom` as the STEM front end reads units: with the count nouns of rule count-noun."""
+    return lookup_atom(word, profile_key, counts=True, **kw)  # type: ignore[arg-type]
 
 
 @lru_cache(maxsize=1024)
-def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_exponents: bool = False) -> Optional[UnitExpr]:
+def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_exponents: bool = False, counts: bool = False) -> Optional[UnitExpr]:
     if not text or len(text) > _MAX_UNIT_CHARS:
         return None
     lx = _lex_unit(text, ascii_exponents)
@@ -709,7 +750,7 @@ def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_ex
         if per:
             power = -power
             per = False
-        direct = [UnitAtom(word, u, p, power) for u, p in _resolve(word, "", bare_m, tonne)]
+        direct = [UnitAtom(word, u, p, power) for u, p in _resolve(word, "", bare_m, tonne, counts)]
         glued = _glued(word, tonne) if word != "M" else None
         if direct and glued and power < 0 and word in _GLUED_AMBIGUOUS and len(glued) == 2 and direct[0].prefix and len(direct) == 1:
             # 'ms⁻¹': by SI binding a millisecond to the power -1; as evidently meant, metre second⁻¹
@@ -778,7 +819,8 @@ def unit_group(toks, a: int, b: int, profile) -> bool:
         t = toks[k]
         prev = toks[k - 1] if k > a else None
         if t.kind == "IDENT" and not t.delta and not t.primes and (not t.sub or (len(t.sub) == 1 and "2" <= t.sub <= "9" and len(t.text) == 1)):
-            if not (is_unit_atom(t.text, bare_m=profile.bare_m, tonne=profile.tonne) or (len(t.text) >= 2 and t.text.isascii() and t.text.isalpha())):
+            if not (is_unit_atom(t.text, bare_m=profile.bare_m, tonne=profile.tonne, counts=True)
+                    or (len(t.text) >= 2 and t.text.isascii() and t.text.isalpha())):
                 return False
             atoms += 1
         elif t.kind == "OP" and t.text in "-+" and not t.space and prev is not None and prev.kind == "IDENT" and k + 1 < b \

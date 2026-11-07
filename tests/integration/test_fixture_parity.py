@@ -25,12 +25,39 @@ def _module(name: str, path: Path):
 
 
 @pytest.fixture(scope="module")
-def arena_run(tmp_path_factory):
+def arena_capture(tmp_path_factory):
+    """``run_arena.run_round`` on a fresh copy of the corpus round, with the result digests of each genuine delivery
+    (report id ``rep-<task>-0``) observed by wrapping ``RouterHub.receive`` for the run, as ``integration/sim/reference.py``
+    observes them for G-EQ-ARENA: the wrapper returns the hub's own result unchanged, keyed by the SHA-256 of the
+    delivered text."""
     sys.path.insert(0, str(ARENA))
     import run_arena as ra
+    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.translate.contracts import sha256_text
+    compare = _module("kit_sim_compare_capture", ROOT / "integration" / "sim" / "compare.py")
     copy = tmp_path_factory.mktemp("parity") / "s1"
     shutil.copytree(CORPUS, copy)
-    out = ra.run_round(copy)
+    delivered: dict[str, list] = {}
+    original_receive = RouterHub.receive
+
+    def observing_receive(self, task_id, request_message_id, payload, **kw):  # returns the hub's own result unchanged
+        reply, rc = original_receive(self, task_id, request_message_id, payload, **kw)
+        rid = kw.get("report_id")
+        if isinstance(rid, str) and rid.endswith("-0") and isinstance(payload, str):
+            delivered.setdefault(sha256_text(payload), sorted(d for d in (compare.result_digests(o.model_dump(mode="json")) for o in rc.outcomes) if d is not None))
+        return reply, rc
+
+    RouterHub.receive = observing_receive
+    try:
+        out = ra.run_round(copy)
+    finally:
+        RouterHub.receive = original_receive
+    return ra, copy, out, delivered
+
+
+@pytest.fixture(scope="module")
+def arena_run(arena_capture):
+    ra, copy, out, _delivered = arena_capture
     return ra, copy, out
 
 
@@ -132,3 +159,75 @@ def test_a_fixture_recorded_for_another_request_is_refused_on_both_paths(arena_r
     assert json.loads(rekeyed_fixture(fixture, "a_x", only_from="req-hi-s1-variant"))["problem"]["request_id"] == "req-hi-s1"
     assert FixtureCorpus.load(variant)._arena_request_ids == {"hi-s1-variant": "req-hi-s1-variant"}
     assert FixtureCorpus.load(CORPUS)._arena_request_ids["hi-s1"] == "req-hi-s1"
+
+
+def test_the_fixture_verifier_encodes_the_arenas_problems_with_the_task_record(arena_capture):
+    """G-EQ-ARENA's digests (round 8's clearance, the harness fixer's handoff): the arena's verifier is task-aware, so the
+    channel passes it the task record of each request and the translator validates task_setting and arithmetic_fact
+    premises against the router's question. The fixture path must be called the same way: with the two-argument fixture
+    verifier the encoded problems of ph-s1 and ph-s2 (whose fixtures carry such premises) differed from the arena's, so the
+    simulation's G-EQ-ARENA gate reported two differences. Item by item, the result digests of the fixture verifier's
+    receipt equal those of the arena's genuine delivery, and the fixture verifier and the turn checker's fixture branch
+    declare ``task`` (the channel's own rule, ``channel.bus._accepts_task``)."""
+    ra, copy, _out, delivered = arena_capture
+    from epinoic_logic.channel.bus import _accepts_task
+    from epinoic_logic.translate.contracts import sha256_text
+    fv = _module("kit_sim_fixture_verifier4", ROOT / "integration" / "sim" / "fixture_verifier.py")
+    compare = _module("kit_sim_compare4", ROOT / "integration" / "sim" / "compare.py")
+    corpus = fv.load_corpus(copy)
+    items = ra.load_items(copy / "specialists")
+    assert len(items) == 6
+    differing, compared = [], {}
+    for item in items:
+        stem = item["_path"].stem
+        fn, _provider = corpus.verifier_for(sha256_text(item["response_text"]), config=ra.CFG, signing_key=ra.KEY)
+        assert fn is not None and _accepts_task(fn), stem
+        _reply, rc = fv.deliver_genuine(corpus, item, ra.group_plan(items, ra.group_of(item)), config=ra.CFG, signing_key=ra.KEY,
+                                        supplied=ra.supplied(item))
+        ours = sorted(d for d in (compare.result_digests(o) for o in rc.model_dump(mode="json")["outcomes"]) if d)
+        theirs = delivered.get(sha256_text(item["response_text"]))
+        assert theirs is not None, f"{stem}: the arena delivered the item's genuine answer"
+        compared[stem] = len(ours)
+        if ours != theirs:
+            differing.append(stem)
+    assert not differing, differing
+    assert compared.get("ph-s1") and compared.get("ph-s2"), compared  # the items whose premises the task record validates
+
+
+def test_the_turn_checkers_fixture_branch_passes_the_task_record_on(tmp_path):
+    """The turn checker's fixture branch (``TurnChecker._verifier``) is task-aware like its live branch: the budgeted
+    verifier declares ``task`` and passes the record the channel gives it on to the corpus's verifier for the answer."""
+    from epinoic_logic.channel.bus import _accepts_task
+    from epinoic_logic.integration.runtime import build_runtime
+    from epinoic_logic.integration.verifier import VerifierLog
+    from tests.integration.helpers import FixtureProbes, answer_envelope, settings, turn_request
+    from epinoic_logic.integration.checks_port import check_request
+    rt = build_runtime(settings(FIXTURE_DIR=str(CORPUS), SIM_EVIDENCE_DIR=str(tmp_path / "ev")), probes=FixtureProbes())
+    seen: list = []
+
+    class _Corpus:
+        def verifier_for(self, answer_sha256, **_kw):
+            def fn(claim, report, task=None):
+                seen.append((claim, report, task))
+                return "outcome"
+            return fn, None
+
+    rt.checker.corpus = _Corpus()
+    req = check_request(turn_request([answer_envelope(1, answer="An answer.")], user_text="A question?", request_id="a_task_00000001"),
+                        rt.request_limits, service_env="sim")
+    fn = rt.checker._verifier(req, deadline=float("inf"), log=VerifierLog())
+    assert _accepts_task(fn)
+
+    class _Claim:
+        claim_id = "c1"
+        subject = "history"
+
+    class _Report:
+        agent_id = next(iter({a.agent_id for a in req.answers}))
+
+    from epinoic_logic.integration.turn import hub_agent_id
+    _Report.agent_id = hub_agent_id(_Report.agent_id)
+    record = object()
+    assert fn(_Claim(), _Report(), task=record) == "outcome"
+    assert seen and seen[-1][2] is record
+

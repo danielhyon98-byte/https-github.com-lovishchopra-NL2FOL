@@ -19,7 +19,9 @@
 
   - every constraint result with ``satisfied`` false needs INT-REQ-005 naming it (its ``formal_result_id``, or for a
     deterministic constraint its id in the message): error for a word bound or any non-paragraph constraint, warning
-    for a paragraph bound (the request's journaled constraint kind decides);
+    for a paragraph bound, and at least a warning for an "about N words" band, whose exact severity (a warning within a
+    quarter of N, else an error: the channel's own ``request_parser.word_bound_severity``) R2 decides on its recount
+    (``formal.rederive``, rule ``about-band``; round-8 clearance c1);
   - every branch formal check with ``satisfied`` false needs INT-SUBJ-001 (error), or INT-SUBJ-004 (warning) for a
     check its pack declares at failure severity warning (rule ``failure-severity``: the STEM checks that fail only under
     a reading the report did not state; R2 requires INT-SUBJ-001 for every check the pack declares at error), and with
@@ -58,6 +60,9 @@
   - (integration step) a relayed synthesis whose journaled payload carries a value outside the synthesis contract's closed
     vocabularies needs INT-REQ-009 and INT-SYNTH-014 (``bus._coerce_payload`` re-run on the journaled payload; a mapping
     that does not validate is journaled by its digest only, so its rejection's name is not re-derived).
+  - (round-8 clearance c1, rule ``bidi-text``) a specialist's response whose own text holds a bidirectional embedding,
+    override or isolate needs INT-REQ-009 (``bus.bidi_control_message`` on the journaled raw text, ``bus.report_bidi_findings``
+    on the journaled report; called, not copied, bound at import): a receipt that delivers it lacks what the input implies.
 """
 from __future__ import annotations
 
@@ -66,9 +71,11 @@ from types import SimpleNamespace
 from typing import Any, Optional
 
 from ...channel.bus import _BLOCKING_PREFIXES, _SCOPE_TAIL, TranslatorChannel, _coerce_payload, _fit_summary
+from ...channel.bus import bidi_control_message, report_bidi_findings
 from ...named import (MAX_PER_RECEIPT, NAMED_CODES, effective_severity, from_finding, ordered as order_named)
 from ...named import defect_of as _defect_of
 from ...channel.contracts import TransmissionReceipt, TransmissionStatus
+from ...channel.request_parser import about_band
 from ...channel.events import model_json
 from ...engine.statuses import is_definitive
 from ...ir.canonical import canonical_json, sha256_hex
@@ -122,6 +129,8 @@ _CHANNEL_RELAY_PARTIES = TranslatorChannel._relay_parties
 _CHANNEL_ENCODINGS = TranslatorChannel._encoding_disagreements
 _CHANNEL_TASK_RECORD = TranslatorChannel._task_record
 _CHANNEL_COERCE = _coerce_payload
+_CHANNEL_BIDI_TEXT = bidi_control_message
+_CHANNEL_BIDI_REPORT = report_bidi_findings
 _RANK = {"info": 0, "warning": 1, "error": 2}
 
 
@@ -403,10 +412,15 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
     out: list[tuple[str, str, str]] = []
     req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
     kinds = {c.constraint_id: c.kind for c in req.constraints} if req is not None else {}
+    bounds = {c.constraint_id: c for c in req.constraints} if req is not None else {}
     for cr in rc.constraint_results:
         if cr.satisfied is not False:
             continue
-        sev = "warning" if kinds.get(cr.constraint_id, "").endswith("paragraphs") else "error"
+        # the channel's own rule (round-8 clearance c1): a paragraph bound is a warning, and an "about N words" band missed by at
+        # most a quarter of N is too; the live check requires at least a warning for a band (its exact severity depends on the
+        # measure, which R2 recounts: formal.rederive, rule about-band), an error for every other word bound
+        bound = bounds.get(cr.constraint_id)
+        sev = "warning" if bound is not None and (bound.kind.endswith("paragraphs") or about_band(bound)) else "error"
         if cr.method == "formal" and cr.formal_result_id:
             how = _present(rc.findings, "INT-REQ-005", sev, formal_result_id=cr.formal_result_id)
         else:
@@ -431,7 +445,8 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
             out.append((f.code, f.severity, f"the channel raises {f.code} only at severity {fixed}"))
         if f.code == "INT-REQ-005" and f.formal_result_id:
             cr = next((c for c in rc.constraint_results if c.formal_result_id == f.formal_result_id), None)
-            if cr is not None and f.severity != "error" and not kinds.get(cr.constraint_id, "paragraphs").endswith("paragraphs"):
+            if cr is not None and f.severity != "error" and not kinds.get(cr.constraint_id, "paragraphs").endswith("paragraphs") \
+                    and not (cr.constraint_id in bounds and about_band(bounds[cr.constraint_id])):
                 out.append((f.code, f.severity, f"constraint {cr.constraint_id} is a {kinds.get(cr.constraint_id)} bound, which the channel reports at severity error"))
         if f.code == "INT-REQ-007" and f.severity != "error":
             # rule ambiguous-reading: the channel lowers INT-REQ-007 to a warning only for a claim whose translation is
@@ -459,6 +474,8 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
     out.extend(_argument_implied(ctx, t))
     if t.kind == "relay_synthesis":
         out.extend(_vocabulary_implied(ctx, t))
+    if t.kind in ("response", "response_text"):
+        out.extend(_bidi_implied(ctx, t))
     return out
 
 
@@ -997,6 +1014,31 @@ def _vocabulary_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, 
                 out.append((code, how, "the journaled synthesis carries values outside the synthesis contract's closed vocabularies (claims "
                             f"{f.claim_ids[:6]}): the channel refuses it with INT-REQ-009 and names them with INT-SYNTH-014, and never delivers it"))
     return out
+
+
+def _bidi_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """Rule bidi-text (round-8 clearance c1): a specialist's response whose own text holds a bidirectional embedding, override or
+    isolate is refused with INT-REQ-009, since a reader may be shown that text in another order than every check reads it (the
+    combinator port's text rule, held to a specialist's response). Re-derived from the journaled raw text
+    (``bus.bidi_control_message``) or, when only the report is journaled, from the report's own text
+    (``bus.report_bidi_findings``), both bound at import: a receipt that delivers such a response lacks what the input implies."""
+    rc = t.receipt
+    if rc is None:
+        return []
+    why = None
+    try:
+        if t.kind == "response_text" and isinstance(t.raw_text, str):
+            why = _CHANNEL_BIDI_TEXT("response text", t.raw_text)
+        if why is None and t.report is not None:
+            found = _CHANNEL_BIDI_REPORT(t.report)
+            why = found[0].message if found else None
+    except Exception as exc:
+        ctx.note(f"response {t.message_id}: the channel's bidi-text rule could not be re-run on the journaled input ({type(exc).__name__}); INT-REQ-009 is not re-derived")
+        return []
+    if why is None:
+        return []
+    how = _present(rc.findings, "INT-REQ-009", "error")
+    return [("INT-REQ-009", how, f"rule bidi-text: {why[:300]}")] if how else []
 
 
 def check_implied_findings(ctx: CheckContext, t: Transfer) -> None:

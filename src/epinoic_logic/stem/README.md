@@ -61,8 +61,8 @@ doc.request             # RequestReading: request bindings, quantities, relation
 | --- | --- |
 | `limits.py` | `StemLimits` (every bound of section 4.9) and `StemProfile` (per-profile reading switches: chemistry, bare `M`, tonne, Computer Science, principal root) |
 | `normalize.py` | reading view (1:1 character map) and masked views of the same length (prose view); the fullwidth and small forms of the signs the grammar reads, `⩵`, `≦ ≧`, `⁄`, `∶`, `∼`, `✕ ✖ ➕ ➖ ➗` and `∆` mapped to the signs they stand for (`SIGN_FORMS`, rule sign-forms), and since integration gate 4 the equals signs of other categories and the double hyphens drawn as `=` (`🟰` U+1F7F0, `꞊` U+A78A, `゠` U+30A0, `⹀` U+2E40); every invisible character (a Unicode default-ignorable code point: a variation selector such as the emoji selector after `✖`, a bidirectional mark, a soft hyphen, an invisible operator, a tag) is a blank, as the zero-width characters are |
-| `numbers.py` | `ExactNumber` (value, significant figures, last place, half-width, exactness, exponent), the one number scanner `scan_number`, based numerals `scan_based` |
-| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`); bits, bytes, the binary multiples and the decimal ones with both readings (`kB`, `MB`, `GB`: ST-UNIT-002; `is_data_unit`); the year (`yr`) and the hectare (`ha`); the parts of a compound quantity (`compound_part`: `4 min 30 s`) |
+| `numbers.py` | `ExactNumber` (value, significant figures, last place, half-width, exactness, exponent; `cut` for a decimal cut by an ellipsis, `7045.59…`, whose half-width is a whole unit in its last digit, rule cut-decimal), the one number scanner `scan_number`, based numerals `scan_based` |
+| `units.py` | unit table, prefixes (a Latin prefix before a Greek unit symbol too: `kΩ`, `MΩ`, `mΩ`), dimension vectors, unit-expression parser, ambiguity readings, exact SI factors; the English words that are no units after a number (`as`, `am`, `at`); bits, bytes, the binary multiples and the decimal ones with both readings (`kB`, `MB`, `GB`: ST-UNIT-002; `is_data_unit`); the year (`yr`) and the hectare (`ha`); the parts of a compound quantity (`compound_part`: `4 min 30 s`); the count nouns of rule count-noun (`items`, `plants`, `beats`, `quadrats`) for the STEM front end only (`stem_parse_unit`, `stem_is_unit_atom`, `stem_lookup_atom`: the `counts` flag), the table's other readers keeping them as words |
 | `lexer.py` | single-pass tokenizer (plain and LaTeX modes); unknown LaTeX commands and confusable letters become `ERROR` tokens; a combination or permutation count (`⁵C₂`, `5C2`, `nCr`, `C(5, 2)`, `₅P₂`) is one `UNSUP` token; the integer operators `mod`, `modulo`, `div` between operands, `//`, `\bmod` and, in Computer Science, `%`, the AND dot (`A.B`) and a numeral in groups of four digits with its base subscript (`1011 0110₂`), or, in Computer Science, binary digits in groups of four with none (`1011 0110`); a superscript run beyond the numeral bound is never converted (ST-LIM-001); one superscript letter after a base is its exponent (`2ˣ` as `2^x`); ∪ and ∩ inside probability brackets `P( … )` are operators; a mathematical sign outside the grammar whose name makes it a relation sign or an operator (`⨯`, `∘`, `∜`, `≪`, `≔`) is an `ERROR` token (`sign_outside_grammar`, rule sign-forms), and since integration gate 4 so is a symbol, dash, punctuation or combining mark of another category whose name does (`⯹`, `⌸`, `˖`, `⹊`, `＼`), and any other sign the grammar does not read that stands between two numerals (`3 • 4`, `20 ╱ 4.0`, `4.0 🍎 6.0`; rule sign-forms by place, `_sign_between_numerals`; the signs of sets, the arrows and `∵` are read as before); the characters drawn as a relation sign whose name does not say so (`═ ⚌ 〓 ˭ ᐀ ꓿ ⸗ ☰ ˂ ˃`) are `RELATION_LOOKALIKES`, unknown characters the unread-relation rule names |
 | `nodes.py` | frozen AST nodes (`IntOp` for an integer remainder or quotient) and helpers (`walk`, `symbols`, `align`, `render`, `shape_key`, `value_of`, ...); `Operand.dot` names the readings of an operand that holds a middle dot between digits (rule middle-dot) |
 | `parser.py` | bounded Pratt parser: chains, connectives, units, implicit multiplication against scope (at most two readings), unsupported constructs as named nodes; a quotient stated with its remainder and a congruence `a ≡ b (mod n)`; probability notation `P(A)`, `P(A′)`, `P(B \| A)`, `P(A ∪ B)`, `P(X = 2)` as one symbol |
@@ -86,7 +86,7 @@ The later stages added these modules to the same package (still importing nothin
 
 | Module | Stage | Role |
 | --- | --- | --- |
-| `constants.py` | `checks` | data-booklet constants: a written constant widens to its booklet value (D3a); an unstated standard symbol may take it at warning severity (D3b) |
+| `constants.py` | `checks` | data-booklet constants: a written constant widens to its booklet value (D3a); an unstated standard symbol may take it at warning severity (D3b); a value the answer states for a constant's symbol is set against them at warning severity (rule booklet-value, `relations._booklet_values`); V_m accepts 22.7 dm³ mol⁻¹ only (22.4 is the old STP) |
 | `enclosures.py` | `checks` | the exact-value table and rational enclosures for π, e and the functions, cross-checked against `math` |
 | `scaling.py` | `checks` | decimal-exponent factoring, so literals stay within the IR's 40 digits |
 | `tolerance.py` | `checks` | the STEM tolerance rule (R1 to R10), its short form, the scope statement `STEM_SCOPE`, the band builders; an approximation word as a whole word directly before what it qualifies (`approx_word_before`; the front end reads it too) |
@@ -123,7 +123,10 @@ quotation marks, a chain continued line after line): the layout reads a line of 
 one pass, the segmenter keeps the logical line it joins (`layout.JoinedLine`), and a chain continued past the link limit is named
 (ST-LIM-001) with its later lines undecided (docs/STEM_DESIGN.md, section 36.2; `tests/stem/test_integration_gate2_handoff.py`). Integration gate 4's readings (sign forms in every category,
 signs between numerals, invisible characters) do constant work per character (the place rule looks past at most two blanks each way); `tests/stem/test_integration_gate4_stem.py`
-bounds them on hostile input of 20,000 characters (docs/STEM_DESIGN.md, section 38).
+bounds them on hostile input of 20,000 characters (docs/STEM_DESIGN.md, section 38). The round-8 clearance's readings (section 39) are
+anchored, possessive and capped (terms 16, shares 64, bracket terms 6, Boolean definitions 16, booklet values and mole ratios 8 per
+answer, shape variants 64); rule same-shape, which compared every pair of evaluations of a shape, groups them by shape and compares each
+distinct set once; `tests/stem/test_clearance_c1_stem.py` bounds every new reading on hostile input of about 20,000 characters.
 
 ## What the front end does not decide
 
@@ -374,3 +377,15 @@ chained and absolute inequality steps and nuclear equations named, bits and byte
 restatement, substitutions in another unit of their dimension or with their conversion factor, compound quantities, a
 bracketed per cent after a value, comparisons stated false checked negated, count nouns before a sign, numerals in nibbles,
 and overlong superscript runs bounded.
+`test_clearance_c1_stem` pins the fixes of the round-8 arena's STEM findings (integrated round c1; docs/STEM_DESIGN.md, section 39)
+through the hub, each with clean and negative controls, and runs the round's recorded STEM answers (`tests/fixtures/stem/round8`)
+free of INT-SUBJ-001: rules step-definition, cancelled-factor and letter-run (symbolic steps read through the answer's definitions, a
+cancelled factor non-zero, a declared letter run read as its letters' product), unit-restatement and the unit after a surd, values that
+are no roots and no steps (rejected values, the negative square root, rules integer-bound, evaluation-point and quoted-relation), rules
+boolean-output and boolean-derivation, list-marker and based-composition, count-noun and cut-decimal, glued-run, general-term,
+function-atom, request-substitution (h and swaps, rule initial-final), prose-share and cited-given, the unit after a power that is not
+of ten, rules bound-sum, bound-figures, booklet-value, constant-statement, mole-ratio, bidi-control, parenthetical-sum, unread-group,
+restated-line, function-restatement and labelled-line (with the escaped dollar sign and the adversarial lens's own variants of
+restated values),
+template blanks, a show-that part, hex digits and ordinals, exam years, the enclosure note and the molar volume; it bounds the new
+readings on hostile input of about 20,000 characters.

@@ -125,7 +125,9 @@ CONSTANTS: tuple[Constant, ...] = (
     _c("u", "unified atomic mass unit", ("u",), _f("1.661", -27), (_f("1.66053906660", -27),), "kg", _PHYS, ambiguous="u is also an initial speed"),
     _c("b_W", "Wien's displacement constant", ("b",), _f("2.90", -3), (_f("2.897771955", -3), _f("2.9", -3)), "m K", _PHYS),
     _c("F", "Faraday constant", ("F",), Fraction(96500), (_f("96485.33212"), Fraction(96485)), "C mol^-1", _CHEM, ambiguous="F is also a force"),
-    _c("V_m", "molar volume of an ideal gas at STP", ("V_m",), _f("22.7", -3), (_f("22.71095464", -3), _f("22.4", -3)), "m^3 mol^-1", _CHEM),
+    # round-8 clearance: 22.4 dm³ mol⁻¹ (the molar volume at 0 °C and 1 atm, the old STP) is no accepted value: the chemistry knowledge base
+    # and the data booklet give 22.7 dm³ mol⁻¹ at STP (273 K, 100 kPa) and list 22.4 as a slip, which the hull had accepted
+    _c("V_m", "molar volume of an ideal gas at STP", ("V_m",), _f("22.7", -3), (_f("22.71095464", -3),), "m^3 mol^-1", _CHEM),
     _c("c_water", "specific heat capacity of water", ("c_w", "c_water"), Fraction(4180), (Fraction(4186), Fraction(4184), Fraction(4200), _f("4.18", 3)),
        "J kg^-1 K^-1", _SCI),
     _c("K_w", "ionic product of water at 298 K", ("K_w", "Kw"), _f("1.00", -14), (_f("1.0", -14),), "", _CHEM),

@@ -3,7 +3,11 @@
 A fresh ``TranslatorChannel`` is built from the journaled plan and configuration, with the channel's branch registry
 and the auditor's run key (``overseer-run``; never an engine key). Its ``verify_claim_fn`` serves the journaled
 ``TranslationResult`` of each claim (by report id, claim id and claim-text digest) and re-verifies its problem with
-the engine; the translator model is never called. The journaled transfers are re-issued in sequence order:
+the engine; the translator model is never called. The outcome is composed as the live verifier composed it (rule
+``composition``, round-8 clearance c1): without the report and the task record, as a hand-built fixture composes it, or,
+when that composition's argument diagnosis is not the journaled outcome's, with them, as production's
+``translate.outcome.verify_claim`` composes it (its evidence rules read the supplied texts and the task record). The
+journaled transfers are re-issued in sequence order:
 
 * requests with the journaled call (items and constraints given, the user input and supplied texts);
 * raw texts the hub refused are re-sent as raw text; a raw text that was parsed is re-issued as the delivered report
@@ -64,6 +68,7 @@ from ...engine.results import VerificationResult
 from ...engine.runner import verify
 from ...engine.sink import capture_results
 from ...engine.statuses import VerificationStatus as S
+from ...ir.canonical import canonical_json
 from ...integrity.contracts import AgentRole, Synthesis, parse_rfc3339
 from ...translate.contracts import SpecialistReport, SuppliedText, TranslationStatus, sha256_text
 from ...translate.outcome import compose_outcome
@@ -97,6 +102,14 @@ _DEADLINE_TOLERANCE_S = 2.0
 #: A check kind at the start of a branch check's ``detail`` (``stem_arithmetic``, ``chronology``): anchored and bounded.
 _KIND_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _BUDGET_TEXT_MAX = 32
+
+
+def _diagnosis_of(outcome: Any) -> list[str]:
+    """An outcome's argument diagnosis, as compared by rule ``composition``: its named diagnostics in canonical form."""
+    try:
+        return [canonical_json(d.model_dump(mode="json")) for d in getattr(outcome, "named_diagnostics", None) or ()]
+    except Exception:
+        return []
 
 
 def _tuples(findings) -> Counter:
@@ -393,6 +406,7 @@ def run_shadow(ctx: CheckContext) -> str:
     runs_key = ctx.keyring.subkey("runs")
     from ...channel.bus import CLAIM_OUT_OF_SCOPE
     translations: dict[tuple[str, str], list] = {}
+    journaled_named: dict[tuple[str, str], list[list[str]]] = {}  # the argument diagnosis of each journaled outcome (rule composition)
     # The claims the live channel named NOT_ATTEMPTED (INT-REQ-006: its verifier produced no outcome for a material,
     # deterministically eligible claim). The shadow leaves exactly these unserved, so it names them too; every other claim
     # with no journaled outcome was outside the live verifier's scope (no verifier, or one that declared it out of scope)
@@ -404,13 +418,14 @@ def run_shadow(ctx: CheckContext) -> str:
             continue
         for o in t.receipt.outcomes:
             translations.setdefault((o.report_id, o.claim_id), []).append(o.translation)
+            journaled_named.setdefault((o.report_id, o.claim_id), []).append(_diagnosis_of(o))
         for f in t.receipt.findings:
             if f.code == "INT-REQ-006" and "produced no outcome: NOT_ATTEMPTED" in (f.message or ""):
                 for rid in f.report_ids:
                     for cid in f.claim_ids:
                         unserved.add((rid, cid))
 
-    def serve(claim, report):
+    def serve(claim, report, task=None):
         cands = translations.get((report.report_id, claim.claim_id), [])
         digest = sha256_text(claim.claim_text)
         tr = next((x for x in cands if x.claim_text_sha256 == digest), None) or next((x for x in cands if x.claim_text_sha256 is None), None)
@@ -422,7 +437,20 @@ def run_shadow(ctx: CheckContext) -> str:
             # info on the assumed reading (capped_from keeps the uncapped severity)
             cap = ("info", "ambiguous_translation") if tr.status is TranslationStatus.AMBIGUOUS_TRANSLATION else None
             ver = verify(tr.problem, cfg, signing_key=runs_key, key_id=RUN_KEY_ID, severity_cap=cap)
-        return compose_outcome(claim, tr, ver, signing_key=runs_key, key_id=RUN_KEY_ID)
+        # Rule composition (round-8 clearance c1, handoff fixer): the outcome is composed as the live verifier composed it. A
+        # verifier that composes without the report and the task record (a hand-built fixture) is reproduced first, as before; a
+        # production verifier (translate.outcome.verify_claim) composes with the report it verifies and the task record the
+        # channel passes, and its argument diagnosis reads them (EVD-AUTH-001: "as the data show" is attributed when a text was
+        # supplied). The composition whose argument diagnosis is the journaled outcome's is the one served; with neither, the
+        # first, so a tampered diagnosis is still compared against a composition the auditor makes itself. The genuine c1 p8a
+        # channel failed its audit on this alone (OVS-RCPT-004, INT-ARG-001 EVD-AUTH-001 on g1.2@economics-specialist).
+        bare = compose_outcome(claim, tr, ver, signing_key=runs_key, key_id=RUN_KEY_ID)
+        recorded = journaled_named.get((report.report_id, claim.claim_id), [])
+        if recorded and _diagnosis_of(bare) not in recorded:
+            produced = compose_outcome(claim, tr, ver, signing_key=runs_key, key_id=RUN_KEY_ID, report=report, task=task)
+            if _diagnosis_of(produced) in recorded:
+                return produced
+        return bare
 
     shadow = TranslatorChannel(plan, signing_key=runs_key, key_id=RUN_KEY_ID, verify_claim_fn=serve, config=cfg, registry=registry)
     hook = bool(info.get("formalize_synthesis_hook"))

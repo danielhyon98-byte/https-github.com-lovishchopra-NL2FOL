@@ -45,6 +45,7 @@ ABBREVIATIONS = frozenset({
     "c", "ca", "circa", "approx", "fl", "no", "nos", "vol", "vols", "p", "pp", "ch", "chs", "ed", "eds", "cf", "vs", "v", "etc",
     "e.g", "i.e", "viz", "ibid", "op", "cit", "loc", "fig", "figs", "sc", "trans", "repr", "rev", "mr", "mrs", "ms", "dr", "st", "prof",
     "sr", "jr", "gen", "col", "capt", "lt", "sgt", "rev", "hon", "mt", "ft", "b", "d", "r", "fol", "ff", "para", "paras", "sec", "art", "esp",
+    "al",  # "et al.": a study's authors and its year stay one sentence ("Halvorsen et al. (2019) found ...")
 })
 #: The word before a full stop, which must start the text or follow whitespace or an opening mark: the 's' of a possessive
 #: ("Kennedy's.") is not an initial, so the sentence ends there.

@@ -15,7 +15,9 @@ from importlib import resources
 #: percentages, retries that may not change the claim. ``translate_v3`` (packaged, not in use on this tree): ``translate_v2``
 #: plus the ten rules that mark the writer's own links for the argument diagnosis (a ``link: <connective>`` note on each
 #: writer's step, one symbol per proposition, two symbols and an EQUIVOCATION flag for one word in two senses, scope and
-#: causal words kept, excerpts for task and text facts, assumed constants as assumptions, never ``verified``). The prompt
+#: causal words kept, excerpts for task and text facts, assumed constants as assumptions, never ``verified``), and, since the
+#: round-8 clearance (c1), a section on what the claim rests on (a rejected candidate gets its own symbol, a written
+#: calculation is left to the engine, a consequence is derived from its stated reason). The prompt
 #: in use stays ``translate_v2``, which this tree pins: moving to ``translate_v3`` changes what the provider is asked, so
 #: it ships with the translator version bump of the final integration (docs/ARGUMENT_DIAGNOSTICS.md, section 20).
 #: ``review_v2``: the reviewer is shown the task, the supporting claims, the supplied texts and the premise-to-source

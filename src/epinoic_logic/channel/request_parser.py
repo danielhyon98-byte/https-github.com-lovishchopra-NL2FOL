@@ -27,7 +27,9 @@ from .cues import VERDICT_CUES  # noqa: F401  re-exported: the verdict cue list 
 _WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to|under|within|at least|minimum of|min(?:imum)?|exactly|about|around|approximately|in)\s+(?P<n>\d{1,5})\s+words", re.IGNORECASE)
 _RANGE_RE = re.compile(r"between\s+(?P<a>\d{1,5})\s+and\s+(?P<b>\d{1,5})\s+words", re.IGNORECASE)
 _PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in|write|produce|give|compose)\s+(?P<n>one|two|three|four|five|six|a single|\d{1,2})\s+(?:\w+\s+){0,2}?paragraphs?\b", re.IGNORECASE)
-_CITE_RE = re.compile(r"\b(quote|quotations?|cite|citing|textual evidence|refer(?:ring)? to the (?:text|passage|extract))\b", re.IGNORECASE)
+#: A request to cite the supplied texts: "quote", "quoting exactly from the extract" (round-8 clearance c1: lit-t14 and ll-t14
+#: asked for quotations with "quoting", which set no constraint), "quotations", "cite", "textual evidence".
+_CITE_RE = re.compile(r"\b(quote|quoting|quotations?|cite|citing|textual evidence|refer(?:ring)? to the (?:text|passage|extract))\b", re.IGNORECASE)
 _IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are",
                 "give", "judge", "recommend", "decide", "conclude", "label", "suggest", "interpret", "distinguish", "define", "summarise", "summarize", "argue", "consider")
 _SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(])")
@@ -148,6 +150,102 @@ def _exemptions(text: str, end: int) -> list[str]:
     return out
 
 
+#: A word bound set on each part of the request rather than on the whole reply (round-8 clearance c1, ps-t14: "Write no
+#: more than 250 words for each answer" was measured over the whole reply, 441 words, while its two answers measured 216
+#: and 211): the scope written right after the bound ("for each answer", "in each part", "for every question", "per
+#: answer", "250 words each") or, in the same sentence, before it ("For each answer, write ...", "Each answer should be no
+#: more than 250 words"). Every run is bounded and the look-back is a fixed window, so each bound is read in constant time.
+_PER_PART_NOUN = r"(?:answer|part|question|response|section|item|sub-?question)s?\b"
+_PER_PART_AFTER_RE = re.compile(
+    r"[ \t]{0,3}(?:(?:for|in|on)[ \t]{1,3}(?:each|every)[ \t]{1,3}(?:of[ \t]{1,3}(?:the|your)[ \t]{1,3})?|per[ \t]{1,3})" + _PER_PART_NOUN
+    + r"|[ \t]{0,3}each(?=[ \t]{0,3}(?:[.,;:)!?\n]|$))", re.IGNORECASE)
+#: Read on a fixed window before the bound that starts with a line break when it starts the text, so the scope must open
+#: a sentence or a line (a window cut in mid-sentence never opens one).
+_PER_PART_BEFORE_RE = re.compile(
+    r"(?:[.?!;:][ \t]{1,3}|\n)[ \t]{0,3}(?P<scope>(?:(?:for|in)[ \t]{1,3})?(?:each|every)[ \t]{1,3}" + _PER_PART_NOUN + r"[^.?!\n]{0,80})$", re.IGNORECASE)
+#: The same scope read from a bound's own text (:func:`per_part_bound`): the channel and the transfer auditor read the
+#: journaled constraint, so both measure the same bound the same way.
+_PER_PART_TEXT_RE = re.compile(
+    r"\b(?:(?:for|in|on)\s{1,3}(?:each|every)\s{1,3}(?:of\s{1,3}(?:the|your)\s{1,3})?|per\s{1,3})" + _PER_PART_NOUN
+    + r"|\bwords\s{1,3}each\b|^\s{0,3}(?:(?:for|in)\s{1,3})?(?:each|every)\s{1,3}" + _PER_PART_NOUN, re.IGNORECASE)
+_WHOLE_ANSWER_RE = re.compile(r"\s*(?:in\s+total|overall|altogether|in\s+all|for\s+the\s+whole\s+answer)\b", re.IGNORECASE)
+
+
+def _per_part_span(text: str, m: "re.Match[str]") -> tuple[str, int] | None:
+    """``(span, end)`` of a word bound written with its per-part scope (:data:`_PER_PART_AFTER_RE`,
+    :data:`_PER_PART_BEFORE_RE`; ``end`` is where the request's text after the bound and its scope resumes), or None for a
+    bound on the whole reply (one followed by "in total", "overall", ...)."""
+    if _WHOLE_ANSWER_RE.match(text, m.end()):
+        return None
+    after = _PER_PART_AFTER_RE.match(text, m.end())
+    if after is not None:
+        return text[m.start():after.end()], after.end()
+    lo = max(0, m.start() - 120)
+    before = _PER_PART_BEFORE_RE.search(("\n" if lo == 0 else "") + text[lo:m.start()])
+    if before is not None:
+        return (before.group("scope") + text[m.start():m.end()]).strip(), m.end()
+    return None
+
+
+def _bound_span(text: str, m: "re.Match[str]") -> tuple[str, list[str]]:
+    """The text a word bound is recorded with (its per-part scope included) and what the request sets outside it, read
+    right after the bound or after its scope ("no more than 250 words for each answer, plus working")."""
+    scoped = _per_part_span(text, m)
+    ex = _exemptions(text, m.end())
+    if scoped is None:
+        return m.group(0), ex
+    return scoped[0], ex or _exemptions(text, scoped[1])
+
+
+def per_part_bound(c: Constraint) -> bool:
+    """True for a word bound the request sets on each of its parts ("no more than 250 words for each answer"): its own
+    text carries the scope (:func:`extract_constraints` writes it into the span), so a journaled request says it."""
+    return c.kind in ("max_words", "min_words") and bool(_PER_PART_TEXT_RE.search(c.text or ""))
+
+
+#: "about / around / approximately N words": the band the request states (N less and plus a tenth) is a target, not an edge
+#: (round-8 clearance c1: en-t14's 276 words against "about 250" was an error by one word), so a measure outside the band
+#: but within a quarter of N is reported at warning; a gross miss (146 words for "about 250", round 5) stays an error, as
+#: does every hard bound ("no more than", "at least", "exactly").
+_ABOUT_TEXT_RE = re.compile(r"\b(?:about|around|approximately)\s{1,3}(?P<n>\d{1,5})\s{1,3}words\b", re.IGNORECASE)
+
+
+def about_target(c: Constraint) -> int | None:
+    """N of a word bound read from "about / around / approximately N words", else None."""
+    if c.kind not in ("max_words", "min_words"):
+        return None
+    m = _ABOUT_TEXT_RE.search(c.text or "")
+    return int(m.group("n")) if m else None
+
+
+def about_band(c: Constraint) -> bool:
+    """True for a word bound read from "about / around / approximately N words" (:func:`about_target`)."""
+    return about_target(c) is not None
+
+
+def word_bound_severity(c: Constraint | None, measured: int | None = None) -> str:
+    """The severity of INT-REQ-005 for a bound not met: a paragraph bound is a warning (a paragraph set out in blocks counts
+    as several), and so is an "about N words" band missed by at most a quarter of N; every other word bound, and a band whose
+    measure is not given, an error. The channel decides with its measure; the transfer auditor with its own recount."""
+    if c is None:
+        return "error"
+    if c.kind.endswith("paragraphs"):
+        return "warning"
+    target = about_target(c)
+    if target is not None and measured is not None and abs(measured - target) * 4 <= target:
+        return "warning"
+    return "error"
+
+
+_MEASURED_RE = re.compile(r"^measured (\d{1,9}) (?:words|paragraphs)\b")
+
+
+def measured_of(detail: str | None) -> int | None:
+    """The count a constraint result's detail opens with ("measured 216 words ..."), as the channel writes it."""
+    m = _MEASURED_RE.match(detail or "")
+    return int(m.group(1)) if m else None
+
+
 def extract_constraints(text: str) -> list[Constraint]:
     out: list[Constraint] = []
     n = 0
@@ -158,24 +256,24 @@ def extract_constraints(text: str) -> list[Constraint]:
         out.append(Constraint(constraint_id=f"c{n}", kind=kind, value=value, text=span.strip(), excludes=list(excludes)))
 
     for m in _RANGE_RE.finditer(text):
-        ex = _exemptions(text, m.end())
-        add("min_words", m.group("a"), m.group(0), ex)
-        add("max_words", m.group("b"), m.group(0), ex)
+        span, ex = _bound_span(text, m)
+        add("min_words", m.group("a"), span, ex)
+        add("max_words", m.group("b"), span, ex)
     for m in _WORD_RE.finditer(text):
         q = m.group("q").lower()
-        ex = _exemptions(text, m.end())
+        span, ex = _bound_span(text, m)
         if q in _MAX_Q:
-            add("max_words", m.group("n"), m.group(0), ex)
+            add("max_words", m.group("n"), span, ex)
         elif q in _MIN_Q:
-            add("min_words", m.group("n"), m.group(0), ex)
+            add("min_words", m.group("n"), span, ex)
         elif q == "exactly":
-            add("min_words", m.group("n"), m.group(0), ex)
-            add("max_words", m.group("n"), m.group(0), ex)
+            add("min_words", m.group("n"), span, ex)
+            add("max_words", m.group("n"), span, ex)
         elif q in _ABOUT_Q:  # "about 250 words": bounded on both sides, 10% either way (225 to 275)
-            add("min_words", str(math.ceil(int(m.group("n")) * 0.9)), m.group(0), ex)
-            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0), ex)
+            add("min_words", str(math.ceil(int(m.group("n")) * 0.9)), span, ex)
+            add("max_words", str(int(int(m.group("n")) * 1.1)), span, ex)
         else:  # "in 350 words": a soft maximum with 10% tolerance
-            add("max_words", str(int(int(m.group("n")) * 1.1)), m.group(0), ex)
+            add("max_words", str(int(int(m.group("n")) * 1.1)), span, ex)
     for m in _PARA_RE.finditer(text):
         raw = m.group("n").lower()
         val = str(_WORD_NUM.get(raw, raw))
@@ -232,6 +330,58 @@ _PART_END_RE = re.compile(r"\[\s*+\d++\s*+(?:marks?)?\s*+\][\'’\"”»]?(?=\s+
 _ITEM_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(¿¡«“‘\d])")
 #: A request for content that names no command term: "Please write ...", "Please mark it ... and tell me ...".
 _PLEASE_RE = re.compile(r"^(?:please|could you|can you|would you)\b", re.IGNORECASE)
+#: A question heading of a multi-question request ("Question 2 [5 marks]:", "Question 3:", "QUESTION 1.", or a heading on a line
+#: of its own, "Question 2 [5 marks]"), at the start of the request, of a line, or after the end of a sentence or a mark annotation (round-8 clearance c1, maa-t14: "Question 2
+#: [5 marks]: Solve ..." and "Question 3 [5 marks]: Solve ... Show full working." followed the last lettered part of
+#: Question 1 and were in no item). Every run is bounded, so a scan is linear.
+_QUESTION_HEAD_RE = re.compile(
+    r"(?:^|(?<=\n)|(?<=[.?!:;\]»\"'”’)]))[ \t]{0,6}(?P<head>question[ \t]{1,3}\d{1,2}(?!\d)(?!\.\d)[ \t]{0,3}"
+    r"(?:[\[(][ \t]{0,3}\d{1,3}[ \t]{0,3}(?:marks?)?[ \t]{0,3}[\])])?[ \t]{0,3}(?:[:.)\u2013\u2014-]|(?=\r?\n)))", re.IGNORECASE)
+#: A sentence that tells the specialist about the request rather than asking it for content (round-8 clearance c1): what a
+#: third party will later do with the answer ("A Psychology student will use your answer to evaluate a study ...", bi-p8d),
+#: a permission ("Since we're allowed to use our GDC in Paper 1, you can use calculator values ...", maa-t14), or the
+#: student's own description of a paper or a task ("... and it only asks me to discuss the study through one concept",
+#: breadth ps-3). Its command term is not the specialist's, so it makes no item (and no INT-REQ-008).
+_CONTEXT_SENTENCE_RE = re.compile(
+    r"\bwill[ \t]{1,3}use[ \t]{1,3}(?:your|the|this|my)[ \t]{1,3}(?:answer|response|work|explanation|results?|summary)[ \t]{1,3}to\b"
+    r"|^(?:since|as|because)\b[^.?!]{0,80}?\b(?:allowed|permitted)[ \t]{1,3}to\b"
+    r"|\b(?:it|the[ \t]{1,3}(?:paper|section|question|exam|task|rubric))[ \t]{1,3}(?:only[ \t]{1,3})?(?:asks|requires|wants|expects)[ \t]{1,3}"
+    r"(?:me|us|you|students|candidates)[ \t]{1,3}to\b", re.IGNORECASE)
+#: An instruction about the form of the answer, with no content of its own (round-8 clearance c1, breadth ec-1 and sp-1:
+#: "Skip the plan and give the full answer now.", "Write a model answer to this practice task in Spanish."): it makes no
+#: coverage item. One that names a topic ("Write an essay on the causes of the war.") is still an item.
+_FORM_ONLY_RE = re.compile(
+    r"^(?:please[ \t]{1,3})?(?:skip|omit|leave[ \t]{1,3}out|don'?t[ \t]{1,3}(?:give|write|include)|do[ \t]{1,3}not[ \t]{1,3}(?:give|write|include))[ \t]{1,3}"
+    r"(?:(?:the|a|your)[ \t]{1,3})?(?:plan|planning|outline|introduction|preamble)\b[^.?!]{0,80}$"
+    r"|^(?:please[ \t]{1,3})?(?:write|give|produce|provide)[ \t]{1,3}(?:me[ \t]{1,3})?(?:a|an|the|your)[ \t]{1,3}(?:(?:full|complete|model|sample|final|whole)[ \t]{1,3}){0,3}"
+    r"(?:answer|response|text|essay|version)(?:[ \t]{1,3}(?:to|for)[ \t]{1,3}(?:this|the|my)[ \t]{1,3}(?:(?:practice|exam|sample)[ \t]{1,3})?(?:task|question|prompt|exercise))?"
+    r"(?:[ \t]{1,3}(?:in|using)[ \t]{1,3}[^\W\d_]{2,20})?(?:[ \t]{1,3}now)?$", re.IGNORECASE)
+
+
+def is_context_sentence(sentence: str) -> bool:
+    """True for a sentence of the request that is context or form, not content asked for (:data:`_CONTEXT_SENTENCE_RE`,
+    :data:`_FORM_ONLY_RE`); a sentence that asks a question is never context."""
+    s = sentence.strip()
+    if not s or "?" in s or "¿" in s:
+        return False
+    return bool(_CONTEXT_SENTENCE_RE.search(s[:2000]) or _FORM_ONLY_RE.match(s.rstrip(".! \t")[:400]))
+
+
+def question_pieces(text: str) -> list[tuple[bool, str]]:
+    """``(is_question, piece)``: the request cut at its question headings (:data:`_QUESTION_HEAD_RE`), each question with its
+    own text, heading included; the text before the first heading is a piece of its own (False). A request with fewer than
+    two headings is one piece."""
+    heads = list(_QUESTION_HEAD_RE.finditer(text))
+    if len(heads) < 2:
+        return [(False, text)]
+    out: list[tuple[bool, str]] = []
+    first = heads[0].start("head")
+    if text[:first].strip():
+        out.append((False, text[:first]))
+    for k, m in enumerate(heads):
+        end = heads[k + 1].start("head") if k + 1 < len(heads) else len(text)
+        out.append((True, text[m.start("head"):end]))
+    return out
 
 
 def part_label(text: str) -> str | None:
@@ -241,6 +391,17 @@ def part_label(text: str) -> str | None:
     if m is None:
         return None
     return m.group(1).strip("().").casefold()
+
+
+_QUESTION_LABEL_RE = re.compile(r"^\W{0,4}question[ \t]{1,3}(\d{1,2})(?!\d)(?!\.\d)", re.IGNORECASE)
+
+
+def question_label(text: str) -> str | None:
+    """The label of a question heading an item or an answer section opens with ("Question 2 [5 marks]: Solve ..." ->
+    "q2", "**Question 3**" -> "q3"); None when it opens with none (round-8 clearance c1: a request's questions are items,
+    and the claims under the answer's own "Question 2" heading address the item of Question 2)."""
+    m = _QUESTION_LABEL_RE.match(text.strip()[:80])
+    return f"q{int(m.group(1))}" if m else None
 
 
 def request_parts(text: str) -> list[tuple[str | None, str]]:
@@ -280,6 +441,9 @@ def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = ()) -> list
         item_text, topic_follows = _residual(sent)
         if not item_text:
             continue
+        if is_context_sentence(item_text):
+            out.append((item_text, "instruction", False))  # context or form: never an item of an unlabelled piece
+            continue
         low = item_text.lower()
         is_q = item_text.endswith("?") or "?" in item_text or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways", "¿"))
         is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) or bool(_PLEASE_RE.match(item_text)) \
@@ -307,19 +471,32 @@ def extract_items(text: str, *, extra_imperatives: tuple[str, ...] = ()) -> list
         term, level = detect_command_term(item_text)
         items.append(RequestItem(item_id=f"i{len(items) + 1}", text=item_text[:4000], kind=kind, command_term=term, level=level))
 
-    pieces = [pc for pc in _PART_LINE_RE.split(text.strip()) if pc.strip()] if extra_imperatives else [text]
-    parts = [part for piece in pieces for part in request_parts(piece)]
-    for label, chunk in parts:
-        if label is None:
-            for item_text, kind, is_item in _sentence_items(chunk, extra_imperatives):
-                if is_item:
-                    add(item_text, kind)
+    # the request's questions first ("Question 2 [5 marks]: ...", on one line or on lines of their own), then, with a branch's
+    # imperatives, the lines that open with a part label within each question
+    for is_question, qpiece in question_pieces(text):
+        pieces = [pc for pc in _PART_LINE_RE.split(qpiece.strip()) if pc.strip()] if extra_imperatives else [qpiece]
+        parts = [part for piece in pieces for part in request_parts(piece)]
+        if is_question and not any(label is not None for label, _chunk in parts):
+            # a question heading with no lettered parts: the question is one item with its own text
+            kept = [it for it, _k, _i in _sentence_items(qpiece, extra_imperatives)]
+            body = " ".join(kept).strip()
+            if body and re.search(r"[^\W\d_]", body):
+                add(body, "question" if "?" in body else "instruction")
             continue
-        kept = [it for it, _k, _i in _sentence_items(chunk, extra_imperatives)]
-        body = " ".join(kept).strip()
-        if not body or not re.search(r"[^\W\d_]", body):
-            continue
-        add(body, "question" if "?" in body else "instruction")
+        for label, chunk in parts:
+            if label is None:
+                head = _QUESTION_HEAD_RE.match(chunk.lstrip()) if is_question else None
+                if head is not None:  # a question's stem before its lettered parts: its parts are the items
+                    chunk = chunk.lstrip()[head.end():]
+                for item_text, kind, is_item in _sentence_items(chunk, extra_imperatives):
+                    if is_item:
+                        add(item_text, kind)
+                continue
+            kept = [it for it, _k, _i in _sentence_items(chunk, extra_imperatives)]
+            body = " ".join(kept).strip()
+            if not body or not re.search(r"[^\W\d_]", body):
+                continue
+            add(body, "question" if "?" in body else "instruction")
     if not items:
         items.append(RequestItem(item_id="i1", text=text.strip()[:4000], kind="instruction"))
     return items
@@ -505,6 +682,67 @@ def count_answer_words(text: str, *, view=None) -> tuple[int, int]:
     answer to the text its words are counted on."""
     answer, notes, _exempt = measure_answer_words(text, view=view)
     return answer, notes
+
+
+def answer_parts(response: str, request_text: str) -> list[tuple[str | None, str]]:
+    """``(label, text)`` of each part of the answer, cut at the paragraphs that open with the request's own part labels
+    (:func:`request_parts`, :func:`part_label`: "(a) [6]", "**Part (b)**", "2."; a paragraph opens the answer or follows a
+    blank line), the text before the first label a piece of its own (label None). The cut is made only when each of the
+    request's labels opens exactly one paragraph and they stand in the request's order; otherwise (a part left out, a
+    label that also numbers a list set out in paragraphs, labels out of order, a request of fewer than two parts) it is
+    empty and the whole answer is measured: the parts are never guessed, so the reading is never laxer. One pass."""
+    order: list[str] = []
+    for label, _chunk in request_parts(request_text or ""):
+        if label is not None and label not in order:
+            order.append(label)
+    if len(order) < 2 or not response:
+        return []
+    wanted = set(order)
+    opens: list[tuple[str, int]] = []  # (label, offset) of every paragraph that opens with one of the request's labels
+    pos = 0
+    after_blank = True
+    for line in response.splitlines(keepends=True):
+        blank = not line.strip()
+        if not blank and after_blank:
+            lab = part_label(line[:200])
+            if lab in wanted:
+                opens.append((lab, pos))
+                if len(opens) > len(order):
+                    return []
+        after_blank = blank
+        pos += len(line)
+    if [lab for lab, _at in opens] != order:
+        return []
+    cuts = [at for _lab, at in opens]
+    out: list[tuple[str | None, str]] = [(None, response[:cuts[0]])]
+    for k, (lab, at) in enumerate(opens):
+        out.append((lab, response[at:cuts[k + 1] if k + 1 < len(cuts) else len(response)]))
+    return [(lab, t) for lab, t in out if t.strip()]
+
+
+def bound_word_measure(response: str, c: Constraint, *, request_text: str | None, view=None, measure=None) -> tuple[int, int, int, str]:
+    """``(measured words, note words, exempt words, scope note)`` for the word bound ``c``: over the whole answer
+    (:func:`measure_answer_words` under the bound's ``excludes``), or, for a bound the request sets on each part
+    (:func:`per_part_bound`), over each part of the answer (:func:`answer_parts`): the longest part for a maximum (the text
+    before the first part counted as a part), the shortest labelled part for a minimum. When the answer's parts cannot be
+    told apart, the whole answer is measured and the note says so (never a laxer reading). The channel and the transfer
+    auditor both measure a bound with this function; ``measure`` replaces the word measure (the channel passes its own
+    binding of :func:`measure_answer_words`)."""
+    measure = measure or measure_answer_words
+    excludes = tuple(sorted(c.excludes))
+    if not per_part_bound(c):
+        words, notes, exempt = measure(response, excludes=excludes, view=view)
+        return words, notes, exempt, ""
+    parts = answer_parts(response, request_text or "")
+    if not parts:
+        words, notes, exempt = measure(response, excludes=excludes, view=view)
+        return words, notes, exempt, "a bound on each answer: the answer's parts cannot be told apart by the request's part labels, so the whole answer is measured"
+    counted = [(lab, measure(t, excludes=excludes, view=view)) for lab, t in parts]
+    pool = counted if c.kind == "max_words" else ([x for x in counted if x[0] is not None] or counted)
+    lab, (words, notes, exempt) = (max if c.kind == "max_words" else min)(pool, key=lambda x: x[1][0])
+    each = ", ".join((f"({x}) {m[0]}" if x is not None else f"before the first part {m[0]}") for x, m in counted)
+    which = "longest" if c.kind == "max_words" else "shortest"
+    return words, notes, exempt, f"a bound on each answer: the {which} answer is measured ({each} words)"
 
 
 def count_paragraphs(text: str) -> int:

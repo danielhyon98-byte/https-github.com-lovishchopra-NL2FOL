@@ -14,8 +14,10 @@ in a signed :class:`DeliveryReceipt` (contract ``delivery_receipt/1.0``, key id 
   grounding check or partial reference, no retry that changed the claim, and a current ``faithful`` fidelity review made
   with the evidence); the receipt carries no error-level finding, every branch formal check of the report's own
   statements holds, the receipt names no working left unchecked (rule ``unchecked-working``: :data:`NOT_CHECKED_CODES`,
-  a STEM relation not checked, a pack that failed, a check undecided) and no agent self-report (rule
-  ``self-report-disclosed``: :data:`SELF_REPORT_CODES`, at any severity; the task audit's OVS-FID-005 and OVS-FID-009), the
+  a STEM relation not checked, a pack that failed (ES-INTERNAL-001 included), a check undecided, stated arithmetic or a
+  dated order a prose branch could not check: CORE-QNT-001, CORE-CHR-001) and no agent self-report (rule
+  ``self-report-disclosed``: :data:`SELF_REPORT_CODES`, at any severity, but an ES-META-001 whose paragraph rule ``meta-note``
+  reads as a note or a study suggestion; the task audit's OVS-FID-005 and OVS-FID-009), the
   overseer's translation checks (``OVS-TRN-*``) name none of the deliverable's material claims, the task audit names it in
   no error, the consolidation allows its delivery and the transfer's clearance lets the router act (``policy.may_act``).
   Results prove properties of the encoding only.
@@ -97,6 +99,7 @@ from .audit import verify_audit
 from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
+from .meta_notes import self_report_findings
 from .policy import MAX_PENDING_WAIT_MS, act_decision
 from .pool import OverseerPool, PoolConfig
 from .view import RESPONSE_KINDS, OverseerView, Transfer
@@ -699,17 +702,32 @@ def _audit_findings_naming(audit: Any, message_id: str) -> list[Any]:
 #: encodings, resting on a symbol with no stated value, or a Given that could not be set against the request
 #: (ST-UNDEC-001/002/003), an undefined expression (ST-UNDEF-001), an unrecognised unit, checked as written only
 #: (ST-UNIT-001), an unreadable chemical equation (ST-CHEM-001), a code block never run (ST-CODE-001), a bound exceeded
-#: (ST-LIM-001/002), a STEM or branch pack that failed so its checks are missing (ST-INTERNAL-001, BR-INTERNAL-001), and a
-#: check left undecided (INT-SUBJ-002). Each is what an undecided branch check is, before a check could even be built: the
-#: formal path never completes over one, whichever claim it names, so a relation nobody checked never travels under the
-#: FORMALLY CHECKED label (``docs/DELIVERY.md``, condition 6).
+#: (ST-LIM-001/002), a STEM or branch pack that failed so its checks are missing (ST-INTERNAL-001, BR-INTERNAL-001), a
+#: check left undecided (INT-SUBJ-002), and the prose branches' own undecided codes (round-8 clearance c1): stated
+#: arithmetic, a derived figure or a relation over dated figures that no engine problem could be built for or that the
+#: check limit left out (CORE-QNT-001: "... could not be checked ...; the stated arithmetic was not checked"), and a stated
+#: order of dated events that could not be decided or paired (CORE-CHR-001: "... the stated relation was not checked"). The
+#: core pack runs first on every branch (prose and STEM alike), so these are every branch's undecided-arithmetic and
+#: undecided-chronology codes. The same sweep found one more pack whose failure the hub's guard never sees: the English
+#: pack catches its own failure and reports ES-INTERNAL-001 ("its findings are missing from this receipt"), with no
+#: BR-INTERNAL-001 beside it, so an English answer whose pack failed (no ES-META-001 or ES-SRC-* reading at all) is a
+#: pack that failed too. Each is what an undecided branch check is, before a check could even be built: the formal path
+#: never completes over one, whichever claim it names, so a relation nobody checked never travels under the FORMALLY
+#: CHECKED label (``docs/DELIVERY.md``, condition 6). Before c1 CORE-QNT-001 and CORE-CHR-001 were missing here, so a Physics
+#: answer whose receipt said "Its speed later rose by 25%" could not be checked was delivered FORMALLY CHECKED.
 NOT_CHECKED_CODES: frozenset = frozenset({"ST-PARSE-001", "ST-PARSE-002", "ST-UNDEC-001", "ST-UNDEC-002", "ST-UNDEC-003", "ST-UNDEF-001", "ST-UNIT-001",
-                                          "ST-CHEM-001", "ST-CODE-001", "ST-LIM-001", "ST-LIM-002", "ST-INTERNAL-001", "BR-INTERNAL-001", "INT-SUBJ-002"})
+                                          "ST-CHEM-001", "ST-CODE-001", "ST-LIM-001", "ST-LIM-002", "ST-INTERNAL-001", "BR-INTERNAL-001", "INT-SUBJ-002",
+                                          "CORE-QNT-001", "CORE-CHR-001", "ES-INTERNAL-001"})
 #: Receipt codes of an agent's self-report carried in the answer (rule ``self-report-disclosed``, integration gate round 1):
 #: verification-status language or a self-certification (CORE-SELF-001, the English pack's ES-META-001), and a statement
 #: credited to the system, a check or a peer report that no check of this transfer established (INT-REQ-014). Agent
 #: self-reports are advisory: an answer that carries one, at any severity, never travels under the FORMALLY CHECKED label,
 #: and neither does one the transfer audit names for a self-report the channel let through (OVS-FID-005, OVS-FID-009).
+#: ES-META-001 also names meta-text that is no self-report: a note ("Note: I can't see the image, so ...") or a study
+#: suggestion ("Next step: write your own paragraph ..."), which the knowledge bases ask every answer to close with. Rule
+#: ``meta-note`` (round-8 clearance c1, :mod:`.meta_notes`) reads the journaled answer again and leaves out of this rule the
+#: paragraph-level ES-META-001 whose paragraph is positively read as a note (a bare note lead, nothing a self-report reader
+#: names, no assurance word); every other ES-META-001, and any the rule cannot read, still blocks the formal path.
 SELF_REPORT_CODES: frozenset = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
 SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
 
@@ -1145,7 +1163,7 @@ class DeliveryPolicy:
         unchecked = _receipt_findings_of(rec, NOT_CHECKED_CODES)  # rule unchecked-working
         if unchecked:
             reasons.append(f"the receipt names working that was not checked: {_cut(_code_claims(unchecked), 400)}")
-        self_reports = _receipt_findings_of(rec, SELF_REPORT_CODES)  # rule self-report-disclosed
+        self_reports = self_report_findings(_receipt_findings_of(rec, SELF_REPORT_CODES), t.report)  # rules self-report-disclosed and meta-note
         if self_reports:
             reasons.append(f"the answer carries a self-report or a relayed check result no check established: {_cut(_code_claims(self_reports), 400)}")
         named = _audit_findings_naming(audit, t.message_id or "")
