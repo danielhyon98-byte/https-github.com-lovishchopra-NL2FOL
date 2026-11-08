@@ -17,7 +17,7 @@ Five ports, each with its own version and closed messages:
 | checks port `POST /v1/turns/check` | `turn-check.v1` in, `turn-verdict.v1` out | **yes** | 5 |
 | overseer port `epinoic.integration.overseer-port.v1` | hello, clearance, FINAL audit, delivery decision, review ticket | **yes** | 6 |
 | combinator port `epinoic.integration.combinator-port.v1` | synthesis input; output or named refusal; combinator hello (the combinator a separate agent) | combined mode only | 7 |
-| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process) | never required (advisory) | 7a |
+| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process); for the overseer pool, pool routing request, pool routing plan, pool router hello (pool port 1.1) | never required (advisory) | 7a, 7b |
 
 Machine-readable forms: the pydantic models in `src/epinoic_logic/integration/` (`protocol.py`, `overseer_port.py`,
 `combinator_port.py`, `router_port.py`), the JSON Schemas generated from them in `integration/schemas/`, and the golden
@@ -483,6 +483,71 @@ refusal code of its hello, and the floor's name and rules digest. The report is 
 (`minimum-oversight-floor`, `protocol.FLOOR_IDENTITY_PREFIX`: a router hello naming it is refused with `KIT-RT-015`);
 an incoherent report is out of contract and both handshakes refuse it with `KIT-HS-001` (vectors `handshake/router-*`). Every verdict's `overseer.review` names the plan's origin, any refusal
 and the router's identity.
+
+## 7b. The router port's pool operation (pool port 1.1; `integration/router_pool.py`)
+
+The overseer pool (the overseer sub-project's `OverseerPool`, used by `RouterHub.review_pool` and the delivery policy's
+fallback) asks the same flash router which overseer instances review which dossiers of a batch, and which dossiers go
+to independent duplicates: the pool's planning decision, which moved from the overseer into the router (architecture
+step 2c). The router stays advisory and the overseer keeps the floor.
+
+**Attached by capability.** A router module offers the pool operation by exposing `pool_hello() -> str`
+(`pool-router-hello.v1`) and `pool_plan(request_json: str) -> str` (`pool-routing-plan.v1`). The overseer pool attaches a
+router by module name (`OverseerPool(..., router="epinoic_flash_router.port")`; the delivery policy's `router=`) through
+`router_pool.attach_pool_router`: the router runs in its own process exactly as in section 7a (`router_child`, ops
+`pool_hello` and `pool_plan`), and it is attached only when its module exposes both pool functions and its pool hello
+passes the version handshake: the capability `pool-plan`, a pool port version the overseer speaks
+(`router_pool.POOL_PORT_VERSIONS`: `1.1`), `tier: "cheapest"`, `deterministic: true`, no model and not the floor's
+reserved identity; otherwise `KIT-RT-015` (`KIT-RT-016` when it fails) and the floor plan runs. With no router named, the
+floor plan runs (decision D28 holds: nothing is attached unless named). An in-process attachment
+(`attach_pool_router_in_process`) exists for tests and tools only.
+
+### 7b.1 The pool routing request (`pool-routing-request.v1`)
+
+`{schema, protocol, port_version: "1.1", items: [{item_id, repeated_faults, risk_signals, risk_records, advised}],
+limits: {max_instances, per_instance_quota, profiles}}`. `item_id` is the dossier's position in the overseer's key order
+(`d1`, `d2`, ...): never a channel uid, a task key or a fault label. `risk_signals` and `risk_records` are classes of the
+closed `router_pool.POOL_RISK_CLASSES` (the overseer's `emitted.RISK_CLASSES`, checked equal at import), sorted and
+unique; `advised` is the overseer's escalation advisor's (off by default). Anything a blind dossier hides is refused
+(`KIT-RT-011`), anything else out of contract `KIT-RT-014`.
+
+### 7b.2 The pool routing plan (`pool-routing-plan.v1`)
+
+`{schema, protocol, port_version: "1.1", origin: "router", plan_id, request_sha256, router: {name, version,
+rules_sha256, cost_data_sha256}, profile, instances, assignments: [{item_id, method, instances: [n, ...]}], loads: [n,
+...], review_units, needed_instances, capped, over_quota, reasons: [{code, ...}], estimated_cost: null | {tokens,
+seconds}}`. Instances are numbers (`1` to `instances`): the overseer names them (`<base_agent_id>-<n>`). A dossier is
+reviewed `IN_DEPTH` (one instance) or `DUPLICATE` (two or more distinct instances); `SPLIT` of one dossier and `N_FOLD`
+stay in the method table for a planner later (a new pool port version). `reasons` are closed codes
+(`router_pool.POOL_REASON_CODES`), each with exactly its integer and class parameters; the overseer words them. A plan
+carries no text and no model.
+
+### 7b.3 The overseer's floor (`minimum-oversight-floor/pool-1`, `epinoic_overseer.floor`)
+
+The overseer computes it from the same risk signals: every dossier is reviewed by at least one instance; a dossier whose
+task carries a repeated fault or a risk signal, or that the escalation advisor escalated, by at least two distinct
+instances; no plan has more instances than the pool's maximum; every instance runs on the cheapest tier from the pool's
+one pack. A combined answer's floor becomes N_FOLD when combined answers reach the pool (architecture step 3). The
+batch sizes (how many instances a batch is spread over), the weight of risk records, extra duplicates and the profile
+are the router's choices above it. The floor plan: one instance, two when a dossier is escalated.
+
+### 7b.4 Refusals, in the order `check_pool_plan` and the overseer apply them
+
+001 not JSON or not a plan object, or a member out of contract; 011 hidden content; 009 a model named (a member, or a
+`plan_id` or router name naming a model family); schema errors mapped by location (012 reasons, 013 cost and
+accounting, 007 assignments, 010 profile, 008 instances); 003 the floor's reserved identity; 002 not bound to the
+request (`request_sha256`); 003 an identity other than the pool hello's; 004 a dossier the request does not hold; 006 a
+dossier planned twice; 005 a dossier left unplanned; 007 a method the pool does not run (`SPLIT`, `N_FOLD`) or the hello
+does not declare, a dossier naming one instance twice, `IN_DEPTH` with other than one instance or `DUPLICATE` with
+fewer than two; 010 a profile the pool or the hello does not offer; 008 more instances than the pool's maximum, an
+instance number the plan does not have, instances for an empty batch or none for a batch with dossiers; 012 a reason
+listed twice; 013 accounting that does not add up (one load per instance, every load at least the dossiers assigned to
+it, the review units at least the loads, `instances = min(needed_instances, maximum)`, `capped` and `over_quota` true
+exactly when they hold); 012 a reason stating what the plan or the request does not hold; then the overseer's 020: a
+dossier below the floor. 016: the router failed (as in 7a.5). Every refusal is recorded in the pool plan's admission
+(`PoolPlan.admission`: origin `floor`, the code, why, the router's identity) and in the signed verdicts audit of every
+review that runs the plan, and the floor plan runs. An admitted plan records the router's identity (name, version,
+rules digest, cost-data digest) the same way.
 
 ## 8. Statuses, the decision table and the website mapping
 

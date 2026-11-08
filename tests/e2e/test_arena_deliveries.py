@@ -15,10 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.overseer import load_pack
-from epinoic_logic.overseer.export import export_pack
+from epinoic_overseer import load_pack
+from epinoic_overseer.export import export_pack
 
-from ..overseer.delivery_support import ScriptedOverseer, silent
+from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
+from overseer_tests.delivery_support import ScriptedOverseer, silent
 from .test_arena_measures import _GK, TASK, _fixture, _round, ra
 
 
@@ -140,7 +141,7 @@ def test_a_switched_off_pass_says_so_and_moves_nothing(tmp_path, monkeypatch):
 
 
 def test_the_contained_harness_switches_the_pass_off_and_restores_it():
-    scripts = Path(__file__).resolve().parents[2] / "scripts" / "overseer"
+    scripts = Path(__file__).resolve().parents[2] / "overseer" / "scripts"
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
     import ovs_harness as H

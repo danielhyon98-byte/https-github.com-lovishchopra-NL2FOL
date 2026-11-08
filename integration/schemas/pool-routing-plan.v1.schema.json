@@ -1,0 +1,408 @@
+{
+  "$defs": {
+    "PoolAssignment": {
+      "additionalProperties": false,
+      "description": "How one dossier is reviewed: its method and the instance numbers (1 to the plan's ``instances``) that review it.",
+      "properties": {
+        "instances": {
+          "items": {
+            "maximum": 64,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Instances",
+          "type": "array"
+        },
+        "item_id": {
+          "pattern": "^d[1-9][0-9]{0,5}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "SPLIT",
+            "DUPLICATE",
+            "N_FOLD"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "method",
+        "instances"
+      ],
+      "title": "PoolAssignment",
+      "type": "object"
+    },
+    "PoolCost": {
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "tokens": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens",
+        "seconds"
+      ],
+      "title": "PoolCost",
+      "type": "object"
+    },
+    "PoolReason": {
+      "additionalProperties": false,
+      "description": "One reason of a plan: a closed code and exactly its parameters (:data:`POOL_REASON_PARAMETERS`).",
+      "properties": {
+        "classes": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "named_defect",
+                  "writer_assumption",
+                  "unchecked_source",
+                  "stem_method",
+                  "encoding_conflict",
+                  "contradiction",
+                  "withheld_verdict",
+                  "rejection",
+                  "diagnosis_incomplete",
+                  "integrity_error"
+                ],
+                "type": "string"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classes"
+        },
+        "code": {
+          "enum": [
+            "pool_empty",
+            "pool_baseline",
+            "pool_volume",
+            "pool_repeated_faults",
+            "pool_risk_signals",
+            "pool_advised",
+            "pool_risk_records",
+            "pool_capped",
+            "pool_over_quota"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "instances": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instances"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Load"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "needed": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed"
+        },
+        "quota": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quota"
+        },
+        "reviewers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewers"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "PoolReason",
+      "type": "object"
+    },
+    "RouterIdentity": {
+      "additionalProperties": false,
+      "description": "The flash router's identity as it reports it in its hello: name, version and the digests of its rules and of its\nrecorded cost data. A plan must carry exactly this identity (``KIT-RT-003``).",
+      "properties": {
+        "cost_data_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cost Data Sha256",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rules_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Rules Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "rules_sha256",
+        "cost_data_sha256"
+      ],
+      "title": "RouterIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assignments": {
+      "items": {
+        "$ref": "#/$defs/PoolAssignment"
+      },
+      "maxItems": 4096,
+      "title": "Assignments",
+      "type": "array"
+    },
+    "capped": {
+      "title": "Capped",
+      "type": "boolean"
+    },
+    "estimated_cost": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PoolCost"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "instances": {
+      "maximum": 64,
+      "minimum": 0,
+      "title": "Instances",
+      "type": "integer"
+    },
+    "loads": {
+      "items": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 64,
+      "title": "Loads",
+      "type": "array"
+    },
+    "needed_instances": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "title": "Needed Instances",
+      "type": "integer"
+    },
+    "origin": {
+      "const": "router",
+      "title": "Origin",
+      "type": "string"
+    },
+    "over_quota": {
+      "title": "Over Quota",
+      "type": "boolean"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "port_version": {
+      "const": "1.1",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "profile": {
+      "enum": [
+        "standard",
+        "fast"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/PoolReason"
+      },
+      "maxItems": 9,
+      "minItems": 1,
+      "title": "Reasons",
+      "type": "array"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+    },
+    "review_units": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "title": "Review Units",
+      "type": "integer"
+    },
+    "router": {
+      "$ref": "#/$defs/RouterIdentity"
+    },
+    "schema": {
+      "const": "epinoic.integration.pool-routing-plan.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "origin",
+    "plan_id",
+    "request_sha256",
+    "router",
+    "profile",
+    "instances",
+    "assignments",
+    "loads",
+    "review_units",
+    "needed_instances",
+    "capped",
+    "over_quota",
+    "reasons"
+  ],
+  "title": "PoolRoutingPlan",
+  "type": "object"
+}

@@ -248,7 +248,15 @@ specialists (cheapest model tier, each configured only from its own v4 knowledge
 textbook library) and the review rounds were not run in this build; they run in the integrated
 arena that merges this branch.
 
-## The Overseer: checks of every transfer between agents (`src/epinoic_logic/overseer/`)
+## The Overseer: checks of every transfer between agents (`overseer/`, a sub-project of its own)
+
+The Overseer is a separate, separately installable sub-project, [`overseer/`](overseer/README.md) (package
+`epinoic_overseer`, its own `pyproject.toml`, version, README, docs, tests, harness and knowledge pack with its
+exporter), usable as a sub-agent of any system that speaks the integration protocol. It reaches the translator only
+through the integration protocol (`epinoic_logic.integration`) and the translator's documented public API
+(`epinoic_logic.api`, listed in [`docs/PUBLIC_API.md`](docs/PUBLIC_API.md)); the translator never imports it. It is
+attached through the hub, `RouterHub(auditor=TransferAuditor(...))`, and through the overseer port the checks service
+loads by name (`EPINOIC_OVERSEER_PORT`, default `epinoic_overseer.port`).
 
 Every request, report, relay, router forward and synthesis crosses the channel; the Overseer checks those transfers so
 the router never acts on a miscommunicated or tampered one. It is optional and attached through the hub:
@@ -278,15 +286,15 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   agents receive each translation with its claim and may accuse it, including of meaning faults (a dropped condition, a
   flipped comparison, an invented premise); those stay advisory and go to human review.
 - **Before acting** the router calls `hub.clearance(task, message_id, receipt=...)` with the receipt it holds and acts
-  only when `overseer.policy.may_act(receipt, clearance)`: an edited receipt, a forged or misattached result or an
+  only when `epinoic_overseer.policy.may_act(receipt, clearance)`: an edited receipt, a forged or misattached result or an
   altered payload is never acted on, and a pending audit is never shown as passed. `hub.close_task` issues the FINAL
   audit; `policy.may_release` gates the student-facing synthesis on it.
 - **Overseer agents** are model-based reviewers built only from exportable parts: the package's code and a versioned
-  knowledge pack shipped as package data (`overseer/knowledge/overseer-knowledge-docs-1.5/`, with 1.0 to 1.4 kept beside it: `master_prompt.txt` and
+  knowledge pack shipped as package data (`overseer/src/epinoic_overseer/knowledge/overseer-knowledge-docs-1.5/`, with 1.0 to 1.4 kept beside it: `master_prompt.txt` and
   numbered documents, generated schemas, a manifest of digests; 1.5, installed by the round-8 clearance, differs from 1.4,
   the pack round 8 ran with, only in D32 and the cut-decimal reading, a decimal cut by an ellipsis inside an expression being
   decided, and in the code table's row of CORE-SRC-008, the core pack's warning on a near miss of a name the supplied case
-  states). `python -m epinoic_logic.overseer.export --out DIR`
+  states). `python -m epinoic_overseer.export --out DIR`
   writes the pack out with a README for whoever deploys it with any model. `hub.review(task, runners)` issues each agent
   a dossier, runs it once, and validates its verdict against the journal and the signed results. A verdict is advisory
   and decides nothing: only an accusation a deterministic check confirms reaches the router, through that check's own
@@ -298,19 +306,23 @@ the router never acts on a miscommunicated or tampered one. It is optional and a
   finding or a repeated fault excluded with its codes and signed results, and conflicts between groups disclosed instead
   of resolved by choosing. A fault that comes back in the same task (another agent, a duplicated instance, a resubmission
   after rejection, reworded or not) is a repeated fault (`OVS-REP-001`), never delivered, counted per agent.
-  `hub.review_pool(tasks, OverseerPool(pack, ...))` sizes the overseer agents deterministically: one instance by default,
-  more over a per-instance quota or when faults repeat (each repeated-fault dossier to two independent instances), never
-  past a maximum (four by default), every instance from the same exported pack and advisory.
+  `hub.review_pool(tasks, OverseerPool(pack, ..., router=...))` sizes the overseer agents deterministically. Which
+  instances review which dossiers is the flash router's decision (a separate agent, `flash-router/`, attached through the
+  router port by capability; architecture step 2c), and the overseer keeps a minimum-oversight floor computed from the
+  same risk signals (`epinoic_overseer.floor`): every dossier reviewed, each dossier with a repeated fault or a risk signal
+  by two independent instances, never past a maximum (four by default), every instance from the same exported pack on the
+  cheapest tier and advisory. A router's plan below the floor is refused (`KIT-RT-020`, recorded in the signed audit) and
+  the floor plan runs; with no router attached the floor plan runs; every plan records who planned it.
 
 Results prove properties of the encoding only; an audit shows whether the recorded transfers, receipts and signed
 results agree with each other and with the repository's rules, never that a claim is true. See
-`src/epinoic_logic/overseer/README.md` and `docs/OVERSEER_DESIGN.md`.
+[`overseer/README.md`](overseer/README.md) and [`overseer/docs/OVERSEER_DESIGN.md`](overseer/docs/OVERSEER_DESIGN.md).
 
 ## Delivery policy: four minutes for the formal path, then an overseer-selected fallback above 90%
 
 What the router may hand on for one deliverable (a specialist's answer, or the consolidated response when several agents
-answered one input) is decided by `overseer.delivery_policy.DeliveryPolicy` and recorded in a signed delivery receipt
-(`delivery_receipt/1.0`, key id `overseer-delivery`). Full rules: [`docs/DELIVERY.md`](docs/DELIVERY.md).
+answered one input) is decided by `epinoic_overseer.delivery_policy.DeliveryPolicy` and recorded in a signed delivery receipt
+(`delivery_receipt/1.0`, key id `overseer-delivery`). Full rules: [`overseer/docs/DELIVERY.md`](overseer/docs/DELIVERY.md).
 
 - **Formally checked**: withheld for every answer in this release (rule `formal-label-withheld`, `docs/DELIVERY.md`
   condition 6d), so every answer takes the fallback below until a label policy holds under adversarial attack. The
@@ -392,15 +404,17 @@ earlier release stays inspectable but is never current.
 `integration/` holds the integration protocol `epinoic.integration.v1` and the kit that applies it: the website's
 adapter and patch material (with the W0 docs drafter for the website's owner), the agents material (the checks port A2
 and the changes A3 and A5, tested on an archive copy), the golden vectors, the simulation (its website and agents
-drivers, run against a test double of the overseer port until the rebuilt overseer is connected, with every gate NOT
-RUN), the readiness checks and the playbook a fresh session follows. Every decision of the kit is decided and recorded
+drivers; the checks service starts with the overseer sub-project's port adapter, and the drivers' wiring is also
+checked with a test double of the overseer port, under which every gate is NOT RUN), the readiness checks and the playbook a fresh session follows. Every decision of the kit is decided and recorded
 in [`integration/DECISIONS.md`](integration/DECISIONS.md), with the kit changes those decisions require (not made yet;
 the fail-closed defaults stay until they are). Start with [`integration/README.md`](integration/README.md) and
 [`docs/INTEGRATION_PROTOCOL.md`](docs/INTEGRATION_PROTOCOL.md). Z3 and STEM checks are required: a missing part fails
 with a named `KIT-HS` code. The service side lives in `src/epinoic_logic/integration/`; the default `engine` profile is
-unchanged. The flash router, which plans how the overseer reviews each answer, is a separate sub-project,
-[`flash-router/`](flash-router/README.md), edited and released apart from the Z3 infrastructure and run by the service
-in its own process. The combinator, which combines the specialists' answers to one request into one synthesis, is a
+unchanged. The flash router, which plans how the overseer reviews each answer and each overseer-pool batch, is a
+separate sub-project, [`flash-router/`](flash-router/README.md) (not the translator's `RouterHub`), edited, re-tuned and
+released apart from the Z3 infrastructure, the STEM support and the overseer (its rules and cost data are versioned data
+files with digests), and run by the service and by the overseer pool in its own process; its plans are advice that each
+caller holds to its own minimum-oversight floor. The combinator, which combines the specialists' answers to one request into one synthesis, is a
 separate agent in a sub-project of its own, [`combinator/`](combinator/README.md): its instructions (exported with
 `python -m epinoic_combinator.export --out <dir>`), a runner on the cheapest tier that lets out only what is in the
 published synthesis contract, and its own tests; the translator never imports it, and its hub checks every synthesis
@@ -414,13 +428,14 @@ on its own.
 - `src/epinoic_logic/branches/` — the router hub, subject branches and integrity packs (primary infrastructure)
 - `src/epinoic_logic/channel/` — the translator channel every inter-agent message passes through
 - `src/epinoic_logic/integrity/` — inter-agent envelope, hand-off, ledger, staleness and formal cross-checks
-- `src/epinoic_logic/overseer/` — the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner, consolidation, the overseer pool and the delivery policy (`docs/DELIVERY.md`)
+- `src/epinoic_logic/api/` — the translator's documented public API, the only translator modules the overseer imports besides the integration protocol (`docs/PUBLIC_API.md`, generated: `python -m epinoic_logic.api`)
 - `src/epinoic_logic/adapters/` — specialist adapters (generic structured; English specialist as worked example; History; the STEM parser; multi-subject fixtures)
 - `src/epinoic_logic/stem/` — the STEM front end, checks, SI reading and hub hooks (`README.md` and `ENCODINGS.md` inside)
 - `src/epinoic_logic/service/` and `cli.py` — authenticated HTTP boundary and command line
 - `src/epinoic_logic/integration/` and `integration/` — the integration protocol's service side and the integration kit
-- `flash-router/` — the flash router, a sub-project of its own (`pyproject.toml`, package `epinoic_flash_router`, tests)
+- `flash-router/` — the flash router, a sub-project of its own (`pyproject.toml`, package `epinoic_flash_router` with its versioned rules and cost data in `data/`, the runner `epinoic_flash_router_cli`, `docs/`, `tests/`); the oversight planner's decision for the checks service and the overseer pool, not the translator's `RouterHub`
 - `combinator/` — the combinator agent, a sub-project of its own (`pyproject.toml`, package `epinoic_combinator`, instructions, tests)
+- `overseer/` — the Overseer, a sub-project of its own (`pyproject.toml`, package `epinoic_overseer`: the transfer auditor, router policy, the overseer-agent verdict protocol, the knowledge pack, its loader, exporter and agent runner, consolidation, the overseer pool, the delivery policy and the overseer port adapter; `docs/`, `tests/`, `scripts/` with the contained run and the harness)
 - `tests/` — unit, end-to-end, service and `stress/` suites
 - `docs/` — audit, plan, design, status, stress results, STEM design and results (`STEM_DESIGN.md`, `STEM_RESULTS.md`), evidence, context pack
 
@@ -428,7 +443,10 @@ on its own.
 
 ```
 python -m venv .venv && .venv/bin/pip install -e ".[dev,service,providers]"
-.venv/bin/pytest                      # unit, e2e and service tests; the flash-router/ and combinator/ suites run inside it
+.venv/bin/pip install -e ./overseer --no-deps   # the overseer sub-project (the checks service loads its port adapter)
+.venv/bin/pip install -e ./flash-router --no-deps   # the flash router (attached only when named: EPINOIC_FLASH_ROUTER, OverseerPool(router=...))
+.venv/bin/python -m pytest -q        # three suites: the translator's (tests/), the overseer's (overseer/tests) and the
+                                     # flash router's (flash-router/tests); the combinator/ suite runs inside tests/
 .venv/bin/pytest -m stress tests/stress   # load, concurrency, adversarial volume, soak
 epinoic-logic verify problem.json     # one verification from the command line
 ```

@@ -1,0 +1,46 @@
+{
+  "basis": "review_tokens_base, chars_per_token and seconds_per_instance are planning estimates, not measurements, used by the port plan's estimated_cost (port rule 7); recorded holds sizes the overseer measured, never a price or a latency: no overseer agent has run on a model, so none is recorded. No model is named (decision D23).",
+  "chars_per_token": 4,
+  "name": "epinoic-flash-router/cost-data-2",
+  "recorded": {
+    "dossier_sizes": {
+      "largest_kb": 1297,
+      "largest_outside_the_rekeyed_pass_kb": 356,
+      "measured": 1435,
+      "smallest_kb": 17,
+      "string_field_cut_chars": 20000,
+      "what": "the canonical JSON of the dossiers the exporter issued for the recorded rounds"
+    },
+    "largest_need_tokens": {
+      "both_modules": {
+        "dossiers": 40,
+        "tokens": 336100
+      },
+      "core_only": {
+        "dossiers": 190,
+        "tokens": 94600
+      },
+      "pack": "1.3",
+      "stem_module": {
+        "dossiers": 315,
+        "tokens": 196300
+      },
+      "translations_module": {
+        "dossiers": 890,
+        "tokens": 403200
+      }
+    },
+    "output_tokens": 8000,
+    "source": "overseer knowledge pack overseer-knowledge-docs 1.5, README.md, section Input budget: sizes measured by the overseer's exporter on the recorded rounds r2 to r5 and r7, the re-keyed pass included; no model was called",
+    "system_text_chars": {
+      "core": 215087,
+      "core_and_stem_module": 427540,
+      "core_and_translations_module": 311058,
+      "pack": "1.5",
+      "whole": 523511
+    },
+    "tokens_per_char_estimate": "one token per four characters"
+  },
+  "review_tokens_base": 6000,
+  "seconds_per_instance": 30
+}

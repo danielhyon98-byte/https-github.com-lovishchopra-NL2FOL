@@ -27,7 +27,7 @@ from epinoic_logic.branches import RouterHub
 from epinoic_logic.branches import generic_parser as gp
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
+from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import build_document, clear_document_cache, layout
 from epinoic_logic.stem import spans as stem_spans
 from epinoic_logic.stem.lexer import Token, lex

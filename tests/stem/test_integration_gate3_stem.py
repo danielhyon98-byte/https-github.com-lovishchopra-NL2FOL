@@ -25,7 +25,7 @@ from epinoic_logic.channel.gate import assess_response
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.ir.schema import Problem
-from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
+from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import build_document
 from epinoic_logic.stem.checks import build_checks
 from epinoic_logic.stem.document import ambiguous_dots, clear_document_cache

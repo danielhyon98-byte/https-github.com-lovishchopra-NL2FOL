@@ -88,7 +88,7 @@ CODE_LABELS: tuple[tuple[str, Optional[str], Optional[str]], ...] = (
     (r"CORE-SRC-002|HI-SRC-004", None, "lack_of_evidence"),             # figures stated with no source (info)
     (r"PS-SRC-001|HI-SRC-003", None, "uncheckable_authority"),          # a study / historian attributed with no grounding
     (r"CORE-SELF-001", None, "unchecked_source"),                       # self-certification language
-    # overseer codes (trees that carry epinoic_logic.overseer)
+    # overseer codes (trees that carry epinoic_overseer)
     (r"OVS-TRN-004|OVS-FID-00[24]", None, "source_mismatch"),
     (r"OVS-TRN-003|OVS-FID-00[59]", None, "unchecked_source"),
     (r"OVS-TRN-005", None, "invented_figure"),

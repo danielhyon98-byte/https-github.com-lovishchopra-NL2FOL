@@ -253,7 +253,8 @@ def test_an_answer_using_a_check_name_as_content_is_no_relayed_check_result_and_
 def test_the_overseer_fidelity_check_reads_the_same_sentences_as_content():
     """OVS-FID-009 calls the channel's rule (``bus.check_result_statement``): no accusation of a relayed check result on the
     finding's answers either."""
-    from ..overseer.conftest import findings, make_auditor, make_plan, new_channel
+    from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
+    from overseer_tests.conftest import findings, make_auditor, make_plan, new_channel
     for subject, agent, question, answer in FRAMED_ANSWERS:
         a = make_auditor()
         try:

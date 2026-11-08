@@ -4,21 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epinoic-flash-router"
-version = "0.1.0"
-description = "Epinoic AI flash router: a separate, independent agent that plans how the overseer reviews each specialist output (IN_DEPTH, SPLIT, DUPLICATE, N_FOLD) over the router port epinoic.integration.router-port.v1. Advisory: the translator's service enforces its minimum-oversight floor whatever this router plans."
+version = "0.2.0"
+description = "Epinoic AI flash router: a separate, independent agent that plans how the overseer reviews each specialist output (IN_DEPTH, SPLIT, DUPLICATE, N_FOLD) and each overseer-pool batch, over the router port epinoic.integration.router-port.v1. Its rules and cost data are versioned data files with digests. Advisory: the translator's service and the overseer enforce their minimum-oversight floor whatever this router plans. It is not the translator's RouterHub."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-# Standard library only at run time: the router never imports the Z3 infrastructure, the engine or the translator.
+# Standard library only at run time: the router never imports the Z3 infrastructure, the engine, the translator or the overseer.
 dependencies = []
 
 [project.optional-dependencies]
-# The conformance tests validate the router's output with the translator's epinoic_logic.integration.router_port
-# (pydantic and the standard library; no engine, no Z3): install the translator from the same repository first.
+# The conformance tests validate the router's output with the translator's router port (epinoic_logic.integration.router_port
+# and router_pool: pydantic and the standard library; no engine, no Z3): install the translator from the same repository first.
 dev = ["pytest>=8", "hypothesis>=6"]
+
+[project.scripts]
+epinoic-flash-router = "epinoic_flash_router_cli.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"epinoic_flash_router" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

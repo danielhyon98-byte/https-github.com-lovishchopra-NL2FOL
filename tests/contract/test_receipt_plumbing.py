@@ -178,11 +178,11 @@ def test_the_branch_checks_run_without_the_argument_diagnosis(monkeypatch):
 
 def _called_from_the_overseer() -> bool:
     """Whether the current call runs under the overseer package: a transfer auditor attached to the channel (the
-    overseer-attached suite, ``scripts/overseer/pytest_attach.py``) re-derives the report-level diagnosis from the
+    overseer-attached suite, ``overseer/scripts/pytest_attach.py``) re-derives the report-level diagnosis from the
     journaled report to check the receipt, after the channel's call has returned."""
     frame = sys._getframe(2)
     while frame is not None:
-        if str(frame.f_globals.get("__name__", "")).startswith("epinoic_logic.overseer"):
+        if str(frame.f_globals.get("__name__", "")).startswith("epinoic_overseer"):
             return True
         frame = frame.f_back
     return False

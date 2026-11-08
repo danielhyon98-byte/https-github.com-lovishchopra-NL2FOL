@@ -1,10 +1,14 @@
 """The checks port's processing of one call (PROTOCOL.md section 5.2): the TurnChecker on the synthetic corpus, through
 the real hub, the real branch parsers, the real fixture translations, the real engine and the real STEM front end.
 
-The overseer is reached through ``RecordingPort``, the TEST DOUBLE of the overseer port (tests/integration/helpers.py):
-the real embedded adapter is connected in phase 2, which runs these tests against it as well. What these tests show is
-the TurnChecker's own contract: its normative order, its budget, that every refusal names its first failing condition,
-that a non-success is never shown as success, and that the review routing never changes a decision.
+The overseer is reached through the overseer port: every test whose port is not shaped runs twice (``port_kind``), with
+``RecordingPort``, the TEST DOUBLE (tests/integration/helpers.py), and with ``RealPort``, the REAL embedded adapter of the
+overseer sub-project (``epinoic_overseer.port``); the tests that shape the port's answers (a failed clearance, a refused
+delivery, a chosen representative) run with the double only. What these tests show is the TurnChecker's own contract,
+with either port: its normative order, its budget, that every refusal names its first failing condition, that a
+non-success is never shown as success, and that the review routing never changes a decision. Where the rebuilt overseer
+decides differently from the double's fixed answers, the test says so and pins the real adapter's answer (the
+differences are recorded in integration/DECISIONS.md, D34).
 """
 from __future__ import annotations
 
@@ -24,7 +28,7 @@ from epinoic_logic.integration.runtime import build_runtime
 from epinoic_logic.integration.turn import TurnChecker
 from epinoic_logic.integration.verifier import FixtureCorpus
 from tests.integration.helpers import (
-    VERDICT_KEY_HEX, FixtureProbes, RecordingPort, answer_envelope, hello, settings, turn_request, write_router_module,
+    PORT_KINDS, VERDICT_KEY_HEX, FixtureProbes, RecordingPort, answer_envelope, hello, port_class, settings, turn_request, write_router_module,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -78,6 +82,12 @@ def _run(names, *, port=None, mode="single", answers=None, clock=None, corpus_di
     return verdict, port
 
 
+@pytest.fixture(params=PORT_KINDS)
+def port_kind(request) -> str:
+    """``double`` (the test double) or ``real`` (the overseer sub-project's embedded adapter)."""
+    return request.param
+
+
 def _claims(verdict) -> dict:
     return {c["claim_id"]: c for c in verdict["claims"]}
 
@@ -93,8 +103,8 @@ def _never_shown_as_success(verdict) -> None:
 # ----------------------------------------------------------------------------------------------- single mode
 
 
-def test_single_clean_answer_is_delivered_with_the_formal_results_of_its_encoding_only():
-    verdict, port = _run(["hi-s1"])
+def test_single_clean_answer_is_delivered_with_the_formal_results_of_its_encoding_only(port_kind):
+    verdict, port = _run(["hi-s1"], port=port_class(port_kind)())
     assert verdict["delivery"]["decision"] == "deliver" and verdict["delivery"]["reasons"] == []
     assert verdict["summary"] == "formal_only"  # positive results, but no semantic-fidelity review permits release
     claims = _claims(verdict)
@@ -107,50 +117,53 @@ def test_single_clean_answer_is_delivered_with_the_formal_results_of_its_encodin
     _never_shown_as_success(verdict)
 
 
-def test_an_error_level_receipt_finding_refuses_unresolved():
-    verdict, _ = _run(["hi-s2"])
-    assert verdict["delivery"]["decision"] == "refuse_unresolved" and verdict["delivery"]["reasons"] == ["KIT-DL-002"]
+def test_an_error_level_receipt_finding_refuses_unresolved(port_kind):
+    """The double delivers whatever the receipt says; the rebuilt overseer's consolidation excludes an answer with an
+    error-level finding, so with the real adapter the delivery is also refused as no deliverable output (KIT-DL-008)."""
+    verdict, _ = _run(["hi-s2"], port=port_class(port_kind)())
+    expected = ["KIT-DL-002"] if port_kind == "double" else ["KIT-DL-002", "KIT-DL-008"]
+    assert verdict["delivery"]["decision"] == "refuse_unresolved" and verdict["delivery"]["reasons"] == expected
     assert "INT-CONFLICT-005" in verdict["receipt"]["error_codes"] and verdict["summary"] is None
     assert verdict["delivery"]["deliverable"] is None
     assert _claims(verdict)["h1.3"]["formal"] == "COUNTEREXAMPLE"
     _never_shown_as_success(verdict)
 
 
-def test_a_rejected_answer_is_an_integrity_refusal():
-    verdict, port = _run(["hi-s1"], answers=[" "])
+def test_a_rejected_answer_is_an_integrity_refusal(port_kind):
+    verdict, port = _run(["hi-s1"], answers=[" "], port=port_class(port_kind)())
     assert verdict["receipt"]["status"] == "REJECTED"
     assert verdict["delivery"]["decision"] == "refuse_integrity" and "KIT-DL-001" in verdict["delivery"]["reasons"]
     assert "deliver" in port.calls and port.calls.count("clearance") == 1  # a REJECTED response is not cleared for acting
 
 
-def test_the_stem_check_holds_on_a_correct_step_and_refutes_a_wrong_one():
-    good, _ = _run(["ph-s1"])
+def test_the_stem_check_holds_on_a_correct_step_and_refutes_a_wrong_one(port_kind):
+    good, _ = _run(["ph-s1"], port=port_class(port_kind)())
     assert good["delivery"]["decision"] == "deliver" and good["receipt"]["branch"] == "sciences"
     stem = [c for c in good["claims"] if c["source"] == "stem"]
     assert stem and all(c["formal"] == "ENTAILED" for c in stem)
-    bad, _ = _run(["ph-s2"])
+    bad, _ = _run(["ph-s2"], port=port_class(port_kind)())
     assert bad["delivery"]["decision"] == "refuse_unresolved" and "INT-SUBJ-001" in bad["receipt"]["error_codes"]
     assert any(c["source"] == "stem" and c["formal"] == "COUNTEREXAMPLE" for c in bad["claims"])
 
 
-def test_an_english_interpretive_answer_labels_its_interpretations_not_eligible():
-    verdict, _ = _run(["en-s1"])
+def test_an_english_interpretive_answer_labels_its_interpretations_not_eligible(port_kind):
+    verdict, _ = _run(["en-s1"], port=port_class(port_kind)())
     claims = _claims(verdict)
     assert claims["p1-s02"]["formal"] == "NOT_ELIGIBLE" and claims["p1-s03"]["formal"] == "NOT_ELIGIBLE"
     assert claims["p1-point"]["formal"] == "ENTAILED" and not claims["p1-point"]["release_permitted"]
     _never_shown_as_success(verdict)
 
 
-def test_an_answer_without_translations_is_never_shown_as_checked():
+def test_an_answer_without_translations_is_never_shown_as_checked(port_kind):
     text = "The Treaty of Versailles (1919) imposed reparations and territorial losses on Germany.\nHistorians still debate how far it, rather than the 1923 hyperinflation, explains later instability."
-    verdict, _ = _run(["hi-s1"], answers=[text])
+    verdict, _ = _run(["hi-s1"], answers=[text], port=port_class(port_kind)())
     assert verdict["delivery"]["decision"] == "refuse_incomplete" and "KIT-DL-011" in verdict["delivery"]["reasons"]
     skipped = [c for c in verdict["claims"] if c["formal"] == "NOT_ATTEMPTED"]
     assert skipped and all(c["attempt"] == "provider_unavailable" for c in skipped)
     _never_shown_as_success(verdict)
 
 
-def test_a_provider_failure_is_internal_error_and_refuses_incomplete(tmp_path):
+def test_a_provider_failure_is_internal_error_and_refuses_incomplete(tmp_path, port_kind):
     corpus = tmp_path / "s1"
     (corpus / "specialists").mkdir(parents=True)
     (corpus / "translations").mkdir()
@@ -158,7 +171,7 @@ def test_a_provider_failure_is_internal_error_and_refuses_incomplete(tmp_path):
     tr = json.loads((CORPUS / "translations" / "hi-s1.json").read_text(encoding="utf-8"))
     tr["claim_text_sha256"]["h1.1"] = "0" * 64  # a stale fixture: the provider refuses it, the pipeline records TRANSLATION_FAILED
     (corpus / "translations" / "hi-s1.json").write_text(json.dumps(tr), encoding="utf-8")
-    verdict, _ = _run(["hi-s1"], corpus_dir=corpus)
+    verdict, _ = _run(["hi-s1"], corpus_dir=corpus, port=port_class(port_kind)())
     assert _claims(verdict)["h1.1"]["formal"] == "INTERNAL_ERROR"
     assert verdict["delivery"]["decision"] == "refuse_incomplete" and verdict["delivery"]["reasons"] == ["KIT-DL-011"]
     _never_shown_as_success(verdict)
@@ -180,9 +193,9 @@ class FlippingClock:
         self.offset = 10_000.0
 
 
-def test_the_budget_spent_before_the_checks_leaves_every_eligible_claim_not_attempted():
+def test_the_budget_spent_before_the_checks_leaves_every_eligible_claim_not_attempted(port_kind):
     clock = FlippingClock()
-    port = RecordingPort()
+    port = port_class(port_kind)()
     original = port.new_hub
 
     def new_hub(**kw):
@@ -197,7 +210,7 @@ def test_the_budget_spent_before_the_checks_leaves_every_eligible_claim_not_atte
     _never_shown_as_success(verdict)
 
 
-def test_the_budget_spent_half_way_skips_the_rest(tmp_path):
+def test_the_budget_spent_half_way_skips_the_rest(tmp_path, port_kind):
     clock = FlippingClock()
 
     class HalfCorpus(FixtureCorpus):
@@ -212,7 +225,7 @@ def test_the_budget_spent_half_way_skips_the_rest(tmp_path):
                 return out
             return once, provider
 
-    rt, port = _checker(clock=clock)
+    rt, port = _checker(port_class(port_kind)(), clock=clock)
     rt.checker = TurnChecker(rt.checker.cfg, port=rt.checker.port, corpus=HalfCorpus.load(CORPUS), router=rt.checker.router, clock=clock)
     req, envs = _request(rt, ["hi-s1"])
     verdict = rt.checker.check(req)
@@ -229,9 +242,9 @@ def test_the_budget_spent_half_way_skips_the_rest(tmp_path):
     _never_shown_as_success(verdict)
 
 
-def test_a_stem_report_cut_by_its_budget_is_stem_budget_and_refuses_incomplete():
+def test_a_stem_report_cut_by_its_budget_is_stem_budget_and_refuses_incomplete(port_kind):
     clock = FlippingClock()
-    port = RecordingPort()
+    port = port_class(port_kind)()
     original = port.clearance
 
     def clearance(hub, task_id, message_id, receipt, *, wait_ms):
@@ -263,8 +276,8 @@ def test_every_overseer_refusal_names_its_first_failing_condition(kw, decision, 
     assert "close" in port.calls  # the FINAL audit seals the journal on every path
 
 
-def test_an_out_of_contract_overseer_message_is_never_acted_on():
-    class AgentCodePort(RecordingPort):
+def test_an_out_of_contract_overseer_message_is_never_acted_on(port_kind):
+    class AgentCodePort(port_class(port_kind)):
         def clearance(self, hub, task_id, message_id, receipt, *, wait_ms):
             msg = super().clearance(hub, task_id, message_id, receipt, wait_ms=wait_ms)
             return dict(msg, error_codes=["OVS-AGENT-001"])  # an agent code never affects a clearance (KIT-OP-008)
@@ -273,8 +286,8 @@ def test_an_out_of_contract_overseer_message_is_never_acted_on():
 
 
 @pytest.mark.parametrize("op", ["new_hub", "clearance", "close", "deliver"])
-def test_an_unexpected_exception_yields_a_signed_internal_error_verdict(op):
-    verdict, _ = _run(["hi-s1"], port=RecordingPort(fail_on=op))
+def test_an_unexpected_exception_yields_a_signed_internal_error_verdict(op, port_kind):
+    verdict, _ = _run(["hi-s1"], port=port_class(port_kind)(fail_on=op))
     assert verdict["delivery"] == {"decision": "refuse_incomplete", "deliverable": None, "reasons": ["KIT-DL-900"], "consolidation": None, "synthesis": None}
     assert verdict["overseer"]["refusal"] == "internal_error" and verdict["claims"] == [] and verdict["summary"] is None
 
@@ -282,8 +295,8 @@ def test_an_unexpected_exception_yields_a_signed_internal_error_verdict(op):
 # ----------------------------------------------------------------------------------------------- duplicate mode
 
 
-def test_duplicate_mode_with_identical_answers_delivers_the_representative():
-    verdict, port = _run(["hi-s1", "hi-s1"], mode="duplicate")
+def test_duplicate_mode_with_identical_answers_delivers_the_representative(port_kind):
+    verdict, port = _run(["hi-s1", "hi-s1"], mode="duplicate", port=port_class(port_kind)())
     assert verdict["delivery"]["decision"] == "deliver" and verdict["delivery"]["deliverable"]["agent_id"] == "history@a"
     assert [a["agent_id"] for a in verdict["bound"]["answers"]] == ["history@a", "history@b"]
     assert port.calls == ["new_hub", "clearance", "clearance", "clearance", "clearance", "close", "deliver"]
@@ -302,8 +315,8 @@ def test_duplicate_mode_delivers_the_answer_the_overseer_chose():
     assert all(c["excerpt"] in _item("hi-s3")["response_text"] for c in verdict["claims"])
 
 
-def test_combined_mode_is_not_offered_before_a_combinator_is_connected():
-    rt, _ = _checker()
+def test_combined_mode_is_not_offered_before_a_combinator_is_connected(port_kind):
+    rt, _ = _checker(port_class(port_kind)())
     assert "combined" not in rt.request_limits.modes
     assert rt.capabilities()["ports"]["combinator"]["available"] is False
 
@@ -311,8 +324,8 @@ def test_combined_mode_is_not_offered_before_a_combinator_is_connected():
 # ----------------------------------------------------------------------------------------------- review routing
 
 
-def test_the_review_runs_the_floor_plan_when_no_router_is_attached():
-    port = RecordingPort(hello_message=hello(agents="async"))
+def test_the_review_runs_the_floor_plan_when_no_router_is_attached(port_kind):
+    port = port_class(port_kind)(hello_message=hello(agents="async"))
     verdict, _ = _run(["hi-s2"], port=port, OVERSEER_AGENTS="async")
     assert verdict["overseer"]["review"] == {"queued": True, "plan_origin": "floor", "plan_refusal": None, "router": None}
     [admission] = port.reviewed
@@ -320,7 +333,7 @@ def test_the_review_runs_the_floor_plan_when_no_router_is_attached():
     assert port.calls[-2:] == ["repeats", "review"]
 
 
-def test_a_below_floor_router_plan_is_refused_by_name_and_the_floor_runs(tmp_path, monkeypatch):
+def test_a_below_floor_router_plan_is_refused_by_name_and_the_floor_runs(tmp_path, monkeypatch, port_kind):
     body = ("    req = json.loads(request_json)\n"
             "    ts = [{'transfer_key': o['transfer_key'], 'method': 'IN_DEPTH', 'reviews': 1, 'parts': 1, 'instances': 1, 'profile': 'standard',\n"
             "           'tier': 'cheapest', 'sources': [], 'context': None, 'reasons': ['cost_cheapest'], 'features_used': ['size'],\n"
@@ -330,21 +343,23 @@ def test_a_below_floor_router_plan_is_refused_by_name_and_the_floor_runs(tmp_pat
             "                       'origin': 'router', 'plan_id': 'plan-cheap', 'ids': req['ids'], 'request_sha256': digest, 'router': IDENTITY,\n"
             "                       'transfers': ts, 'totals': {'instances': len(ts), 'estimated_cost': {'tokens': 1000 * len(ts), 'seconds': 10 * len(ts)}}})\n")
     name = write_router_module(tmp_path, monkeypatch, "cheap_router_for_turns", plan_body=body)
-    port = RecordingPort(hello_message=hello(agents="async"))
+    port = port_class(port_kind)(hello_message=hello(agents="async"))
     verdict, _ = _run(["hi-s2"], port=port, OVERSEER_AGENTS="async", FLASH_ROUTER=name)
     review = verdict["overseer"]["review"]
     assert review["plan_origin"] == "floor" and review["plan_refusal"] == "KIT-RT-020" and review["router"]["name"] == "test-flash-router"
     assert port.reviewed[0].effective.transfers[0].reviews >= 2
 
 
-def test_a_router_plan_at_the_floor_is_admitted_and_the_review_never_changes_the_decision(tmp_path, monkeypatch):
+def test_a_router_plan_at_the_floor_is_admitted_and_the_review_never_changes_the_decision(tmp_path, monkeypatch, port_kind):
     name = write_router_module(tmp_path, monkeypatch, "floor_router_for_turns")
-    with_review, port = _run(["hi-s1"], port=RecordingPort(hello_message=hello(agents="async")), OVERSEER_AGENTS="async", FLASH_ROUTER=name)
-    without, _ = _run(["hi-s1"])
+    with_review, port = _run(["hi-s1"], port=port_class(port_kind)(hello_message=hello(agents="async")), OVERSEER_AGENTS="async", FLASH_ROUTER=name)
+    without, _ = _run(["hi-s1"], port=port_class(port_kind)())
     assert with_review["overseer"]["review"]["plan_origin"] == "router" and with_review["overseer"]["review"]["plan_refusal"] is None
-    def stable(delivery):  # message ids are minted per call
+    def stable(delivery):  # message ids are minted per call (and, by the real overseer, consolidation ids)
         d = dict(delivery)
         d["deliverable"] = {k: v for k, v in (d["deliverable"] or {}).items() if k != "message_id"}
+        if port_kind == "real" and d.get("consolidation"):
+            d["consolidation"] = {k: v for k, v in d["consolidation"].items() if k != "id"}
         return d
     assert stable(with_review["delivery"]) == stable(without["delivery"])
     def claims(v):  # result ids are minted per call; everything else is the same
@@ -355,8 +370,8 @@ def test_a_router_plan_at_the_floor_is_admitted_and_the_review_never_changes_the
 # ----------------------------------------------------------------------------------------------- evidence tap
 
 
-def test_the_evidence_tap_records_the_call_in_the_sim_profile_only(tmp_path):
-    verdict, _ = _run(["hi-s1"], SIM_EVIDENCE_DIR=str(tmp_path / "ev"))
+def test_the_evidence_tap_records_the_call_in_the_sim_profile_only(tmp_path, port_kind):
+    verdict, _ = _run(["hi-s1"], SIM_EVIDENCE_DIR=str(tmp_path / "ev"), port=port_class(port_kind)())
     files = list((tmp_path / "ev").glob("*.json"))
     assert len(files) == 1
     evidence = json.loads(files[0].read_text(encoding="utf-8"))

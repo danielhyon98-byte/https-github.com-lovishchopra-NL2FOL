@@ -1,0 +1,147 @@
+{
+  "$defs": {
+    "PoolItemFeatures": {
+      "additionalProperties": false,
+      "description": "One dossier of the batch as features: its position, the repeated faults of its task, the risk signals and the\nrisk records its task carries (the overseer's ``emitted.risk_reading``) and whether the escalation advisor escalated\nit. Never its key, its text or a finding.",
+      "properties": {
+        "advised": {
+          "default": false,
+          "title": "Advised",
+          "type": "boolean"
+        },
+        "item_id": {
+          "pattern": "^d[1-9][0-9]{0,5}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "repeated_faults": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Repeated Faults",
+          "type": "integer"
+        },
+        "risk_records": {
+          "items": {
+            "enum": [
+              "named_defect",
+              "writer_assumption",
+              "unchecked_source",
+              "stem_method",
+              "encoding_conflict",
+              "contradiction",
+              "withheld_verdict",
+              "rejection",
+              "diagnosis_incomplete",
+              "integrity_error"
+            ],
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Risk Records",
+          "type": "array"
+        },
+        "risk_signals": {
+          "items": {
+            "enum": [
+              "named_defect",
+              "writer_assumption",
+              "unchecked_source",
+              "stem_method",
+              "encoding_conflict",
+              "contradiction",
+              "withheld_verdict",
+              "rejection",
+              "diagnosis_incomplete",
+              "integrity_error"
+            ],
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Risk Signals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "item_id",
+        "repeated_faults"
+      ],
+      "title": "PoolItemFeatures",
+      "type": "object"
+    },
+    "PoolLimits": {
+      "additionalProperties": false,
+      "description": "The pool's configuration as the router may read it: its maximum of instances, its per-instance quota of review\nunits and the overseer-agent profiles the overseer offers.",
+      "properties": {
+        "max_instances": {
+          "maximum": 64,
+          "minimum": 2,
+          "title": "Max Instances",
+          "type": "integer"
+        },
+        "per_instance_quota": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Per Instance Quota",
+          "type": "integer"
+        },
+        "profiles": {
+          "items": {
+            "enum": [
+              "standard",
+              "fast"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Profiles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "max_instances",
+        "per_instance_quota",
+        "profiles"
+      ],
+      "title": "PoolLimits",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PoolItemFeatures"
+      },
+      "maxItems": 4096,
+      "title": "Items",
+      "type": "array"
+    },
+    "limits": {
+      "$ref": "#/$defs/PoolLimits"
+    },
+    "port_version": {
+      "const": "1.1",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "schema": {
+      "const": "epinoic.integration.pool-routing-request.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "limits"
+  ],
+  "title": "PoolRoutingRequest",
+  "type": "object"
+}

@@ -1,5 +1,10 @@
 # Argument diagnostics (rules `argdiag-2`)
 
+> Paths: since architecture step 2 of phase 2 the Overseer is the sub-project `overseer/` (package `epinoic_overseer`):
+> `src/epinoic_logic/overseer/` is now `overseer/src/epinoic_overseer/`, `tests/overseer/` is
+> `overseer/tests/overseer_tests/`, `scripts/overseer/` is `overseer/scripts/`, and the overseer's documents are in
+> `overseer/docs/`.
+
 *On this tree.* Sections 1 to 19 describe the feature as it was built and measured on its own line (commit c219b4f, on the
 17 October base). This tree carries a port of it onto the integrated translator; where the two differ, section 20
 ("Port onto the integrated translator") states what was ported, what was not and why, and it takes precedence over the

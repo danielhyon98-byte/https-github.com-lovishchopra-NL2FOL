@@ -32,7 +32,7 @@ from epinoic_logic.channel.gate import assess_response
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.integrity.ledger import check_synthesis_ledger
-from epinoic_logic.overseer.delivery_policy import SELF_REPORT_CODES, _receipt_findings_of
+from epinoic_overseer.delivery_policy import SELF_REPORT_CODES, _receipt_findings_of
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
 
 from ..growth import growth

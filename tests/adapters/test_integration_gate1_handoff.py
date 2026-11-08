@@ -30,7 +30,7 @@ from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integration import combinator_port as CB
 from epinoic_logic.integrity import AgentRole, WorkPlan
-from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
+from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.translate.contracts import sha256_text
 
 KEY = b"integration-gate-1-handoff-adapters-key-01"

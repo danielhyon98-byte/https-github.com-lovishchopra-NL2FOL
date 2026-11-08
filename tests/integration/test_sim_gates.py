@@ -2,8 +2,10 @@
 
 Each gate is a pure function of the simulation's records (integration/sim/gates.py): these tests feed it records that
 must PASS, records that must FAIL, and no material at all, which must be NOT RUN, never PASS. The last test runs
-run_sim.py on this tree: the parts other work streams are still building are missing here, so every gate must be
-reported NOT RUN with its reason, the exit status must be 1, and the reference harness must still run on the copy."""
+run_sim.py on this tree without copies: the service starts with the overseer sub-project's port adapter (architecture
+step 2 of phase 2; before it the service refused to start, KIT-HS-007), the copies are missing, so every gate must be
+reported NOT RUN with the reason its missing part gave, the exit status must be 1, and the reference harness must still
+run on the copy."""
 from __future__ import annotations
 
 import importlib.util
@@ -139,12 +141,25 @@ def test_the_simulation_on_this_tree_reports_every_missing_part_as_not_run(tmp_p
     statuses = {r["gate"]: r["status"] for r in results["gates"]}
     assert set(statuses) == set(G.GATES) and G.PASS not in statuses.values() and G.FAIL not in statuses.values()
     assert all(r["reason"] for r in results["gates"])
-    # each website-path gate names the part that was missing: the service's own refusal (pre-build finding PB3-07)
-    refusal = results["not_run"]["service"]
-    assert refusal.startswith("the service refused to start: KIT-HS-007")
+    # Rewritten when the overseer port was connected (architecture step 2): the service no longer refuses to start, so the
+    # part each website-path gate names is the copy that was not given (before: the service's own refusal, pre-build
+    # finding PB3-07). The service's start is asserted instead: ready, with the overseer sub-project's embedded adapter,
+    # its one profile (D30) and the pack this release pins (NOTES 33).
+    from epinoic_logic.integration.overseer_port import PINNED_PACK_DIGESTS
+    assert "service" not in results["not_run"], results["not_run"]
+    assert results["service"]["preflight"] == "ready" and results["service"]["started"] is True
+    overseer = results["service"]["overseer"]
+    assert (overseer["mode"], overseer["profiles"], overseer["agents"]) == ("embedded", ["standard"], "off")
+    assert sorted(overseer["pack_digests"]) == sorted(PINNED_PACK_DIGESTS)
+    missing = results["not_run"]["website_path"]
+    assert missing == "no website export (--website)" and results["not_run"]["agents_path"] == "no agents copy (--agents)"
     for r in results["gates"]:
         if r["gate"] not in ("G-EQ-CONTAINED", "G-OVS"):
-            assert refusal in r["reason"], r
+            assert missing in r["reason"], r
+    # the two gates whose material the simulation does not collect yet say so (pre-build NOTES 83d), never PASS
+    RS = _module("run_sim")
+    reasons = {r["gate"]: r["reason"] for r in results["gates"]}
+    assert (reasons["G-EQ-CONTAINED"], reasons["G-OVS"]) == (RS.CONTAINED_NOT_CONNECTED, RS.PROBES_NOT_CONNECTED)
     assert results["subchecks"]["arena:s1"]["functional"][0] == results["subchecks"]["arena:s1"]["functional"][1]
     assert results["subchecks"]["arena:s1"]["qualified"] is False
     tamper = results["subchecks"]["tamper_adapter"]
@@ -156,6 +171,6 @@ def test_the_simulation_on_this_tree_reports_every_missing_part_as_not_run(tmp_p
     assert all(results[k] is None for k in ("specialist_copy", "specialist_commit", "specialist_contract", "agents_copy", "agents_commit",
                                             "agents_contract"))
     assert "- website path: no copy" in summary and "- agents path: no copy" in summary
-    # Repair 2: a path that did not run says so on its "Copies" line, with its own reason (here the service's refusal)
+    # Repair 2: a path that did not run says so on its "Copies" line, with its own reason (here the missing export)
     assert f"- website path: no copy, not run: {results['not_run']['website_path']}" in summary.splitlines()
     assert f"- agents path: no copy, not run: {results['not_run']['agents_path']}" in summary.splitlines()

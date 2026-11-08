@@ -26,7 +26,13 @@ authenticated socket):
 Trust rules carried over unchanged: only deterministic ``OVS-*`` findings affect clearance; ``OVS-AGENT-*`` never changes
 a clearance; the auditor holds engine keys only to verify and signs under its own subkeys; every audit carries the
 engine scope statement and the TR6 sentence; overseer agents are built only from the exported pack and their verdicts
-are validated, never obeyed. The embedded adapter is connected in phase 2 (it is not on this tree).
+are validated, never obeyed. The embedded adapter is the overseer sub-project's ``epinoic_overseer.port`` (``overseer/``,
+connected in phase 2, architecture step 2); this module never imports it.
+
+The service pins the knowledge packs it accepts (:data:`PINNED_PACK_DIGESTS`): an adapter whose hello names any other
+pack is refused at start-up (``KIT-HS-007``), so a hello's pack digests are compared with this release's pin, never only
+checked for their shape. A new pack of the overseer is adopted by changing the pin (and the overseer sub-project's
+release) together.
 """
 from __future__ import annotations
 
@@ -44,7 +50,7 @@ from .protocol import (
 
 __all__ = [
     "PORT_VERSION", "ACTABLE_STATES", "CLEARANCE_STATES", "DELIVERABLE_CONSOLIDATIONS", "MAX_PENDING_WAIT_MS",
-    "AUDIT_KEY_ID", "OverseerHello", "ClearanceDecision", "FinalAudit", "DeliveryDecision", "ReviewTicket",
+    "AUDIT_KEY_ID", "PINNED_PACK_DIGESTS", "OverseerHello", "ClearanceDecision", "FinalAudit", "DeliveryDecision", "ReviewTicket",
     "OverseerPort", "check_hello", "check_clearance", "check_final_audit", "check_delivery", "check_review_ticket",
     "load_port",
 ]
@@ -56,6 +62,10 @@ DELIVERABLE_CONSOLIDATIONS: frozenset[str] = frozenset({"CONSOLIDATED", "CONSOLI
 #: The router may wait at most this long for a PENDING clearance; then the transfer is held (``policy.MAX_PENDING_WAIT_MS``).
 MAX_PENDING_WAIT_MS = 250
 AUDIT_KEY_ID = "overseer-audit"
+#: The overseer knowledge packs this release of the service accepts (pre-build NOTES item 33): the overseer sub-project's
+#: installed pack, ``overseer-knowledge-docs`` 1.5 (its ``pack.PACK_DIGESTS``; ``tests/integration/test_overseer_subproject.py``
+#: compares the two without the service ever importing the overseer).
+PINNED_PACK_DIGESTS: frozenset[str] = frozenset({"cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab"})
 _AGENT_CODE_RE = re.compile(r"^OVS-AGENT-")
 
 _State = Literal["AUDIT_FAILED", "AUDIT_PENDING", "AUDIT_PASSED_WITH_FINDINGS", "AUDIT_PASSED"]

@@ -39,7 +39,8 @@ from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha
 
 from ..core_hostile import INPUTS, SHAPES, one, sweep
 from ..growth import growth
-from ..overseer.conftest import CFG, KEY, make_auditor
+from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
+from overseer_tests.conftest import CFG, KEY, make_auditor
 from ..timing import empty_caches
 
 #: The ledger's folded-tail pattern as it was written before integration gate 3 (the reference its linear form is held to).

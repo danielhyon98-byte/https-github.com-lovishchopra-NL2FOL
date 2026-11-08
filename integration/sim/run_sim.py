@@ -52,6 +52,12 @@ SIM_RATE_PER_MINUTE = "6000"
 #: Website-path actions whose answer is the item's own recorded answer (G-EQ-ARENA compares their evidence).
 #: Only single-mode calls: a duplicate or combined call delivers two answers on one channel, which the arena never does.
 GENUINE_ACTIONS = ("send", "follow_up", "retry", "concurrent", "clock_past_cache", "service_stopped:retry", "stem")
+#: The two gates whose material the rebuilt overseer brings but this simulation does not collect yet (pre-build NOTES 83d):
+#: on a tree that carries the overseer sub-project they are NOT RUN with these reasons, never PASS.
+CONTAINED_NOT_CONNECTED = ("the contained run is on this tree (overseer/scripts/run_contained.py), but the simulation does not "
+                           "run it on the corpus copy yet")
+PROBES_NOT_CONNECTED = ("the overseer's asynchronous review is on this tree (the port's review), but the simulation does not "
+                        "send the probe providers through it yet")
 
 
 def _module(name: str):
@@ -72,7 +78,9 @@ def service_env(translator: Path, corpus_copy: Path, evidence: Path, *, test_por
     mode 0600, inside the simulation's own output directory), the sim profile, the fixture provider fed from the copy.
     ``test_port``/``test_path`` attach a TEST DOUBLE of the overseer port (module docstring)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
-    paths = [str(translator / "src")] + ([p for p in (test_path or "").split(os.pathsep) if p] if test_port else [])
+    # the kit's src/, then the overseer sub-project's src/ (the default overseer port adapter, epinoic_overseer.port)
+    paths = [str(translator / "src")] + ([str(translator / "overseer" / "src")] if (translator / "overseer" / "src").is_dir() else [])
+    paths += [p for p in (test_path or "").split(os.pathsep) if p] if test_port else []
     env.update({
         "PYTHONPATH": os.pathsep.join(paths), "EPINOIC_PROFILE": "integration-sim", "EPINOIC_SERVICE_ENV": "sim",
         "EPINOIC_SERVICE_TOKEN": secrets.token_hex(24), "EPINOIC_SIGNING_KEY": secrets.token_hex(32), "EPINOIC_VERDICT_KEY": secrets.token_hex(32),
@@ -370,7 +378,7 @@ def run(args) -> int:
             results["subchecks"][f"arena:{r.name}"] = {"functional": rr["functional"], "qualified": rr["qualified"], "genuine": rr["genuine"]}
         contained = reference_mod.contained_available(translator)
         if contained is None:
-            results["not_run"]["contained"] = "scripts/overseer/run_contained.py is not on this tree"
+            results["not_run"]["contained"] = "overseer/scripts/run_contained.py is not on this tree"
 
         # 5. The tampering cases at the adapter (a sub-check: evidence about one module, never the gate).
         results["subchecks"]["tamper_adapter"] = _module("tamper_web").adapter_results(translator)
@@ -392,13 +400,13 @@ def run(args) -> int:
         gate_results = [
             gates.g_eq_arena(material["projections"], ref_by_item, compare.differences, unrun) if any_path
             else gates.not_run("G-EQ-ARENA", f"no website-path or agents-path evidence: {web_reason}"),
-            gates.g_eq_contained(None) if contained is None else gates.not_run("G-EQ-CONTAINED", "the contained comparison is connected with the rebuilt overseer"),
+            gates.g_eq_contained(None) if contained is None else gates.not_run("G-EQ-CONTAINED", CONTAINED_NOT_CONNECTED),
             gates.g_fault(material["faults"]) if any_path else gates.not_run("G-FAULT", f"no mutation was sent through the website path: {web_reason}"),
             gates.g_inv(material["invariants"]) if website is not None else gates.not_run("G-INV", f"no website-path turn was run: {web_reason}"),
             gates.g_hon(material["displays"]) if website is not None else gates.not_run("G-HON", f"no delivered answer was displayed: {web_reason}"),
             gates.g_del(material["verdicts"], material["rederived"]) if any_path else gates.not_run("G-DEL", f"no checks call returned a verdict: {web_reason}"),
             gates.g_tamper(material["tamper"]) if website is not None else gates.not_run("G-TAMPER", f"the website path was not run: {web_reason}"),
-            gates.g_ovs(None),
+            gates.g_ovs(None) if contained is None else gates.not_run("G-OVS", PROBES_NOT_CONNECTED),
         ]
         if test_double:
             gate_results = with_test_double(gate_results, test_double, results["subchecks"], gates)

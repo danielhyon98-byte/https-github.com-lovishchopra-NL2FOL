@@ -6,12 +6,15 @@ exercised end to end before the rebuilt overseer's adapter exists. It is ``tests
 (fixture clearances, a FINAL audit that passes, a delivery that allows the first reply of the task), kept per task. It
 audits nothing: ``run_sim.py`` therefore reports every gate NOT RUN when this double is attached ("the overseer port is a
 test double"), and lists what the gates computed only as a sub-check. It is not part of any package, its hello names it
-(``auditor_version`` 0.0.0-test-double), and nothing outside the tests imports it.
+(``auditor_version`` 0.0.0-test-double), and nothing outside the tests imports it. Since the service pins the overseer's
+knowledge pack (pre-build NOTES item 33: an unpinned pack is refused at start-up, KIT-HS-007), its hello names the pack
+this release pins (``overseer_port.PINNED_PACK_DIGESTS``); it holds no pack and builds no overseer agent.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from epinoic_logic.integration.overseer_port import PINNED_PACK_DIGESTS
 from tests.integration.helpers import RecordingPort, hello
 
 AUDITOR_VERSION = "0.0.0-test-double"
@@ -34,4 +37,5 @@ class PerTaskRecordingPort(RecordingPort):
 
 
 def connect(config: Any) -> PerTaskRecordingPort:
-    return PerTaskRecordingPort(hello_message=hello(auditor_version=AUDITOR_VERSION, agents=str(config.get("agents") or "off")))
+    return PerTaskRecordingPort(hello_message=hello(auditor_version=AUDITOR_VERSION, agents=str(config.get("agents") or "off"),
+                                                    pack_digests=sorted(PINNED_PACK_DIGESTS)))

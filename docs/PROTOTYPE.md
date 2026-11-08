@@ -1,5 +1,8 @@
 # The integrated prototype after arena round 8
 
+> Paths and commands below follow the overseer sub-project's layout (architecture step 2 of phase 2: the Overseer is
+> `overseer/`, package `epinoic_overseer`); the figures are as measured.
+
 For Bruno. This page describes the integrated prototype as it stands after arena round 8 (the integrated round `c1`)
 and the fixes of its clearance, committed as `f2329df`. Every figure below is a measured result taken from the
 repository's own records (`tests/README.md`, `docs/ARENA_RESULTS.md`, `docs/STEM_RESULTS.md`,
@@ -33,7 +36,7 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    conversions, algebra steps, stated roots, balances, Boolean identities and based numerals. Any other relation it
    names undecided, with the reason. A wrong step reaches the router as an INT-SUBJ-001 error naming the claim, with the
    computed and stated values (`docs/STEM_DESIGN.md`, `docs/STEM_RESULTS.md`).
-3. **The logic-checking overseer** (`src/epinoic_logic/overseer/`). It has two layers.
+3. **The logic-checking overseer** (`overseer/src/epinoic_overseer/`). It has two layers.
    - **The transfer auditor** is deterministic code. It journals every transfer in a hash-chained, HMAC'd journal. It
      re-runs every signed result the receipts cite. It checks that what the router received is what the specialist
      wrote, that each translation is faithful to its claim's words, numbers and quotations, and that a synthesis
@@ -52,7 +55,9 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
 
    `hub.review_pool` sizes the overseer agents deterministically. It starts one instance by default and adds more over
    a per-instance quota or when faults repeat, never past a maximum (four by default). Every instance comes from the
-   same exported pack.
+   same exported pack. Since architecture step 2c that sizing is the flash router's decision (`flash-router/`, a
+   separate agent attached through the router port), held to the overseer's own minimum-oversight floor: a plan below
+   it is refused and the floor plan runs, and with no router attached the floor plan runs.
 5. **The delivery policy** (`overseer.delivery_policy`, `delivery-v1`, `docs/DELIVERY.md`). This is the founder's
    four-minute rule. An answer can be delivered FORMALLY CHECKED only when, within the 240 s translation budget, every
    material eligible claim was translated, decided positively, passed the release rule and was cleared by the transfer
@@ -104,7 +109,7 @@ python -m pytest -q -p no:cacheprovider
 - The 12 skipped tests need the recorded arena rounds. To run them, set `EPINOIC_ARENA_ROUNDS=<directory holding the
   recorded rounds>`; the tests copy the rounds first and never write to them.
 - For a quick check, the delivery policy and engine subset
-  (`tests/overseer/test_delivery_policy.py tests/overseer/test_delivery_fallback.py tests/engine`) gave 1,114 passed in
+  (`overseer/tests/overseer_tests/test_delivery_policy.py overseer/tests/overseer_tests/test_delivery_fallback.py tests/engine`) gave 1,114 passed in
   34 s.
 
 **One verification from the command line.**
@@ -152,14 +157,14 @@ python scripts/arena/run_arena.py <copy> --fail-on-qualification
 **Export the overseer pack.**
 
 ```
-python -m epinoic_logic.overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-1.5/ and its zip
-python -m epinoic_logic.overseer.export --verify <dir>/overseer-knowledge-docs-1.5.zip
+python -m epinoic_overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-1.5/ and its zip
+python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-1.5.zip
 ```
 
 - The export writes the master prompt, nine numbered documents, a README for whoever deploys it, the dossier and
   verdict schemas, and a manifest.
 - Checked here: pack 1.5, digest `cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab`, which is the
-  digest pinned in `src/epinoic_logic/overseer/pack.py`. `--verify` on the zip returned `ok`.
+  digest pinned in `overseer/src/epinoic_overseer/pack.py`. `--verify` on the zip returned `ok`.
 - The delivery policy loads the exported pack: `DeliveryPolicy(pack=load_pack(<zip>), provider_factory=...)`.
 
 ## 3. What round 8 measured
@@ -324,7 +329,7 @@ Apart from result ids and timings, the summary is identical to the clearance's o
 
 ### 3.9 The overseer agents
 
-These figures come from the round's overseer-agent wave, scored with `scripts/overseer/score_verdicts.py`
+These figures come from the round's overseer-agent wave, scored with `overseer/scripts/score_verdicts.py`
 (`assess_export` and `score`, with `combine_verdicts` per transfer). The verdicts are agent self-reports scored against
 signed engine results.
 

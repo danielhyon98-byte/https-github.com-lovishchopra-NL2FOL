@@ -8,8 +8,9 @@ provider (009), the subject map (010), the specialist contracts (011), the envir
 timing figures (016). The flash router and the combinator are never required: they are reported, not refused.
 
 Each part is read by a probe method (:class:`Probes`); tests replace one probe at a time to show that each part, and only
-that part, gives its code. The probes for parts that other work streams are still building (the named policies, the
-overseer port adapter) look for the real interfaces and refuse when they are absent: nothing here stands in for them.
+that part, gives its code. The probes look for the real interfaces (the named policies, the overseer port adapter, the
+overseer sub-project's ``epinoic_overseer.port`` by default) and refuse when they are absent: nothing here stands in for
+them.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from typing import Any, Mapping, Optional
 
 from .compat import COMPATIBILITY, SUBJECT_MAP, SUBJECT_MAP_SHA256
 from .errors import IntegrationError
-from .overseer_port import OverseerHello, OverseerPort, load_port
+from .overseer_port import PINNED_PACK_DIGESTS, OverseerHello, OverseerPort, load_port
 from .protocol import (
     INTEGRATION_CONTRACT_VERSION, BuildIdentity, CombinatorPortCaps, ComponentVersions, RouterPortCaps, ServiceLimits,
     SpecialistPair, SpecialistPortCaps, StemCaps, SubjectMapRef, TranslationCaps,
@@ -131,11 +132,16 @@ class Probes:
         return tuple(sorted(table))
 
     def overseer(self, settings: IntegrationSettings, keys: Keys) -> tuple[OverseerHello, OverseerPort]:
-        # load_port validates the hello once and returns it with the port: every failure in there is KIT-HS-007.
-        return load_port(settings.overseer_port, {
+        # load_port validates the hello once and returns it with the port: every failure in there is KIT-HS-007. The
+        # hello's packs must be the ones this release pins (NOTES 33): the service never imports the overseer to ask it.
+        hello, port = load_port(settings.overseer_port, {
             "engine_key": keys.engine_key, "engine_key_id": keys.engine_key_id, "overseer_secret": keys.overseer_secret,
             "replay_mode": "process", "agents": settings.overseer_agents,
         })
+        unpinned = sorted(set(hello.pack_digests) - PINNED_PACK_DIGESTS)
+        if unpinned:
+            raise IntegrationError("KIT-HS-007", f"the overseer's hello names a knowledge pack this release does not pin ({unpinned[0][:12]}...)")
+        return hello, port
 
     def subject_map(self) -> SubjectMapRef:
         from .canonical import sha256_json

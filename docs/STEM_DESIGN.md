@@ -1,5 +1,10 @@
 # STEM support: design
 
+> Paths: since architecture step 2 of phase 2 the Overseer is the sub-project `overseer/` (package `epinoic_overseer`):
+> `src/epinoic_logic/overseer/` is now `overseer/src/epinoic_overseer/`, `tests/overseer/` is
+> `overseer/tests/overseer_tests/`, `scripts/overseer/` is `overseer/scripts/`, and the overseer's documents are in
+> `overseer/docs/`.
+
 **Status: IMPLEMENTED on branch `stem-build`; not yet merged.** All five stages of section 17
 (`core`, `engine`, `checks`, `branch`, `corpus-eval`) are in the code, and the full suite passes
 (docs/STEM_RESULTS.md). The review rounds (overseer audits of each stage) and the STEM arena with

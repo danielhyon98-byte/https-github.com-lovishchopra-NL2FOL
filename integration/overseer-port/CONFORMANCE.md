@@ -2,9 +2,20 @@
 
 The overseer is reached only through the port adapter named by `EPINOIC_OVERSEER_PORT` (default
 `epinoic_overseer.port`, exposing `connect(config)`); every message it returns is validated by
-`integration/overseer_port.py` before it is used (PROTOCOL.md section 6). **The embedded adapter is connected in phase
-2**: the overseer package is not on the pre-build branch, and until it is, the service refuses to start with
-`KIT-HS-007 overseer_unavailable`.
+`integration/overseer_port.py` before it is used (PROTOCOL.md section 6). **The embedded adapter is connected**
+(architecture step 2 of phase 2): it is `epinoic_overseer.port` of the overseer sub-project (`overseer/`), and the
+service starts with it. Before that step the service refused to start with `KIT-HS-007 overseer_unavailable`. The
+service also pins the pack the hello names (`overseer_port.PINNED_PACK_DIGESTS`): any other pack is `KIT-HS-007`.
+
+Where the adapter stands against the suite below: `test_turn_checker.py`, `test_turn_review.py` and
+`test_turn_fixes.py` run on both the double and the adapter, each compared with its own baseline; the adapter's
+message round trips, its refusal-label mapping and its pin are tested in `overseer/tests/overseer_tests/test_port_adapter.py`
+and `tests/integration/test_overseer_subproject.py`. Its differences from the double are recorded with decision D34
+(`integration/DECISIONS.md`): on hi-s2 its refusal also carries `KIT-DL-008` (its consolidation excludes the answer
+with an error-level finding; the double has no consolidation), and two duplicated answers with the same material
+claims are consolidated and delivered where the double's own settings force a conflicting consolidation. The
+simulation without the double judges six gates (five PASS, G-FAULT FAIL on 12 warning-level cases, D34, open);
+G-EQ-CONTAINED and G-OVS are not collected by it yet.
 
 ## The embedded adapter (v1) must
 

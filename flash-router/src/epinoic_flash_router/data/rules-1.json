@@ -1,0 +1,10 @@
+{
+  "parameters": {
+    "context_max_bytes": 65536,
+    "hard_max_instances": 64,
+    "max_parts": 16,
+    "max_reviews": 4,
+    "split_words": 900
+  },
+  "rules": "epinoic-flash-router rules/1\n1. Every transfer of the request gets exactly one entry, in the request's order; the plan carries only closed vocabularies, the request's own transfer keys and digests, and this router's identity: no text and no model.\n2. Agreement signals, read exactly as the service's floor reads them: the receipt is REJECTED; it carries an error-level finding; it carries a repeated fault; a check is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE; it is STEM and a check is UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED, or its receipt carries INT-SUBJ-002. Escalations this router adds: a named diagnostic; an unverified dependency.\n3. Independent complete reviews: 1 without a signal or an escalation; 2 with either; 3 with an agreement signal and an escalation together; never more than 4, never more than the request's max_instances, never fewer than 2 when an agreement signal holds.\n4. An output read by one review that has more than split_words words is divided into parts of at most split_words words, at most max_parts and at most max_instances parts (SPLIT); with 2 or more reviews each review reads the whole output (DUPLICATE); otherwise one instance reads it whole (IN_DEPTH).\n5. A combined answer's synthesis is reviewed N_FOLD over all its sources in the topology's order, with a request-scoped temporary context of the validated outcomes of at most context_max_bytes bytes, discarded after the request; its reviews follow rule 3. Its sources are reviewed by their own entries under rules 2 to 4.\n6. Every instance runs on the cheapest tier, on the standard profile when the request offers it (else the first profile it offers).\n7. The estimated cost of an entry follows the cost model: per instance, review_tokens_base tokens plus the characters the instance reads divided by chars_per_token (rounded up), and seconds_per_instance seconds; an N_FOLD instance reads the synthesis and every source. Integers only.\n"
+}

@@ -1,0 +1,86 @@
+{
+  "features": {
+    "pool": [
+      "repeated_faults",
+      "risk_signals",
+      "risk_records",
+      "advised"
+    ],
+    "pool_limits": [
+      "max_instances",
+      "per_instance_quota",
+      "profiles"
+    ],
+    "port": [
+      "stem",
+      "size",
+      "engine_statuses",
+      "receipt",
+      "diagnostics",
+      "unverified_dependencies",
+      "repeated_faults"
+    ],
+    "port_combined": [
+      "topology"
+    ]
+  },
+  "format": "epinoic-flash-router/rules",
+  "methods": {
+    "DUPLICATE": {
+      "complete_reviews": "reviews",
+      "meaning": "independent duplicate reviews of the whole response, combined by the verdict combination",
+      "pool": "planned: an escalated dossier, escalated_reviewers instances (P2)",
+      "port": "planned: two or more reviews (port rules 3 and 4)"
+    },
+    "IN_DEPTH": {
+      "complete_reviews": "1",
+      "meaning": "one overseer instance examines the whole response",
+      "pool": "planned: a dossier that is not escalated (P2)",
+      "port": "planned: one review and one part (port rules 3 and 4)"
+    },
+    "N_FOLD": {
+      "complete_reviews": "reviews",
+      "meaning": "a combined answer: each source reviewed by its own entry, then one merged review of the combinator's output over all its sources with a bounded request-scoped context",
+      "pool": "not planned: combined answers reach the pool with step 3",
+      "port": "planned: a combined answer's synthesis (port rule 5)"
+    },
+    "SPLIT": {
+      "complete_reviews": "1",
+      "meaning": "the work divided across several parallel instances, each part reviewed once",
+      "pool": "not planned for one dossier in pool port 1.1; a batch over the per-instance quota is spread across instances (P4)",
+      "port": "planned: an output read by one review that is longer than split_words words (port rule 4)"
+    }
+  },
+  "name": "epinoic-flash-router rules/2",
+  "parameters": {
+    "context_max_bytes": 65536,
+    "hard_max_instances": 64,
+    "max_parts": 16,
+    "max_reviews": 4,
+    "split_words": 900
+  },
+  "pool": {
+    "baseline_reviewers": 1,
+    "batch_size": null,
+    "escalated_reviewers": 2,
+    "record_weight": 2
+  },
+  "rules": "epinoic-flash-router rules/2\nPort rules (the service's routing request, routing-request.v1; integration/PROTOCOL.md section 7a). The agreement signals of rule 2 are the signals listed in this file; the features each entry reads are features.port; split_words, max_parts, max_reviews and context_max_bytes are this file's parameters.\n1. Every transfer of the request gets exactly one entry, in the request's order; the plan carries only closed vocabularies, the request's own transfer keys and digests, and this router's identity: no text and no model.\n2. Agreement signals, read exactly as the service's floor reads them: the receipt is REJECTED; it carries an error-level finding; it carries a repeated fault; a check is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE; it is STEM and a check is UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED, or its receipt carries INT-SUBJ-002. Escalations this router adds: a named diagnostic; an unverified dependency.\n3. Independent complete reviews: 1 without a signal or an escalation; 2 with either; 3 with an agreement signal and an escalation together; never more than 4, never more than the request's max_instances, never fewer than 2 when an agreement signal holds.\n4. An output read by one review that has more than split_words words is divided into parts of at most split_words words, at most max_parts and at most max_instances parts (SPLIT); with 2 or more reviews each review reads the whole output (DUPLICATE); otherwise one instance reads it whole (IN_DEPTH).\n5. A combined answer's synthesis is reviewed N_FOLD over all its sources in the topology's order, with a request-scoped temporary context of the validated outcomes of at most context_max_bytes bytes, discarded after the request; its reviews follow rule 3. Its sources are reviewed by their own entries under rules 2 to 4.\n6. Every instance runs on the cheapest tier, on the standard profile when the request offers it (else the first profile it offers).\n7. The estimated cost of an entry follows the cost model: per instance, review_tokens_base tokens plus the characters the instance reads divided by chars_per_token (rounded up), and seconds_per_instance seconds; an N_FOLD instance reads the synthesis and every source. Integers only.\nPool rules (the overseer pool's batch, pool-routing-request.v1; integration/PROTOCOL.md section 7b). The numbers are this file's pool parameters; the features read are features.pool and features.pool_limits; the methods are the method table.\nP1. Every dossier of the batch gets exactly one entry, naming it by its position in the request (the overseer's key order); the plan carries closed vocabularies, integers, the request's own item ids and digests, and this router's identity: no text, no key of the overseer's and no model.\nP2. A dossier is escalated when its task carries a repeated fault or any risk signal, or when the overseer's escalation advisor escalated it; an escalated dossier is reviewed DUPLICATE by escalated_reviewers distinct instances, any other dossier IN_DEPTH by baseline_reviewers instance.\nP3. Review units: escalated_reviewers per escalated dossier; record_weight per dossier whose task carries risk records only; one per other dossier.\nP4. Instances: none for an empty batch; otherwise one, or ceil(review units / batch) when that is more, where batch is batch_size, or the pool's own per-instance quota when batch_size is null (as released); at least escalated_reviewers when a dossier is escalated; never more than the pool's maximum (the plan then says capped, and the needed instances).\nP5. Assignment: the dossiers with repeated faults first, then the other dossiers with risk signals, then those the advisor escalated, then the rest, each group in the request's order; each dossier goes to the least-loaded instances (ties to the lower number): an escalated dossier to escalated_reviewers distinct instances, adding one unit to each, any other dossier to one instance, adding its review units.\nP6. An instance that carries more review units than the pool's per-instance quota is disclosed (over_quota); the plan never grows past the maximum.\nP7. Every instance runs on the cheapest tier, on the standard profile when the pool offers it (else the first profile it offers). Reasons are closed codes with counts, numbers and risk classes. A pool plan estimates no cost: the cost planner is deferred, and the cost data's recorded sizes are kept for it.\n",
+  "signals": {
+    "negative_statuses": [
+      "COUNTEREXAMPLE",
+      "INCONSISTENT_PREMISES",
+      "UNSATISFIABLE"
+    ],
+    "stem_undecided_codes": [
+      "INT-SUBJ-002"
+    ],
+    "undecided_statuses": [
+      "UNKNOWN",
+      "TIMEOUT",
+      "INTERNAL_ERROR",
+      "NOT_ATTEMPTED"
+    ]
+  },
+  "version": 2
+}

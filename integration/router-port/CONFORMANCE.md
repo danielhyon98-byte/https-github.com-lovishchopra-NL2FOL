@@ -37,9 +37,10 @@ copied there by the kit's `integration/tools/vectors.py` (drift-tested).
    that add up; costs as integers.
 6. **Deterministic**: the same request text gives the same plan text (in a fresh interpreter too).
 
-The first release (`flash-router/tests/test_conformance.py`) shows all six, over the vectors and over generated
-requests, plus that it runs with nothing but its own `src/` on the import path. The kit runs that suite and the
-readiness check on it (`tests/integration/test_flash_router_subproject.py`).
+The sub-project's suite (`flash-router/tests/flash_router_tests/test_conformance.py`) shows all six, over the vectors
+and over generated requests, plus that it runs with nothing but its own `src/` on the import path. The kit runs that
+suite and the readiness check on it (`tests/integration/test_flash_router_subproject.py`), and the translator's
+documented test command collects it too.
 
 The kit's own contract tests (`tests/integration/test_router_port.py`, `test_router_isolation.py`) show the other side:
 every out-of-contract plan refused with its named code, a below-floor plan refused with `KIT-RT-020` while the floor
@@ -70,3 +71,26 @@ These cover the router's code, not only its return values, because the code neve
 - **Only escalation**: a router can add oversight, never remove it; risk signals only escalate.
 - **Never a decision**: the plan never changes a clearance, a delivery decision or a verdict's decision; any failure of
   the review leaves it unqueued; the review itself runs after delivery, on the cheapest tier.
+
+## The pool operation (PROTOCOL.md section 7b, pool port 1.1)
+
+Since architecture step 2c the overseer pool's planning decision is the router's too. A router that offers it exposes
+`pool_hello() -> str` (`pool-router-hello.v1`: the capability `pool-plan`, `port_version` `1.1`, the same identity) and
+`pool_plan(request_json: str) -> str` (`pool-routing-plan.v1`). Its own tests must show, validated with
+`epinoic_logic.integration.router_pool`:
+
+7. **The version handshake**: `router_pool.check_pool_hello(pool_hello())` passes at a version of
+   `router_pool.POOL_PORT_VERSIONS`, with the capability, under the same identity as `hello()`.
+8. **In contract and at or above the floor**: for generated batches, `router_pool.check_pool_plan(...)` passes, every
+   dossier is planned once, every dossier with a repeated fault, a risk signal or the advisor's escalation goes to at
+   least two distinct instances (the overseer's floor, `epinoic_overseer.floor`, refuses any plan that does not with
+   `KIT-RT-020`), and no plan has more instances than the pool's maximum.
+9. **Deterministic and data-driven**: the same request text gives the same plan text (in a fresh interpreter too); the
+   rules and cost data are versioned data files with digests, reported in the identity, and an edited copy of them
+   plans otherwise under its own digest.
+
+The released router shows them in `flash-router/tests/flash_router_tests/test_pool.py`, `test_data.py` and
+`test_runner.py`; the overseer shows the other side in `overseer/tests/overseer_tests/test_flash_router_pool.py` (every
+recorded pool plan reproduced with the router attached, the router absent, the version handshake, a weakened data file
+refused below the floor, and the refusal recorded in the signed audit), and the kit in
+`tests/integration/test_router_pool.py` (every refusal code of the pool contract).

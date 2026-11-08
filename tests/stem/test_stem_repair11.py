@@ -24,7 +24,7 @@ at its cause, for its whole class, and every new reading has a clean control (co
   are set against that value (warnings: each is a reading);
 * rule ``prose-base`` (low): a base phrase opening the clause ('In binary, 1000 is 1111101100.') was not read.
 
-The seventh (the knowledge pack's size) is the overseer's: tests/overseer/test_stem_repair11.py.
+The seventh (the knowledge pack's size) is the overseer's: overseer/tests/overseer_tests/test_stem_repair11.py.
 """
 from __future__ import annotations
 

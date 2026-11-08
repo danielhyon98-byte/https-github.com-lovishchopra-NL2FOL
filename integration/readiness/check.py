@@ -60,6 +60,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 KIT = Path(__file__).resolve().parents[2]
 PASS, BLOCKER, NOT_RUN, REPORTED = "PASS", "BLOCKER", "NOT RUN", "REPORTED"
@@ -80,27 +81,41 @@ def _named_policies(kit: Path) -> bool:
     return "NAMED_POLICIES" in pol and "def named_policy" in pol
 
 
-def _overseer_package(kit: Path) -> bool:
-    return (kit / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists()
+def _overseer_package(kit: Path) -> Optional[str]:
+    """Where the overseer package is on this kit: the overseer sub-project (``overseer/src/epinoic_overseer/``, architecture
+    step 2 of phase 2), or, on a commit before that step, the translator's own ``src/epinoic_logic/overseer/``; None when
+    neither is there."""
+    for rel in ("overseer/src/epinoic_overseer/", "src/epinoic_logic/overseer/"):
+        if (kit / rel / "__init__.py").exists():
+            return rel
+    return None
 
 
 def _overseer_port_adapter(kit: Path) -> bool:
     """The embedded overseer port adapter (``epinoic_overseer.port``, decision D18) is on the import path a process run
     from the kit has (:func:`_py`). Phase 2 connects it after the overseer package itself: a commit with the package
     merged and no adapter yet still refuses with KIT-HS-007, which only the absent adapter causes."""
-    roots = [kit / "src"] + ([kit / "flash-router" / "src"] if (kit / "flash-router" / "src").is_dir() else [])
+    roots = _src_roots(kit)
     return any((r / "epinoic_overseer" / "port.py").exists() or (r / "epinoic_overseer" / "port" / "__init__.py").exists() for r in roots)
+
+
+def _src_roots(kit: Path) -> list[Path]:
+    """The kit's src/, then each sub-project's src/ the kit has (the overseer's, the flash router's): the import path of a
+    process run from the kit (the service imports the overseer's port adapter; a router process imports the router)."""
+    return [kit / "src"] + [kit / sub / "src" for sub in ("overseer", "flash-router") if (kit / sub / "src").is_dir()]
 
 
 def g1(kit: Path, rows: list) -> None:
     version, named, overseer = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
+    oversion = re.search(r'^version = "([^"]+)"', (kit / "overseer" / "pyproject.toml").read_text(encoding="utf-8"), re.M) if (kit / "overseer" / "pyproject.toml").exists() else None
     # the contract line moves to 0.4 when phase 2 merges contract 0.3, and to 0.5 with the argument diagnosis (the integration
     # step before arena round 8: two signed result fields and release rules 8 and 9); before the contract 0.3 merge (no named
     # policies yet) an older line is the expected pre-build state; after it, an older line is a defect
     contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.5)" if version != "0.5" and not named else ""
     row(rows, "G1 contract 0.5", PASS if version == "0.5" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
     row(rows, "G1 overseer package", PASS if overseer else BLOCKER,
-        "src/epinoic_logic/overseer/" + ("" if overseer else " absent (connected in phase 2: the rebuilt overseer and its port adapter)"))
+        (f"{overseer} (epinoic-overseer {oversion.group(1)}, a sub-project of its own; attached through the overseer port)" if overseer and oversion else overseer)
+        if overseer else "overseer/src/epinoic_overseer/ absent (connected in phase 2: the rebuilt overseer and its port adapter)")
     reg = (kit / "src" / "epinoic_logic" / "branches" / "registry.py").read_text(encoding="utf-8")
     row(rows, "G1 STEM branches", PASS if all(b in reg for b in ("sciences", "mathematics", "computer_science")) else BLOCKER, "branches/registry.py")
     row(rows, "G1 named policies (contract 0.3)", PASS if named else BLOCKER,
@@ -121,11 +136,11 @@ def g1(kit: Path, rows: list) -> None:
 
 def _py(kit: Path) -> dict:
     """The environment of a process run from the kit: no EPINOIC_ variable of the caller, and the kit's src/ on the
-    import path, with the flash-router sub-project's src/ after it when the kit has one (so a service started with
-    EPINOIC_FLASH_ROUTER=epinoic_flash_router.port can import the router in the router's own process)."""
+    import path, with the overseer sub-project's src/ (the service's default overseer port adapter,
+    ``epinoic_overseer.port``) and the flash-router sub-project's src/ after it when the kit has them (so a service started
+    with EPINOIC_FLASH_ROUTER=epinoic_flash_router.port can import the router in the router's own process)."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
-    paths = [kit / "src"] + ([kit / "flash-router" / "src"] if (kit / "flash-router" / "src").is_dir() else [])
-    env["PYTHONPATH"] = os.pathsep.join(str(p) for p in paths)
+    env["PYTHONPATH"] = os.pathsep.join(str(p) for p in _src_roots(kit))
     return env
 
 

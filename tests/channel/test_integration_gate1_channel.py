@@ -94,8 +94,9 @@ AGENT = "physics-specialist"
 
 
 def _physics(none=(), delays=None, claims=THREE):
-    from epinoic_logic.overseer.delivery_policy import DeliveryPolicy
-    from tests.overseer.delivery_support import FakeClock, Verifier, physics_report, run_task
+    from epinoic_overseer.delivery_policy import DeliveryPolicy
+    from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
+    from overseer_tests.delivery_support import FakeClock, Verifier, physics_report, run_task
     clock = FakeClock()
     run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a", claims))], verify=Verifier(clock, none=none, delays=delays))
     return run, list(run.receipts.values())[0]

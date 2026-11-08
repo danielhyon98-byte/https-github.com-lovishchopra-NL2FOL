@@ -29,13 +29,18 @@ where = ["src"]
 "epinoic_logic" = [
   "translate/prompts/*.txt",
   "translate/prompts/*.md",
-  "overseer/knowledge/*/*.txt",
-  "overseer/knowledge/*/*.md",
-  "overseer/knowledge/*/*.json",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The documented test command (`python -m pytest -q`, from the repository root) runs three suites: the translator's
+# (tests/), the overseer sub-project's own (overseer/tests/) and the flash-router sub-project's own (flash-router/tests/),
+# each also runnable alone from its sub-project. The combinator's suite runs inside tests/integration (and the
+# flash router's once more there, from its own directory).
+testpaths = ["tests", "overseer/tests", "flash-router/tests"]
+# The sub-projects' source trees are on the path for the test session, so the command also runs where only the
+# translator is installed (pip install -e ".[dev,service,providers]"); the service and the pool attach the router by its
+# module name, in a process that inherits this path (README.md).
+pythonpath = ["overseer/src", "flash-router/src"]
 timeout = 120
 addopts = "-ra -m 'not stress'"
 markers = ["stress: long-running load and soak tests (run with -m stress)"]
