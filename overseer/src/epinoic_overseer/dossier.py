@@ -65,7 +65,16 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.2, listed as each stage re
   groups (members with the pointer of their transfer, the representative, the merge check), the excluded answers with
   their codes and signed results, the conflicts, the repeated faults and the advisory notes. Blind mode carries none
   (an exclusion can rest on an auditor finding). A dossier issued without consolidations has no ``consolidations`` member,
-  so its digest is what it was before the section existed.
+  so its digest is what it was before the section existed;
+* the twofold mode (architecture step 3, design section 52): a dossier of one part of a combined answer's N_FOLD review
+  carries ``review`` (``{"method": "N_FOLD", "role": "source", "source": k, "of": N}`` for the review of source k, or
+  ``"role": "merged"`` for the merged review of the combinator's output) and is built from that part's view
+  (``twofold.part_view``: the part's own transfers and every transfer they depend on, so every pointer and link resolves
+  inside it); in informed mode its ``auditor`` section shows only the findings about the part's transfers (and those
+  naming no transfer). The merged review's dossier also carries ``temporary_context``: the bounded, request-scoped record
+  of the source reviews' validated outcomes (``twofold.TemporaryContextRecord``; closed vocabularies and identifiers, no
+  agent text, no finding code), in both modes, scoped to the dossier's own task and request. A dossier issued without
+  them has neither member, so its digest is what it was before the twofold mode existed.
 """
 from __future__ import annotations
 
@@ -89,6 +98,7 @@ __all__ = [
     "ForwardLink", "PeerDocumentLink", "SynthesisCitation", "TranslationLink", "IndexEntry", "IndexType", "DossierAuditor", "DossierLimits", "TruncatedField",
     "typed_identifiers",
     "DossierTask", "DossierConsolidation", "ConsolidationMember", "ConsolidationGroup", "ConsolidationCheck", "ConsolidationExcluded",
+    "DossierReview", "DossierContextFault", "DossierContextSource", "DossierContextScope", "DossierTemporaryContext",
     "ConsolidationConflict", "ConsolidationRepeat", "ConsolidationAdvisory", "consolidation_entry", "build_dossier", "resolve_pointer", "PointerError", "pointer_escape", "pointer_join", "dossier_digest", "verify_dossier_digest",
     "visible_text", "truncated_pointers", "dossier_identifiers", "dossier_json", "TRUNCATE_AT", "TRUNCATION_MARKER", "RECEIPT_FIELDS",
     "RECEIPT_DIAGNOSIS_FIELDS", "RESULT_DIAGNOSIS_FIELDS",
@@ -353,6 +363,60 @@ class DossierConsolidation(BaseModel):
     signature_present: bool
 
 
+class DossierReview(BaseModel):
+    """The part of a combined answer's N_FOLD review a dossier is issued for: the review of source ``source`` of ``of``
+    (that specialist's own transfers, before combination), or the merged review of the combinator's output."""
+    model_config = _FORBID
+    method: Literal["N_FOLD"]
+    role: Literal["source", "merged"]
+    of: int = Field(ge=2, le=16)
+    source: Optional[int] = Field(default=None, ge=1, le=16)
+
+
+class DossierContextFault(BaseModel):
+    """A fault a source review confirmed: its accusation kind and the identifiers its confirming findings cover."""
+    model_config = _FORBID
+    kind: str
+    claim_ids: list[str] = Field(default_factory=list)
+    report_ids: list[str] = Field(default_factory=list)
+    message_ids: list[str] = Field(default_factory=list)
+    document_ids: list[str] = Field(default_factory=list)
+    result_ids: list[str] = Field(default_factory=list)
+
+
+class DossierContextSource(BaseModel):
+    """One source of the combined answer: its position, specialist, delivered reports and messages, the verdicts
+    validation assessed on it and the faults they confirmed."""
+    model_config = _FORBID
+    source: int = Field(ge=1, le=16)
+    agent_id: str
+    report_ids: list[str] = Field(default_factory=list)
+    message_ids: list[str] = Field(default_factory=list)
+    reviewed: int = Field(ge=0)
+    confirmed: list[DossierContextFault] = Field(default_factory=list)
+
+
+class DossierContextScope(BaseModel):
+    model_config = _FORBID
+    task_id: str
+    request_id: str
+
+
+class DossierTemporaryContext(BaseModel):
+    """The merged review's temporary context: the source reviews' validated outcomes, scoped to the request, bounded,
+    discarded after the request (``twofold.TemporaryContextRecord``)."""
+    model_config = _FORBID
+    format: Literal["overseer-temporary-context/1.0"]
+    scope: DossierContextScope
+    max_bytes: int = Field(ge=1, le=65536)
+    bytes: int = Field(ge=0)
+    sources: list[DossierContextSource] = Field(default_factory=list)
+    omitted: int = Field(ge=0)
+    complete: bool
+    discard: Literal["after_request"]
+    context_sha256: str = Field(pattern=SHA256_PATTERN)
+
+
 class Dossier(BaseModel):
     """Dossier ``1.0``. Validate the JSON object with ``Dossier.model_validate(obj)``; the digest is computed over the
     JSON object itself (:func:`dossier_digest`), never over a re-serialised model."""
@@ -374,6 +438,10 @@ class Dossier(BaseModel):
     index: list[IndexEntry]
     auditor: Optional[DossierAuditor] = None
     consolidations: Optional[list[DossierConsolidation]] = None
+    #: The part of a combined answer's N_FOLD review this dossier is issued for (architecture step 3); absent otherwise.
+    review: Optional[DossierReview] = None
+    #: The merged review's bounded, request-scoped temporary context (architecture step 3); absent otherwise.
+    temporary_context: Optional[DossierTemporaryContext] = None
     limits: DossierLimits
 
     @model_validator(mode="after")
@@ -389,6 +457,15 @@ class Dossier(BaseModel):
             for i, c in enumerate(self.consolidations):
                 if c.at != f"/consolidations/{i}":
                     raise ValueError(f"consolidation {i} carries the pointer {c.at!r}")
+        r, tc = self.review, self.temporary_context
+        if r is not None and (r.role == "source") != (r.source is not None):
+            raise ValueError("a source review names its source; a merged review names none")
+        if r is not None and r.source is not None and r.source > r.of:
+            raise ValueError("a source review names a source of the combined answer")
+        if (tc is not None) != (r is not None and r.role == "merged"):
+            raise ValueError("the temporary context is shown exactly in a merged review's dossier")
+        if tc is not None and (tc.scope.task_id, tc.scope.request_id) != (self.task.task_id, self.task.request_id):
+            raise ValueError("the temporary context belongs to another task or request than the dossier")
         return self
 
 
@@ -797,13 +874,16 @@ def consolidation_entry(resp: Any, index: int, at_of: dict[str, str]) -> dict:
 
 
 def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None,
-                  consolidations: Any = (), issue_binding: Optional[str] = None) -> dict:
+                  consolidations: Any = (), issue_binding: Optional[str] = None, review: Optional[dict] = None,
+                  temporary_context: Optional[dict] = None) -> dict:
     """The dossier of ``view`` for one agent under one pack, as a JSON object (validated against :class:`Dossier`).
 
     ``mode`` is ``blind`` (no auditor finding) or ``informed`` (the ``OVS-*`` findings of ``audit``, which is then
     required). The view must be built from a journal: a degraded view has no reference copy and is refused.
     ``consolidations`` are consolidated responses of this channel (the caller verifies their signatures); they are shown
-    in informed mode only, and a dossier without any has no ``consolidations`` member."""
+    in informed mode only, and a dossier without any has no ``consolidations`` member. ``review`` (a part of a combined
+    answer's N_FOLD review, ``view`` that part's view) and ``temporary_context`` (the merged review's record) are shown
+    when given (module docstring); a dossier without them has neither member."""
     if mode not in MODES:
         raise ValueError(f"unknown dossier mode {mode!r}")
     if lens not in LENSES:
@@ -849,8 +929,14 @@ def build_dossier(view: OverseerView, *, mode: str, lens: str, agent_id: str, pa
         "transfers": transfers, "results": results, "links": {**_links(view), "translations": _translation_links(transfers)},
         "index": _index(transfers, results),
     }
+    if review is not None:
+        dossier["review"] = dict(review)
+    if temporary_context is not None:
+        dossier["temporary_context"] = json.loads(canonical_json(temporary_context))
     if mode == "informed":
-        dossier["auditor"] = {"findings": [f.model_dump(mode="json", exclude_none=True) for f in audit.report.findings if not is_agent_code(f.code)]}
+        part = {tr["message_id"] for tr in transfers if tr.get("message_id")} if review is not None else None
+        dossier["auditor"] = {"findings": [f.model_dump(mode="json", exclude_none=True) for f in audit.report.findings if not is_agent_code(f.code)
+                                           and (part is None or not f.message_ids or set(f.message_ids) & part)]}
         shown = list(consolidations or ())
         for c in shown:
             if getattr(c, "channel_uid", None) != view.channel_uid:

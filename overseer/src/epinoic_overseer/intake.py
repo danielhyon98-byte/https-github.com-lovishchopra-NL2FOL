@@ -79,6 +79,7 @@ from .codes import ovs_finding
 from .contracts import OverseerAudit
 from .dossier import build_dossier, dossier_json
 from .keys import INTAKE_KEY_ID, KeyRing
+from .twofold import N_FOLD_MIN_PACK_MAJOR, teaches_n_fold
 from .verdicts import HEADER_ID_PATTERN, LENSES, MODES, VERDICT_CONTRACT, AgentVerdict, PackIdentity, is_no_dossier
 from .view import OverseerView
 
@@ -108,8 +109,10 @@ def _now() -> str:
 
 class IntakeRefused(ValueError):
     """An issue the intake refuses (no dossier is built): ``reason`` is ``pack_unknown``, ``audit``, ``agent_id``,
-    ``lens``, ``mode`` or ``consolidation`` (a consolidated response that does not verify under the consolidation key or
-    belongs to another channel; consolidation stage, design section 19)."""
+    ``lens``, ``mode``, ``consolidation`` (a consolidated response that does not verify under the consolidation key or
+    belongs to another channel; consolidation stage, design section 19), ``review`` (a part of an N_FOLD review out of
+    shape, or under a pack older than 2.0, which does not teach it) or ``temporary_context`` (a merged review's context that is discarded, does not hash to its digest, or belongs
+    to another channel, task or request; architecture step 3, design section 52)."""
 
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
@@ -261,10 +264,13 @@ class VerdictIntake:
 
     # ------------------------------------------------------------------ issue
     def issue(self, view: OverseerView, *, agent_id: str, lens: str, mode: str, pack: PackIdentity, audit: Optional[OverseerAudit] = None,
-              consolidations: Sequence[Any] = ()) -> dict:
+              consolidations: Sequence[Any] = (), review: Optional[dict] = None, temporary_context: Any = None) -> dict:
         """Build and record the dossier of ``view`` for ``agent_id`` under ``pack``; returns the dossier (a copy).
         ``consolidations`` (signed consolidated responses of the channel) are shown in informed mode only; each must
-        verify under the consolidation key and belong to the view's channel, or nothing is issued."""
+        verify under the consolidation key and belong to the view's channel, or nothing is issued. ``review`` names the
+        part of a combined answer's N_FOLD review the dossier is for (``view`` is that part's view), and
+        ``temporary_context`` (a ``twofold.TemporaryContext``, merged review only) is shown as its record: refused unless
+        it is not discarded, hashes to its digest and belongs to this channel, task and request."""
         if not isinstance(agent_id, str) or not _AGENT_ID_RE.match(agent_id) or agent_id == AUDITOR_AGENT_ID:
             raise IntakeRefused("agent_id", "the agent id is empty, too long, contains a control character or is reserved for the auditor")
         if lens not in LENSES:
@@ -281,12 +287,35 @@ class VerdictIntake:
             for c in shown:
                 if not verify_consolidated(c, self._keyring) or c.channel_uid != view.channel_uid:
                     raise IntakeRefused("consolidation", "a consolidated response does not verify under the consolidation key or belongs to another channel; it is not shown")
-        plain = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else ())
+        context_record = None
+        if temporary_context is not None:
+            if getattr(temporary_context, "discarded", True) or not temporary_context.verifies():
+                raise IntakeRefused("temporary_context", "the temporary context is discarded or does not hash to its digest: it is not shown")
+            if temporary_context.channel_uid != view.channel_uid:
+                raise IntakeRefused("temporary_context", "the temporary context belongs to another channel: it is never shown in this dossier")
+            context_record = temporary_context.record
+        if review is not None and (not isinstance(review, dict) or review.get("method") != "N_FOLD" or review.get("role") not in ("source", "merged")
+                                   or (review.get("role") == "merged") != (temporary_context is not None)):
+            raise IntakeRefused("review", "a part dossier names its part of an N_FOLD review, and only the merged review is shown a temporary context")
+        if temporary_context is not None and review is None:
+            raise IntakeRefused("review", "a temporary context is shown only in a merged review's dossier")
+        if review is not None and not teaches_n_fold(pack):
+            raise IntakeRefused("review", f"pack {pack.name} {pack.version} does not teach the N_FOLD review of a combined answer "
+                                          f"({N_FOLD_MIN_PACK_MAJOR}.0 and later do): no part dossier is issued under it")
+        try:
+            plain = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else (),
+                                  review=review, temporary_context=context_record)
+        except ValueError as exc:
+            if context_record is not None and "temporary context" in str(exc):
+                raise IntakeRefused("temporary_context", "the temporary context belongs to another task or request than the dossier: it is not shown") from None
+            if review is not None:
+                raise IntakeRefused("review", f"the part dossier could not be built ({type(exc).__name__})") from None
+            raise
         # the binding is keyed: only this intake can compute it, so no agent can derive another agent's dossier digest from
         # its own dossier (they differ only in the header); deterministic, so a re-issue gives the same dossier
         binding = self._keyring.mac("intake", "issue-binding|" + canonical_json([agent_id, lens, mode, pack.model_dump(mode="json"), plain["dossier_sha256"]]))[:32]
         dossier = build_dossier(view, mode=mode, lens=lens, agent_id=agent_id, pack=pack, audit=audit, consolidations=shown if mode == "informed" else (),
-                                issue_binding=binding)
+                                issue_binding=binding, review=review, temporary_context=context_record)
         record = IssueRecord(issue_id=uuid.uuid4().hex, agent_id=agent_id, task_id=dossier["task"]["task_id"], request_id=dossier["task"]["request_id"],
                              channel_uid=view.channel_uid, dossier_sha256=dossier["dossier_sha256"], pack=pack, lens=lens, mode=mode,
                              task_audit_id=audit.audit_id if audit is not None else None, issued_at=_now())

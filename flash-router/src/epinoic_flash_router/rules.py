@@ -8,12 +8,19 @@ code point, no whitespace, non-ASCII raw): the rules digest and the cost-data di
 recorded review. The sub-project's tests hold every released file to its recorded digest (a released file never
 changes) and the current files to the manifest.
 
-What the current rules file holds (``rules-2.json``): the rules in words (``rules``), the port planner's parameters
-(``parameters``: split_words, max_parts, max_reviews, hard_max_instances, context_max_bytes), the pool planner's
-thresholds and batch size (``pool``: escalated_reviewers, baseline_reviewers, record_weight, batch_size), the agreement
-signals the port rules read (``signals``), the features each planner reads (``features``) and the method table
-(``methods``). The cost data (``cost-data-2.json``) holds the port plan's planning estimates and the sizes the overseer
-recorded for its knowledge pack and dossiers: estimates and sizes, never a price or a latency, and no model.
+What the current rules file holds (``rules-3.json``, 0.3.0): the rules in words (``rules``: the flash decision maker's
+rules D1 to D7, the port rules 1 to 7 and the pool rules P1 to P8), the port planner's parameters (``parameters``:
+max_parts, max_reviews, hard_max_instances, context_max_bytes), the pool planner's thresholds and batch size (``pool``:
+escalated_reviewers, baseline_reviewers, record_weight, batch_size, and for a combined answer source_reviewers and
+merged_reviewers), the flash decision maker's own section (``decision``: its two methods and the order its choice
+follows), the agreement signals the port rules read (``signals``), the features each planner reads (``features``) and the
+method table (``methods``). The cost data (``cost-data-3.json``) holds the decision maker's planning estimates (the
+instance budget, the output budget, the seconds a call, the dossier estimate) and the sizes the overseer recorded for
+its knowledge pack's compositions and its dossiers: estimates and sizes, never a price or a latency, and no model.
+
+A rules/2 document (``rules-2.json``, 0.2.0) has no ``decision`` section and a ``split_words`` parameter: the planners
+plan it by its own rules (an output longer than split_words words is divided), with 0.2.0's cost model
+(``cost-data-2.json``), so a data directory holding the released 0.2.0 files plans exactly as 0.2.0 did.
 
 Pure: the only file this module reads is a data directory's manifest and the two files it names, once, at load, with
 the builtin ``open``; nothing here uses the network, a clock, randomness or a process. A data directory other than the
@@ -26,7 +33,7 @@ import json
 from typing import Any, Mapping, Optional
 
 __all__ = [
-    "DATA_DIR", "DataSet", "DEFAULT", "MANIFEST", "RULES_DOCUMENT", "RULES", "PARAMETERS", "POOL", "SIGNALS", "FEATURES", "METHODS",
+    "DATA_DIR", "DataSet", "DEFAULT", "MANIFEST", "RULES_DOCUMENT", "RULES", "PARAMETERS", "POOL", "SIGNALS", "FEATURES", "METHODS", "DECISION", "COMPOSITIONS",
     "COST_MODEL", "canonical", "document_sha256", "rules_sha256", "cost_data_sha256", "RULES_SHA256", "COST_DATA_SHA256",
 ]
 
@@ -85,19 +92,27 @@ def _strings(value: Any, where: str) -> None:
 
 def _check_rules(doc: Any) -> None:
     """The shape the planners read. The values themselves are the router's choice: a weakened file (fewer reviewers, a
-    larger batch) loads, and the overseer's floor refuses what it plans below the floor."""
+    larger batch) loads, and the overseer's floor refuses what it plans below the floor. A rules/3 document carries the
+    flash decision maker's ``decision`` section and the combined answer's pool parameters; a rules/2 document its
+    ``split_words`` instead."""
     if not isinstance(doc, dict) or not isinstance(doc.get("rules"), str) or not doc["rules"].strip():
         raise ValueError("the rules file holds its rules in words (rules)")
     params, pool, signals, features, methods = (doc.get(k) for k in ("parameters", "pool", "signals", "features", "methods"))
+    decision = doc.get("decision")
     if not isinstance(params, dict):
         raise ValueError("the rules file holds the port planner's parameters")
-    for key in ("split_words", "max_parts", "max_reviews", "hard_max_instances", "context_max_bytes"):
+    for key in ("max_parts", "max_reviews", "hard_max_instances", "context_max_bytes") + (() if decision is not None else ("split_words",)):
         _count(params, key, "parameters")
     if not isinstance(pool, dict):
         raise ValueError("the rules file holds the pool planner's parameters")
-    for key in ("escalated_reviewers", "baseline_reviewers", "record_weight"):
+    for key in ("escalated_reviewers", "baseline_reviewers", "record_weight") + (("source_reviewers", "merged_reviewers") if decision is not None else ()):
         _count(pool, key, "pool")
     _count(pool, "batch_size", "pool", optional=True)
+    if decision is not None:
+        if not isinstance(decision, dict) or decision.get("approaches") != {"in_depth": ["IN_DEPTH"], "duplication": ["SPLIT", "DUPLICATE", "N_FOLD"]}:
+            raise ValueError("the decision section names the flash decision maker's two methods (approaches)")
+        if decision.get("order") != ["tokens", "seconds", "calls", "method"]:
+            raise ValueError("the decision section states the order its choice follows")
     if not isinstance(signals, dict):
         raise ValueError("the rules file holds the port rules' agreement signals")
     for key in ("negative_statuses", "undecided_statuses", "stem_undecided_codes"):
@@ -110,11 +125,29 @@ def _check_rules(doc: Any) -> None:
         raise ValueError("the rules file holds the method table of the four methods")
 
 
-def _check_cost(doc: Any) -> None:
+#: The compositions of the overseer's knowledge pack whose system text sizes the decision maker prices.
+COMPOSITIONS = ("core", "core+stem", "core+translations", "core+stem+translations")
+
+
+def _check_cost(doc: Any, *, decision: bool) -> None:
     if not isinstance(doc, dict) or not isinstance(doc.get("name"), str):
         raise ValueError("the cost-data file names itself")
-    for key in ("review_tokens_base", "chars_per_token", "seconds_per_instance"):
-        _count(doc, key, "cost data", minimum=0 if key != "chars_per_token" else 1)
+    if not decision:
+        for key in ("review_tokens_base", "chars_per_token", "seconds_per_instance"):
+            _count(doc, key, "cost data", minimum=0 if key != "chars_per_token" else 1)
+        return
+    for key, minimum in (("chars_per_token", 1), ("output_tokens", 0), ("instance_budget_tokens", 1), ("seconds_per_call", 0)):
+        _count(doc, key, "cost data", minimum=minimum)
+    sizes = doc.get("system_text_chars")
+    if not isinstance(sizes, dict) or set(sizes) != set(COMPOSITIONS):
+        raise ValueError("the cost data records the system text size of every composition (system_text_chars)")
+    for key in COMPOSITIONS:
+        _count(sizes, key, "cost data.system_text_chars", minimum=0)
+    dossier = doc.get("dossier")
+    if not isinstance(dossier, dict):
+        raise ValueError("the cost data holds the dossier estimate (dossier)")
+    for key in ("base_chars", "chars_per_answer_char", "chars_per_translation"):
+        _count(dossier, key, "cost data.dossier", minimum=0)
 
 
 class DataSet:
@@ -136,13 +169,15 @@ class DataSet:
         self.rules_document: dict = _read(self.data_dir, self.rules_file)
         self.cost_data: dict = _read(self.data_dir, self.cost_data_file)
         _check_rules(self.rules_document)
-        _check_cost(self.cost_data)
+        _check_cost(self.cost_data, decision=self.rules_document.get("decision") is not None)
         self.rules: str = self.rules_document["rules"]
         self.parameters: dict = self.rules_document["parameters"]
         self.pool: dict = self.rules_document["pool"]
         self.signals: dict = self.rules_document["signals"]
         self.features: dict = self.rules_document["features"]
         self.methods: dict = self.rules_document["methods"]
+        #: the flash decision maker's section (rules/3), or None for a rules/2 document (its own rule 4 plans it)
+        self.decision: Optional[dict] = self.rules_document.get("decision")
         self.rules_sha256: str = document_sha256(self.rules_document)
         self.cost_data_sha256: str = document_sha256(self.cost_data)
 
@@ -157,6 +192,7 @@ POOL: dict = DEFAULT.pool
 SIGNALS: dict = DEFAULT.signals
 FEATURES: dict = DEFAULT.features
 METHODS: dict = DEFAULT.methods
+DECISION: Optional[dict] = DEFAULT.decision
 #: The current cost data (planning estimates and recorded sizes): the document its digest is taken of.
 COST_MODEL: dict = DEFAULT.cost_data
 

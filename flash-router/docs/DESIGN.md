@@ -1,4 +1,4 @@
-# Flash router design (`epinoic-flash-router` 0.2.0)
+# Flash router design (`epinoic-flash-router` 0.3.0)
 
 ## 1. What it is and what it is not
 
@@ -19,11 +19,11 @@ Both callers reach it only through the router port `epinoic.integration.router-p
 | Caller | Operations | Documents | The caller's floor |
 |---|---|---|---|
 | the translator's checks service (section 7a) | `hello`, `plan` | `router-hello.v1`, `routing-request.v1` → `routing-plan.v1` | `minimum-oversight-floor/1` (the service's router port) |
-| the overseer pool (section 7b, pool port 1.1) | `pool_hello`, `pool_plan` | `pool-router-hello.v1`, `pool-routing-request.v1` → `pool-routing-plan.v1` | `minimum-oversight-floor/pool-1` (the overseer's `floor.py`) |
+| the overseer pool (section 7b, pool port 1.2; 1.1 still answered) | `pool_hello`, `pool_plan` | `pool-router-hello.v1`, `pool-routing-request.v1` → `pool-routing-plan.v1` | `minimum-oversight-floor/pool-2` (the overseer's `floor.py`) |
 
 The overseer pool attaches the router **by capability**: only a router whose module exposes `pool_hello()` and
-`pool_plan()` and whose pool hello declares the capability `pool-plan` at a pool port version the overseer speaks (1.1)
-is attached; any other is refused with `KIT-RT-015` (a failing one `KIT-RT-016`) and the overseer's floor plan runs. The
+`pool_plan()` and whose pool hello declares the capability `pool-plan` at a pool port version the overseer speaks (1.1
+or 1.2; this release speaks 1.2, and answers a 1.1 request at 1.1) is attached; any other is refused with `KIT-RT-015` (a failing one `KIT-RT-016`) and the overseer's floor plan runs. The
 service attaches it by `EPINOIC_FLASH_ROUTER`. Neither the translator nor the overseer imports this package.
 
 ## 3. The minimum-oversight floor, and why accuracy never depends on this router
@@ -34,47 +34,87 @@ or above the floor; otherwise the floor plan runs and the refusal is recorded (`
 contract's own `KIT-RT` codes otherwise). With no router attached the floor plan runs. Risk signals only escalate. So a
 re-tuned or weakened data file, or an edited planner, can add oversight but never remove it.
 
-The pool's floor (`minimum-oversight-floor/pool-1`, in the overseer): every dossier of a batch is reviewed by at least
+The pool's floor (`minimum-oversight-floor/pool-2`, in the overseer): every dossier of a batch is reviewed by at least
 one instance; a dossier whose task carries a repeated fault or a risk signal (an error-level finding, a rejection, a
 contradiction, an encoding conflict, a withheld verdict, a named defect at warning or error, an unchecked source or a
 STEM method error at that severity, an argument diagnosis that did not finish), or that the overseer's escalation
 advisor escalated, is reviewed by at least two distinct instances; no plan grows past the pool's maximum; every instance
-runs on the cheapest tier from the pool's one pack. A combined answer's floor becomes N_FOLD when combined answers reach
-the pool (architecture step 3). What lies above the floor is this router's choice: the batch sizes (how many instances
+runs on the cheapest tier from the pool's one pack; and since architecture step 3 a combined answer is reviewed N_FOLD,
+each source by at least one instance (two when its own transfers carry a risk signal), the merged review by at least one
+(two under the same rule), with the temporary context bounded at 65,536 bytes. What lies above the floor is this
+router's choice: the batch sizes (how many instances
 a batch is spread over), the weight of risk records, extra duplicates, the profile.
 
 ## 4. The method table
 
-| Method | Meaning | Complete reviews | Port plan (rules/2) | Pool plan (rules/2, pool port 1.1) |
-|---|---|---|---|---|
-| `IN_DEPTH` | one instance examines the whole response | 1 | one review, one part | a dossier that is not escalated |
-| `SPLIT` | the work divided across parallel instances, each part reviewed once | 1 | a long output read by one review | not for one dossier; a batch over the quota is spread over instances |
-| `DUPLICATE` | independent duplicate reviews, combined by the verdict combination | `reviews` | two or more reviews | an escalated dossier, `escalated_reviewers` instances |
-| `N_FOLD` | a combined answer's sources each reviewed, then one merged review over all of them | `reviews` | a combined answer's synthesis | step 3 |
+| Method | Approach | Meaning | Complete reviews | Port plan (rules/3) | Pool plan (rules/3, pool port 1.2) |
+|---|---|---|---|---|---|
+| `IN_DEPTH` | in-depth examination | one instance examines the whole response | 1 | one review, one part, when it fits one instance's budget | a dossier that is not escalated |
+| `SPLIT` | duplication | the work divided across parallel instances, each part reviewed once | 1 | an output read by one review that does not fit one instance, in the fewest parts that fit | not for one dossier (a dossier that does not fit is disclosed, `over_budget`); a batch over the quota is spread over instances |
+| `DUPLICATE` | duplication | independent duplicate reviews, combined by the verdict combination | `reviews` | two or more reviews, in parts when the output does not fit | an escalated dossier, `escalated_reviewers` instances; a combined answer's escalated source |
+| `N_FOLD` | duplication | a combined answer's sources each reviewed on instances of their own in parallel, then one merged review with the temporary context of their validated outcomes | `reviews` | a combined answer's synthesis | a combined answer (P8) |
 
-The table is data (`methods` in the rules file), ready for a cost planner later: a planner that divides one dossier
-(`SPLIT`) or reviews a combined answer in the pool (`N_FOLD`) is a new pool port version agreed with the overseer.
+The table is data (`methods` in the rules file).
+
+## 4a. The flash decision maker (rules D1 to D7, `decision.py`)
+
+The router's first decision, for every response it is asked about (an output of the service's routing request, one
+dossier of a pool batch), is made by code:
+
+- **D1 what it reads**: the request record's and the output's features only (risk signals and records, sizes, STEM or not,
+  translated claims, the topology), never a text; deterministic and instant; no model decides duplication, and the
+  overseer's escalation advisor only adds escalations (an item's `advised`).
+- **D2 the two methods**: the in-depth examination method (`IN_DEPTH`) and the duplication method (`SPLIT`, `N_FOLD`, with
+  `DUPLICATE` where risk calls for agreement).
+- **D3 agreement**: the reviews a response needs come from its risk signals (port rules 2 and 3, pool rule P2, P8 for a
+  combined answer's parts); risk only raises them.
+- **D4 fit**: an instance keeps accuracy only when it reads what it examines whole: the system text of the knowledge
+  pack's composition the content needs (the cost data's `system_text_chars`), what it reads and the output budget within
+  `instance_budget_tokens`. A response that does not fit is divided into the fewest parts that fit (at most `max_parts`
+  and the cap); the pool does not divide one dossier, so there it is disclosed (`over_budget`), never shortened.
+- **D5 cost**: every candidate is priced per call (system text, read, output budget, at `chars_per_token`, rounded up) and
+  in agent-seconds (`seconds_per_call` a call); the cheapest candidate that keeps accuracy is chosen (tokens, then seconds,
+  then calls, then the method order `IN_DEPTH`, `DUPLICATE`, `SPLIT`, `N_FOLD`). One instance reading the whole response is
+  the cheapest whenever it keeps accuracy, since every further call repeats the system text. When nothing keeps accuracy,
+  the nearest method is taken: the most of the reviews risk calls for, then the most parts, then the cheapest.
+- **D6 a combined answer** is N_FOLD (the floor's method for it): the N source reviews in parallel, each by the reviews its
+  own risk calls for, then the merged review; its record carries each part's decision, and the whole-dossier candidates
+  are priced and refused (`combined_needs_n_fold`).
+- **D7 every decision is recorded**: the features read, every candidate (its reviews, calls, tokens, seconds, whether it
+  keeps accuracy, and why it was or was not chosen: `chosen`, `costlier`, `agreement_needed`, `exceeds_budget`,
+  `combined_needs_n_fold`), its reasons (`in_depth_cheapest`, `agreement_risk`, `agreement_escalation`, `agreement_advised`,
+  `combined_n_fold`, `split_to_fit`, `over_budget`, `size_not_measured`) and its estimated cost: in the pool plan (pool port
+  1.2) as each dossier's `decision`, which the overseer validates against the request (`KIT-RT-012`) and keeps in its
+  admission; in the service's plan as each transfer's method, reasons, features used and estimated cost.
+
+In the pool, then, a dossier is read whole by one instance unless risk calls for agreement (a duplicate) or it is a
+combined answer (N_FOLD); a dossier whose estimated need exceeds the planned instance budget is disclosed `over_budget`,
+never cut (the pack's deployer README measures which recorded dossiers fit which windows).
 
 ## 5. Rules and cost data as versioned data files
 
 `src/epinoic_flash_router/data/MANIFEST.json` names the current files and records every file's version, release and
-digest (SHA-256 of the document's canonical JSON). The current rules file (`rules-2.json`) holds:
+digest (SHA-256 of the document's canonical JSON). The current rules file (`rules-3.json`, 0.3.0) holds:
 
-- `rules`: rules/2 in words (port rules 1 to 7, pool rules P1 to P7);
-- `parameters` (the port planner's thresholds and batch sizes): `split_words` 900, `max_parts` 16, `max_reviews` 4,
-  `hard_max_instances` 64, `context_max_bytes` 65,536;
-- `pool` (the pool planner's thresholds and batch size): `escalated_reviewers` 2, `baseline_reviewers` 1,
-  `record_weight` 2, `batch_size` null (the pool's own per-instance quota, as the overseer's planner sized batches);
-- `signals`: the agreement signals the port rules read (negative statuses, undecided statuses, the STEM undecided code);
-- `features`: the features each planner reads (`port`, `port_combined`, `pool`, `pool_limits`);
-- `methods`: the method table above.
+- `rules`: rules/3 in words (the decision maker D1 to D7, port rules 1 to 7, pool rules P1 to P8);
+- `parameters`: `max_parts` 16, `max_reviews` 4, `hard_max_instances` 64, `context_max_bytes` 65,536 (rules-2's
+  `split_words` 900 is gone: the fit replaced the word threshold);
+- `pool`: `escalated_reviewers` 2, `baseline_reviewers` 1, `record_weight` 2, `batch_size` null (the pool's own
+  per-instance quota), `source_reviewers` 1 and `merged_reviewers` 1 (a combined answer's parts without risk);
+- `decision`: the two approaches and their methods, the criterion, the order of the choice and the methods each caller
+  can run (the pool: `IN_DEPTH`, `DUPLICATE`, `N_FOLD`; the port: `IN_DEPTH`, `SPLIT`, `DUPLICATE`, `N_FOLD`);
+- `signals`, `features` (the port reads `supplied_texts` and `claims` too; the pool `features`, `sources`, `merged`) and
+  `methods`.
 
-The current cost data (`cost-data-2.json`) holds the port plan's planning estimates (`review_tokens_base` 6,000 tokens,
-`chars_per_token` 4, `seconds_per_instance` 30: estimates, not measurements) and the sizes the overseer recorded for its
-knowledge pack 1.5 and its dossiers (system text per module, dossier sizes, the largest needs per module, the output
-budget), measured by the overseer's exporter on the recorded rounds with no model called. No price, no latency and no
-model is recorded: no overseer agent has run on a model. The cost planner is deferred (no optimisation before the bug
-testing is done), so a pool plan estimates no cost and the recorded sizes wait for it.
+The current cost data (`cost-data-3.json`, 0.3.0) holds the decision maker's prices: `chars_per_token` 4, `output_tokens`
+8,000, `instance_budget_tokens` 200,000, `seconds_per_call` 30 and the dossier estimate (`base_chars` 17,000, three
+characters a character of answer, 4,000 a translation), planning estimates, not measurements; and the system text of every
+composition of the overseer's knowledge pack 2.0, which the overseer measured (the core 235,694 characters, with the STEM
+module 448,147, with the translations module 331,665, with both 544,118), with the dossiers' recorded sizes. No price, no
+latency and no model is recorded: no overseer agent has run on a model.
+
+0.2.0's `rules-2.json` and `cost-data-2.json` stay byte for byte their 0.2.0 digests; a data directory whose manifest
+names them as current is planned by 0.2.0's rules (pool port 1.1, no decision record).
 
 0.1.0 kept its rules and cost model as Python constants. They are kept as `rules-1.json` and `cost-data-1.json`, whose
 digests are exactly the ones 0.1.0 reported in its identity (`177786ee…`, `228fe3e7…`).
@@ -83,7 +123,7 @@ The identity (`hello`, `pool_hello`, every plan) is `{name, version, rules_sha25
 files' digests and this release's version. A change of a data file changes the identity by itself, so every recorded
 review names the release and the rules that planned it.
 
-## 6. The pool plan (pool rules P1 to P7)
+## 6. The pool plan (pool rules P1 to P8)
 
 The pool's planning decision moved here from the overseer (`epinoic_overseer.pool.plan_pool` before step 2c):
 
@@ -100,9 +140,16 @@ The pool's planning decision moved here from the overseer (`epinoic_overseer.poo
    least-loaded instances, ties to the lower number.
 6. `over_quota` discloses an instance over the pool's quota.
 7. Cheapest tier, standard profile when offered; reasons are closed codes with counts, numbers and risk classes (the
-   overseer words them; a plan carries no free text); no cost estimate.
+   overseer words them; a plan carries no free text); at pool port 1.2 the plan's estimated cost is the sum of its
+   decisions' (absent when one is not priced).
+8. At pool port 1.2 a combined answer is N_FOLD: each source by `escalated_reviewers` instances when its own transfers
+   carry a repeated fault or a risk signal or the advisor escalated the dossier, else `source_reviewers`; the merged review
+   by `escalated_reviewers` under the same rule for the synthesis's own transfers, else `merged_reviewers`; the sources
+   need at least the sum of their reviewers at once (they run in parallel), each source on instances that review none of
+   its earlier sources while there are enough; the temporary context of at most `context_max_bytes` bytes, discarded after
+   the request (reason `pool_n_fold` with the count and the sources). A 1.1 request carries no combined answer.
 
-With the released data this is the overseer's planner's plan, plan for plan: the overseer's
+With the released data the instances and assignments are the overseer's planner's plan, plan for plan: the overseer's
 `tests/overseer_tests/test_flash_router_pool.py` holds it to all 278 recorded plans of the arena rounds r2 to r5 and r7.
 
 ## 7. Determinism, purity and the runner
@@ -115,8 +162,11 @@ request from standard input and writes the answer to standard output, nothing el
 
 ## 8. What is deferred
 
-- the cost planner and the fast profile (no optimisation this week): the method table and the recorded sizes are ready;
-- `SPLIT` of one dossier and `N_FOLD` in the pool (a new pool port version; `N_FOLD` with step 3);
+- the fast profile (decision D30: not offered);
+- `SPLIT` of one dossier in the pool (a new pool port version agreed with the overseer);
+- a knowledge-pack module for the twofold instructions, so that a dossier that is no part of a combined answer is not sent
+  them (about 5,150 tokens each, pack 2.0): recorded for the optimisation checks, with the cost data priced by composition
+  once it exists;
 - an undecided STEM check alone (`INT-SUBJ-002` with no other signal) is an agreement signal of the service's floor but
   is not among the overseer's risk classes, so neither the pool's floor nor this router's pool rules escalate on it;
   making it one is a change of the overseer's risk reading and of the pool floor's version, recorded for a decision (no

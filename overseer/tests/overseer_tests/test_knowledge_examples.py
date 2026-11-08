@@ -49,8 +49,10 @@ from .test_knowledge_pack import SRC_PACK_DIR, copy_pack
 #: part's own result by rule part-value: no accusation). STEM repair 6 (design section 37) added Example 38 (a Given written in a
 #: Data list, its contradiction named by its check: no accusation). STEM repair 8 (design section 39) added Example 39 (a law its
 #: evaluation does not follow, named by its check: no accusation). STEM repair 9 (design section 40) added Example 40 (a Given of a
-#: function's value, set against the request's function and named by its check: no accusation).
-EXPECTED_EXAMPLES = 40
+#: function's value, set against the request's function and named by its check: no accusation). Pack 2.0 (architecture step 3,
+#: the twofold review of a combined answer) added Example 41 (a synthesis that carries a fault a source review confirmed, in a
+#: merged review's dossier: synthesis_carries_fault).
+EXPECTED_EXAMPLES = 41
 #: The categories of the Find an example table (the pack-mismatch example is a sixth case, outside them).
 CATEGORIES = ("genuine", "faulty", "tampered", "instruction", "unsure")
 
@@ -209,8 +211,9 @@ def test_every_example_is_consistent_with_its_excerpt():
     assert problems_examples(SRC_PACK_DIR) == []
 
 
-def test_all_forty_examples_parse(examples):
-    # renamed from test_all_thirty_nine_examples_parse (STEM repair 9 added Example 40, a Given of a function's value set against the
+def test_all_forty_one_examples_parse(examples):
+    # renamed from test_all_forty_examples_parse (pack 2.0 added Example 41, a synthesis that carries a fault a source review
+    # confirmed: synthesis_carries_fault), itself from test_all_thirty_nine_examples_parse (STEM repair 9 added Example 40, a Given of a function's value set against the
     # request's function, named by its check: no accusation), itself from test_all_thirty_eight_examples_parse (STEM repair 8 added
     # Example 39, a law its evaluation does not follow, named
     # by its check: no accusation), itself from test_all_thirty_seven_examples_parse (STEM repair 6 added Example 38, a Given written
@@ -234,7 +237,7 @@ def test_all_forty_examples_parse(examples):
     # could not verify, no accusation), test_all_twenty_six_examples_parse (the second repair added Example 27) and
     # test_all_twenty_five_examples_parse (the first repair added Example 26): the same exact count and exact kinds per
     # example, one more example pinned
-    assert len(examples) == EXPECTED_EXAMPLES == 40
+    assert len(examples) == EXPECTED_EXAMPLES == 41
     kinds = {e.number: sorted({a["kind"] for a in e.verdict["accusations"]}) for e in examples}
     assert kinds == {1: [], 2: [], 3: ["quotation_absent"], 4: ["self_certification_as_content"], 5: ["figure_changed"], 6: ["contradiction_unnamed"],
                      7: ["forward_altered"], 8: ["result_unsigned_or_forged"], 9: ["receipt_status_wrong"], 10: ["peer_document_altered"],
@@ -242,7 +245,7 @@ def test_all_forty_examples_parse(examples):
                      17: ["translation_unfaithful"], 18: [], 19: ["self_certification_as_content"], 20: [], 21: [], 22: [], 23: [], 24: [],
                      25: ["translation_unfaithful"], 26: ["translation_circular"], 27: ["translation_circular"], 28: ["translation_circular"], 29: [],
                      30: ["translation_circular"], 31: [], 32: ["receipt_altered"], 33: ["translation_unfaithful"], 34: ["finding_missing"],
-                     35: [], 36: [], 37: [], 38: [], 39: [], 40: []}
+                     35: [], 36: [], 37: [], 38: [], 39: [], 40: [], 41: ["synthesis_carries_fault"]}
     assert sum(len(e.verdict["engine_statements"]) for e in examples) == 2 and examples[7].verdict["engine_statements"][0]["result_id"] == "res-c4"
     assert examples[31].verdict["engine_statements"] == [{"result_id": "res-3201", "asserted_status": "COUNTEREXAMPLE", "pointer": "/results/res-3201/status"}]
 
@@ -513,7 +516,7 @@ MUTATIONS = {
     "header": ('"dossier_sha256": "07d0d0', '"dossier_sha256": "07d0d1'),
     "engine_statement": ('"asserted_status": "COUNTEREXAMPLE"', '"asserted_status": "ENTAILED"'),
     "table_kind": ("| 9 | tampered | response receipt | `receipt_status_wrong` |", "| 9 | tampered | response receipt | `receipt_altered` |"),
-    "u2_notes": ("this agent is configured with overseer-knowledge-docs 1.5. Not reviewed.", "this agent is configured with overseer-knowledge-docs 1.6. Not reviewed."),
+    "u2_notes": ("this agent is configured with overseer-knowledge-docs 2.0. Not reviewed.", "this agent is configured with overseer-knowledge-docs 2.1. Not reviewed."),
     "table_type": ("| 7 | tampered | router forward |", "| 7 | faulty | router forward |"),
     "schema": ('"claimed_severity": "warning",\n      "message_ids": ["m-0002"]', '"claimed_severity": "Warning",\n      "message_ids": ["m-0002"]'),
 }
@@ -572,3 +575,30 @@ def test_the_fifth_repair_example_agrees_with_the_check_it_teaches(examples):
     for other in ("Analyse the extract. Is the paragraph 80 words long?", "Analyse the extract. Explain why the paragraph is not 80 words long."):
         assert T.restatement(prob, rep, [other]).standings == (("t_len", "uncheckable"),), other
 
+
+
+def test_the_twofold_example_agrees_with_the_check_it_teaches(examples):
+    """Pack 2.0 (architecture step 3): Example 41 is a merged review's dossier (``review`` role merged, a temporary context)
+    whose correct verdict accuses ``synthesis_carries_fault`` exactly where rule carried-fault confirms one: the accused
+    synthesized claim cites (its ``source_claim_ids``) the accused source claim, which the context lists under a source's
+    ``confirmed`` of a report in that source's ``report_ids``; the other synthesized claim cites a claim the context does not
+    list, and is not accused (Inspection I102, I103). The evidence points at the citation and at the context's record."""
+    ex = examples[40]
+    assert ex.number == 41 and ex.value("/review/role") == "merged" and ex.value("/review/method") == "N_FOLD" and ex.value("/review/of") == 2
+    ctx = ex.value("/temporary_context")
+    assert ctx["format"] == "overseer-temporary-context/1.0" and ctx["max_bytes"] == 65536 and ctx["complete"] is True and ctx["omitted"] == 0
+    assert (ctx["scope"]["task_id"], ctx["scope"]["request_id"]) == (ex.value("/task/task_id"), ex.value("/task/request_id"))
+    confirmed = {(r, c) for s in ctx["sources"].values() for f in (s["confirmed"].values() if isinstance(s["confirmed"], dict) else s["confirmed"])
+                 for c in f["claim_ids"] for r in f["report_ids"] if r in s["report_ids"]}
+    [acc] = ex.verdict["accusations"]
+    assert acc["kind"] == "synthesis_carries_fault" and acc["claimed_severity"] == "error"
+    synthesis = next(t for t in ex.value("/transfers").values() if t.get("kind") == "relay_synthesis")
+    assert acc["message_ids"] == [synthesis["message_id"]] and acc["receipt_ids"] == [synthesis["receipt_id"]]
+    cites = {c["claim_id"]: c["source_claim_ids"] for c in synthesis["payload"]["claims"].values()}
+    synthesized = [c for c in acc["claim_ids"] if c in cites]
+    sources = [c for c in acc["claim_ids"] if c not in cites]
+    assert synthesized == ["s1"] and sources == ["h1.2"]
+    assert all((r, c) in confirmed for c in sources for r in acc["report_ids"]) and set(sources) <= set(cites["s1"])
+    assert not any((r, c) in confirmed for c in cites["s2"] for r in ctx["sources"]["1"]["report_ids"])  # s2 cites no confirmed fault
+    assert [e["pointer"] for e in acc["evidence"]] == ["/transfers/4/payload/claims/0/source_claim_ids", "/temporary_context/sources/0/confirmed/0/claim_ids"]
+    assert all("quote" not in e for e in acc["evidence"])

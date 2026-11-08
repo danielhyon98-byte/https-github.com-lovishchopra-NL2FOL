@@ -1,5 +1,5 @@
 """The overseer pool's planning decision in the flash router, behind the overseer's minimum-oversight floor
-(architecture step 2c; design section 52; ``floor.py``; the router: ``flash-router/``).
+(architecture step 2c; design section 51; ``floor.py``; the router: ``flash-router/``).
 
 - with the router attached, the plan for every recorded transfer of r2, r3, r4, r5 and r7 (each channel alone, and each
   round's genuine and full batches) is the plan the overseer's own planner made before the decision moved, recorded on

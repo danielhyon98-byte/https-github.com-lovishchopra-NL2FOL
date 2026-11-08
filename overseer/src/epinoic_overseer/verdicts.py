@@ -38,6 +38,11 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` sections 9.3 and 17.10, listed as ea
 * accusation ids must be unique within a verdict (Verdict format V8), checked by the schema;
 * :data:`KIND_CODE_QUALIFIERS` records the one qualified mapping of the table: ``figure_changed`` is confirmed by
   OVS-SYN-002 only when that finding names INT-LEDGER-023.
+* the twofold mode (architecture step 3, design section 52): the kind ``synthesis_carries_fault`` (a merged review's
+  accusation that a synthesized claim carries a fault a source review confirmed) is decided through the merged review's
+  temporary context by rule ``carried-fault`` (:data:`CONTEXT_KINDS`), its table row naming OVS-AGENT-003 (the source
+  review's confirmed accusation); ``overseer_verdict/1.0`` is extended in place with the kind (an additive value: every
+  earlier verdict validates unchanged), and pack 1.6 teaches it.
 * translator oversight (founder's requirement, design section 18): the four translation kinds, OVS-TRN-007 under
   ``receipt_altered`` and the lens ``translation_fidelity`` are part of ``overseer_verdict/1.0`` and dossier 1.0. Neither
   contract had been released (no verdict exists outside this branch), so they were extended in place rather than
@@ -53,7 +58,7 @@ from epinoic_logic.api.engine import VerificationStatus
 
 __all__ = [
     "VERDICT_CONTRACT", "VERDICT_CONTRACT_NAME", "DOSSIER_VERSION", "NO_DOSSIER_MARKER", "is_no_dossier", "PackIdentity", "AccusationKind",
-    "ACCUSATION_KINDS", "KIND_CHECKS", "KIND_CODE_QUALIFIERS", "UNCHECKED_KINDS", "TRANSLATION_KINDS", "Lens", "LENSES", "Mode", "MODES", "EvidenceItem", "Accusation", "EngineStatement",
+    "ACCUSATION_KINDS", "KIND_CHECKS", "KIND_CODE_QUALIFIERS", "UNCHECKED_KINDS", "TRANSLATION_KINDS", "CONTEXT_KINDS", "Lens", "LENSES", "Mode", "MODES", "EvidenceItem", "Accusation", "EngineStatement",
     "AgentVerdict", "ID_FIELDS", "accusation_identifiers", "MAX_ACCUSATIONS", "MAX_EVIDENCE", "MAX_IDS", "MAX_QUOTE_CHARS", "MAX_TEXT_CHARS",
     "MAX_TRANSFERS_REVIEWED", "MAX_ENGINE_STATEMENTS", "STATUS_SPELLINGS", "IdentifierStr", "PACK_NAME_PATTERN", "PACK_VERSION_PATTERN", "SHA256_PATTERN",
 ]
@@ -98,7 +103,7 @@ AccusationKind = Literal[
     "payload_altered", "receipt_altered", "receipt_status_wrong", "finding_missing", "result_unsigned_or_forged", "result_from_other_problem",
     "result_out_of_task", "replay_differs", "formal_status_wrong", "claim_not_in_response", "quotation_absent", "figure_changed",
     "self_certification_as_content", "forward_altered", "peer_document_altered", "synthesis_ledger_fault", "contradiction_unnamed", "false_conflict",
-    "translation_invalid", "translation_ungrounded", "translation_circular", "translation_unfaithful", "other",
+    "translation_invalid", "translation_ungrounded", "translation_circular", "translation_unfaithful", "synthesis_carries_fault", "other",
 ]
 
 #: Each kind and the deterministic checks that confirm it, in the order of the pack's Kinds and codes table (design
@@ -128,9 +133,15 @@ KIND_CHECKS: dict[str, tuple[str, ...]] = {
     "translation_ungrounded": ("OVS-TRN-003", "OVS-TRN-004", "OVS-TRN-005"),
     "translation_circular": ("OVS-TRN-006",),
     "translation_unfaithful": (),
+    # architecture step 3, the twofold mode: a synthesized claim that cites a source claim a source review confirmed faulty
+    # (the merged review's temporary context lists it) is decided by rule carried-fault (validate.py) through that source
+    # review's confirmed accusation (OVS-AGENT-003) and its confirming OVS-* findings, and the journaled synthesis
+    "synthesis_carries_fault": ("OVS-AGENT-003",),
     "other": (),
 }
 ACCUSATION_KINDS: tuple[str, ...] = tuple(KIND_CHECKS)
+#: Kinds decided through a merged review's temporary context (rule ``carried-fault``), never by a task audit's finding.
+CONTEXT_KINDS: frozenset[str] = frozenset({"synthesis_carries_fault"})
 #: Kinds no deterministic check decides: always unresolved (OVS-AGENT-004), sent to human review.
 UNCHECKED_KINDS: frozenset[str] = frozenset(k for k, codes in KIND_CHECKS.items() if not codes)
 #: The translator-oversight kinds a deterministic check decides (OVS-TRN-001..006).

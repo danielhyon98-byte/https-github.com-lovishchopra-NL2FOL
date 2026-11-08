@@ -5530,3 +5530,123 @@ Unchanged and intended: on r7/ch-t13 the cases that need a definitive bound or t
 T5b, T22b and T22w) skip with their reasons, and T10d (Decision 93) adds one tampering on the synthetic target, so the suite
 generates 355 tamperings (358 − 4 + 1). The regression tests are `overseer/tests/overseer_tests/test_r7_stage2_detection.py` (all but one
 need no recorded round; the last replays r7/ch-t13 and pins the four skips with their reasons before asserting T5 and T5c).
+
+## 52. The flash decision maker and the twofold mode (architecture step 3)
+
+Founder's step 3: the flash router's first decision is made explicit as the **flash decision maker** (deterministic and
+instant: the router is a separate sub-agent whose decision is code, never a model; the optional escalation advisor only adds
+escalations), deciding for every response between the **duplication method** (the work split across several cheapest-tier
+overseer instances in parallel, with duplicate reviews where risk calls for agreement) and the **in-depth examination
+method** (one instance examining the whole response), the cheapest that keeps accuracy from the recorded cost data, every
+decision recorded with its features and reason; and a **combined answer** (two or more subjects joined by the combinator) is
+reviewed **twofold**: one instance on each specialist's own response before combination, in parallel; their validated
+outcomes form a bounded temporary context for that request; a merged review then examines the combinator's output with that
+context; generalised to N specialists within the pool's maximum, every instance on the cheapest tier.
+
+**Decision 112 (the decision maker is code in the router's data, priced from its cost data).** `flash-router/` 0.3.0
+releases `rules-3.json` (rules D1 to D7, the port rules with rule 4 and rule 7 rewritten, the pool rules P1 to P8) and
+`cost-data-3.json` (the system text of every composition of the pack the overseer measured, 4 characters a token, an
+output budget of 8,000 tokens, an instance budget of 200,000, 30 agent-seconds a call, the dossier estimate), and
+`decision.py` decides: agreement (the reviews risk calls for: risk only raises them), fit (one instance must read the
+composition its content needs, what it examines and the output budget within the instance budget) and cost (each candidate
+priced per call and in agent-seconds; the cheapest that keeps accuracy wins, ties by seconds, calls, then the method order).
+One instance reading the whole response is the cheapest whenever it keeps accuracy, since every further call repeats the
+system text; a response that does not fit is divided into the fewest parts that fit where the caller can divide it (the
+service's routing port: `SPLIT`, or `DUPLICATE` with parts), and where it cannot (the pool reviews one dossier whole) the
+decision says so (`over_budget`) and never shortens anything. When nothing keeps accuracy (no fit, or a cap below the reviews
+risk calls for), the nearest method is taken, the most of the reviews risk calls for first. The rules-2 word threshold
+(`split_words`) is gone from the current rules; 0.1.0's and 0.2.0's files stay byte for byte.
+
+**Decision 113 (pool port 1.2 carries the decision and the N_FOLD).** A 1.2 request item may carry its size (`features`:
+transfers, characters, STEM, translations) and, for a combined answer, its sources (2 to 16) and its merged part, each with
+its own risk reading and size; a 1.1 request never carries a combined answer (`KIT-RT-014`). A 1.2 plan reviews exactly the
+combined answers `N_FOLD` (each source by instances of its own, then the merged review, with a request-scoped temporary
+context of at most 65,536 bytes discarded after the request) and every other dossier `IN_DEPTH` or `DUPLICATE`
+(`KIT-RT-007`); every assignment carries the decision record, which may state only what the plan and the request hold
+(`KIT-RT-012`: its method and approach, its reviews, the echo of what it read, exactly one chosen candidate, `combined_n_fold`
+exactly for a combined answer, an N_FOLD's parts in order); the accounting counts the source reviews' instances, and a 1.2
+plan's estimate is the sum of its decisions' (`KIT-RT-013`). The overseer writes the request at the version the attached
+router's pool hello names: a 1.1 router is refused for a batch with a combined answer (`KIT-RT-015`) and the floor plan
+runs. The admission keeps every dossier's decision (`PoolDecisionRecord`: who decided, the approach, method, reviews,
+reasons and, for the router's, its validated record), and the signed verdicts audit words it (`floor.decision_note`). The kit
+publishes the 1.2 schemas beside the 1.1 ones (`integration/schemas/pool-routing-*.v1.port-1.2.schema.json`).
+
+**Decision 114 (the floor requires N_FOLD for every combined answer).** `minimum-oversight-floor/pool-2` rule 3: a dossier
+whose synthesis combines N >= 2 specialists' delivered answers is reviewed in N + 1 parts, each source's own transfers by at
+least one instance (two when those transfers carry a repeated fault or a risk signal or the advisor escalated the dossier),
+the merged review by at least one (two under the same rule for the synthesis's own transfers), with the temporary context
+bounded at exactly 65,536 bytes: a smaller bound would cut confirmed source faults from the merged review, so a plan with
+one is below the floor (`KIT-RT-020`), as is any plan that reviews a combined answer otherwise. The floor plan gives a
+combined answer's sources, in order, the least-loaded instances that review none of its earlier sources while there are
+enough, then its merged review the least-loaded ones; it needs at least as many instances as the sources need at once.
+
+**Decision 115 (the layout and the part dossiers are read from the journal).** `twofold.combined_layout` reads the JOURNAL
+view, never live objects: the sources in the order their answers were first delivered; source k owns the requests addressed
+to its specialist, the specialist's responses and the relays of its reports (a forward belongs to its recipient: it is what
+that specialist was given); the merged part owns the syntheses and every transfer no source owns. Each part's dossier is its
+own transfers and every transfer they depend on (a response's request, a forward's delivery, a synthesis's cited
+deliveries), built from copies of the journaled transfers with their links reset and re-derived inside the part, so every
+link of a part dossier resolves inside it and the full view is never touched. A part dossier carries `review` (`method`
+N_FOLD, `role` source with its `source` k, or merged; `of` N), in informed mode only the auditor findings that name its
+transfers or none, and only the consolidations of its own answers.
+
+**Decision 116 (the temporary context: validated outcomes only, scoped, bounded, recorded, discarded).** After the source
+reviews, `TemporaryContext.build` keeps, per source, its specialist, its delivered reports and messages, how many valid
+verdicts were assessed and each CONFIRMED accusation as its kind and the identifiers its confirming findings cover
+(deduplicated, in source, kind and identifier order), each claim pinned to the one report its confirming findings name of
+those carrying it in the source dossier (all of them when the findings name none), or to none when not exactly one
+remains: a revision keeps its claims' ids, so a claim id alone does not say which report's claim was confirmed faulty, and
+a fault pinned to no report confirms no carried fault. Never an agent's prose (statements and notes are never copied), an
+`OVS` code, an auditor finding, a consolidation result, a signature outcome, a fault label or a refuted, unverifiable or
+unresolved accusation: nothing a blind dossier hides. Its canonical JSON is at most the plan's bound (65,536 bytes at the
+floor); past it the last records are cut and counted (`omitted`, `complete: false`), and a bound that cannot hold the empty
+record is refused. It is scoped to its channel, task and request (the intake refuses it to any other, and refuses one that is
+edited, so no longer hashes to its digest, or discarded), recorded in the signed verdicts audit (its digest, size, bound,
+scope, counts and every record), and discarded after the request in a `finally`, so a merged review that fails discards it
+too; a discarded context decides nothing. The confirming references validation needs are held beside the shown record and
+follow the bound: a cut record confirms nothing.
+
+**Decision 117 (the merged review and rule `carried-fault`).** The merged review's dossier (the syntheses, the answers they
+cite and whatever no source owns) carries the context as `temporary_context`. The kind `synthesis_carries_fault` (KIND_CHECKS
+`OVS-AGENT-003`, a context kind) is decided by rule `carried-fault`: confirmed when the journaled synthesis shows a named
+synthesized claim citing a named (or any) source claim the context lists as confirmed, through that source fault's own
+confirming findings (so the router acts on the source's `OVS-*` finding, never on the agent's words), and only when the
+citation is the claim of the report the context's record names: a specialist's revision keeps its claims' ids
+(`INT-HANDOFF-009`), so the cited id is resolved in the synthesis's ledger scope as the channel's ledger resolves it (every
+report the synthesis lists and each agent's latest report delivered before it), and it carries the recorded fault only when
+exactly that report holds it there; refuted when the named synthesized claims cite none of the named source claims;
+unresolved (human review) when the context lists no confirmed fault on what they cite, when the citation is another report's
+claim under the same id or an id two reports of the scope hold (the ledger's `INT-LEDGER-014`) or one a digest-only report
+may hold, or when the context is not available (discarded, edited, another channel's). The report rule was found in this
+step's own review before the final measurements: a synthesis citing the revision of a claim a source review had confirmed
+faulty in the earlier report was confirmed as carrying the fault, both when the source accusation named the report and,
+through the context's own records (each claim was then recorded under every report carrying it), when it named the claim
+alone; `test_twofold.py` now holds each shape to unresolved, with the four cases' `keeps` and its bare-claim variant as
+the controls (confirmed). Nothing else of a merged review changes:
+its other accusations are validated against the full journal as any verdict, the verdicts of every part are combined by the
+existing rule (no voting on facts), and `OVS-AGENT-*` findings never change a clearance.
+
+**Decision 118 (parallel waves, one open issue per agent and task).** The source reviews run at once: every dossier of a
+wave is issued before any of its agents runs, and the wave runs one thread per job. The intake holds one open issue per agent
+and task, so an instance the plan assigns two sources of one dossier (only when the pool has no instance to spare) reviews
+them in turn, one wave each; a runner that raises is recorded as no review.
+
+**Decision 119 (pack 2.0, a MAJOR version).** The knowledge pack teaches the twofold review, so a cheapest-tier agent can do
+its part: the master prompt (step 4, a COMBINED ANSWERS section, a WHEN IN DOUBT line), Role and trust T15 (with T13 corrected
+to the floor's escalation by any risk signal), the Dossier guide's §16 (D38 to D40) and the dossier at a glance, the
+Inspection guide's §14 (I100 to I104), Kinds and codes (the row of `synthesis_carries_fault` before `other`, K9), Never N15,
+When unsure U12, Example 41 and two wrong-verdict rows, and the README (section 8, the sizes, the versions, and the module
+path `epinoic_overseer`). A kind added makes it a MAJOR version (section 17.12); the verdict contract's fields and the dossier
+version are unchanged, so every verdict an agent of a 1.x pack writes still validates and 1.0 to 1.5 stay pinned. A part
+dossier is issued only under a pack that teaches it (`twofold.teaches_n_fold`: MAJOR 2 or later; the intake refuses
+`review` under 1.x). The service pins 2.0 (`overseer_port.PINNED_PACK_DIGESTS`) and the overseer sub-project releases 1.1.0.
+The drift tests' rule references were rewritten to a stricter rule (three-digit rule ids are now seen, I100 to I104; a
+three-digit E code is still the engine's), and the field-name check knows the twofold contracts.
+
+**Decision 120 (both profiles, and what is left for the optimisation checks).** The pack is profile-independent text: the
+standard profile, the only one offered (decision D30), carries the twofold instructions, and a fast profile, if one is ever
+built and adopted, takes the same pack. Everything new is in the pack's core, which grows by 20,607 characters (about 5,150
+tokens) in every composition: a `twofold` module sent only with a part dossier would spare every other dossier that cost, and
+the flash router's cost data would then price it. That changes no receipt, finding or status, so it is recorded for the
+optimisation checks, not done (the founder's order). The service's asynchronous review (`port.py`) still reviews a task as one
+dossier: the service offers no combined mode (`KIT-REQ-002`), so N_FOLD there waits for that mode.

@@ -6,11 +6,23 @@ the work divided across parallel instances (`SPLIT`), independent duplicate revi
 answer, each source reviewed on its own and the combinator's output reviewed against all of them (`N_FOLD`). Per batch,
 for the overseer pool: which overseer instances review which dossiers, and which dossiers go to independent duplicates.
 
+Its first decision, for every response it is asked about, is the **flash decision maker** (`decision.py`, rules D1 to D7
+of `rules-3.json`, since 0.3.0): reading the user's request record and each specialist output as features only, it
+decides between the **in-depth examination method** (one cheapest-tier overseer instance examines the whole response,
+`IN_DEPTH`) and the **duplication method** (the work split across several cheapest-tier instances in parallel: `SPLIT`
+parts of one output, `N_FOLD` for a combined answer; with independent duplicate reviews, `DUPLICATE`, where risk calls for
+agreement), choosing **the cheapest that keeps accuracy** from the recorded cost data (`cost-data-3.json`): agreement (the
+reviews risk calls for; risk signals only raise them), fit (one instance must read the pack's system text its content
+needs, what it examines and the output budget within the instance budget) and cost (tokens, then agent-seconds, then
+calls). The decision is code, deterministic and instant: no model decides duplication, and the overseer's optional
+escalation advisor can only add escalations. Every decision is recorded with the features it read, every candidate it
+priced (whether it keeps accuracy, and why it was or was not chosen) and its reasons, closed codes and integers only.
+
 It is **not the translator's `RouterHub`** (which carries the messages between agents through the translator channel),
 and not the website's subject routing (which picks a specialist). It plans reviews; it never carries, checks, delivers
 or decides anything about an answer.
 
-It is a **separate, independent agent** in a sub-project of its own: its own `pyproject.toml` and version (0.2.0),
+It is a **separate, independent agent** in a sub-project of its own: its own `pyproject.toml` and version (0.3.0),
 this README, `docs/DESIGN.md`, its rules and cost data as **versioned data files with digests**, a runner, and its own
 tests. It needs nothing but the Python standard library at run time and never imports the translator, the engine, Z3,
 the STEM support or the overseer, so it is edited, re-tuned and released without touching any of them. It talks to them
@@ -23,8 +35,8 @@ only through the router port `epinoic.integration.router-port.v1` (the translato
 |---|---|---|---|
 | `hello()` | the checks service | nothing | `router-hello.v1`: identity, methods, profiles, `tier: "cheapest"`, `deterministic: true` |
 | `plan(request_json)` | the checks service | `routing-request.v1` (features only) | `routing-plan.v1` |
-| `pool_hello()` | the overseer pool | nothing | `pool-router-hello.v1`: identity, the capability `pool-plan`, pool port version 1.1 |
-| `pool_plan(request_json)` | the overseer pool | `pool-routing-request.v1` (positions and risk classes only) | `pool-routing-plan.v1` |
+| `pool_hello()` | the overseer pool | nothing | `pool-router-hello.v1`: identity, the capability `pool-plan`, pool port version 1.2 (methods `IN_DEPTH`, `DUPLICATE`, `N_FOLD`) |
+| `pool_plan(request_json)` | the overseer pool | `pool-routing-request.v1` at pool port 1.1 or 1.2 (positions, risk classes, at 1.2 sizes and a combined answer's parts) | `pool-routing-plan.v1` at the request's version (at 1.2 every dossier's decision record, and a combined answer N_FOLD) |
 
 Same input, same plan: every function is pure and deterministic (no network, no clock, no randomness, no model call; the
 data were read once, at load). `FlashRouter(data_dir)` is the same API over another data directory.
@@ -58,8 +70,9 @@ be loaded, 3 when the input is not a request this router reads (the reason on st
 - **Advisory, under the minimum-oversight floor**: everything it answers is validated as untrusted data; a plan out of
   contract is refused with its `KIT-RT` code, a plan below the floor with `KIT-RT-020`, a failing router with
   `KIT-RT-016`, and the floor plan runs. The floors are the callers' own code (the service's in the translator's router
-  port; the pool's, `minimum-oversight-floor/pool-1`, in the overseer), computed from the same risk signals: every
-  dossier reviewed, two independent instances for a dossier with a repeated fault or a risk signal. So accuracy never
+  port; the pool's, `minimum-oversight-floor/pool-2`, in the overseer), computed from the same risk signals: every
+  dossier reviewed, two independent instances for a dossier with a repeated fault or a risk signal, and every combined
+  answer N_FOLD with its temporary context bounded at 65,536 bytes. So accuracy never
   depends on how this router is edited: it can add oversight (more duplicates, smaller batches), never remove it, and it
   never changes a clearance, a delivery or a decision. Every plan records this router's identity (name, version, the
   digests of its rules and of its cost data).
@@ -69,18 +82,19 @@ be loaded, 3 when the input is not a request this router reads (the reason on st
 | File | What it holds |
 |---|---|
 | `data/MANIFEST.json` | the current rules and cost-data files, and every data file's version, release and digest |
-| `rules-2.json` (current, 0.2.0) | rules/2 in words; the port planner's parameters (`split_words` 900, `max_parts` 16, `max_reviews` 4, `hard_max_instances` 64, `context_max_bytes` 65,536); the pool planner's thresholds and batch size (`escalated_reviewers` 2, `baseline_reviewers` 1, `record_weight` 2, `batch_size` null: the pool's own quota); the agreement signals the port rules read; the features each planner reads; the method table |
-| `cost-data-2.json` (current, 0.2.0) | the port plan's planning estimates (not measurements) and the sizes the overseer recorded for its knowledge pack and dossiers; no price, no latency, no model |
+| `rules-3.json` (current, 0.3.0) | rules/3 in words: the flash decision maker (D1 to D7), the port rules 1 to 7 and the pool rules P1 to P8; the parameters (`max_parts` 16, `max_reviews` 4, `hard_max_instances` 64, `context_max_bytes` 65,536); the pool's thresholds (`escalated_reviewers` 2, `baseline_reviewers` 1, `record_weight` 2, `batch_size` null, `source_reviewers` 1, `merged_reviewers` 1); the decision section (its two approaches, the criterion, the order of the choice, the methods each caller can run); the agreement signals; the features each planner reads; the method table |
+| `cost-data-3.json` (current, 0.3.0) | the decision maker's prices: 4 characters a token, an output budget of 8,000 tokens, an instance budget of 200,000 tokens, 30 agent-seconds a call and the dossier estimate (planning estimates, not measurements); the system text of every composition of the overseer's knowledge pack 2.0 as the overseer measured it (the core 235,694 characters, with the STEM module 448,147, with the translations module 331,665, with both 544,118) and its dossiers' recorded sizes; no price, no latency, no model |
+| `rules-2.json`, `cost-data-2.json` | 0.2.0's rules (with `split_words` 900, the word threshold the fit replaced) and planning estimates, kept byte for byte their 0.2.0 digests |
 | `rules-1.json`, `cost-data-1.json` | 0.1.0's rules and cost model, kept byte for byte their 0.1.0 digests |
 
 A digest is the SHA-256 of the document's canonical JSON (keys sorted, no whitespace, non-ASCII raw); the identity
 reports the current files' digests. With the released rules the pool plan is the plan the overseer's own planner made
-before the decision moved here, for every recorded transfer (the overseer's `test_flash_router_pool.py`). The cost
-planner and the fast profile are deferred: the pool plan estimates no cost, and the recorded sizes wait for it.
+before the decision moved here, for every recorded transfer (the overseer's `test_flash_router_pool.py`), and at pool
+port 1.2 each of those plans also carries its decision record. The fast profile is deferred (decision D30).
 
 ## Re-tuning and releasing a change
 
-1. Copy the current rules (or cost-data) file to the next version's name (`rules-3.json`), edit it, and try it without
+1. Copy the current rules (or cost-data) file to the next version's name (`rules-4.json`), edit it, and try it without
    releasing it: `python -m epinoic_flash_router_cli pool-plan --data <a copy of data/>`, or
    `FlashRouter("<a copy of data/>")`. The plan names the copy's digest.
 2. Make it current in `data/MANIFEST.json` with its digest, its version and the release; bump `version` in
@@ -105,7 +119,8 @@ copied here by the translator's `integration/tools/vectors.py`; change the kit's
 generated requests, validated with the translator's own `epinoic_logic.integration.router_port` and `router_pool`
 (pydantic and the standard library: no engine, no Z3, no overseer); the pool plans; the data files, their manifest and
 pinned digests; the runner; determinism in a fresh interpreter; and that the router runs with nothing but its own `src/`
-on the path. Inside the translator repository `tests/flash_router_tests/conftest.py` uses its `src/`; a split copy uses
+on the path; and the flash decision maker on minimal inputs for each method, risk only escalating, and its record in
+the pool plan (`test_decision.py`). Inside the translator repository `tests/flash_router_tests/conftest.py` uses its `src/`; a split copy uses
 the translator package installed in its environment.
 
 ## Repository form (decisions D20 and D28) and splitting it into a repository of its own

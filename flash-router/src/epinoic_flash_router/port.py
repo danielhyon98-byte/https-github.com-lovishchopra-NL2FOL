@@ -9,12 +9,15 @@ For the translator's checks service (``integration/PROTOCOL.md`` section 7a):
 * :func:`plan` takes one ``epinoic.integration.routing-request.v1`` document and returns one
   ``epinoic.integration.routing-plan.v1`` document.
 
-For the overseer pool (section 7b, pool port 1.1), which attaches the router by this capability:
+For the overseer pool (section 7b, pool port 1.2 since 0.3.0, 1.1 still answered), which attaches the router by this
+capability:
 
 * :func:`pool_hello` returns one ``epinoic.integration.pool-router-hello.v1`` document: the same identity, the capability
-  ``pool-plan``, the pool port version, the methods a pool dossier may be reviewed by, the profiles, the cheapest tier;
+  ``pool-plan``, the pool port version (1.2 with the flash decision maker's data, 1.1 over a rules/2 data directory), the
+  methods a pool dossier may be reviewed by (``N_FOLD`` for a combined answer at 1.2), the profiles, the cheapest tier;
 * :func:`pool_plan` takes one ``epinoic.integration.pool-routing-request.v1`` document and returns one
-  ``epinoic.integration.pool-routing-plan.v1`` document.
+  ``epinoic.integration.pool-routing-plan.v1`` document of the request's own version (at 1.2 with every dossier's
+  decision record and N_FOLD for every combined answer).
 
 The service attaches this module with ``EPINOIC_FLASH_ROUTER=epinoic_flash_router.port``, the overseer pool by naming it
 (``OverseerPool(..., router="epinoic_flash_router.port")``); both run it in a process of its own, with a time limit and
@@ -58,9 +61,12 @@ class FlashRouter:
         return canonical(plan_for(json.loads(request_json), identity=self.identity, data=self.data))
 
     def pool_hello(self) -> str:
-        """The overseer pool's hello (``pool-router-hello.v1``): the ``pool-plan`` capability at pool port 1.1."""
-        return canonical({"schema": "epinoic.integration.pool-router-hello.v1", "protocol": _PROTOCOL, "port_version": "1.1",
-                          "router": dict(self.identity), "capabilities": ["pool-plan"], "methods": ["IN_DEPTH", "DUPLICATE"],
+        """The overseer pool's hello (``pool-router-hello.v1``): the ``pool-plan`` capability at pool port 1.2 (N_FOLD for a
+        combined answer, a decision record for every dossier) when the data carry the flash decision maker, else at 1.1."""
+        v12 = self.data.decision is not None
+        return canonical({"schema": "epinoic.integration.pool-router-hello.v1", "protocol": _PROTOCOL, "port_version": "1.2" if v12 else "1.1",
+                          "router": dict(self.identity), "capabilities": ["pool-plan"],
+                          "methods": ["IN_DEPTH", "DUPLICATE", "N_FOLD"] if v12 else ["IN_DEPTH", "DUPLICATE"],
                           "profiles": ["standard", "fast"], "tier": "cheapest", "deterministic": True})
 
     def pool_plan(self, request_json: str) -> str:

@@ -16,6 +16,6 @@ changing them, without touching the translator, the engine, the STEM support or 
 nothing here imports the translator, the engine, Z3 or the overseer. Its identity (name, version, the digests of its
 rules and of its cost data) changes whenever its behaviour can.
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = ["__version__"]

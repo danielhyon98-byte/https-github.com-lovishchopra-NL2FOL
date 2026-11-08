@@ -132,9 +132,12 @@ def problems_kinds(d: Path) -> list[str]:
     return out
 
 
-_DEF_RE = re.compile(r"^\s*- \*\*([TDIEVKNUX])(\d{1,2}) ")
-_CITE_RE = re.compile(r"(?<![A-Za-z0-9_+-])([TDIEVKNUX])(\d{1,2})(?![0-9])")
-_NAMED_CITE_RE = re.compile(r"(Role and trust|Dossier guide|Inspection|Evidence rule|Verdict format|Kinds and codes|Never|When unsure),? ([TDIEVKNUX]\d{1,2})\b")
+# Rewritten to a stricter rule with pack 2.0 (architecture step 3), whose Inspection rules I100 to I104 have three digits: a
+# definition and a cited rule may have up to three digits (two before), except that a three-digit E code is the engine's
+# diagnostic code (E100 to E906, Dossier guide D37), never an Evidence rule, as before.
+_DEF_RE = re.compile(r"^\s*- \*\*([TDIEVKNUX])(\d{1,3}) ")
+_CITE_RE = re.compile(r"(?<![A-Za-z0-9_+-])(?:([TDIEVKNUX])(\d{1,2})|([TDIVKNUX])(\d{3}))(?![0-9])")
+_NAMED_CITE_RE = re.compile(r"(Role and trust|Dossier guide|Inspection|Evidence rule|Verdict format|Kinds and codes|Never|When unsure),? ([TDIEVKNUX]\d{1,3})\b")
 _SECTION_RE = re.compile(r"(?:(Role and trust|Dossier guide|Inspection|Evidence rule|Verdict format|Kinds and codes|Examples|Never|When unsure),? )?§(\d+)")
 
 
@@ -156,8 +159,9 @@ def problems_rule_codes(d: Path) -> list[str]:
     for name, text in texts.items():
         body = "\n".join(body_lines(text))
         for m in _CITE_RE.finditer(body):
-            if m.group(1) + m.group(2) not in defined:
-                out.append(f"{name} cites {m.group(1) + m.group(2)}, which no document defines")
+            code = (m.group(1) or m.group(3)) + (m.group(2) or m.group(4))
+            if code not in defined:
+                out.append(f"{name} cites {code}, which no document defines")
         for doc_name, code in _NAMED_CITE_RE.findall(body):
             if RULE_PREFIX_DOC[code[0]] != titles[doc_name]:
                 out.append(f"{name} cites '{doc_name} {code}', but {code} belongs to {RULE_PREFIX_DOC[code[0]]}")
@@ -327,7 +331,11 @@ def _known_names() -> set[str]:
               dossier_mod.DossierConsolidation, dossier_mod.ConsolidationGroup, dossier_mod.ConsolidationMember, dossier_mod.ConsolidationCheck,
               dossier_mod.ConsolidationExcluded, dossier_mod.ConsolidationConflict, dossier_mod.ConsolidationRepeat, dossier_mod.ConsolidationAdvisory,
               # the argument diagnosis (pack 1.4, integration step): a named diagnostic and its parts, which Dossier guide D33 teaches
-              named_mod.NamedDiagnostic, named_mod.MissingLink, named_mod.EvidenceSpan, translate_contracts.ReleaseAssessment]
+              named_mod.NamedDiagnostic, named_mod.MissingLink, named_mod.EvidenceSpan, translate_contracts.ReleaseAssessment,
+              # a combined answer's N_FOLD review (pack 2.0, architecture step 3): the part a dossier is issued for and the merged
+              # review's temporary context, which Dossier guide D38 and D39 teach
+              dossier_mod.DossierReview, dossier_mod.DossierTemporaryContext, dossier_mod.DossierContextScope, dossier_mod.DossierContextSource,
+              dossier_mod.DossierContextFault]
     names: set[str] = set()
     for m in models:
         names |= set(m.model_fields)
@@ -344,6 +352,9 @@ def _known_names() -> set[str]:
     values |= set(typing.get_args(consolidate_mod.GroupBasis)) | set(typing.get_args(consolidate_mod.Relation))
     # the request's constraint kinds (Dossier guide D28, pack 1.1)
     values |= set(typing.get_args(channel_contracts.ConstraintKind))
+    # the closed values of a combined answer's review (pack 2.0): its method, its roles and the context's discard rule
+    for model, field in ((dossier_mod.DossierReview, "method"), (dossier_mod.DossierReview, "role"), (dossier_mod.DossierTemporaryContext, "discard")):
+        values |= set(typing.get_args(model.model_fields[field].annotation))
     for model, field in ((integrity_contracts.SynthesizedClaim, "transformation"), (integrity_contracts.SynthesizedClaim, "certainty"),
                          (integrity_contracts.SynthesizedClaim, "materiality"), (translate_contracts.ClaimRecord, "claim_role"),
                          (channel_contracts.TransmissionReceipt, "direction"),
@@ -421,8 +432,10 @@ def test_pack_digests_pin_the_installed_pack():
 
 
 def test_the_kinds_table_parses_every_kind():
+    # pack 2.0 (architecture step 3) adds synthesis_carries_fault before other: 24 kinds (23 before), the same exact count rule
     rows = kinds_table(SRC_PACK_DIR)
-    assert len(rows) == len(KIND_CHECKS) == 23 and rows[-1] == ("other", (), {})
+    assert len(rows) == len(KIND_CHECKS) == 24 and rows[-1] == ("other", (), {})
+    assert rows[-2] == ("synthesis_carries_fault", ("OVS-AGENT-003",), {})
     assert ("translation_unfaithful", (), {}) in rows and ("translation_circular", ("OVS-TRN-006",), {}) in rows
     assert ("figure_changed", ("OVS-FID-003", "OVS-SYN-002"), {"OVS-SYN-002": "INT-LEDGER-023"}) in rows
 
@@ -437,14 +450,16 @@ def test_every_rule_code_is_defined_once():
     # (after the contained round c1) added D28, the request parser's constraint rules; pack 1.2 (after the round-7
     # simulation) added D29-D31 and I90-I97, the STEM answers; the STEM completion (design section 31) added D32, the ST
     # codes, and I98, a STEM receipt. The integration step (pack 1.4) added D33-D37 (the argument diagnosis, release, the
-    # codes, statuses, rejections and policies), I99 (reading a diagnosis), K8 and N14.
-    for prefix, last in {"T": 14, "D": 37, "E": 15, "V": 20, "K": 8, "X": 3, "N": 14, "U": 11}.items():
+    # codes, statuses, rejections and policies), I99 (reading a diagnosis), K8 and N14. Pack 2.0 (architecture step 3, the
+    # twofold review of a combined answer) added T15, D38-D40, I100-I104, K9, N15 and U12.
+    for prefix, last in {"T": 15, "D": 40, "E": 15, "V": 20, "K": 9, "X": 3, "N": 15, "U": 12}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 99
+    assert nums["I"][0] == 1 and nums["I"][-1] == 104
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
     assert [n for n in nums["I"] if 82 <= n < 90] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
     assert [n for n in nums["I"] if 90 <= n < 99] == list(range(90, 99))  # the STEM answers, I90 to I98
-    assert [n for n in nums["I"] if n >= 99] == [99]  # the argument diagnosis, I99 (two-digit rule ids: I99 is the last)
+    assert [n for n in nums["I"] if 99 <= n < 100] == [99]  # the argument diagnosis, I99
+    assert [n for n in nums["I"] if n >= 100] == list(range(100, 105))  # a combined answer's parts, I100 to I104 (three-digit ids)
 
 
 def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
@@ -456,11 +471,12 @@ def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
     d = copy_pack(tmp_path)
     text = read(d, "02-dossier.md")
     facts = text.split("## 10. Facts you can rely on", 1)[1].split("\n## ", 1)[0]
-    # (pack 1.2: Common mistakes is §15, after the STEM answers' D29-D31; pack 1.4: §16, after the argument diagnosis's D33-D37)
-    assert "## 16. Common mistakes" in text
-    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 16. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 16. Common mistakes")
+    # (pack 1.2: Common mistakes is §15, after the STEM answers' D29-D31; pack 1.4: §16, after the argument diagnosis's D33-D37;
+    # pack 2.0: §17, after the combined answers' D38-D40)
+    assert "## 17. Common mistakes" in text
+    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 17. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 17. Common mistakes")
     (d / "02-dossier.md").write_text(moved, encoding="utf-8")
-    assert any("D14 is defined after D37" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D37 (the integration step) is now the last rule before
+    assert any("D14 is defined after D40" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D40 (pack 2.0) is now the last rule before
     with pytest.raises(ExportError) as ei:
         refresh_source(d)
     assert ei.value.reason == "source_invalid" and "out of ascending order" in ei.value.detail
@@ -502,8 +518,8 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    # the footer names another version than the pack's own (the pack is 1.3 since the translator merge)
-    "titles_and_footers": ("08-never.md", "Pack version 1.5 · overseer-knowledge-docs", "Pack version 1.6 · overseer-knowledge-docs"),
+    # the footer names another version than the pack's own (the pack is 2.0 since architecture step 3)
+    "titles_and_footers": ("08-never.md", "Pack version 2.0 · overseer-knowledge-docs", "Pack version 2.1 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

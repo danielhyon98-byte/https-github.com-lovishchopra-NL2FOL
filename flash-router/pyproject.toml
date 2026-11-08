@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epinoic-flash-router"
-version = "0.2.0"
+version = "0.3.0"
 description = "Epinoic AI flash router: a separate, independent agent that plans how the overseer reviews each specialist output (IN_DEPTH, SPLIT, DUPLICATE, N_FOLD) and each overseer-pool batch, over the router port epinoic.integration.router-port.v1. Its rules and cost data are versioned data files with digests. Advisory: the translator's service and the overseer enforce their minimum-oversight floor whatever this router plans. It is not the translator's RouterHub."
 readme = "README.md"
 requires-python = ">=3.11"

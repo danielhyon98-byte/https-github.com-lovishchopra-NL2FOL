@@ -1,0 +1,33 @@
+{
+  "basis": "instance_budget_tokens, output_tokens, seconds_per_call, chars_per_token and the dossier estimate are planning estimates, not measurements: the flash decision maker prices every candidate with them (rules D4, D5 and port rule 7). system_text_chars and recorded are sizes the overseer measured with no model called: the system text of every composition of its knowledge pack, and its dossiers. No price and no latency is recorded, since no overseer agent has run on a model, and no model is named (decision D23).",
+  "chars_per_token": 4,
+  "dossier": {
+    "base_chars": 17000,
+    "chars_per_answer_char": 3,
+    "chars_per_translation": 4000
+  },
+  "instance_budget_tokens": 200000,
+  "name": "epinoic-flash-router/cost-data-3",
+  "output_tokens": 8000,
+  "recorded": {
+    "dossier_estimate": "base_chars is the smallest dossier measured; chars_per_answer_char counts an answer's text as it reaches a dossier three times (its payload, its claims, the raw text a parse keeps); chars_per_translation one translation with its problem and its signed result",
+    "dossier_sizes": {
+      "largest_kb": 1297,
+      "largest_outside_the_rekeyed_pass_kb": 356,
+      "measured": 1435,
+      "smallest_kb": 17,
+      "string_field_cut_chars": 20000,
+      "what": "the canonical JSON of the dossiers the exporter issued for the recorded rounds"
+    },
+    "instance_budget": "200,000 tokens: the window of the deployment's cheapest tier as planned; the pack's deployer README measures which recorded dossiers fit windows of 128,000, 160,000 and 200,000 tokens",
+    "output_tokens_source": "the pack's deployer README: an output budget of at least 8,000 tokens",
+    "system_text_pack": "overseer-knowledge-docs 2.0"
+  },
+  "seconds_per_call": 30,
+  "system_text_chars": {
+    "core": 235694,
+    "core+stem": 448147,
+    "core+stem+translations": 544118,
+    "core+translations": 331665
+  }
+}

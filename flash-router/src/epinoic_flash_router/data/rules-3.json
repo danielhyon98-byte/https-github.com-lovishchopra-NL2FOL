@@ -1,0 +1,123 @@
+{
+  "decision": {
+    "approaches": {
+      "duplication": [
+        "SPLIT",
+        "DUPLICATE",
+        "N_FOLD"
+      ],
+      "in_depth": [
+        "IN_DEPTH"
+      ]
+    },
+    "criterion": "the cheapest candidate that keeps accuracy (agreement and fit), priced from the cost data",
+    "name": "the flash decision maker",
+    "order": [
+      "tokens",
+      "seconds",
+      "calls",
+      "method"
+    ],
+    "pool_methods": [
+      "IN_DEPTH",
+      "DUPLICATE",
+      "N_FOLD"
+    ],
+    "port_methods": [
+      "IN_DEPTH",
+      "SPLIT",
+      "DUPLICATE",
+      "N_FOLD"
+    ]
+  },
+  "features": {
+    "pool": [
+      "repeated_faults",
+      "risk_signals",
+      "risk_records",
+      "advised",
+      "features",
+      "sources",
+      "merged"
+    ],
+    "pool_limits": [
+      "max_instances",
+      "per_instance_quota",
+      "profiles"
+    ],
+    "port": [
+      "stem",
+      "supplied_texts",
+      "size",
+      "claims",
+      "engine_statuses",
+      "receipt",
+      "diagnostics",
+      "unverified_dependencies",
+      "repeated_faults"
+    ],
+    "port_combined": [
+      "topology"
+    ]
+  },
+  "format": "epinoic-flash-router/rules",
+  "methods": {
+    "DUPLICATE": {
+      "complete_reviews": "reviews",
+      "meaning": "the duplication method: independent duplicate reviews of the whole response, combined by the verdict combination",
+      "pool": "planned: an escalated dossier, escalated_reviewers instances (P2); a combined answer's escalated source (P8)",
+      "port": "planned: two or more reviews (port rules 3 and 4), in parts when the output does not fit one instance"
+    },
+    "IN_DEPTH": {
+      "complete_reviews": "1",
+      "meaning": "the in-depth examination method: one overseer instance examines the whole response",
+      "pool": "planned: a dossier that is not escalated (P2)",
+      "port": "planned: one review, one part, when the output fits one instance's budget (port rules 3 and 4, D4)"
+    },
+    "N_FOLD": {
+      "complete_reviews": "reviews",
+      "meaning": "the duplication method for a combined answer: each source reviewed on its own instances in parallel, then one merged review of the combinator's output with a bounded request-scoped temporary context of the validated source outcomes",
+      "pool": "planned: a combined answer at pool port 1.2 (P8, D6)",
+      "port": "planned: a combined answer's synthesis (port rule 5)"
+    },
+    "SPLIT": {
+      "complete_reviews": "1",
+      "meaning": "the duplication method: the work divided across several parallel instances, each part reviewed once",
+      "pool": "not planned for one dossier: the pool reviews a dossier whole (a dossier that does not fit is disclosed, over_budget); a batch over the per-instance quota is spread across instances (P4)",
+      "port": "planned: an output read by one review that does not fit one instance's budget, in the fewest parts that fit (port rule 4, D4)"
+    }
+  },
+  "name": "epinoic-flash-router rules/3",
+  "parameters": {
+    "context_max_bytes": 65536,
+    "hard_max_instances": 64,
+    "max_parts": 16,
+    "max_reviews": 4
+  },
+  "pool": {
+    "baseline_reviewers": 1,
+    "batch_size": null,
+    "escalated_reviewers": 2,
+    "merged_reviewers": 1,
+    "record_weight": 2,
+    "source_reviewers": 1
+  },
+  "rules": "epinoic-flash-router rules/3\nThe flash decision maker (rules D1 to D7): the router's first decision, made for every response it is asked about, in code.\nD1. It reads the user's request record and each specialist output as features only (risk signals and records, sizes, whether the content is STEM or carries translations, the topology), never a text, and decides deterministically and at once: no model decides duplication, and the overseer's optional escalation advisor can only add escalations, which reach it as a dossier's advised flag.\nD2. It decides between two methods: the in-depth examination method (IN_DEPTH: one overseer instance examines the whole response) and the duplication method (the work split across several instances in parallel: SPLIT parts of one output, N_FOLD for a combined answer, each specialist's response on instances of its own; with independent duplicate reviews, DUPLICATE, where risk calls for agreement).\nD3. Agreement: the independent complete reviews a response needs come from its risk signals (port rule 2 and 3, pool rule P2; for a combined answer per source and for the merged review, rule P8); risk signals and escalations only ever raise them.\nD4. Fit: an instance keeps accuracy only when it reads what it examines whole: the system text of the knowledge pack composition its content needs (the cost data's system_text_chars), what it reads and the output budget (output_tokens) must fit the instance budget (instance_budget_tokens). A response that does not fit is divided into the fewest parts that fit, at most max_parts and at most max_instances (SPLIT, or DUPLICATE with parts under agreement); the pool does not divide one dossier, so there a dossier that does not fit is disclosed (reason over_budget), never shortened.\nD5. Cost: every candidate is priced from the cost data, per call (its system text, what it reads and the output budget, at chars_per_token characters a token, rounded up) and in agent-seconds (seconds_per_call a call); among the candidates that keep accuracy the cheapest is chosen (tokens, then agent-seconds, then calls, then the method order IN_DEPTH, DUPLICATE, SPLIT, N_FOLD). One instance reading the whole response is the cheapest whenever it keeps accuracy, since every further call repeats the system text.\nD6. A combined answer (a synthesis of N >= 2 specialists' answers) is reviewed N_FOLD, the minimum-oversight floor's method for it: the N source reviews in parallel, each by the reviews its own risk calls for, then one merged review of the combinator's output by the reviews the synthesis's risk calls for, with a request-scoped temporary context of the validated source outcomes of at most context_max_bytes bytes, discarded after the request.\nD7. Every decision is recorded with the features it read, the candidates it priced (whether each keeps accuracy, and why it was or was not chosen) and its reasons, all closed codes and integers: in the pool plan (pool port 1.2) as each dossier's decision, in the service's plan (router port 1.0) as each transfer's method, reasons, features used and estimated cost.\nPort rules (the service's routing request, routing-request.v1; integration/PROTOCOL.md section 7a). The agreement signals of rule 2 are the signals listed in this file; the features each entry reads are features.port; max_parts, max_reviews and context_max_bytes are this file's parameters; the cost data's estimates price every call.\n1. Every transfer of the request gets exactly one entry, in the request's order; the plan carries only closed vocabularies, the request's own transfer keys and digests, and this router's identity: no text and no model.\n2. Agreement signals, read exactly as the service's floor reads them: the receipt is REJECTED; it carries an error-level finding; it carries a repeated fault; a check is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE; it is STEM and a check is UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED, or its receipt carries INT-SUBJ-002. Escalations this router adds: a named diagnostic; an unverified dependency.\n3. Independent complete reviews: 1 without a signal or an escalation; 2 with either; 3 with an agreement signal and an escalation together; never more than 4, never more than the request's max_instances, never fewer than 2 when an agreement signal holds.\n4. The method of an output is the flash decision maker's (D2 to D5): its dossier is estimated from its size, the request's supplied texts and its translated claims (the cost data's dossier estimate); one instance reads it whole (IN_DEPTH) with one review and every review reads it whole (DUPLICATE) with two or more, unless it does not fit one instance's budget: then it is divided into the fewest parts that fit (SPLIT with one review, DUPLICATE with parts with more).\n5. A combined answer's synthesis is reviewed N_FOLD over all its sources in the topology's order, with a request-scoped temporary context of the validated outcomes of at most context_max_bytes bytes, discarded after the request; its reviews follow rule 3. Its sources are reviewed by their own entries under rules 2 to 4.\n6. Every instance runs on the cheapest tier, on the standard profile when the request offers it (else the first profile it offers).\n7. The estimated cost of an entry is the cost of its calls (D5): per call the system text of its composition, what the call reads and the output budget, in tokens, and seconds_per_call agent-seconds; an N_FOLD call reads the synthesis and every source. Integers only.\nPool rules (the overseer pool's batch, pool-routing-request.v1 at pool port 1.1 or 1.2; integration/PROTOCOL.md section 7b). The numbers are this file's pool parameters; the features read are features.pool and features.pool_limits; the methods are the method table.\nP1. Every dossier of the batch gets exactly one entry, naming it by its position in the request (the overseer's key order); the plan carries closed vocabularies, integers, the request's own item ids and digests, and this router's identity: no text, no key of the overseer's and no model. At pool port 1.2 every entry carries its decision record (D7).\nP2. A dossier is escalated when its task carries a repeated fault or any risk signal, or when the overseer's escalation advisor escalated it; an escalated dossier is reviewed DUPLICATE by escalated_reviewers distinct instances, any other dossier IN_DEPTH by baseline_reviewers instance (a combined answer: rule P8).\nP3. Review units: escalated_reviewers per escalated dossier; record_weight per dossier whose task carries risk records only; one per other dossier; a combined answer one per instance of each of its source reviews and of its merged review.\nP4. Instances: none for an empty batch; otherwise one, or ceil(review units / batch) when that is more, where batch is batch_size, or the pool's own per-instance quota when batch_size is null (as released); at least escalated_reviewers when a dossier is escalated; at least the sum of a combined answer's source reviewers (its source reviews run in parallel) and at least its merged reviewers; never more than the pool's maximum (the plan then says capped, and the needed instances).\nP5. Assignment: the dossiers with repeated faults first, then the other dossiers with risk signals, then those the advisor escalated, then the rest, each group in the request's order; each dossier goes to the least-loaded instances (ties to the lower number): an escalated dossier to escalated_reviewers distinct instances, adding one unit to each, any other dossier to one instance, adding its review units; a combined answer's sources in order, each to the least-loaded instances that review none of its earlier sources while there are enough of them, then its merged review to the least-loaded instances, each adding one unit.\nP6. An instance that carries more review units than the pool's per-instance quota is disclosed (over_quota); the plan never grows past the maximum.\nP7. Every instance runs on the cheapest tier, on the standard profile when the pool offers it (else the first profile it offers). Reasons are closed codes with counts, numbers and risk classes. At pool port 1.1 a pool plan estimates no cost; at 1.2 it sums its decisions' estimates when every dossier's size is measured.\nP8. At pool port 1.2 a combined answer is planned N_FOLD (D6): its source k by escalated_reviewers instances when the transfers of that source carry a repeated fault or a risk signal or the advisor escalated the dossier, else by source_reviewers; its merged review by escalated_reviewers under the same rule for the synthesis's own transfers, else by merged_reviewers; with the temporary context of at most context_max_bytes bytes. A pool port 1.1 request carries no combined answer and gets the plan of rules P1 to P7, with no decision record.\n",
+  "signals": {
+    "negative_statuses": [
+      "COUNTEREXAMPLE",
+      "INCONSISTENT_PREMISES",
+      "UNSATISFIABLE"
+    ],
+    "stem_undecided_codes": [
+      "INT-SUBJ-002"
+    ],
+    "undecided_statuses": [
+      "UNKNOWN",
+      "TIMEOUT",
+      "INTERNAL_ERROR",
+      "NOT_ATTEMPTED"
+    ]
+  },
+  "version": 3
+}

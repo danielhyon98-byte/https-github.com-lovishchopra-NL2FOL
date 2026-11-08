@@ -12,6 +12,11 @@ intake) and gives these operations its public hooks: ``channel_for``, ``journale
 
 The result types the hub returns, :class:`~epinoic_logic.branches.hub.HubReview` and ``PoolReview``, are the
 translator's; this module builds them through the translator's public API (``epinoic_logic.api.branches``).
+
+Architecture step 3 (the twofold mode): ``review_pool`` reads each task's size and, for a combined answer, its sources
+and merged part (``twofold.pool_item``), so the plan reviews a combined answer N_FOLD; ``review`` under a pool plan that
+reviews the task N_FOLD runs it (``_review_twofold``, ``twofold.run_twofold``) instead of one dossier, and every review
+under a pool plan records the decision behind its dossier's review in the signed verdicts audit.
 """
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Sequence
 
 from epinoic_logic.api.branches import HubReview, PoolReview
+from epinoic_logic.api.ir import canonical_json
 
 __all__ = ["HubOperations", "HUB_OPERATIONS"]
 
@@ -128,7 +134,7 @@ class HubOperations:
         """A self-duplicating review of a batch of tasks (``RouterHub.review_pool``; ``pool.py``): one dossier per task,
         keyed by its channel uid, with the task's repeated faults; ``pool.plan`` decides the instances; each task is
         reviewed through ``review`` by exactly the instances the plan assigns it. Agents never gate clearance."""
-        from .pool import OverseerPool, PoolItem
+        from .pool import OverseerPool
         if not isinstance(pool, OverseerPool):
             raise TypeError("a pool review needs an OverseerPool configured from a loaded knowledge pack")
         chans: dict[str, Any] = {}
@@ -138,15 +144,20 @@ class HubOperations:
             if ch.channel_uid in chans:
                 raise ValueError("a task is given twice in one batch")
             chans[ch.channel_uid], keys[ch.channel_uid] = ch, k
-        from .emitted import risk_reading
+        from .twofold import pool_item
         auditor = hub.auditor
         # integration step: the risk signals and records each task's journaled transfers carry (named defects, load-bearing
-        # writer's assumptions, unchecked sources, STEM method errors, ...) only ever escalate its review (``pool.plan_pool``)
+        # writer's assumptions, unchecked sources, STEM method errors, ...) only ever escalate its review (``pool.plan_pool``);
+        # architecture step 3: each task's size, and for a combined answer its sources and merged part, each with its own
+        # reading, so the plan reviews it N_FOLD (the floor's method for it)
         items = []
         for uid, ch in chans.items():
-            signals, records = risk_reading(auditor.view(hub.journaled_uid(auditor, ch)))
-            items.append(PoolItem(key=uid, repeated_faults=sum(1 for r in hub.repeats(ch).repeats if r.channel_uid == uid),
-                                  risk_signals=signals, risk_records=records))
+            repeats = [r for r in hub.repeats(ch).repeats if r.channel_uid == uid]
+            by_message: dict[str, int] = {}
+            for r in repeats:
+                by_message[r.message_id] = by_message.get(r.message_id, 0) + 1
+            item, _layout = pool_item(auditor.view(hub.journaled_uid(auditor, ch)), uid, len(repeats), by_message)
+            items.append(item)
         plan = pool.plan(items)
         reviews: dict[str, Any] = {}
         for it in plan.items:
@@ -187,6 +198,8 @@ class HubOperations:
                 raise ValueError("the pool plan does not assign this task")
             if sorted(ids) != sorted(pool_plan.assignments[uid]) or any(r.identity != pool_plan.pack for r in runners):
                 raise ValueError("the runners are not the instances the pool plan assigns to this task under its pack")
+        if pool_plan is not None and uid in getattr(pool_plan, "twofold", {}):
+            return self._review_twofold(hub, ch, uid, runners, pool_plan, mode)
         intake = self._review_intake(hub)
         view = auditor.view(uid)
         task_audit = self._reference_audit(auditor, uid, view)
@@ -237,12 +250,7 @@ class HubOperations:
         if consolidations:
             notes.append("dossiers show consolidated responses " + ", ".join(f"{c.consolidation_id} ({c.status})" for c in consolidations))
         if pool_plan is not None:
-            from .floor import admission_note
-            notes.append(f"overseer pool plan {pool_plan.plan_id}: {len(pool_plan.instances)} instance(s) (maximum {pool_plan.config.max_instances}, quota "
-                         f"{pool_plan.config.per_instance_quota}, tier {pool_plan.config.model_tier}) of pack {pool_plan.pack.name} {pool_plan.pack.version} "
-                         f"{pool_plan.pack.sha256}; this task to {pool_plan.assignments[uid]}; {'; '.join(pool_plan.reasons)}")
-            # who planned it (the flash router, or the minimum-oversight floor), the floor it was held to and any refusal
-            notes.append(admission_note(pool_plan))
+            notes.extend(_pool_notes(pool_plan, uid))
         for agent_id, reason in refused:
             notes.append(f"agent {agent_id}: no dossier issued ({reason}); no review")
         for agent_id, err in errors:
@@ -263,6 +271,108 @@ class HubOperations:
         return HubReview(audit=audit, task_audit=task_audit, mode=mode, runs=tuple(runs), assessments=tuple(assessments), combined=combined,
                          refused=tuple(refused), runner_errors=tuple(errors), superseding_audit_ids=superseding)
 
+
+def _pool_notes(pool_plan: Any, uid: str) -> list[str]:
+    """What the signed verdicts audit records of the pool plan a review runs: the plan, who planned it (the flash router,
+    or the minimum-oversight floor), the floor it was held to and any refusal, and the decision behind this dossier's
+    review (the flash decision maker's, with what it read and priced, or the floor's)."""
+    from .floor import admission_note, decision_note
+    notes = [f"overseer pool plan {pool_plan.plan_id}: {len(pool_plan.instances)} instance(s) (maximum {pool_plan.config.max_instances}, quota "
+             f"{pool_plan.config.per_instance_quota}, tier {pool_plan.config.model_tier}) of pack {pool_plan.pack.name} {pool_plan.pack.version} "
+             f"{pool_plan.pack.sha256}; this task to {pool_plan.assignments[uid]}; {'; '.join(pool_plan.reasons)}",
+             admission_note(pool_plan)]
+    record = next((d for d in pool_plan.admission.decisions if d.key == uid), None)
+    if record is not None:
+        notes.append(decision_note(record))
+    return notes
+
+
+def _review_twofold(self: HubOperations, hub: Any, ch: Any, uid: str, runners: Sequence[Any], pool_plan: Any, mode: str) -> Any:
+    """The N_FOLD review of a combined answer the pool plan assigns (``twofold.run_twofold``): the source reviews in
+    parallel, their validated outcomes as the bounded, request-scoped temporary context, the merged review with it, the
+    combination; one signed verdicts audit records all of it, the context's record and its discard. Agents never gate
+    clearance."""
+    from .audit import verify_audit
+    from .combine import combine_verdicts, combined_digest
+    from .twofold import combined_layout, run_twofold
+    from .validate import build_verdicts_audit, validate_overseer_verdict
+    auditor = hub.auditor
+    plan_twofold = pool_plan.twofold[uid]
+    view = auditor.view(uid)
+    layout = combined_layout(view)
+    if layout is None or layout.n != len(plan_twofold.sources):
+        raise ValueError("the pool plan reviews this task N_FOLD, but its journal holds no combined answer of that many sources")
+    intake = self._review_intake(hub)
+    task_audit = self._reference_audit(auditor, uid, view)
+    consolidations = hub.latest_consolidations(uid) if mode == "informed" else []
+    by_id = {r.agent_id: r for r in runners}
+
+    def validate(message: Any, ctx: Any) -> Any:
+        return validate_overseer_verdict(message, view, auditor.store, task_audit, auditor, intake=intake, live=ch, registry=getattr(ch, "registry", None),
+                                         temporary_context=ctx)
+
+    tw = run_twofold(layout=layout, view=view, plan_twofold=plan_twofold, runners=by_id, intake=intake, mode=mode, task_audit=task_audit,
+                     consolidations=consolidations, validate=validate, combine=lambda xs: combine_verdicts(xs, intake=intake))
+    parts = [*tw.sources, tw.merged]
+    runs = tuple(r for p in parts for r in p.runs)
+    assessments = tuple(a for p in parts for a in p.assessments)
+    refused = tuple(x for p in parts for x in p.refused)
+    errors = tuple(x for p in parts for x in p.runner_errors)
+    combined = combine_verdicts(list(assessments), intake=intake) if assessments else None
+    task_audits = [a for a in auditor.audits(uid) if a.scope == "task" and verify_audit(a, auditor.keyring)]
+    reference = task_audits[-1] if task_audits else task_audit
+    audit_ids = [a.audit_id for a in task_audits]
+    superseding = tuple(audit_ids[audit_ids.index(task_audit.audit_id) + 1:]) if task_audit.audit_id in audit_ids else ()
+    findings = list(combined.findings) if combined is not None else []
+    for run in sorted(runs, key=lambda x: (x.agent_id, x.dossier_sha256 or "")):
+        if run.status == "invalid" and run.finding is not None:
+            findings.append(run.finding)
+    rec = tw.context_record
+    issued = sum(len(p.dossier_sha256) for p in parts)
+    notes = [f"references task audit {reference.audit_id}" + (f" (the review started from task audit {task_audit.audit_id})" if reference is not task_audit else ""),
+             f"review mode {mode}; N_FOLD review of a combined answer of {layout.n} sources (the twofold mode): {len(by_id)} agent(s); {issued} dossier(s) "
+             f"issued; {len(assessments)} verdict(s) assessed"]
+    for p, src in zip(tw.sources, layout.sources):
+        confirmed = sum(1 for a in p.assessments for x in a.accusations if x.outcome == "confirmed")
+        notes.append(f"source {src.index} of {layout.n} ({src.agent_id}, reports {', '.join(src.report_ids)}): reviewed before combination, in parallel, by "
+                     f"{list(p.agent_ids)}; dossiers {', '.join(d[:16] for d in p.dossier_sha256) or 'none'}; {len(p.assessments)} verdict(s) assessed, "
+                     f"{confirmed} accusation(s) confirmed")
+    if rec:
+        faults = sum(len(s["confirmed"]) for s in rec["sources"])
+        notes.append(f"temporary context sha256 {tw.context_sha256}: request {rec['scope']['task_id']}/{rec['scope']['request_id']} only, {len(rec['sources'])} "
+                     f"source(s), {faults} confirmed fault(s) of the source reviews ({rec['omitted']} omitted by the bound), {rec['bytes']} of at most "
+                     f"{rec['max_bytes']} bytes, complete {str(rec['complete']).lower()}; validated outcomes only (no agent text, no finding code); "
+                     f"{'discarded after the request' if tw.context_discarded else 'NOT discarded'}")
+        notes.append("temporary context as issued to the merged review: " + canonical_json(rec))
+    confirmed_m = sum(1 for a in tw.merged.assessments for x in a.accusations if x.outcome == "confirmed")
+    notes.append(f"merged review of the combinator's output (syntheses {', '.join(layout.synthesis_ids)}) with the temporary context, by "
+                 f"{list(tw.merged.agent_ids)}; {len(tw.merged.assessments)} verdict(s) assessed, {confirmed_m} accusation(s) confirmed; carried faults "
+                 + ("confirmed: " + "; ".join(f"{', '.join(c['claim_ids'])}" for c in tw.carried) if tw.carried else "confirmed: none"))
+    if consolidations:
+        notes.append("part dossiers show consolidated responses of their own answers only")
+    notes.extend(_pool_notes(pool_plan, uid))
+    for agent_id, reason in refused:
+        notes.append(f"agent {agent_id}: no dossier issued ({reason}); no review")
+    for agent_id, err in errors:
+        notes.append(f"agent {agent_id}: the runner failed ({err}); no review")
+    for run in sorted(runs, key=lambda x: (x.agent_id, x.dossier_sha256 or "")):
+        pk = f"{run.pack.name} {run.pack.version} {run.pack.sha256}"
+        what = {"submitted": "verdict accepted by the intake and assessed", "invalid": f"verdict rejected by the intake ({run.reason}): OVS-AGENT-005",
+                "provider_error": f"provider failure ({run.reason}): no review", "refused_input": f"input refused ({run.reason}): no review"}[run.status]
+        notes.append(f"agent {run.agent_id} under pack {pk} (dossier {str(run.dossier_sha256)[:16]}): {what}")
+    if combined is not None:
+        notes.append(f"combined assessment sha256 {combined_digest(combined)}; groups {len(combined.groups)}; human review queue "
+                     f"{len(combined.review_queue)}; no voting on facts")
+    else:
+        notes.append("no verdict was assessed: this is no review, and it states nothing about the transfers")
+    notes.append("OVS-AGENT-* findings never change a transfer's clearance; an agent's verdict is advisory and decides nothing")
+    audit = build_verdicts_audit(reference=reference, channel_uid=uid, task_id=reference.task_id, request_id=reference.request_id, findings=findings,
+                                 keyring=auditor.keyring, message_ids=list(reference.message_ids), notes=notes)
+    return HubReview(audit=audit, task_audit=task_audit, mode=mode, runs=runs, assessments=assessments, combined=combined, refused=refused,
+                     runner_errors=errors, superseding_audit_ids=superseding, twofold=tw)
+
+
+HubOperations._review_twofold = _review_twofold  # type: ignore[attr-defined]
 
 #: The one instance every :class:`~epinoic_overseer.audit.TransferAuditor` hands its hubs.
 HUB_OPERATIONS = HubOperations()

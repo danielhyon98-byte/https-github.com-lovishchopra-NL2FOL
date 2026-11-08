@@ -17,7 +17,7 @@ Five ports, each with its own version and closed messages:
 | checks port `POST /v1/turns/check` | `turn-check.v1` in, `turn-verdict.v1` out | **yes** | 5 |
 | overseer port `epinoic.integration.overseer-port.v1` | hello, clearance, FINAL audit, delivery decision, review ticket | **yes** | 6 |
 | combinator port `epinoic.integration.combinator-port.v1` | synthesis input; output or named refusal; combinator hello (the combinator a separate agent) | combined mode only | 7 |
-| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process); for the overseer pool, pool routing request, pool routing plan, pool router hello (pool port 1.1) | never required (advisory) | 7a, 7b |
+| flash-router port `epinoic.integration.router-port.v1` | routing request, routing plan, router hello (the router in its own process); for the overseer pool, pool routing request, pool routing plan, pool router hello (pool port 1.2; 1.1 still spoken) | never required (advisory) | 7a, 7b |
 
 Machine-readable forms: the pydantic models in `src/epinoic_logic/integration/` (`protocol.py`, `overseer_port.py`,
 `combinator_port.py`, `router_port.py`), the JSON Schemas generated from them in `integration/schemas/`, and the golden
@@ -484,12 +484,15 @@ refusal code of its hello, and the floor's name and rules digest. The report is 
 an incoherent report is out of contract and both handshakes refuse it with `KIT-HS-001` (vectors `handshake/router-*`). Every verdict's `overseer.review` names the plan's origin, any refusal
 and the router's identity.
 
-## 7b. The router port's pool operation (pool port 1.1; `integration/router_pool.py`)
+## 7b. The router port's pool operation (pool port 1.2, and 1.1; `integration/router_pool.py`)
 
 The overseer pool (the overseer sub-project's `OverseerPool`, used by `RouterHub.review_pool` and the delivery policy's
 fallback) asks the same flash router which overseer instances review which dossiers of a batch, and which dossiers go
 to independent duplicates: the pool's planning decision, which moved from the overseer into the router (architecture
-step 2c). The router stays advisory and the overseer keeps the floor.
+step 2c). The router stays advisory and the overseer keeps the floor. Since architecture step 3 the router's first decision
+for every dossier is its flash decision maker's (the in-depth examination method or the duplication method, the cheapest
+that keeps accuracy from its recorded cost data), and pool port 1.2 carries that decision's record and a combined answer's
+N_FOLD review (7b.5). The overseer writes the request at the version the attached router's pool hello names.
 
 **Attached by capability.** A router module offers the pool operation by exposing `pool_hello() -> str`
 (`pool-router-hello.v1`) and `pool_plan(request_json: str) -> str` (`pool-routing-plan.v1`). The overseer pool attaches a
@@ -497,7 +500,7 @@ router by module name (`OverseerPool(..., router="epinoic_flash_router.port")`; 
 `router_pool.attach_pool_router`: the router runs in its own process exactly as in section 7a (`router_child`, ops
 `pool_hello` and `pool_plan`), and it is attached only when its module exposes both pool functions and its pool hello
 passes the version handshake: the capability `pool-plan`, a pool port version the overseer speaks
-(`router_pool.POOL_PORT_VERSIONS`: `1.1`), `tier: "cheapest"`, `deterministic: true`, no model and not the floor's
+(`router_pool.POOL_PORT_VERSIONS`: `1.1` and `1.2`), `tier: "cheapest"`, `deterministic: true`, no model and not the floor's
 reserved identity; otherwise `KIT-RT-015` (`KIT-RT-016` when it fails) and the floor plan runs. With no router named, the
 floor plan runs (decision D28 holds: nothing is attached unless named). An in-process attachment
 (`attach_pool_router_in_process`) exists for tests and tools only.
@@ -522,14 +525,17 @@ stay in the method table for a planner later (a new pool port version). `reasons
 (`router_pool.POOL_REASON_CODES`), each with exactly its integer and class parameters; the overseer words them. A plan
 carries no text and no model.
 
-### 7b.3 The overseer's floor (`minimum-oversight-floor/pool-1`, `epinoic_overseer.floor`)
+### 7b.3 The overseer's floor (`minimum-oversight-floor/pool-2`, `epinoic_overseer.floor`)
 
 The overseer computes it from the same risk signals: every dossier is reviewed by at least one instance; a dossier whose
 task carries a repeated fault or a risk signal, or that the escalation advisor escalated, by at least two distinct
-instances; no plan has more instances than the pool's maximum; every instance runs on the cheapest tier from the pool's
-one pack. A combined answer's floor becomes N_FOLD when combined answers reach the pool (architecture step 3). The
-batch sizes (how many instances a batch is spread over), the weight of risk records, extra duplicates and the profile
-are the router's choices above it. The floor plan: one instance, two when a dossier is escalated.
+instances; a combined answer (a synthesis combining N >= 2 specialists' delivered answers) N_FOLD: each source's own
+transfers by at least one instance (two when they carry a repeated fault or a risk signal, or the advisor escalated the
+dossier), the merged review by at least one (two under the same rule for the synthesis's own transfers), with the
+temporary context bounded at exactly 65,536 bytes; no plan has more instances than the pool's maximum; every instance runs
+on the cheapest tier from the pool's one pack. The batch sizes (how many instances a batch is spread over), the weight of
+risk records, extra duplicates and the profile are the router's choices above it. The floor plan: one instance, two when
+a dossier is escalated, and at least the source reviewers a combined answer needs at once.
 
 ### 7b.4 Refusals, in the order `check_pool_plan` and the overseer apply them
 
@@ -548,6 +554,40 @@ dossier below the floor. 016: the router failed (as in 7a.5). Every refusal is r
 (`PoolPlan.admission`: origin `floor`, the code, why, the router's identity) and in the signed verdicts audit of every
 review that runs the plan, and the floor plan runs. An admitted plan records the router's identity (name, version,
 rules digest, cost-data digest) the same way.
+
+### 7b.5 Pool port 1.2: the decision record and a combined answer's N_FOLD (architecture step 3)
+
+**Request.** An item may also carry `features: {transfers, chars, stem, translations}` (the size of its dossier, which the
+decision maker prices) and, for a combined answer, `sources: [{repeated_faults, risk_signals, risk_records, features}, ...]`
+(2 to 16, in the order the specialists' answers were first delivered) and `merged: {...}` (the synthesis's own part), each
+with its own risk reading and size; `sources` and `merged` come together or not at all. A 1.1 request never carries a
+combined answer (`KIT-RT-014`): the overseer refuses a 1.1 router for a batch with one (`KIT-RT-015`) and runs the floor.
+
+**Plan.** Every assignment carries `sources` (an N_FOLD's per-source assignments, `[{method, instances}]`, else `[]`),
+`context` (an N_FOLD's `{scope: "request", contents: "validated_outcomes", max_bytes, discard: "after_request"}`, at most
+65,536 bytes, else `null`) and `decision`: `{approach: in_depth | duplication, method, reviews, calls, read, need_tokens,
+budget_tokens, fits, reasons, candidates: [{method, reviews, calls, tokens, seconds, keeps_accuracy, why}], parts:
+[{part: source | merged, index, reviews, need_tokens, fits, reasons}], estimated_cost: {tokens, seconds}}`, closed
+vocabularies and integers only (`router_pool.DECISION_APPROACHES`, `DECISION_REASONS`, `CANDIDATE_WHY`). A reason
+`pool_n_fold` with `count` and `sources` names the combined answers. The plan's `estimated_cost` is the sum of its
+decisions' (null when one is not priced).
+
+**Refusals added at 1.2.** 007: `N_FOLD` for a dossier that is no combined answer, a combined answer reviewed otherwise, an
+N_FOLD without one source assignment per source in order or without its context, a source reviewed `IN_DEPTH` by more than
+one instance or `DUPLICATE` by fewer than two, `sources` or a `context` on another method; 012: a decision whose method or
+approach is not its assignment's, whose reviews are not the assignment's instances (an N_FOLD's merged review), whose `read`
+is not the request item's features, that chose other than exactly one candidate (the method it runs), names
+`combined_n_fold` other than for a combined answer, or whose parts are not each source in order and then the merged review
+with their reviews; a `pool_n_fold` reason that does not state the request's combined answers; 013: loads that do not count
+the source reviews' instances, or an estimated cost other than the decisions' sum. Then the overseer's 020 (a combined answer
+below the floor, including a context bound below 65,536 bytes). The kit publishes the 1.2 schemas beside the 1.1 ones
+(`schemas/pool-routing-request.v1.port-1.2.schema.json`, `schemas/pool-routing-plan.v1.port-1.2.schema.json`).
+
+**What the overseer does with it.** It runs the plan's N_FOLD (`epinoic_overseer.twofold`): each source's part dossier
+reviewed by its instances in parallel, the merged review with the temporary context of the source reviews' validated
+outcomes (structured records only, scoped to the request, bounded, recorded in the signed audit, discarded after the
+request), and the verdicts combined by its existing rule. The decision record of every dossier is kept in the plan's
+admission and in the signed verdicts audit. The record is advice like the plan: it never changes a clearance.
 
 ## 8. Statuses, the decision table and the website mapping
 

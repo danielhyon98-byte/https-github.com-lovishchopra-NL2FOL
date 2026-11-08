@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epinoic-overseer"
-version = "1.0.0"
+version = "1.1.0"
 description = "Epinoic AI overseer: the deterministic transfer auditor of every transfer between agents, the overseer-agent verdict protocol and its versioned knowledge pack, consolidation, the self-duplicating pool and the delivery policy; attached to the translator's hub and reached by the service through the overseer port (epinoic.integration.overseer-port.v1). It depends on the translator only through the translator's public API (epinoic_logic.api) and the integration protocol (epinoic_logic.integration); the translator never imports it."
 readme = "README.md"
 requires-python = ">=3.11"

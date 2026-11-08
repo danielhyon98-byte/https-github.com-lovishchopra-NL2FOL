@@ -48,6 +48,14 @@ Steps, every output under ``--out`` (never inside a recorded round):
    for a STEM translation the overseer's checks and a scripted agent built from the same exported pack; gate
    ``stem_fault_classes_named`` (a probe whose fault the STEM translator's reading does not decide is reported with the
    reason and not counted against the overseer).
+2d. **Combined answers, twofold** (``twofold_probes.py``; architecture step 3, decision 112): the synthetic two-subject
+   combined answer (the tampering suite's English and History task) in four cases, through an audited hub and the pool's
+   N_FOLD review with instances built from the same exported pack: a source fault the synthesis keeps (confirmed), drops
+   (refuted), adds (named by the receipt, the merged review escalated, unresolved as carried) and a faithful control; and
+   every combined answer of the recorded rounds' genuine pass (copies), reviewed N_FOLD by silent instances: every part
+   reviewed, the temporary context complete, scoped, bounded, recorded and discarded, the audit verifying, no clearance
+   changed, every call's system text the pack's; gate ``twofold_combined_answers`` (a round set that holds no combined
+   answer, such as a one-task copy, says so in the gate).
 4. **Tampering suite** (``tamper.py``, unless ``--no-tamper``): every case, its agents built from the same exported pack, on
    the synthetic task and the recorded r5 and r7 targets (the STEM receipt cases T23a to T23z, T23aa to T23az and T23ba to T23bt on r7's STEM tasks).
 5. **Overseer agents** (scripted probe providers, no network, no model): ``hub.review`` runs probes whose replies
@@ -122,7 +130,7 @@ _REKEYED_FIELDS = ("recorded_claim_id",)
 _SOURCE_FIELDS = ("recorded_answer", "recorded_plan", "recorded_proposal")
 #: Codes by which the shadow re-derivation disagrees with a receipt.
 SHADOW_DISAGREE = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
-OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.6", sha256="cd" * 32)  # a version other than the installed one (1.5)
+OTHER_PACK = PackIdentity(name="overseer-knowledge-docs", version="1.6", sha256="cd" * 32)  # a version no code pins (the installed one is 2.0)
 
 
 class Stopped(RuntimeError):
@@ -1570,6 +1578,18 @@ def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iter
         # the STEM fault classes (decision 60): one planted fault per class on copies of r7's recorded STEM transfers, through
         # an audited hub, each probe's dossier evidence and, for a translation, a scripted agent built from the same pack
         result["stem_probes"] = run_stem_probes(out, Path(rounds_root), pack) if "r7" in found else {"measured": False, "why": "the recorded round r7 is not present"}
+    # architecture step 3: the twofold (N_FOLD) review of combined answers: the synthetic two-subject case in its four forms
+    # (a source fault kept, dropped, added, and a faithful control) and every combined answer of the recorded rounds found
+    import twofold_probes as TW
+    tw = TW.run(out / "twofold", pack, [(n, found[n]) for n in rounds if n in found])
+    H.write_json(out / "twofold" / "twofold.json", tw)
+    (out / "twofold" / "twofold.md").write_text(TW.summary_md(tw), encoding="utf-8")
+    result["twofold"] = {"gate": tw["gate"], "file": str(out / "twofold" / "twofold.json"), "wall_s": tw["wall_s"],
+                         "synthetic": {k: {"ok": v["ok"], "observed": v["observed"]} for k, v in tw["synthetic"].items()},
+                         "recorded": [{"round": x["round"], "channel": x["channel"], "ok": x["ok"], "sources": x.get("sources"), "agents": x.get("agents"),
+                                       "context": x.get("context"), "failed_checks": sorted(k for k, ok in (x.get("checks") or {}).items() if not ok),
+                                       **({"error": x["error"]} if x.get("error") else {})}
+                                      for r in tw["recorded"] for x in r["combined_answers"]]}
     if tamper:
         import tamper as T
         m = T.run_suite(out / "tamper", rounds_root=rounds_root, pack_dir=Path(pack_info.get("exported_dir") or pack_info.get("given")))
@@ -1660,6 +1680,12 @@ def gates(r: dict) -> dict:
             g[k] = {"ok": False, "state": "NOT MEASURED (no recorded round present)"}
     if "tamper" in r:
         g["tamper_suite"] = {"ok": all(r["tamper"]["gates"].values()), **r["tamper"]["counts"]}
+    if "twofold" in r:
+        # the synthetic combined answer is always measured; every combined answer the requested rounds hold is reviewed too, and a
+        # round set that holds none (a one-task copy) says so
+        tg = r["twofold"]["gate"]
+        g["twofold_combined_answers"] = {"ok": bool(tg.get("ok")), **{k: v for k, v in tg.items() if k != "ok"},
+                                         **({"state": "no combined answer in the requested rounds"} if not tg.get("recorded_combined_answers") else {})}
     if "stem_probes" in r:
         sp = r["stem_probes"]
         gate = sp.get("gate") or {}
@@ -1728,6 +1754,13 @@ def summary_md(r: dict) -> str:
         L += ["", "## STEM fault-class probes", "", json.dumps({k: v for k, v in (sp.get("gate") or {}).items() if k != "classes_with_a_named_probe"}) if sp.get("measured")
               else f"NOT MEASURED: {sp.get('why')}"]
         L += [f"- {c}: " + ", ".join(f"{pid} {o}" for pid, o in probes.items()) for c, probes in (sp.get("classes") or {}).items()]
+    if "twofold" in r:
+        tw = r["twofold"]
+        L += ["", "## Twofold (N_FOLD) review of combined answers", "", json.dumps({k: v for k, v in tw["gate"].items() if k != "recorded"})]
+        L += [f"- synthetic {case}: {'PASS' if v['ok'] else 'FAIL'} {json.dumps(v['observed'])}" for case, v in tw["synthetic"].items()]
+        L += [f"- {x['round']}/{x['channel']}: {'PASS' if x['ok'] else 'FAIL'}; {x.get('sources')} sources; instances {json.dumps(x.get('agents'))}; "
+              f"context {json.dumps(x.get('context'))}" + (f"; failed {x['failed_checks']}" if x.get("failed_checks") else "")
+              + (f"; error {x['error']}" if x.get("error") else "") for x in tw["recorded"]]
     if "tamper" in r:
         L += ["", "## Tampering suite", "", json.dumps(r["tamper"]["counts"]), json.dumps(r["tamper"]["gates"])]
     if "replies" in r:
