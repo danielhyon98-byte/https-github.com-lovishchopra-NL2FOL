@@ -257,6 +257,36 @@ harness rates of the second layer have not dropped.
      `test_knowledge_drift.py`, `test_harness_contained_pack.py`) use 1.6, 1.5 being pinned now; the version pins
      (`test_knowledge_pack.py`, `test_knowledge_runner.py`, `test_integration_codes.py`) name 1.5, with 1.4 still pinned and
      loading.
+   - overseer, missed by the clearance and repaired after it: `tests/overseer/test_rebuild_rekeyed_r7.py::test_the_overseer_raises_exactly_the_engine_shown_faults_on_the_recorded_translations_served_under_the_merged_ids`
+     skips unless `EPINOIC_ARENA_ROUNDS` names the recorded rounds, so no verification run of the clearance executed it, and
+     it still pinned OVS-TRN-006 on mai-t13 m1.1 and m7.1 while the clearance's translator withholds both (its semantic
+     circularity rule, E112 at translation, decision 91) and record version 8 retires both (kind `translator_semantic`,
+     decision 94): on the recorded r7 it failed with no error raised. A withheld translation gets no OVS-TRN finding
+     (decisions 46 and 91), so the old pin contradicted the test's own `circularity-agreement` assertion and the shipped
+     record. It was rewritten to a stricter rule, weakening or deleting none: `EXPECTED_WITHHELD` pins exactly the claims the
+     semantic rule withholds on the pass (m1.1 naming t_comp, t_wants_euro and t_wants_value, m7.1 naming t_whole, and p7c
+     h1.6 naming a_flow, each with E112 on both attempts and no OVS-TRN finding at any severity), the errors on the shipped
+     pipeline are `EXPECTED_ERRORS` but the withheld claims (none), and the record's retirements are pinned (one on the genuine
+     pass, five on this one, the two pinned claims among them). Every assertion it made on the two errors is made in the new
+     `test_past_the_translators_semantic_gate_the_overseer_raises_the_pinned_faults_and_its_floor_on_the_same_encodings`,
+     on the same pass with the translator's semantic rule off (`conftest.without_the_translators_semantic_gate`): the two
+     errors exactly, plus the overseer's floor (`EXPECTED_FLOOR_ERRORS`: t_comp on m1.1, and p7c h1.6), each naming exactly
+     the premises the translator's E112 names, and record version 7's entries matching the two. The new
+     `test_the_pins_of_this_file_agree_with_the_shipped_adjudication_record` needs no recorded round, so a plain suite run
+     fails when the file's pins and the shipped record drift apart again (with `EXPECTED_WITHHELD` empty, the pins before
+     this repair, it fails).
+   - overseer, round-8 r7 stage 2 (design Decision 111): no test was rewritten or removed. The new
+     `overseer/tests/overseer_tests/test_r7_stage2_detection.py` pins three losses of detection the contained run of the round-8 commit
+     showed against the base 16d5a4a: a declined-bound record whose stated count is not the recount (the T5c fault on a
+     declining answer, ge-t14 with the channel's measure patched to 7, and a record stating no count) is OVS-FORM-003 naming
+     MEASURED; tampering T5 presents a declined bound as decided and satisfied (RCPT-001), still flips a definitive status
+     first, and never presents an unchanged receipt (`tamper.t5_presented`, SkipCase); rule derived-figures no longer traces
+     a figure through the reciprocal of a precision end (bi-t13: 1/12.5 from "12 mm³") or a supplied text's precision end
+     (ch-t13: 0.005 from "+/-0.01 s"), while every figure a supplied text states as written (a table cell, a per cent, a
+     scale word, scientific notation, spaced thousands, the uncertainty itself) is still traced. All but one test need no
+     recorded round; the last replays r7/ch-t13 (with `EPINOIC_ARENA_ROUNDS`), asserting first the decline and the four cases
+     it makes skip with their reasons (T3, T5b, T22b, T22w), then T5 (RCPT-001) and T5c (FORM-003, MEASURED) detected. On the
+     tree before the repair (with the new helpers stubbed to the old behaviour) 8 of its 18 tests fail.
    - STEM: `tests/stem/test_stem_repair10.py::test_a_cut_value_inside_an_expression_is_named_undecided_never_failed` is now
      `test_a_cut_value_inside_an_expression_is_decided_never_failed_when_correct`. It pinned ST-UNDEC-001 for every cut
      decimal inside an expression ('0.333… × 3 = 1') whatever its value, so a GDC-style answer was essentially unchecked; the

@@ -67,7 +67,9 @@ R2 (deterministic code on journaled data; nothing in agent text is executed):
   the answer declines (rule ``declined-bound``, round-8 clearance c1): the record ``satisfied`` None, method
   ``not_checkable``, no formal result, its detail opening with ``channel.bus.DECLINED_BOUND_PREFIX``, is accepted exactly
   when ``channel.bus.withheld_deliverable`` reads a decline in the journaled response (the channel's own reader, so the
-  two cannot disagree); the same record on a response that declines nothing is FORM-004; an "about N words" band not met
+  two cannot disagree) and the count its detail states ("; measured N words; bound ...") is the recount (else FORM-003
+  naming MEASURED: Decision 111, the record's count is a statement the router reads); the same record on a response that
+  declines nothing is FORM-004; an "about N words" band not met
   needs INT-REQ-005 at the severity the channel's own ``request_parser.word_bound_severity`` gives on the recount (a warning
   within a quarter of N, else an error; rule ``about-band``, round-8 clearance c1), else RCPT-004;
 * the signed status of each bound's result is compared with the recount by integer arithmetic (the problem
@@ -116,6 +118,9 @@ _CHANNEL_CHECK_DEFECT = TranslatorChannel._check_defect
 #: The STEM branches' own structural codes (rule ``stem-structural``).
 _STEM_CODE_PREFIX = "ST-"
 _BOUND_OPS = {"max_words": "le", "min_words": "ge", "max_paragraphs": "le", "min_paragraphs": "ge"}
+#: The measurement a declined-bound record states (``channel.bus`` writes "...; measured N words; bound KIND VALUE"); rule
+#: ``declined-bound`` compares it with the recount (round-8 r7 stage 2: the record's count is a statement the router reads).
+_DECLINED_MEASURED_RE = re.compile(r"; measured (\d+) (?:words|paragraphs); bound \S+ \S+$")
 
 
 def _constraint_image(status: str) -> Optional[bool]:
@@ -720,9 +725,16 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
             if c.kind not in _BOUND_OPS or c.value is None:
                 continue
             cr = held_c.get(c.constraint_id)
-            if declined_bound(cr, rep.original_response, declined=declined or ("", "")):
-                continue  # rule declined-bound: the bound does not apply to a decline, as the channel records it
             measured = words_for(c) if c.kind.endswith("words") else paras
+            if declined_bound(cr, rep.original_response, declined=declined or ("", "")):
+                # rule declined-bound: the bound does not apply to a decline, as the channel records it; the measurement the
+                # record states is still the recount's (the channel writes it, so the router reads it)
+                said = list(_DECLINED_MEASURED_RE.finditer(str(cr.detail or "")))
+                if not said or int(said[-1].group(1)) != measured:
+                    red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} is recorded not applicable (rule declined-bound) with a "
+                                                    f"MEASURED count the response does not yield: the record states "
+                                                    f"{said[-1].group(1) if said else 'none'}, the recount gives {measured}", **ids))
+                continue
             if cr is None or cr.method != "formal" or not cr.formal_result_id:
                 red.findings.append(ovs_finding("OVS-FORM-004", f"request constraint {c.constraint_id} ({c.kind} {c.value}) has no formal result on the receipt"
                                                 + (" (a bound recorded not applicable on a response that declines no deliverable: rule declined-bound)"
