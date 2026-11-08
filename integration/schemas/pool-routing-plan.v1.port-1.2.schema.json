@@ -1,0 +1,935 @@
+{
+  "$defs": {
+    "PoolAssignment12": {
+      "additionalProperties": false,
+      "description": "How one dossier is reviewed at pool port 1.2: its method and the instances that review it (for ``N_FOLD``, the\nmerged review's), its sources' assignments (``N_FOLD`` only) and temporary context (``N_FOLD`` only), and the\ndecision that chose them.",
+      "properties": {
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoolContext"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision": {
+          "$ref": "#/$defs/PoolDecision"
+        },
+        "instances": {
+          "items": {
+            "maximum": 64,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Instances",
+          "type": "array"
+        },
+        "item_id": {
+          "pattern": "^d[1-9][0-9]{0,5}$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "SPLIT",
+            "DUPLICATE",
+            "N_FOLD"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/PoolSourceAssignment"
+          },
+          "maxItems": 16,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "item_id",
+        "method",
+        "instances",
+        "sources",
+        "context",
+        "decision"
+      ],
+      "title": "PoolAssignment12",
+      "type": "object"
+    },
+    "PoolCandidate": {
+      "additionalProperties": false,
+      "description": "One method the decision maker priced: its reviews and calls, its estimated tokens (``None`` when the size is not\nmeasured) and agent-seconds, whether it keeps accuracy and why it was or was not chosen.",
+      "properties": {
+        "calls": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Calls",
+          "type": "integer"
+        },
+        "keeps_accuracy": {
+          "title": "Keeps Accuracy",
+          "type": "boolean"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "SPLIT",
+            "DUPLICATE",
+            "N_FOLD"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "reviews": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Reviews",
+          "type": "integer"
+        },
+        "seconds": {
+          "maximum": 100000000,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "maximum": 1000000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tokens"
+        },
+        "why": {
+          "enum": [
+            "chosen",
+            "costlier",
+            "agreement_needed",
+            "exceeds_budget",
+            "combined_needs_n_fold"
+          ],
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "reviews",
+        "calls",
+        "tokens",
+        "seconds",
+        "keeps_accuracy",
+        "why"
+      ],
+      "title": "PoolCandidate",
+      "type": "object"
+    },
+    "PoolContext": {
+      "additionalProperties": false,
+      "description": "The merged review's temporary context: the validated outcomes of the source reviews, scoped to the request, at\nmost ``max_bytes`` bytes, discarded after the request.",
+      "properties": {
+        "contents": {
+          "const": "validated_outcomes",
+          "title": "Contents",
+          "type": "string"
+        },
+        "discard": {
+          "const": "after_request",
+          "title": "Discard",
+          "type": "string"
+        },
+        "max_bytes": {
+          "maximum": 65536,
+          "minimum": 1,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "scope": {
+          "const": "request",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "contents",
+        "max_bytes",
+        "discard"
+      ],
+      "title": "PoolContext",
+      "type": "object"
+    },
+    "PoolCost": {
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "tokens": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tokens",
+        "seconds"
+      ],
+      "title": "PoolCost",
+      "type": "object"
+    },
+    "PoolDecision": {
+      "additionalProperties": false,
+      "description": "The flash decision maker's record for one dossier (rule D7): the approach (``in_depth``: one instance examines the\nwhole response; ``duplication``: the work split across instances in parallel, with duplicates where risk calls for\nagreement), the method, the reviews and calls, what it read, the reading need of one instance and the instance\nbudget, whether one instance fits, its reasons, every candidate it priced, the parts of an N_FOLD and its cost.",
+      "properties": {
+        "approach": {
+          "enum": [
+            "in_depth",
+            "duplication"
+          ],
+          "title": "Approach",
+          "type": "string"
+        },
+        "budget_tokens": {
+          "maximum": 1000000000000,
+          "minimum": 1,
+          "title": "Budget Tokens",
+          "type": "integer"
+        },
+        "calls": {
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Calls",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/PoolCandidate"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Candidates",
+          "type": "array"
+        },
+        "estimated_cost": {
+          "$ref": "#/$defs/PoolDecisionCost"
+        },
+        "fits": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fits"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "DUPLICATE",
+            "N_FOLD"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "need_tokens": {
+          "anyOf": [
+            {
+              "maximum": 1000000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Need Tokens"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/PoolPartDecision"
+          },
+          "maxItems": 17,
+          "title": "Parts",
+          "type": "array"
+        },
+        "read": {
+          "$ref": "#/$defs/PoolDecisionRead"
+        },
+        "reasons": {
+          "items": {
+            "enum": [
+              "in_depth_cheapest",
+              "agreement_risk",
+              "agreement_escalation",
+              "agreement_advised",
+              "combined_n_fold",
+              "split_to_fit",
+              "over_budget",
+              "size_not_measured"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "reviews": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Reviews",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approach",
+        "method",
+        "reviews",
+        "calls",
+        "read",
+        "need_tokens",
+        "budget_tokens",
+        "fits",
+        "reasons",
+        "candidates",
+        "estimated_cost"
+      ],
+      "title": "PoolDecision",
+      "type": "object"
+    },
+    "PoolDecisionCost": {
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {
+          "maximum": 100000000,
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "maximum": 1000000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tokens"
+        }
+      },
+      "required": [
+        "tokens",
+        "seconds"
+      ],
+      "title": "PoolDecisionCost",
+      "type": "object"
+    },
+    "PoolDecisionRead": {
+      "additionalProperties": false,
+      "description": "The features a decision read: the request item's own (the overseer checks the echo), and its number of sources.",
+      "properties": {
+        "advised": {
+          "title": "Advised",
+          "type": "boolean"
+        },
+        "features": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PoolFeatures"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repeated_faults": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Repeated Faults",
+          "type": "integer"
+        },
+        "risk_records": {
+          "items": {
+            "enum": [
+              "named_defect",
+              "writer_assumption",
+              "unchecked_source",
+              "stem_method",
+              "encoding_conflict",
+              "contradiction",
+              "withheld_verdict",
+              "rejection",
+              "diagnosis_incomplete",
+              "integrity_error"
+            ],
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Risk Records",
+          "type": "array"
+        },
+        "risk_signals": {
+          "items": {
+            "enum": [
+              "named_defect",
+              "writer_assumption",
+              "unchecked_source",
+              "stem_method",
+              "encoding_conflict",
+              "contradiction",
+              "withheld_verdict",
+              "rejection",
+              "diagnosis_incomplete",
+              "integrity_error"
+            ],
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Risk Signals",
+          "type": "array"
+        },
+        "sources": {
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Sources",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repeated_faults",
+        "risk_signals",
+        "risk_records",
+        "advised",
+        "features",
+        "sources"
+      ],
+      "title": "PoolDecisionRead",
+      "type": "object"
+    },
+    "PoolFeatures": {
+      "additionalProperties": false,
+      "description": "The size of a dossier (or of one part of a combined answer) as the flash decision maker prices it: its journaled\ntransfers, their characters (envelopes, receipts and raw texts as journaled), whether its content is STEM and how many\ntranslations it carries (which compositions of the overseer's knowledge pack it needs). Counts only.",
+      "properties": {
+        "chars": {
+          "maximum": 1000000000,
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "stem": {
+          "title": "Stem",
+          "type": "boolean"
+        },
+        "transfers": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Transfers",
+          "type": "integer"
+        },
+        "translations": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "title": "Translations",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "transfers",
+        "chars",
+        "stem",
+        "translations"
+      ],
+      "title": "PoolFeatures",
+      "type": "object"
+    },
+    "PoolPartDecision": {
+      "additionalProperties": false,
+      "description": "The decision for one part of an N_FOLD: a source (``index`` 1 to N) or the merged review (``index`` 0).",
+      "properties": {
+        "fits": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fits"
+        },
+        "index": {
+          "maximum": 16,
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "need_tokens": {
+          "anyOf": [
+            {
+              "maximum": 1000000000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Need Tokens"
+        },
+        "part": {
+          "enum": [
+            "source",
+            "merged"
+          ],
+          "title": "Part",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "enum": [
+              "in_depth_cheapest",
+              "agreement_risk",
+              "agreement_escalation",
+              "agreement_advised",
+              "combined_n_fold",
+              "split_to_fit",
+              "over_budget",
+              "size_not_measured"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "reviews": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Reviews",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "part",
+        "index",
+        "reviews",
+        "need_tokens",
+        "fits",
+        "reasons"
+      ],
+      "title": "PoolPartDecision",
+      "type": "object"
+    },
+    "PoolReason12": {
+      "additionalProperties": false,
+      "description": "One reason of a 1.2 plan: a closed code and exactly its parameters (:data:`POOL_REASON_PARAMETERS_12`).",
+      "properties": {
+        "classes": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "named_defect",
+                  "writer_assumption",
+                  "unchecked_source",
+                  "stem_method",
+                  "encoding_conflict",
+                  "contradiction",
+                  "withheld_verdict",
+                  "rejection",
+                  "diagnosis_incomplete",
+                  "integrity_error"
+                ],
+                "type": "string"
+              },
+              "maxItems": 10,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classes"
+        },
+        "code": {
+          "enum": [
+            "pool_empty",
+            "pool_baseline",
+            "pool_volume",
+            "pool_repeated_faults",
+            "pool_risk_signals",
+            "pool_advised",
+            "pool_risk_records",
+            "pool_capped",
+            "pool_over_quota",
+            "pool_n_fold"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "instances": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instances"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Load"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "needed": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needed"
+        },
+        "quota": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quota"
+        },
+        "reviewers": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewers"
+        },
+        "sources": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sources"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "PoolReason12",
+      "type": "object"
+    },
+    "PoolSourceAssignment": {
+      "additionalProperties": false,
+      "description": "How one source of a combined answer is reviewed: ``IN_DEPTH`` (one instance) or ``DUPLICATE`` (independent ones).",
+      "properties": {
+        "instances": {
+          "items": {
+            "maximum": 64,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Instances",
+          "type": "array"
+        },
+        "method": {
+          "enum": [
+            "IN_DEPTH",
+            "DUPLICATE"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "instances"
+      ],
+      "title": "PoolSourceAssignment",
+      "type": "object"
+    },
+    "RouterIdentity": {
+      "additionalProperties": false,
+      "description": "The flash router's identity as it reports it in its hello: name, version and the digests of its rules and of its\nrecorded cost data. A plan must carry exactly this identity (``KIT-RT-003``).",
+      "properties": {
+        "cost_data_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Cost Data Sha256",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "rules_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Rules Sha256",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]{1,4}(?:\\.[0-9]{1,4}){0,3}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "rules_sha256",
+        "cost_data_sha256"
+      ],
+      "title": "RouterIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assignments": {
+      "items": {
+        "$ref": "#/$defs/PoolAssignment12"
+      },
+      "maxItems": 4096,
+      "title": "Assignments",
+      "type": "array"
+    },
+    "capped": {
+      "title": "Capped",
+      "type": "boolean"
+    },
+    "estimated_cost": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PoolCost"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "instances": {
+      "maximum": 64,
+      "minimum": 0,
+      "title": "Instances",
+      "type": "integer"
+    },
+    "loads": {
+      "items": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 64,
+      "title": "Loads",
+      "type": "array"
+    },
+    "needed_instances": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "title": "Needed Instances",
+      "type": "integer"
+    },
+    "origin": {
+      "const": "router",
+      "title": "Origin",
+      "type": "string"
+    },
+    "over_quota": {
+      "title": "Over Quota",
+      "type": "boolean"
+    },
+    "plan_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "port_version": {
+      "const": "1.2",
+      "title": "Port Version",
+      "type": "string"
+    },
+    "profile": {
+      "enum": [
+        "standard",
+        "fast"
+      ],
+      "title": "Profile",
+      "type": "string"
+    },
+    "protocol": {
+      "const": "epinoic.integration.v1",
+      "title": "Protocol",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/PoolReason12"
+      },
+      "maxItems": 10,
+      "minItems": 1,
+      "title": "Reasons",
+      "type": "array"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+    },
+    "review_units": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "title": "Review Units",
+      "type": "integer"
+    },
+    "router": {
+      "$ref": "#/$defs/RouterIdentity"
+    },
+    "schema": {
+      "const": "epinoic.integration.pool-routing-plan.v1",
+      "title": "Schema",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "protocol",
+    "port_version",
+    "origin",
+    "plan_id",
+    "request_sha256",
+    "router",
+    "profile",
+    "instances",
+    "assignments",
+    "loads",
+    "review_units",
+    "needed_instances",
+    "capped",
+    "over_quota",
+    "reasons"
+  ],
+  "title": "PoolRoutingPlan12",
+  "type": "object"
+}

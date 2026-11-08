@@ -158,12 +158,33 @@ _QUIET = {"stem": False, "words": 300, "status": "ACCEPTED", "errors": (), "warn
           "diagnostics": (), "unverified": 0, "repeated": 0}
 
 
-def _single_entry(sig: dict, max_instances: int = 8) -> R.TransferPlan:
-    req, text = _plan(_request([sig], "single", max_instances, ["standard"]))
-    return R.check_plan(text, req, hello=HELLO).transfers[0]
+def _released_0_2_0(tmp: Path) -> port.FlashRouter:
+    """The router over the released 0.2.0 data (rules/2 and cost data 2, kept at their digests in the data directory):
+    a released file never changes, and the planners still plan it by its own rules."""
+    import shutil
+    dest = tmp / "data-0.2.0"
+    shutil.copytree(Path(rules.DATA_DIR), dest)
+    manifest = json.loads((dest / "MANIFEST.json").read_text(encoding="utf-8"))
+    manifest["current"] = {"rules": "rules-2.json", "cost_data": "cost-data-2.json"}
+    (dest / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return port.FlashRouter(str(dest))
 
 
-def test_the_router_adds_oversight_the_floor_does_not_ask_for():
+def _single_entry(sig: dict, max_instances: int = 8, router: port.FlashRouter | None = None) -> R.TransferPlan:
+    req = R.check_request(_request([sig], "single", max_instances, ["standard"]))
+    r = router or port.FlashRouter()
+    text = r.plan(canonical_json(R.dump(req)))
+    return R.check_plan(text, req, hello=R.check_hello(json.loads(r.hello()))).transfers[0]
+
+
+def test_the_router_adds_oversight_the_floor_does_not_ask_for(tmp_path):
+    """The released 0.2.0 rules (rules/2) plan exactly as 0.2.0 did: an output over split_words words read by one review
+    is divided. Its assertions are unchanged; since 0.3.0 they run on the 0.2.0 data, kept in the data directory at
+    their digests (the current rules/3 decide by the flash decision maker: the next test)."""
+    old = _released_0_2_0(tmp_path)
+
+    def _single_entry(sig: dict, max_instances: int = 8) -> R.TransferPlan:  # noqa: F811 - the 0.2.0 router's entry
+        return globals()["_single_entry"](sig, max_instances, router=old)
     quiet = _single_entry(_QUIET)
     assert (quiet.method, quiet.reviews, quiet.reasons[0]) == ("IN_DEPTH", 1, "baseline_single_review")
     escalated = _single_entry({**_QUIET, "unverified": 1})  # the floor reads no unverified dependency: 1 review there
@@ -175,6 +196,38 @@ def test_the_router_adds_oversight_the_floor_does_not_ask_for():
     assert (long.method, long.parts, long.reviews, long.instances) == ("SPLIT", 5, 1, 5) and "volume_split" in long.reasons
     assert _single_entry({**_QUIET, "words": 40000}, max_instances=3).parts == 3  # never more parts than instances allowed
     assert _single_entry({**_QUIET, "unverified": 1, "errors": ("INT-SUBJ-001",)}, max_instances=2).reviews == 2  # capped, never below the floor
+
+
+def test_the_flash_decision_maker_chooses_the_cheapest_method_that_keeps_accuracy():
+    """rules/3 (0.3.0): the same escalations, and the method from the recorded cost data. An output one instance can read
+    whole is examined in depth, whatever its length, since every further instance repeats the pack's system text; one
+    that does not fit is divided into the fewest parts that fit, and agreement keeps its duplicate reviews."""
+    quiet = _single_entry(_QUIET)
+    assert (quiet.method, quiet.reviews, quiet.reasons[0]) == ("IN_DEPTH", 1, "baseline_single_review")
+    escalated = _single_entry({**_QUIET, "unverified": 1})
+    assert (escalated.method, escalated.reviews) == ("DUPLICATE", 2) and "risk_unverified_dependencies" in escalated.reasons
+    both = _single_entry({**_QUIET, "unverified": 1, "errors": ("INT-SUBJ-001",)})
+    assert (both.method, both.reviews) == ("DUPLICATE", 3) and {"risk_error_findings", "risk_unverified_dependencies"} <= set(both.reasons)
+    assert _single_entry({**_QUIET, "diagnostics": ("ARG-CIRCULAR-001",)}).reviews == 2
+    long = _single_entry({**_QUIET, "words": 4000})  # 24,000 characters: one instance reads it whole within its budget
+    assert (long.method, long.parts, long.reviews, long.instances) == ("IN_DEPTH", 1, 1, 1) and "volume_split" not in long.reasons
+    cost, budget = rules.COST_MODEL, rules.COST_MODEL["instance_budget_tokens"]
+
+    def call(read_chars: int) -> int:  # one call: the core and translations composition, what it reads, the output budget
+        cpt = cost["chars_per_token"]
+        return -(-cost["system_text_chars"]["core+translations"] // cpt) + -(-read_chars // cpt) + cost["output_tokens"]
+    d = cost["dossier"]
+    dossier = d["base_chars"] + d["chars_per_answer_char"] * 360_000 + d["chars_per_translation"] * 2  # the output's 2 translated claims
+    assert call(dossier) > budget, "the whole dossier fits no instance"
+    huge = _single_entry({**_QUIET, "words": 60000})  # 360,000 characters
+    k = huge.parts
+    assert (huge.method, huge.reviews, huge.instances) == ("SPLIT", 1, k) and "volume_split" in huge.reasons
+    assert k >= 2 and call(-(-dossier // k)) <= budget < call(-(-dossier // (k - 1))), "the fewest parts that fit"
+    assert _single_entry({**_QUIET, "words": 66000}, max_instances=2).parts == 2  # never more parts than instances allowed
+    agreed = _single_entry({**_QUIET, "words": 60000, "unverified": 1})
+    assert (agreed.method, agreed.reviews, agreed.parts, agreed.instances) == ("DUPLICATE", 2, k, 2 * k)  # agreement kept, in parts
+    assert _single_entry({**_QUIET, "unverified": 1, "errors": ("INT-SUBJ-001",)}, max_instances=2).reviews == 2  # capped, never below the floor
+    assert quiet.estimated_cost.tokens < escalated.estimated_cost.tokens < both.estimated_cost.tokens, "every further review is priced"
 
 
 # ----------------------------------------------------------------------------------------------- 6. determinism

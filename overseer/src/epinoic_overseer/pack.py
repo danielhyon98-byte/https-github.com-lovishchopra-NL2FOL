@@ -395,6 +395,24 @@ and "0.333… × 3 = 1.5" fails, while a cut value set equal to a symbol, an ell
 beyond 12 stay ST-UNDEC-001; the README notes the sizes; every header and footer names 1.5 (Example 13 still names 1.1). Before
 its first commit the clearance's handoff fixer added the row of CORE-SRC-008 (warning, no label: the core pack's rule case-name,
 a near miss of a name the supplied case states) to the code table of Kinds and codes, section 8, and the README's sizes with it.
+
+**Pack 2.0** (architecture step 3, the flash decision maker and the twofold mode; a MAJOR version, section 17.12: it adds
+the accusation kind ``synthesis_carries_fault``; the verdict contract's fields and the dossier version are unchanged, so
+every verdict an agent of a 1.x pack writes still validates, and the dossier gains two optional members, ``review`` and
+``temporary_context``; 1.0 to 1.5 stay pinned and unchanged). It teaches the review of a combined answer in parts
+(N_FOLD, design section 52): the master prompt's order (step 4) and a COMBINED ANSWERS section with a WHEN IN DOUBT line;
+Role and trust T15 (one part of a combined answer, the temporary context), with T13 corrected to the floor's escalation
+by any risk signal; the Dossier guide's §16 (D38 the part a dossier is issued for, D39 the temporary context field by
+field, D40 what it is not) and the dossier at a glance; the Inspection guide's §14 (I100 a source review, I101 the four
+questions of a merged review, I102 a fault the synthesis carries, I103 what is not one, I104 the context's limits);
+Kinds and codes (the ``synthesis_carries_fault`` row before ``other``, decided by rule carried-fault through the source
+review's confirmed accusation, OVS-AGENT-003, and K9); Never N15; When unsure U12; Example 41 (a synthesis that carries a
+fault a source review confirmed: ``synthesis_carries_fault``) and two wrong-verdict rows; a mistakes row in each
+document that gained a rule. Everything is in the core (no new module), which grows by 20,607 characters (about 5,150
+tokens) in every composition: a module of its own would spare the dossiers that are no part of a combined answer, an
+optimisation recorded for later (design section 52). The README states the sizes, the combined-answer review in its
+section 8 and the version in its section 9, and names the package by its module path since the move,
+``epinoic_overseer``.
 """
 from __future__ import annotations
 
@@ -430,7 +448,7 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "1.5"
+PACK_VERSION = "2.0"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -444,6 +462,9 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     # pack of the round, so the correction is a new version. Before 1.5 was first committed, the clearance's handoff fixer added
     # the code table's row of CORE-SRC-008 (rule case-name) to its section 8, so 1.5 is pinned with that row
     (PACK_NAME, "1.5"): "cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab",
+    # architecture step 3: the twofold (N_FOLD) review of a combined answer and the kind synthesis_carries_fault, a MAJOR
+    # version (a kind added); the contracts are unchanged, so 1.0 to 1.5 stay pinned and their verdicts still validate
+    (PACK_NAME, "2.0"): "c2be21abf85f01cf672666650cdf5bb2ee26926c6095eb1569db3e193123f673",
 })
 
 MANIFEST_VERSION = "1.0"

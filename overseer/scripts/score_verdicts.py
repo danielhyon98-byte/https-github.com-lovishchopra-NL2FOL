@@ -91,14 +91,17 @@ import ovs_harness as H  # noqa: E402
 
 from epinoic_overseer import ConsolidatedResponse, KIND_CHECKS, PackError, PackIdentity, VerdictIntake, validate_overseer_verdict  # noqa: E402
 from epinoic_overseer.combine import combine_verdicts  # noqa: E402
-from epinoic_overseer.verdicts import UNCHECKED_KINDS  # noqa: E402
+from epinoic_overseer.verdicts import CONTEXT_KINDS, UNCHECKED_KINDS  # noqa: E402
 
 SCORES_FORMAT = "overseer-scores/1.0"
 ADJUDICATIONS_FORMAT = "overseer-adjudications/1.0"
 MAX_FALSE_ACCUSATION_RATE = 0.02
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 #: The classes kappa is computed over: every kind a deterministic check decides.
-KAPPA_CLASSES = tuple(k for k, codes in KIND_CHECKS.items() if codes)
+#: The kinds an agent's labels are set against the auditor's on blind dossiers: those a finding of the task audit decides. A
+#: context kind (``synthesis_carries_fault``, architecture step 3) is decided through a merged review's temporary context,
+#: never by a task audit's finding, so the auditor never labels it and it is no class of this agreement.
+KAPPA_CLASSES = tuple(k for k, codes in KIND_CHECKS.items() if codes and k not in CONTEXT_KINDS)
 ID_KINDS = ("message_ids", "claim_ids", "report_ids", "result_ids", "document_ids")
 
 

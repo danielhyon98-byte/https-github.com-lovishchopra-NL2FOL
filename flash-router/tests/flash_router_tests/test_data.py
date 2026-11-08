@@ -3,7 +3,7 @@ thresholds, the method table, the batch sizes) and its cost data, each with a di
 
 - the manifest records every data file's digest (SHA-256 of the document's canonical JSON), and the files match it;
 - a released file never changes: 0.1.0's rules and cost model are kept, pinned to the digests 0.1.0 reported in its
-  identity, and 0.2.0's to theirs;
+  identity, 0.2.0's to theirs, and 0.3.0's (the flash decision maker, architecture step 3) to theirs;
 - the identity (hellos and every plan) reports the current files' digests and this release's version, which is the
   project's version and the release the manifest names for the current files;
 - the loader refuses data the planners cannot read (a repeated key, a non-JSON constant, a missing parameter);
@@ -32,6 +32,8 @@ RELEASED = {
     "cost-data-1.json": "228fe3e768b97c4807866cc973b7c24697283767a335c1db6a097a7ac3870e7e",  # 0.1.0, as its identity reported it
     "rules-2.json": "befadfa1abf55e7ba96c8cad654b8073de0f29afbb8a1676e092cd42593ee8c4",      # 0.2.0
     "cost-data-2.json": "a251369b4192d4b623281d1cd5ba77b9b0eaaab0b399187f07d257bd7de86860",  # 0.2.0
+    "rules-3.json": "6750626527a7e1ddd7d82facefb86222a7881462b7fca9df3fdfd7e2cdd23896",      # 0.3.0, the flash decision maker
+    "cost-data-3.json": "8b5747bc69997e9b030b7d70883cff38c46dcd3e86a4bef28a0dd5a791fe2d4e",  # 0.3.0, sizes of pack 2.0
 }
 
 
@@ -46,7 +48,7 @@ def test_every_data_file_matches_its_manifest_and_every_released_file_its_pin():
     for name, entry in MANIFEST["files"].items():
         assert _canonical_sha(DATA / name) == entry["sha256"], name
         assert RELEASED.get(name) == entry["sha256"], f"{name}: a released file never changes; a new one is pinned here when it is released"
-    assert MANIFEST["current"] == {"rules": "rules-2.json", "cost_data": "cost-data-2.json"}
+    assert MANIFEST["current"] == {"rules": "rules-3.json", "cost_data": "cost-data-3.json"}  # 0.3.0 (rules-2 and cost-data-2 before)
 
 
 def test_the_identity_reports_the_current_files_and_this_release():
@@ -68,7 +70,9 @@ def test_the_0_1_0_files_reproduce_the_0_1_0_identity_digests():
 
 
 def test_the_rules_file_holds_the_features_thresholds_method_table_and_batch_sizes():
-    doc = rules.RULES_DOCUMENT
+    # 0.3.0 made rules-3 the current file: the assertions on rules-2 are kept on rules-2.json, which never changes, and the
+    # current file is held to the same table and to the flash decision maker's section below
+    doc = json.loads((DATA / "rules-2.json").read_text(encoding="utf-8"))
     assert doc["name"] == "epinoic-flash-router rules/2" and doc["rules"].startswith("epinoic-flash-router rules/2\n")
     assert set(doc["methods"]) == {"IN_DEPTH", "SPLIT", "DUPLICATE", "N_FOLD"}
     assert all({"meaning", "complete_reviews", "port", "pool"} <= set(m) for m in doc["methods"].values())
@@ -78,6 +82,33 @@ def test_the_rules_file_holds_the_features_thresholds_method_table_and_batch_siz
     assert set(doc["signals"]) == {"negative_statuses", "undecided_statuses", "stem_undecided_codes"}
     cost = rules.COST_MODEL
     assert "not measurements" in cost["basis"] and "recorded" in cost and "model" not in json.dumps(cost["recorded"]).lower().replace("no model was called", "")
+
+
+def test_the_current_rules_file_holds_the_flash_decision_maker():
+    """0.3.0 (architecture step 3): the current rules hold the flash decision maker (rules D1 to D7: in-depth examination or
+    duplication, the cheapest that keeps accuracy, from the cost data), the N_FOLD reviewers of a combined answer (P8) and
+    no split_words (the fit replaces the word threshold); the cost data holds every composition's system text of the pack
+    it was measured with, the budgets and the dossier estimate, and names no model."""
+    doc = rules.RULES_DOCUMENT
+    assert doc["name"] == "epinoic-flash-router rules/3" and doc["rules"].startswith("epinoic-flash-router rules/3\n")
+    for rule in ("D1.", "D2.", "D3.", "D4.", "D5.", "D6.", "D7.", "P8."):
+        assert f"\n{rule} " in doc["rules"], rule
+    assert set(doc["methods"]) == {"IN_DEPTH", "SPLIT", "DUPLICATE", "N_FOLD"}
+    assert all({"meaning", "complete_reviews", "port", "pool"} <= set(m) for m in doc["methods"].values())
+    assert doc["pool"] == {"escalated_reviewers": 2, "baseline_reviewers": 1, "record_weight": 2, "batch_size": None, "source_reviewers": 1,
+                           "merged_reviewers": 1}
+    assert doc["parameters"] == {"max_parts": 16, "max_reviews": 4, "hard_max_instances": 64, "context_max_bytes": 65536}
+    d = doc["decision"]
+    assert d["approaches"] == {"in_depth": ["IN_DEPTH"], "duplication": ["SPLIT", "DUPLICATE", "N_FOLD"]}
+    assert d["order"] == ["tokens", "seconds", "calls", "method"] and d["pool_methods"] == ["IN_DEPTH", "DUPLICATE", "N_FOLD"]
+    assert {"sources", "merged", "features"} <= set(doc["features"]["pool"]) and {"supplied_texts", "claims"} <= set(doc["features"]["port"])
+    cost = rules.COST_MODEL
+    assert set(cost["system_text_chars"]) == {"core", "core+stem", "core+translations", "core+stem+translations"}
+    assert cost["system_text_chars"]["core"] < cost["system_text_chars"]["core+translations"] < cost["system_text_chars"]["core+stem"] \
+        < cost["system_text_chars"]["core+stem+translations"]
+    assert cost["recorded"]["system_text_pack"] == "overseer-knowledge-docs 2.0"
+    assert (cost["chars_per_token"], cost["output_tokens"], cost["instance_budget_tokens"], cost["seconds_per_call"]) == (4, 8000, 200000, 30)
+    assert "model" not in json.dumps(cost["recorded"]).lower()
 
 
 @pytest.mark.parametrize("damage,match", [

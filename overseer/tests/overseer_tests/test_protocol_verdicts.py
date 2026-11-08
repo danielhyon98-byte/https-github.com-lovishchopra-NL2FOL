@@ -20,8 +20,8 @@ from epinoic_overseer.verdicts import (
 
 PACK = {"name": "overseer-knowledge-docs", "version": "1.0", "sha256": "0123456789abcdef" * 4}
 
-#: The design's table (section 9.3, with decision 31's additions, section 18's translation kinds and decision 72's OVS-FORM-005), row by row,
-#: in order.
+#: The design's table (section 9.3, with decision 31's additions, section 18's translation kinds, decision 72's OVS-FORM-005 and
+#: decision 117's synthesis_carries_fault, architecture step 3), row by row, in order.
 DESIGN_TABLE = [
     ("payload_altered", ("OVS-CUST-001", "OVS-CUST-002", "OVS-CUST-004", "OVS-CUST-006")),
     ("receipt_altered", ("OVS-RCPT-001", "OVS-RCPT-006", "OVS-RCPT-007", "OVS-TRN-007")),
@@ -45,6 +45,7 @@ DESIGN_TABLE = [
     ("translation_ungrounded", ("OVS-TRN-003", "OVS-TRN-004", "OVS-TRN-005")),
     ("translation_circular", ("OVS-TRN-006",)),
     ("translation_unfaithful", ()),
+    ("synthesis_carries_fault", ("OVS-AGENT-003",)),
     ("other", ()),
 ]
 
@@ -102,8 +103,17 @@ def test_decision_31_additions():
 
 
 def test_every_mapped_code_is_a_transfer_code_with_error_or_warning_severity():
+    # Architecture step 3 (decision 117) extends the rule for its one context kind: synthesis_carries_fault is decided by rule
+    # carried-fault through a source review's CONFIRMED accusation (OVS-AGENT-003) and that accusation's own transfer findings
+    # (test_twofold.py asserts them: OVS-FID-002 confirms the kept fault), never by a finding of the merged dossier's own; its
+    # mapping is pinned exactly. Every other kind is held to the rule as before: transfer codes only, at error or warning.
+    from epinoic_overseer.verdicts import CONTEXT_KINDS, UNCHECKED_KINDS
+    assert CONTEXT_KINDS == {"synthesis_carries_fault"} and KIND_CHECKS["synthesis_carries_fault"] == ("OVS-AGENT-003",)
+    assert not CONTEXT_KINDS & UNCHECKED_KINDS and "OVS-AGENT-003" in OVS_CODES
     for kind, codes in KIND_CHECKS.items():
         assert (kind in ("translation_unfaithful", "other")) == (codes == ())
+        if kind in CONTEXT_KINDS:
+            continue
         for code in codes:
             assert code in OVS_CODES and not code.startswith(("OVS-AGENT-", "OVS-AUDIT-"))
             assert OVS_CODES[code][0] in ("error", "warning")

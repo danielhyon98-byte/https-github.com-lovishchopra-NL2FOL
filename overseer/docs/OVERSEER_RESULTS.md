@@ -4642,3 +4642,64 @@ The four r7/ch-t13 cases T3, T5b, T22b and T22w skip with their reasons, as on 3
 files of the round-8 rules this repair touches (`tests/channel/test_c1_clearance_core.py`, `tests/contract/test_repair_round1_cases.py`,
 `tests/translate/test_repair_round1_grounding.py`, `tests/translate/test_repair_round2_grounding.py`,
 `tests/translate/test_c1_clearance_core_translate.py`) 402 passed.
+
+## 38. The flash decision maker and the twofold mode (architecture step 3; design section 52)
+
+The flash router's first decision is its flash decision maker (`flash-router/` 0.3.0: `decision.py`, `rules-3.json`,
+`cost-data-3.json`), carried to the overseer pool at pool port 1.2 with every dossier's decision record, and a combined
+answer is reviewed N_FOLD (`overseer/src/epinoic_overseer/twofold.py`), which the floor (`minimum-oversight-floor/pool-2`)
+requires; the knowledge pack 2.0 teaches it. On the working tree, not committed; Python 3.13. Measured 2026-11-08, the
+recorded rounds always on fresh copies.
+
+| Measure | Result |
+| --- | --- |
+| the decision maker on minimal inputs (`flash-router/tests/flash_router_tests/test_decision.py`, 25 tests) | in-depth examination chosen when one review is called for and the response fits (its duplicate priced, keeping accuracy, `costlier`); duplicates when risk calls for agreement (2, and 3 for a signal with an escalation); the work split into the fewest parts that fit when it does not (3 parts where 2 are too few); duplicates in parts under both; N_FOLD for a combined answer with each part's record and the whole-dossier candidates refused `combined_needs_n_fold`; a dossier the pool cannot divide and no instance reads whole disclosed `over_budget`, never shortened; an unmeasured size recorded `size_not_measured`; a cap below the reviews risk calls for gives the most it allows; more reviews called for never gives fewer (14 cases); the same inputs give the same record and nothing given is changed |
+| the decision maker on the recorded rounds' genuine channels (39 dossiers of r2 to r5 and r7, each planned alone through the router port) | 30 `DUPLICATE` (risk calls for agreement: `agreement_risk`), 2 `IN_DEPTH` (`in_depth_cheapest`), 7 `N_FOLD` (`combined_n_fold`: r2/p1, r3/p2, r4/p3, r5/p4, r7/p7a, p7b, p7c); none `over_budget`; each round's batch admitted from the router (no refusal), its combined answers N_FOLD |
+| pool port 1.2 as a contract (`tests/integration/test_router_pool_n_fold.py`, 6 tests) | 26 tampered plans, each refused with its code (9 `KIT-RT-007`, 15 `KIT-RT-012`, 2 `KIT-RT-013`); a plan at the floor admitted; a 1.1 request never carries a combined answer (`KIT-RT-014`) |
+| the twofold mode on a two-subject combined answer (English and History, `overseer/tests/overseer_tests/test_twofold.py`, 28 tests) | a source fault the synthesis keeps: source 1's `quotation_absent` confirmed (`OVS-FID-002`), the merged review's `synthesis_carries_fault` confirmed through that finding; one it drops: the same source fault, the carried-fault accusation refuted; one it adds (a figure no source states): `INT-LEDGER-023` on the synthesis receipt, the merged review escalated to two instances, the carried-fault accusation unresolved; a faithful control: nothing; in every case no clearance changed and the signed verdicts audit records the N_FOLD, the context's digest and its discard; a fault of a report its specialist then revised under the same claim ids (rep-en-1's en-ev2 confirmed, rep-en-2 carrying it faithfully): a synthesis listing the revision, or listing the superseded report (the id then held by two reports of its ledger scope), is never confirmed as carrying it, unresolved with the reports named, whether the source accusation named the report or the claim alone (its fault then pinned to the one report the confirming finding names; with one report, the bare accusation's carried fault confirmed as in the keeps case); the citations resolved in each synthesis's ledger scope (a later report outside it, a digest-only report resolving nothing) |
+| the temporary context | structured records only (no statement, note, quote or `OVS`/`INT` code); cut from the end at a bound that holds the sources but no fault (`omitted` 1, `complete: false`, the cut fault deciding nothing); a bound that cannot hold the empty record, 0 or above 65,536 refused; refused by the intake for another channel, another request, an edited record, a discarded one, a source review or a merged review without one; discarded after the request also when the merged review fails |
+| N specialists and the waves | three specialists (English, History, Economics): three source reviews then the merged review, every part assessed; a pool of two instances reviews source 1, then source 2, then the merged review in turn, one open issue per agent and task |
+| the plan | the floor reviews a combined answer N_FOLD (a source or merged review short of its reviews, a smaller context bound, the dossier reviewed whole: each below the floor); the flash router plans it N_FOLD and the overseer admits it (origin `router`, pool port 1.2, the decision's parts source, source, merged); a router copy that bounds the context at 4,096 bytes refused `KIT-RT-020` and the floor plan run; a router speaking only pool port 1.1 (0.2.0's data) refused `KIT-RT-015` for the batch and the floor plan run, N_FOLD |
+| the contained run (r2 to r5, r7, on a fresh copy of the recorded rounds; `overseer/scripts/run_contained.py`) | every one of its 15 gates PASS, the new `twofold_combined_answers` among them, on the final code (wall 2,373 s, run beside the full suite; a run before this step's last two fixes, the carried-fault report rule and the report pinning, gave the same results in 2,494 s): agents only from the exported pack 2.0; no false alarm on genuine transfers (re-keyed pass included); 269 of 269 arena faults named and confirmed; 3,463 definitive results replayed (in-process) in agreement; 63 probe reviews as expected, no clearance changed; the tampering suite 355 of 355 detected (16 controls clean); the STEM fault classes 677 of 677 probes; the twofold stage: the four synthetic cases as expected (keeps confirmed, drops refuted, adds unresolved with the merged review escalated, faithful nothing) and the 7 recorded combined answers (r2/p1, r3/p2, r4/p3, r5/p4, r7/p7a, p7b, p7c) each reviewed N_FOLD, every part assessed, the context complete (480 to 498 bytes, no confirmed fault: the silent instances accuse nothing), scoped, recorded and discarded, the audit verifying, no clearance changed, every call's system text the pack's composition |
+| the knowledge pack 2.0 | pinned `c2be21ab…`; the core 235,694 characters (+20,607 over 1.5, about 5,150 tokens), with the STEM module 448,147, with the translations module 331,665, with both 544,118; 41 worked examples (Example 41, `synthesis_carries_fault`, held to rule carried-fault by `test_knowledge_examples.py`); the drift tests pass on it (kinds table 24 rows, rules T1–T15, D1–D40, I1–I104, K1–K9, N1–N15, U1–U12 in order); 1.0 to 1.5 still load with their pinned digests and the 1.5 export is byte for byte the zip exported before the move |
+| the documented test command `python -m pytest -q` (the translator's, the overseer's and the flash router's suites in one session; the recorded rounds supplied on a fresh copy) | 22,783 passed, 45 deselected (the `stress` marker), 0 failed, in 1 h 26 min, on the final code. An earlier full run on this step's tree: 2 failed, 22,774 passed: the contained-run harness test of a recorded task that holds no combined answer (the new gate then required one; it now records that state, and the four synthetic cases are still required) and `test_stem_repair10.py`'s section anchors (the pack's Common mistakes are now §17 and §15); both fixed and their files rerun, 52 passed. The 7 more are the tests of this step's last two fixes |
+
+Tests changed (none weakened or deleted; the test log the parent keeps, `tests/README.md`, is not edited here):
+
+- rewritten to pack 2.0 as the installed pack, every older pin kept: `test_knowledge_pack.py` (pinned 2.0, 1.5 added to
+  the accepted identities and loaded), `test_subproject_layout.py` (every pack pinned before the move still pinned to its
+  premove digest and loading with it, 2.0 the one pinned since; the 1.5 pack exported by name is still byte for byte the
+  premove zip), `test_knowledge_runner.py` and `test_integration_codes.py` (2.0, and the completeness check run on 1.5 too);
+- rewritten to a stricter rule: `test_knowledge_drift.py` (three-digit rule ids are now seen, I100 to I104, a three-digit
+  E code still the engine's; the kinds table pins 24 rows and the new one; the rule ranges T15, D40, I104, K9, N15, U12;
+  the Dossier guide's Common mistakes §17; the field-name check knows the twofold contracts; the footer mutation names
+  2.0 and 2.1), `test_knowledge_examples.py` (41 examples with their exact kinds, the test renamed
+  `test_all_forty_one_examples_parse` from `test_all_forty_examples_parse`, the U2 mutation names 2.0 and 2.1, and a new
+  test holding Example 41 to rule carried-fault), `test_protocol_verdicts.py` (the design table pins the new row; the
+  invariant that every mapped code is a transfer code holds every kind as before and pins the context kind's mapping
+  exactly, `OVS-AGENT-003`, decided through a source review's confirmed accusation, whose own transfer finding
+  `test_twofold.py` asserts), `flash-router/tests/flash_router_tests/test_data.py` (0.3.0's two files pinned; the
+  assertions on rules-2 kept on `rules-2.json`, and a new test on the current `rules-3.json` and `cost-data-3.json`);
+- version-explicit fixtures, assertions unchanged: the router's `test_pool.py` (its handshake tamper writes the current
+  pool port version), the kit's `test_router_pool.py` (its requests at pool port 1.1, which these tests hold), and the
+  router's `test_conformance.py` (the earlier pinned plan computed on a copy of 0.2.0's released data);
+- a docstring corrected: `test_flash_router_pool.py` names design section 51 (step 2c);
+- section anchors moved to pack 2.0's numbering, the same rows required: `test_stem_repair10.py` (the Dossier guide's
+  Common mistakes are §17 and the Inspection guide's §15, after the combined answers' sections).
+
+New: `test_twofold.py` (28 tests), `flash-router/tests/flash_router_tests/test_decision.py` (25),
+`tests/integration/test_router_pool_n_fold.py` (6), one test in each of `test_data.py`, `test_knowledge_examples.py` and the
+router's `test_conformance.py`, and the contained run's stage `twofold_probes.py` with its gate `twofold_combined_answers`.
+
+Recorded for the optimisation checks, not done (it changes no receipt, finding or status): the twofold instructions are in
+the pack's core, so every dossier, a part of a combined answer or not, is sent their 20,607 characters (about 5,150
+tokens); a `twofold` module sent only with a part dossier would spare the others, priced by the router's cost data per
+composition.
+
+Not done here: pack 2.0's Inspection guide I102 states the check's outcome without its report condition (the check
+confirms a carried fault only when the synthesis's ledger scope resolves the cited id to the report the context's record
+names). In the one shape where they differ, a synthesis that lists a report its specialist superseded, an accusation the
+pack teaches is left unresolved for human review, never confirmed; the wording waits for the next pack version, since a
+pack change re-pins its digest, the service's pin and the router's cost data. The service's asynchronous review
+(`epinoic_overseer.port`) reviews a task as one dossier, since the service offers no combined mode (`KIT-REQ-002`), and the
+fast profile is not built (decision D30). No model ran: every instance here is scripted.

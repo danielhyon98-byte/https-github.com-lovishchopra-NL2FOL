@@ -196,15 +196,20 @@ def test_accepted_identities_are_the_pinned_ones_plus_explicit_trust():
     older11 = PackIdentity(name=PACK_NAME, version="1.1", sha256=PACK_DIGESTS[(PACK_NAME, "1.1")])
     older12 = PackIdentity(name=PACK_NAME, version="1.2", sha256=PACK_DIGESTS[(PACK_NAME, "1.2")])
     older13 = PackIdentity(name=PACK_NAME, version="1.3", sha256=PACK_DIGESTS[(PACK_NAME, "1.3")])
-    # round-8 clearance c1: 1.4, the pack the round ran with, stays pinned beside the installed 1.5 (its D32 correction)
+    # round-8 clearance c1: 1.4, the pack the round ran with, stays pinned beside 1.5 (its D32 correction)
     older14 = PackIdentity(name=PACK_NAME, version="1.4", sha256=PACK_DIGESTS[(PACK_NAME, "1.4")])
+    # architecture step 3: 1.5 stays pinned beside the installed 2.0 (a MAJOR version: the kind synthesis_carries_fault added;
+    # the contracts are unchanged, so 1.5's verdicts still validate)
+    older15 = PackIdentity(name=PACK_NAME, version="1.5", sha256=PACK_DIGESTS[(PACK_NAME, "1.5")])
     other = PackIdentity(name=PACK_NAME, version="9.9", sha256="cd" * 32)
     override = PackIdentity(name=PACK_NAME, version=PACK_VERSION, sha256="ef" * 32)
-    assert pinned.version == PACK_VERSION == "1.5"
+    assert pinned.version == PACK_VERSION == "2.0"
     assert older13.sha256 == "b44776a1d76a0ee1ac8b02cd9e3596c832ee3dbfe51fff76d8c09ec4970c6f67"
     assert older14.sha256 == "a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc"
-    assert accepted_identities() == frozenset({pinned, older, older11, older12, older13, older14}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
-    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, older13, older14, other})  # trust never overrides a pinned version
+    assert older15.sha256 == "cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab"
+    assert accepted_identities() == frozenset({pinned, older, older11, older12, older13, older14, older15}) == frozenset(PackIdentity(name=n, version=v, sha256=d) for (n, v), d in PACK_DIGESTS.items())
+    assert accepted_identities([other, override]) == frozenset({pinned, older, older11, older12, older13, older14, older15, other})  # trust never overrides a pinned version
+    assert load_pack(installed_pack_dir("1.5")).identity == older15  # the pack before 2.0 still loads, unchanged
     in_place = PackIdentity(name=PACK_NAME, version="1.3", sha256="0fdf8581463c1babedbabec9455787f37666de04d4df5965d48e397123eabedb")
     assert in_place not in accepted_identities([in_place])  # the in-place correction of 1.3 is never accepted, trusted or not
     assert load_pack(installed_pack_dir("1.0")).identity == older  # the older pinned packs still load, unchanged

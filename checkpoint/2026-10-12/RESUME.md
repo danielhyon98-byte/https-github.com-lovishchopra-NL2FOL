@@ -41,7 +41,7 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 - (d) ROUND 9 PREPARATION (8 Nov). The leftover check carry-c2 (wf_d9185945-35f) is DONE: S/wf/carry-c2/carry-c2.json holds 54 records
       for round 9's fixes and carry-c2-other.json holds 17 workflow, label and release items. The script candidate is
       S/wf-scripts/phase2-cont.js.candidate: the post-architecture paths and owners, the bind step, the overseer gold, pool and
-      re-score edits, and CARRY.c2. It is NOT installed yet. Install it by stop/resume
+      re-score edits, and CARRY.c2. INSTALLED 8 Nov 10:38 (phase 2 is now task wxij9jbhz; backup of the old script phase2-cont.js.before-layout2). How it was installed, for the next time: stop/resume
       (TaskStop wfk2cwnqn, then Workflow scriptPath phase2-cont.js with resumeFromRunId wf_eee12853-0ae and the ORIGINAL args
       S/wf/phase2-cont-args.json) when arch-lens:* starts (watchdog MILESTONE line), after adding the twofold and feedback
       live-exercise edits. Every edit is conditional on LAYOUT2. Check with patches/dry_cont3.mjs that the first difference

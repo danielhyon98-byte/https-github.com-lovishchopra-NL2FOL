@@ -67,6 +67,20 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage re
   (a transfer issued after the given task audit), or the view is degraded or digest-only, or an ``OVS-AUDIT-001``, an
   ``OVS-AUDIT-002`` or an ``OVS-AUDIT-005`` naming one of them (or none) is present, the accusation is unresolved;
 * an AGENT-001 refuted by a signed result cites that result (``formal_result_id``) and, for a replay, the signed replay;
+* the twofold mode (architecture step 3, design section 52): an accusation of kind ``synthesis_carries_fault`` (a merged
+  review's: a synthesized claim carries a fault a source review confirmed) is decided by rule ``carried-fault`` through
+  the merged review's temporary context (``temporary_context=``, the live ``twofold.TemporaryContext`` whose record the
+  dossier carries) and the journaled synthesis, never by a task audit's finding: CONFIRMED when a named synthesized claim
+  cites (in the journaled synthesis) a source claim the context records as a confirmed fault (and a named source claim,
+  when the accusation names one), citing that fault's own confirming findings, and only when that citation is the claim
+  of the report the record names: in the synthesis's ledger scope (every report it lists and each agent's latest report
+  delivered before it) exactly that report holds the cited id. A revision keeps its claims' ids, so a citation of the same
+  id in a later report, or an id two reports of the scope hold (``INT-LEDGER-014``), is not the recorded fault; REFUTED
+  (``deterministic_check``) when the accusation names source claims and no named synthesized claim cites any of them;
+  UNRESOLVED (human review) when it names no synthesized claim, when the context records no confirmed fault on what the
+  claim cites (whether the synthesis carries a fault no source review confirmed is for a human), when the citation is not
+  shown to be the recorded report's claim (above), or when the context is not available (discarded, edited, or not the
+  dossier's);
 * the ``verdicts`` audit names the task audit (and the superseding one) and the assessment digest in its coverage notes
   (``OverseerAudit`` has no field for them); its ``supersedes`` is None (verdicts of different agents do not
   supersede each other);
@@ -102,7 +116,9 @@ from .intake import VerdictIntake
 from .keys import INTAKE_KEY_ID, KeyRing
 from .replay import ReplayJob, build_replay_job, classify, compare
 from .store import ResultStore
-from .verdicts import ID_FIELDS, KIND_CHECKS, KIND_CODE_QUALIFIERS, TRANSLATION_KINDS, UNCHECKED_KINDS, AgentVerdict, PackIdentity, accusation_identifiers
+from .verdicts import (
+    CONTEXT_KINDS, ID_FIELDS, KIND_CHECKS, KIND_CODE_QUALIFIERS, TRANSLATION_KINDS, UNCHECKED_KINDS, AgentVerdict, PackIdentity, accusation_identifiers,
+)
 from .view import OverseerView
 
 __all__ = [
@@ -848,7 +864,8 @@ def _same_keys(a: KeyRing, b: KeyRing) -> bool:
 
 
 def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: ResultStore, task_audit: Optional[OverseerAudit], auditor: Any = None, *,
-                              intake: VerdictIntake, live: Any = None, registry: Any = None, replay_timeout_s: float = 30.0) -> VerdictAssessment:
+                              intake: VerdictIntake, live: Any = None, registry: Any = None, replay_timeout_s: float = 30.0,
+                              temporary_context: Any = None) -> VerdictAssessment:
     """Assess one verdict envelope (see the module docstring). Never obeys the verdict; raises only on caller errors
     (a view, audit or auditor that belongs to another channel or key configuration)."""
     keyring = intake.keyring
@@ -984,6 +1001,9 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
                 continue
             results.append(AccusationAssessment(**common, outcome="unverifiable", code=OUTCOME_CODES["unverifiable"], reasons=faults))
             continue
+        if acc.kind in CONTEXT_KINDS:
+            results.append(_carried_fault(common, ids, crep, ctx, temporary_context))
+            continue
         if acc.kind in UNCHECKED_KINDS:
             why = ("kind translation_unfaithful is decided by no check: whether an IR says what its claim says is a question of meaning, "
                    "advisory only; human review") if acc.kind == "translation_unfaithful" else f"kind {acc.kind} is decided by no check; human review"
@@ -1095,6 +1115,104 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
                                             notes=_audit_notes(task_audit, superseding, [assessment], assessment_digest(assessment),
                                                                attestation=getattr(accepted, "pack_attestation", "self_reported")))
     return assessment
+
+
+def _synthesis_citations(view: OverseerView) -> dict[tuple[str, str], dict[str, Optional[frozenset[str]]]]:
+    """``(synthesis id, synthesized claim id) -> {source claim id it cites -> the reports of the synthesis's ledger scope
+    that hold that id}``, from the journal. The scope is the channel's ledger scope of the synthesis: every report it lists
+    and each agent's latest report delivered before it (a revision supersedes its agent's earlier report under the same
+    claim ids). A cited id is that report's claim exactly when one report of the scope holds it; two holding it is the
+    ledger's collision (``INT-LEDGER-014``), which no id accounts for. ``None`` when a report of the scope is journaled
+    digest-only: what it holds is not known."""
+    from .view import RESPONSE_KINDS
+    out: dict[tuple[str, str], dict[str, Optional[frozenset[str]]]] = {}
+    delivered: dict[str, tuple[Optional[str], Optional[frozenset[str]]]] = {}  # report id -> (agent, its claim ids), first delivery, in order
+    for t in view.transfers:
+        if t.kind in RESPONSE_KINDS and t.delivered and t.report_id:
+            if t.report_id not in delivered:
+                rep = t.report
+                delivered[t.report_id] = ((rep.agent_id if rep is not None else t.sender_agent_id),
+                                          (frozenset(c.claim_id for c in rep.claims) if rep is not None else None))
+            continue
+        syn = t.synthesis
+        if t.kind != "relay_synthesis" or syn is None:
+            continue
+        latest: dict[Optional[str], str] = {}
+        for rid, (agent, _ids) in delivered.items():
+            latest[agent] = rid
+        listed = set(syn.source_report_ids)
+        scope = {rid: ids for rid, (agent, ids) in delivered.items() if rid in listed or latest.get(agent) == rid}
+        opaque = any(ids is None for ids in scope.values())
+        for c in syn.claims:
+            cited = out.setdefault((syn.synthesis_id, c.claim_id), {})
+            for s in c.source_claim_ids:
+                held = frozenset(rid for rid, ids in scope.items() if ids is not None and s in ids)
+                before = cited.get(s, frozenset())
+                cited[s] = None if opaque or before is None else before | held
+    return out
+
+
+def _carried_fault(common: dict, ids: dict[str, list[str]], crep: dict[str, list[str]], ctx: "_Ctx", temporary_context: Any) -> AccusationAssessment:
+    """Rule ``carried-fault`` (module docstring): a merged review's ``synthesis_carries_fault`` decided through its temporary
+    context and the journaled synthesis."""
+    common = dict(common, checks=["carried-fault"])
+    dossier = ctx.dossier
+    shown = dossier.get("temporary_context") if isinstance(dossier.get("temporary_context"), dict) else None
+    synthesized = {(e.get("report_id"), e.get("id")) for e in dossier.get("index") or [] if isinstance(e, dict) and e.get("type") == "synthesized_claim"}
+    named_s = sorted({(r, c) for c in ids.get("claim_ids", []) for r in (crep.get(c) or [None]) if (r, c) in synthesized}
+                     | {(r, c) for (r, c) in synthesized if c in ids.get("claim_ids", []) and not crep.get(c)})
+    synth_ids = {c for _r, c in named_s}
+    named_src = sorted({c for c in ids.get("claim_ids", []) if c not in synth_ids})
+
+    def unresolved(why: str) -> AccusationAssessment:
+        return AccusationAssessment(**common, outcome="unresolved", code=OUTCOME_CODES["unresolved"], reasons=[why])
+
+    if shown is None:
+        return unresolved("rule carried-fault decides only a merged review's accusation: this dossier carries no temporary context")
+    if not named_s:
+        return unresolved("rule carried-fault: the accusation names no synthesized claim of the merged review's dossier")
+    cites = _synthesis_citations(ctx.view)
+    cited_by: dict[tuple[str, str], dict[str, Optional[frozenset[str]]]] = {s: cites.get(s, {}) for s in named_s}
+    if named_src and not any(c in cited_by[s] for s in named_s for c in named_src):
+        return AccusationAssessment(**common, outcome="refuted", code=OUTCOME_CODES["refuted"], refuted_by="deterministic_check",
+                                    reasons=["rule carried-fault: none of the named synthesized claims cites a named source claim in the journaled synthesis"])
+    if (temporary_context is None or getattr(temporary_context, "discarded", True) or not temporary_context.verifies()
+            or getattr(temporary_context, "digest", None) != shown.get("context_sha256") or temporary_context.channel_uid != ctx.view.channel_uid):
+        return unresolved("rule carried-fault: the temporary context the dossier carried is not available (discarded after the request, edited, "
+                          "or not this dossier's)")
+    faulted = temporary_context.faulted()
+    carried: list[tuple[tuple[str, str], str, list]] = []
+    elsewhere: list[tuple[str, str, str, Optional[frozenset[str]]]] = []  # (synthesized claim, source claim, faulted report, the reports the citation names)
+    for s in named_s:
+        for (r, c), refs in sorted(faulted.items()):
+            if c not in cited_by[s] or (named_src and c not in named_src):
+                continue
+            held = cited_by[s][c]
+            if held is not None and r and held == {r}:  # the citation is the claim of the report whose fault the context records
+                carried.append((s, c, refs))
+            else:
+                elsewhere.append((s[1], c, r, held))
+    if not carried:
+        if elsewhere:
+            s1, c1, r1, held1 = elsewhere[0]
+            names = ("a report of the scope journaled digest-only, whose claims are not known" if held1 is None
+                     else f"report(s) {sorted(held1)}" if held1 else "no report of its ledger scope")
+            return unresolved(f"rule carried-fault: synthesized claim {s1} cites source claim id {c1}, which the temporary context records as a confirmed "
+                              f"fault of report {r1 or '(unnamed)'}, but in the synthesis's ledger scope that id is held by {names}: the citation is not "
+                              "shown to be that report's claim (a later report revising it, or an id the ledger cannot account for); human review")
+        return unresolved("rule carried-fault: the temporary context records no confirmed fault on a source claim the named synthesized claims cite; "
+                          "whether the synthesis carries a fault no source review confirmed is for human review")
+    confirming: list[FindingRef] = []
+    for _s, _c, refs in carried:
+        for ref in refs:
+            if ref not in confirming:
+                confirming.append(ref)
+    claims = list(dict.fromkeys([s[1] for s, _c, _r in carried] + [c for _s, c, _r in carried]))
+    covered = {k: list(ids.get(k, [])) for k in ID_FIELDS}
+    covered["claim_ids"] = claims
+    return AccusationAssessment(**common, outcome="confirmed", code=OUTCOME_CODES["confirmed"], confirming=confirming, covered_identifiers=covered,
+                                reasons=[f"rule carried-fault: synthesized claim {s[1]} cites source claim {c}, which a source review confirmed faulty "
+                                         "(the merged review's temporary context)" for s, c, _r in carried][:8])
 
 
 def _audit_notes(task_audit: Optional[OverseerAudit], superseding: Optional[OverseerAudit], assessments: list, digest: str,

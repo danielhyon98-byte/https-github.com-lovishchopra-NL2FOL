@@ -24,7 +24,7 @@ statement: results prove properties of the encoding only, never that a claim is 
 ## The sub-project
 
 `overseer/` is a project of its own inside the translator's repository: the package `epinoic_overseer` (version in
-`pyproject.toml` and `epinoic_overseer.__version__`, 1.0.0), this README, `LICENSE`, `docs/` (design, results, the
+`pyproject.toml` and `epinoic_overseer.__version__`, 1.1.0 since architecture step 3, 1.0.0 before), this README, `LICENSE`, `docs/` (design, results, the
 agent brief, the delivery rules), `tests/` (the package `overseer_tests`), `scripts/` (the contained run, the tampering
 suite, the harness; never installed) and the knowledge pack as package data, written out by its own exporter. It is
 usable as a sub-agent of any system that speaks the integration protocol `epinoic.integration.v1`.
@@ -69,8 +69,8 @@ keeps equal to the originals): inside the repository they use it; a standalone c
 
 ### The knowledge pack and its exporter
 
-`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 1.5; 1.0 to
-1.4 are kept for the recorded rounds) with a README for whoever deploys it. The move into this sub-project changed no
+`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.0 since
+architecture step 3; 1.0 to 1.5 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
 pack: every pinned digest and the exported zip are the ones recorded before the move
 (`tests/overseer_tests/test_subproject_layout.py`). The packs' own text predates the move: where it names the module
 path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that text changes only with a new pack version
@@ -81,7 +81,8 @@ path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that te
 From `overseer/`: `python scripts/run_contained.py --out DIR --rounds <recorded rounds>` (the contained run and its
 gates), `python scripts/tamper.py`, `scripts/stem_probes.py`, `scripts/export_dossier.py`, `scripts/score_verdicts.py`
 and `scripts/mutate_auditor.py` (the harness; `scripts/ovs_harness.py` is what they share); they find the translator's
-repository as above. `scripts/README.md` has the commands and what each writes.
+repository as above. `scripts/twofold_probes.py` (architecture step 3) is the contained run's stage of combined answers. `scripts/README.md`
+has the commands and what each writes.
 
 ### Splitting it into a repository of its own
 
@@ -663,7 +664,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-1.4/` | the agent's whole configuration (below); 1.0 to 1.3 stay beside it, pinned |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-2.0/` | the agent's whole configuration (below); 1.0 to 1.5 stay beside it, pinned |
 | Emitted codes | `emitted.py` | everything the translator and the channel emit, as the overseer knows it: every receipt code with its severities and labels, every named diagnostic, the 28 labels, every status and engine code, every release refusal (rules 1 to 9, `release-v1`), the named policies and rejections; `risk_reading` (the risk signals and records a task carries) |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
@@ -672,7 +673,8 @@ The overseer knows everything the merged translator and its channel can put on a
 | Repeated faults | `repeats.py` | a deterministic signature for every error-level fault of an answer (code, normalised offending claim or quoted phrase, figures); `detect_repeats` over a task's answers: `OVS-REP-001`, counts per agent |
 | Consolidation | `consolidate.py` | `consolidate`: ONE signed `consolidated_response/1.0` for answers several agents gave to one input (groups, representative, exclusions, conflicts disclosed); `delivery_decision`, `check_consolidation` (`OVS-CONS-*`) |
 | Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack; the plan is the flash router's, attached through the router port by capability (`router=`), admitted at or above the floor, and records its admission |
-| Pool floor | `floor.py` | the minimum-oversight floor of the pool (`minimum-oversight-floor/pool-1`): every dossier reviewed, two independent instances for a repeated fault or a risk signal, the floor plan, the words of a plan's reasons and the audit note naming who planned it |
+| Pool floor | `floor.py` | the minimum-oversight floor of the pool (`minimum-oversight-floor/pool-2`): every dossier reviewed, two independent instances for a repeated fault or a risk signal, every combined answer N_FOLD with its context bounded at 65,536 bytes, the floor plan, the words of a plan's reasons, the decision record of every dossier and the audit note naming who planned it |
+| Twofold review | `twofold.py` | a combined answer's N_FOLD review: `combined_layout` (its sources and merged part from the journal), the part views and the pool's reading of each part, `TemporaryContext` (the source reviews' validated outcomes, scoped, bounded, recorded, discarded), `run_twofold` (the source reviews in parallel waves, the merged review with the context) |
 | Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget (withheld for every answer in this release: rule `formal-label-withheld`, `docs/DELIVERY.md` 6d), else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
 
 The observer hook itself lives outside this package, which the channel never imports: `channel/events.py`
@@ -683,10 +685,10 @@ the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_chan
 
 ## The knowledge pack
 
-`src/epinoic_overseer/knowledge/overseer-knowledge-docs-1.5/` is the overseer agent's whole configuration, laid out like the specialists'
+`src/epinoic_overseer/knowledge/overseer-knowledge-docs-2.0/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
-evidence rule, the verdict format, the kinds and codes, 32 worked examples, what never to do, what to do when unsure,
+evidence rule, the verdict format, the kinds and codes, 41 worked examples, what never to do, what to do when unsure,
 and, since the consolidation stage, how to review consolidations and repeated faults as one of several instances; since
 pack 1.2, how to read STEM answers: their claim ids and roles, the numbers and units of their translations, significant
 figures and tolerances, lines of working, truth tables and Boolean identities, mathematical items and the branch's own
@@ -697,7 +699,9 @@ detail, the tolerance rule and enclosures, the engine's values in a failure find
 results; since pack 1.4, the argument diagnosis and every code the translator and the channel emit: D33 to D37, I99, K8,
 the kinds-and-codes §8 table and N14; since pack 1.5, the round-8 clearance's reading of a decimal cut by an ellipsis inside
 an expression, which the STEM pack now decides: D32, and the §8 row of CORE-SRC-008, the core pack's warning on a near miss
-of a name the supplied case states; 1.0 to 1.4 stay pinned),
+of a name the supplied case states; since pack 2.0, a MAJOR version, the review of a combined answer in parts: the dossier's
+`review` and `temporary_context`, a source review and a merged review, and the kind `synthesis_carries_fault`: the master
+prompt's COMBINED ANSWERS section, T15, D38 to D40, I100 to I104, K9, N15, U12 and Example 41; 1.0 to 1.5 stay pinned),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -708,7 +712,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-1.5/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-2.0/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text
@@ -735,7 +739,11 @@ dossiers and the maximum never exceeded; `hub.review_pool` end to end; consolida
 `test_rebuild_*` (the overseer on the merged translator: every rule the merge needed, each with a control; with the
 recorded rounds, r7's translations served under the merged claim ids), and `test_stem_completion.py` (the STEM
 completion's rules on every recorded STEM receipt the repository keeps, the STEM tampering cases with their planted
-controls, the fault-class probes, and the pack's STEM statements beside the code).
+controls, the fault-class probes, and the pack's STEM statements beside the code), and `test_twofold.py` (a combined
+answer's N_FOLD review: the layout, the four cases of a source fault kept, dropped and added and a faithful control, a
+fault of a report its specialist revised under the same claim ids (never confirmed through the revision's citation), the
+temporary context's bound, scope and discard, three specialists, the waves, the router's N_FOLD plan admitted and a
+weakened one refused, determinism).
 
 ## Consolidation, repeated faults and self-duplication
 
@@ -769,7 +777,7 @@ re-tuned through its versioned data files without touching this package. The poo
 router port (`OverseerPool(pack, providers, router="epinoic_flash_router.port")`, or `DeliveryPolicy(..., router=...)`): the
 router runs in its own process and is attached only when it offers the pool's operations (`pool_hello`, `pool_plan`) at a
 pool port version the overseer speaks; this package never imports it. The overseer keeps the floor (`floor.py`,
-`minimum-oversight-floor/pool-1`), computed from the same risk signals: every dossier reviewed by at least one instance, a
+`minimum-oversight-floor/pool-2` since architecture step 3, `pool-1` before), computed from the same risk signals: every dossier reviewed by at least one instance, a
 dossier with a repeated fault or a risk signal (or one the optional escalation advisor escalated) by at least two
 distinct instances, never past the maximum. The router's plan runs only when it is in contract and at or above the floor;
 a plan below it is refused (`KIT-RT-020`), the refusal is recorded in the plan's `admission` and in the signed verdicts
@@ -779,6 +787,44 @@ cost-data digest, or the floor's name and rules digest. With the router's releas
 rounds r2 to r5 and r7 (268 channels, 10 batches) is reproduced exactly (`tests/overseer_tests/test_flash_router_pool.py`).
 The tests that attach the router find it beside this sub-project in the translator's repository, or installed; a
 standalone copy without it skips them with that reason.
+
+**The flash decision maker and the twofold mode (architecture step 3, design section 52).** The router's first decision
+for every dossier is now explicit: its flash decision maker (rules D1 to D7 of `rules-3.json`, priced from
+`cost-data-3.json`; deterministic and instant, code, never a model; the optional escalation advisor only adds
+escalations) chooses between the in-depth examination method (one instance examines the whole dossier, `IN_DEPTH`) and the
+duplication method (the work split across instances in parallel, with independent duplicates where risk calls for
+agreement: `DUPLICATE`, and `N_FOLD` for a combined answer), the cheapest that keeps accuracy. At pool port 1.2 every
+dossier's decision reaches the overseer as a record (what it read, every candidate it priced, why it chose, its reasons
+and estimated cost), validated against the request (`KIT-RT-012`) and kept in the plan's admission
+(`PoolDecisionRecord`, in the signed verdicts audit's notes). A **combined answer** (a delivered synthesis whose cited
+reports come from N >= 2 specialists, 2 to 16) is reviewed **N_FOLD** (`twofold.py`), which the floor requires for every
+combined answer:
+
+1. each specialist's own transfers, before combination (its requests, responses and relayed reports, and the forwards it
+   was given, with what they depend on), in a dossier of their own (`review: {"method": "N_FOLD", "role": "source", ...}`),
+   reviewed by instances of their own at the same time (one thread per instance of a wave; one open issue per agent and
+   task), each verdict validated against the full journal and the signed results;
+2. what validation accepted of them becomes the **temporary context**: per source its specialist, its delivered reports
+   and messages, how many verdicts were assessed, and each fault a deterministic check confirmed, as its kind and the
+   identifiers the confirming finding covers, each claim with the one report that finding names. Never an agent's prose, an `OVS` code, an auditor finding or anything a
+   blind dossier hides. It is scoped to the request (the intake refuses it to any other channel, task or request, edited
+   or discarded), bounded (at most 65,536 bytes, the floor's bound; records past it are cut and counted, `complete:
+   false`), recorded in the signed verdicts audit (its digest, size, scope and every record) and discarded after the
+   request, also when the merged review fails;
+3. the **merged review** of the combinator's output (`role: merged`, the synthesis and the answers it cites) with the
+   context asks whether the synthesis carries each source faithfully, carries on a fault a source review found, adds what
+   no source states, or is more certain than its weakest source. A synthesized claim that cites a source claim the
+   context lists as confirmed is accused `synthesis_carries_fault`, decided by rule `carried-fault`: confirmed through the
+   source fault's own confirming finding when the journaled synthesis shows the citation and the cited id is the claim of
+   the report the context's record names (in the synthesis's ledger scope only that report holds it: a specialist's
+   revision keeps its claims' ids, so a citation of the revised claim is not the recorded fault), refuted when the named
+   synthesized claims cite none of the named source claims, unresolved otherwise;
+4. the verdicts of every part are combined by the existing rule (no voting on facts); agents never gate clearance.
+
+A part dossier is issued only under a pack that teaches it (2.0 and later). A router that plans a combined answer any
+other way, or bounds its context below 65,536 bytes, is refused (`KIT-RT-020`, or `KIT-RT-007` out of contract), and a
+pool port 1.1 router is refused for a batch with a combined answer (`KIT-RT-015`); the floor plan runs in each case. The
+service's asynchronous review (`port.py`) does not run N_FOLD yet: the service offers no combined mode (`KIT-REQ-002`).
 
 ## The delivery policy
 

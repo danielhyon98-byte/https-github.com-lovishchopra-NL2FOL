@@ -42,8 +42,14 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
   pool (:class:`OverseerPool`, :func:`plan_pool`, :class:`PoolPlan`): how many overseer-agent instances, all from one
   loaded pack, review a batch, as the flash router plans it (a separate agent attached through the router port by
   capability) at or above the overseer's own minimum-oversight floor (:mod:`~epinoic_overseer.floor`,
-  :data:`POOL_FLOOR_NAME`; every plan's :class:`PoolAdmission` says who planned it). The hub's entry points are
-  ``RouterHub.consolidate``, ``repeats`` and ``review_pool``;
+  :data:`POOL_FLOOR_NAME`; every plan's :class:`PoolAdmission` says who planned it, with the flash decision behind every
+  dossier's review, :class:`PoolDecisionRecord`). The hub's entry points are ``RouterHub.consolidate``, ``repeats`` and
+  ``review_pool``;
+* a combined answer's twofold review (architecture step 3, design section 52; :mod:`~epinoic_overseer.twofold`): a synthesis
+  of N >= 2 specialists' answers is reviewed N_FOLD, each source's own transfers by instances of their own in parallel,
+  then the combinator's output in a merged review with the bounded, request-scoped :class:`TemporaryContext` of the source
+  reviews' validated outcomes, discarded after the request (:func:`combined_layout`, :func:`run_twofold`,
+  :class:`TwofoldReview`; the kind ``synthesis_carries_fault``, :data:`CONTEXT_KINDS`);
 * the delivery policy (``docs/DELIVERY.md``): :class:`DeliveryPolicy` decides, for one deliverable, between the formal
   path (every material eligible claim clean within the four-minute translation budget, and since attack round 5 every claim
   of the answer carrying a positive outcome of a signed engine result, rule ``unverified-claims``: ``formally_checked``, which rule ``formal-label-withheld``, condition 6d, withholds from every
@@ -58,7 +64,7 @@ A verdict is advisory and decides nothing: only a deterministic check's ``OVS-*`
 from __future__ import annotations
 
 #: This release of the overseer sub-project (``pyproject.toml``; the hello's ``auditor_version``).
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .audit import (  # noqa: F401
     ALWAYS_REPLAY_CODES, AUDIT_CONTRACT, AUDITOR_AGENT_ID, AuditResult, TransferAuditor, audit_envelope, audit_signable_text, run_overseer_checks,
@@ -107,8 +113,14 @@ from .consolidate import (  # noqa: F401,E402
     ConsolidationDecision, EngineCheck, ExcludedOutput, GroupConflict, check_consolidation, consolidation_envelope, delivery_decision, may_deliver,
     sign_consolidated, verify_consolidated,
 )
-from .pool import DEFAULT_MAX_INSTANCES, MODEL_TIER, OverseerPool, PoolConfig, PoolItem, PoolPlan, plan_pool  # noqa: F401,E402
-from .floor import POOL_FLOOR_NAME, POOL_FLOOR_RULES, POOL_FLOOR_RULES_SHA256, PoolAdmission  # noqa: F401,E402
+from .pool import DEFAULT_MAX_INSTANCES, MODEL_TIER, OverseerPool, PoolConfig, PoolFeatures, PoolItem, PoolPart, PoolPlan, PoolTwofold, plan_pool  # noqa: F401,E402
+from .floor import POOL_FLOOR_NAME, POOL_FLOOR_RULES, POOL_FLOOR_RULES_SHA256, PoolAdmission, PoolDecisionRecord  # noqa: F401,E402
+# ---------------------------------------------------------------------------------------- a combined answer's twofold (N_FOLD) review
+from .twofold import (  # noqa: F401,E402
+    CONTEXT_FORMAT, CONTEXT_MAX_BYTES, N_FOLD_MIN_PACK_MAJOR, CombinedLayout, SourcePart, TemporaryContext, TemporaryContextRecord, TwofoldPart,
+    TwofoldReview, combined_layout, run_twofold, teaches_n_fold,
+)
+from .verdicts import CONTEXT_KINDS  # noqa: F401,E402
 from .keys import CONSOLIDATION_KEY_ID  # noqa: F401,E402
 # ---------------------------------------------------------------------------------------- the delivery policy
 from .delivery_policy import (  # noqa: F401,E402

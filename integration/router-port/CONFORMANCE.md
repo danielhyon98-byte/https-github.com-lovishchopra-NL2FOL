@@ -72,7 +72,7 @@ These cover the router's code, not only its return values, because the code neve
 - **Never a decision**: the plan never changes a clearance, a delivery decision or a verdict's decision; any failure of
   the review leaves it unqueued; the review itself runs after delivery, on the cheapest tier.
 
-## The pool operation (PROTOCOL.md section 7b, pool port 1.1)
+## The pool operation (PROTOCOL.md section 7b, pool port 1.2 and 1.1)
 
 Since architecture step 2c the overseer pool's planning decision is the router's too. A router that offers it exposes
 `pool_hello() -> str` (`pool-router-hello.v1`: the capability `pool-plan`, `port_version` `1.1`, the same identity) and
@@ -88,9 +88,18 @@ Since architecture step 2c the overseer pool's planning decision is the router's
 9. **Deterministic and data-driven**: the same request text gives the same plan text (in a fresh interpreter too); the
    rules and cost data are versioned data files with digests, reported in the identity, and an edited copy of them
    plans otherwise under its own digest.
+10. **Pool port 1.2** (architecture step 3): a request at 1.2 is answered at 1.2; every assignment carries its decision
+   record (the approach, method and reviews, the echo of what it read, every candidate it priced with whether it keeps
+   accuracy and why it was or was not chosen, its reasons and estimated cost), a combined answer is reviewed `N_FOLD` (each
+   source by its own instances, then the merged review, with its temporary context of at most 65,536 bytes), and the plan's
+   estimated cost is the sum of its decisions'; `router_pool.check_pool_plan` holds a 1.2 plan to PROTOCOL.md 7b.5. A router
+   that speaks only 1.1 is refused for a batch with a combined answer (`KIT-RT-015`), and the overseer's floor plans it.
 
 The released router shows them in `flash-router/tests/flash_router_tests/test_pool.py`, `test_data.py` and
 `test_runner.py`; the overseer shows the other side in `overseer/tests/overseer_tests/test_flash_router_pool.py` (every
 recorded pool plan reproduced with the router attached, the router absent, the version handshake, a weakened data file
-refused below the floor, and the refusal recorded in the signed audit), and the kit in
-`tests/integration/test_router_pool.py` (every refusal code of the pool contract).
+refused below the floor, and the refusal recorded in the signed audit) and in `test_twofold.py` (a combined answer's N_FOLD
+planned by the router and admitted, a smaller context bound refused below the floor, a 1.1 router refused), the router in
+`test_decision.py` (the decision maker on minimal inputs for each method), and the kit in
+`tests/integration/test_router_pool.py` and `test_router_pool_n_fold.py` (every refusal code of the pool contract, at 1.1
+and at 1.2).

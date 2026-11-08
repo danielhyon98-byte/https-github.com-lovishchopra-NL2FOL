@@ -67,7 +67,7 @@ def test_the_pool_hello_passes_the_version_handshake_and_names_this_release():
     assert port.pool_hello() == port.pool_hello()
     for version in ("1.0", "2.0"):
         with pytest.raises(IntegrationError, match=f"pool port version {version}") as exc:
-            RP.check_pool_hello(port.pool_hello().replace('"port_version":"1.1"', f'"port_version":"{version}"'))
+            RP.check_pool_hello(port.pool_hello().replace(f'"port_version":"{RP.POOL_PORT_VERSION}"', f'"port_version":"{version}"'))
         assert exc.value.code == "KIT-RT-015"
     with pytest.raises(IntegrationError, match="capability"):
         RP.check_pool_hello(port.pool_hello().replace('"capabilities":["pool-plan"]', '"capabilities":["plan"]'))

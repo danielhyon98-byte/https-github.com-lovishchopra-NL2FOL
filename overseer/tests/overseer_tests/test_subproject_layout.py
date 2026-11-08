@@ -23,7 +23,7 @@ import pytest
 
 import epinoic_logic
 import epinoic_overseer
-from epinoic_overseer.pack import PACK_DIGESTS, PACK_NAME, installed_pack
+from epinoic_overseer.pack import PACK_DIGESTS, PACK_NAME, installed_pack, installed_pack_dir, load_pack
 
 from .translator_checkout import SUBPROJECT, translator_root
 
@@ -40,8 +40,11 @@ PREMOVE_PACK_DIGESTS = {
     "1.4": "a80fb042158efa8b81991c378f17f98c22985104fb822c72c9706ab427dcf8bc",
     "1.5": "cac995dccdb03feeb0b68c8b7d0eb94d1dd4be6839de6b6e48c401085ec787ab",
 }
-#: The deterministic zip of the installed pack, exported by the package's exporter before the move.
+#: The deterministic zip of the installed pack (1.5), exported by the package's exporter before the move.
 PREMOVE_ZIP_SHA256 = "fb7308eb3afa7746e965bb4884969147bb3edbd965f518a7af489a8d107da4c5"
+#: The packs pinned after the move, each with the step that made it: 2.0, architecture step 3 (the twofold review of a
+#: combined answer; a MAJOR version, the kind synthesis_carries_fault added), the installed pack since.
+POSTMOVE_PACK_DIGESTS = {"2.0": "c2be21abf85f01cf672666650cdf5bb2ee26926c6095eb1569db3e193123f673"}
 
 
 def _imports(path: Path) -> list[tuple[int, str]]:
@@ -72,7 +75,7 @@ def test_the_package_ships_its_knowledge_pack_as_its_own_package_data():
     conf = tomllib.loads((SUBPROJECT / "pyproject.toml").read_text(encoding="utf-8"))
     assert conf["tool"]["setuptools"]["packages"]["find"]["where"] == ["src"]
     assert set(conf["tool"]["setuptools"]["package-data"]["epinoic_overseer"]) == {"knowledge/*/*.txt", "knowledge/*/*.md", "knowledge/*/*.json"}
-    assert installed_pack().identity.version == "1.5" and Path(installed_pack_dir := str(PACKAGE / "knowledge")).is_dir(), installed_pack_dir
+    assert installed_pack().identity.version == "2.0" and Path(knowledge_dir := str(PACKAGE / "knowledge")).is_dir(), knowledge_dir
 
 
 # ----------------------------------------------------------------------------------------------- isolation
@@ -113,13 +116,19 @@ def test_the_translator_never_imports_the_overseer():
 
 # ----------------------------------------------------------------------------------------------- the pack kept
 def test_every_pinned_pack_digest_is_the_one_recorded_before_the_move():
-    assert {v: d for (n, v), d in PACK_DIGESTS.items() if n == PACK_NAME} == PREMOVE_PACK_DIGESTS
-    assert installed_pack().identity.sha256 == PREMOVE_PACK_DIGESTS["1.5"]
+    # architecture step 3 made pack 2.0 the installed pack: every pack pinned before the move is still pinned to its premove
+    # digest and still loads with it, and the one pinned since is 2.0, the installed pack (the same exact pins, one more)
+    assert {v: d for (n, v), d in PACK_DIGESTS.items() if n == PACK_NAME} == {**PREMOVE_PACK_DIGESTS, **POSTMOVE_PACK_DIGESTS}
+    assert installed_pack().identity.sha256 == POSTMOVE_PACK_DIGESTS["2.0"]
+    for version, digest in PREMOVE_PACK_DIGESTS.items():
+        assert load_pack(installed_pack_dir(version)).identity.sha256 == digest, version
 
 
 def test_the_exported_pack_is_byte_for_byte_the_one_exported_before_the_move(tmp_path):
+    # since architecture step 3 the installed pack is 2.0: the pack exported before the move, 1.5, is exported by name and is
+    # still byte for byte the premove zip
     from epinoic_overseer.export import export_pack
-    res = export_pack(tmp_path / "out", zip_archive=True)
+    res = export_pack(tmp_path / "out", zip_archive=True, pack=load_pack(installed_pack_dir("1.5")))
     assert res.zip_sha256 == PREMOVE_ZIP_SHA256 and res.identity.sha256 == PREMOVE_PACK_DIGESTS["1.5"]
 
 

@@ -28,8 +28,10 @@ HELLO = {"schema": RP.POOL_HELLO_SCHEMA, "protocol": "epinoic.integration.v1", "
 
 
 def _req(items=None, **limits) -> RP.PoolRoutingRequest:
+    """A pool port 1.1 request: these tests hold the 1.1 contract (its hello and plans below), which the overseer still speaks
+    beside 1.2 (``tests/integration/test_router_pool_n_fold.py``)."""
     items = items if items is not None else [{"repeated_faults": 1}, {"repeated_faults": 0, "risk_signals": ["named_defect"]}, {"repeated_faults": 0}]
-    return RP.build_pool_request(items, max_instances=limits.get("max_instances", 4), per_instance_quota=limits.get("quota", 8))
+    return RP.build_pool_request(items, max_instances=limits.get("max_instances", 4), per_instance_quota=limits.get("quota", 8), port_version="1.1")
 
 
 def _plan(req: RP.PoolRoutingRequest) -> dict:
@@ -56,7 +58,7 @@ def _check(plan: dict, req: RP.PoolRoutingRequest | None = None):
 # ----------------------------------------------------------------------------------------------- the request
 def test_a_pool_request_carries_positions_and_risk_classes_only():
     req = _req()
-    assert [it.item_id for it in req.items] == ["d1", "d2", "d3"] and req.port_version == RP.POOL_PORT_VERSION
+    assert [it.item_id for it in req.items] == ["d1", "d2", "d3"] and req.port_version == "1.1" and req.port_version in RP.POOL_PORT_VERSIONS
     raw = dump(req)
     for bad, code in ((dict(raw, items=[dict(raw["items"][0], item_id="d2"), *raw["items"][1:]]), "KIT-RT-014"),
                       (dict(raw, items=[dict(raw["items"][0], risk_signals=["not_a_class"])]), "KIT-RT-014"),

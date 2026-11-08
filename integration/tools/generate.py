@@ -63,6 +63,10 @@ SCHEMA_MODELS: tuple[tuple[str, str], ...] = (
     ("pool-router-hello.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRouterHello"),
     ("pool-routing-request.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingRequest"),
     ("pool-routing-plan.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingPlan"),
+    # pool port 1.2 (architecture step 3: a combined answer's N_FOLD and the flash decision maker's record per dossier); the
+    # same message schemas, a port version of their own (the 1.1 files above are unchanged)
+    ("pool-routing-request.v1.port-1.2.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingRequest12"),
+    ("pool-routing-plan.v1.port-1.2.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingPlan12"),
 )
 
 

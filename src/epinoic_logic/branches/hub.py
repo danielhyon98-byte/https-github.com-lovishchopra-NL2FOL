@@ -130,7 +130,9 @@ class HubClosed(RuntimeError):
 @dataclass(frozen=True)
 class HubReview:
     """What one ``RouterHub.review`` did. ``audit`` is the signed ``verdicts``-scope audit; nothing here confirms,
-    passes or clears a transfer (only the auditor's own ``OVS-*`` findings do)."""
+    passes or clears a transfer (only the auditor's own ``OVS-*`` findings do). ``twofold`` is the N_FOLD review of a
+    combined answer (the overseer's ``twofold.TwofoldReview``: each source's review, the temporary context as recorded
+    and the merged review) when the pool plan reviewed the task that way, else ``None``."""
     audit: Any
     task_audit: Any
     mode: str
@@ -140,6 +142,7 @@ class HubReview:
     refused: tuple[tuple[str, str], ...]
     runner_errors: tuple[tuple[str, str], ...]
     superseding_audit_ids: tuple[str, ...]
+    twofold: Optional[Any] = None
 
 
 @dataclass(frozen=True)
