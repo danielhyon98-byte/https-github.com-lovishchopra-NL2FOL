@@ -10,7 +10,7 @@
   {
    "denominator": 0,
    "gate": "G-EQ-CONTAINED",
-   "reason": "the contained run (the overseer's run_contained.py) is not available on this tree",
+   "reason": "the contained run is on this tree (overseer/scripts/run_contained.py), but the simulation does not run it on the corpus copy yet",
    "status": "NOT RUN"
   },
   {
@@ -46,7 +46,7 @@
   {
    "denominator": 0,
    "gate": "G-OVS",
-   "reason": "the overseer's asynchronous review and its probe providers are not available on this tree",
+   "reason": "the overseer's asynchronous review is on this tree (the port's review), but the simulation does not send the probe providers through it yet",
    "status": "NOT RUN"
   }
  ],
@@ -81,19 +81,17 @@
   "integration/sim/corpus/MANIFEST.sha256": "18fe07ce28e42152007bfbfaa6a040550d62757385137497feecb45a6ac1d091",
   "integration/sim/faults.py": "930741fc011efde3a3be7322dd97064ca951674c178cecfbaba1cb7e441234aa",
   "integration/sim/gates.py": "a97cd4577909e2cb0978712d54f254f2b9ec72f4a7cb1ea092a3c412a4628b01",
-  "integration/sim/reference.py": "0bba0657b28e166e769fd73aec7b0f918477584afde1705bf9acb5b56ef9db1a",
-  "integration/sim/run_sim.py": "73a449ac75e5cf8cd391c8b9e300ed729ce4ad0f38e25f284dd26ffd56ff34f5",
+  "integration/sim/reference.py": "a33a6051d93b1eed86f90a6f6eeed2afb0088cb23c6bb478917054a0ff1faf3c",
+  "integration/sim/run_sim.py": "6fe1505b5ca0d01c7b2e7d6c27eb0b80eb063f999903021fd9abb3a1bc4807e4",
   "integration/sim/runtime-reply.mjs": "d70a9aff4c1fabc94aeddaddc4e8fa09926a6888786d80c94aa093cf5d610ef6",
   "integration/sim/users.json": "de1d04606000f5b5d2289f248c5db4c98d2723ee3ed545d975d6fc938eb5c247",
   "integration/sim/website-driver.mjs": "470e0dcc22c7aa39cc177de73985f59b629ae528db2f3869309f042dafaef97a",
-  "tests/integration/sim_double/kit_overseer_test_double.py": "e600c93f2c5b7652f25fbffed7622f68fd56652029a8c8b57b8940a22c8e465f"
+  "tests/integration/sim_double/kit_overseer_test_double.py": "505f28a8e1d76ce296bf9946b83c7ff4bbfe99ec3899546f4cd2097a6709103f"
  },
- "not_run": {
-  "contained": "scripts/overseer/run_contained.py is not on this tree"
- },
+ "not_run": {},
  "note": "A wiring run of integration/sim/run_sim.py with the TEST DOUBLE of the overseer port (tests/integration/sim_double/): every gate is reported NOT RUN; 'computed' is what each gate computed, information only.",
  "schema": "epinoic.integration.sim-wiring-record.v1",
  "specialist_commit": "8ceba43f576b49ea754a8994dbc130a6549a4699",
  "specialist_contract": "epinoic.specialist-runtime.v0.2.0",
- "website_export": "UNREVIEWED SIMULATION COPY of origin/main 2cd318208980e5b236d16b4281dfc0560a7b9610."
+ "website_export": "UNREVIEWED SIMULATION COPY of 2cd318208980e5b236d16b4281dfc0560a7b9610 (website base M, origin/main when the kit's patch set was tested; origin/main is now base P, which has no tested patch set)."
 }

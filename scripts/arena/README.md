@@ -360,7 +360,7 @@ judgment applies only to a translation this run served whose digests match; anyt
 
 ## Delivery decisions
 
-After the round's records are complete, `run_arena.py` runs the delivery policy (`docs/DELIVERY.md`) over every genuine
+After the round's records are complete, `run_arena.py` runs the delivery policy (`overseer/docs/DELIVERY.md`) over every genuine
 answer, on a hub of its own carrying a transfer auditor. The pass replays each group's genuine traffic in order and opens
 a delivery session per answer. It adds no record and moves no transport count. Its hub and claim verifier are bound at
 import, so a harness that replaces `RouterHub` or `verify_claim` never reaches it. The contained harness switches it off

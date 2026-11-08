@@ -19,9 +19,9 @@ Results prove properties of the logic encoding only, and every verdict carries t
 | bootstrap, preflight, self-test, capabilities | `bootstrap.py`, `preflight.py`, `selftest.py`, `capabilities.py` (`GET /v1/capabilities`) |
 | the required checks port | `checks_port.py`, `turn.py` (`POST /v1/turns/check`, behind the service's existing gates) |
 | the specialist port (runtime results v1 and v2) | `specialist_port.py` |
-| the overseer port (the overseer as a separate sub-project) | `overseer_port.py`; the embedded adapter `epinoic_overseer.port` is connected in phase 2 |
+| the overseer port (the overseer as a separate sub-project) | `overseer_port.py`; the embedded adapter `epinoic_overseer.port` of the sub-project `overseer/` is connected (architecture step 2 of phase 2), its pack pinned (`PINNED_PACK_DIGESTS`) |
 | the combinator port (the combinator as a separate agent) | `combinator_port.py` (input, output, refusal, hello, the published contract and its digest, the `synthesis/1.0` payload the hub receives); the combinator itself is the sub-project `combinator/` (package `epinoic_combinator`), never imported by the translator; `combined` is not offered until it is connected (phase 2) |
-| the flash-router port (the oversight planner as a separate, independent sub-agent) | `router_port.py` (the router run in its own process: `router_child.py`), `routing_features.py`; the router itself is the sub-project `flash-router/` (package `epinoic_flash_router`), attached only when `EPINOIC_FLASH_ROUTER` names it; without it the minimum-oversight floor runs |
+| the flash-router port (the oversight planner as a separate, independent sub-agent; not the translator's `RouterHub`) | `router_port.py` (the router run in its own process: `router_child.py`), `routing_features.py`; its pool operation for the overseer pool, `router_pool.py` (pool port 1.1, PROTOCOL.md section 7b: the overseer pool attaches the router by capability and keeps its own floor, `minimum-oversight-floor/pool-1`); the router itself is the sub-project `flash-router/` (package `epinoic_flash_router`, its rules and cost data as versioned data files with digests), attached only when `EPINOIC_FLASH_ROUTER` (the service) or `OverseerPool(router=...)` (the pool) names it; without it the minimum-oversight floor runs |
 | the decision table, verdict signing, the Worker's binding checks | `delivery.py` |
 | the fixture provider of the simulation (the arena's serving rule) | `verifier.py` (`FixtureCorpus`) |
 | the STEM budget as a per-channel parameter | `channel/bus.py` (`stem_budget_s`, bounded by `STEM_CHECK_BUDGET_S`) |
@@ -50,7 +50,28 @@ fail-closed until they are), are in [`integration/DECISIONS.md`](../integration/
 - **The Worker's release gate** binds the released text to the deliverable's `answer_sha256` whatever produced the
   result, and reads the specialist runtime's own capabilities (`entries`).
 
-## State on the pre-build branch
+## State on this tree: the overseer connected (architecture step 2 of phase 2)
+
+The overseer is the sub-project `overseer/` (package `epinoic_overseer`, released apart; `overseer/README.md`), and its
+embedded port adapter `epinoic_overseer.port` is the service's default overseer port (`EPINOIC_OVERSEER_PORT`). The
+service starts with it: its hello lists port 1.0, mode `embedded`, replay `process`, the profile `standard` only (D30)
+and the pack this release pins (`overseer_port.PINNED_PACK_DIGESTS`; an adapter naming another pack is refused with
+`KIT-HS-007`). The adapter reaches the translator only through this protocol and the translator's public API
+(`epinoic_logic.api`, listed in `docs/PUBLIC_API.md`); the translator never imports it. Its receipt digests are the
+service's (`turn.receipt_sha256`), its audit scope statement is the overseer's constant, its `repeats` are the hub's,
+and every delivery or release reason it gives maps onto exactly one `OVERSEER_REFUSALS` label (an unmapped reason
+fails its test). Its `review(admission)` runs the admitted plan (the flash router's or the floor's) asynchronously,
+never as a release condition. The overseer pool's planning decision (which instances review which dossiers, and which
+go to independent duplicates) moved into the flash router in architecture step 2c, behind the overseer's own floor
+(PROTOCOL.md section 7b; with the router attached, every recorded pool plan is reproduced); the port adapter's review
+still sizes its agents from the service's admitted plan (section 7a), as before. The contract tests
+stay on fixtures (`RecordingPort`, `FixtureProbes`, the simulation's test double); the turn checker's tests run on
+both the double and the real adapter. The simulation without the double computes six gates on the copies: five PASS
+and G-FAULT FAIL on 12 warning-level cases that both the kit's decision table and the overseer's delivery rule deliver
+(decision D34, open, in `integration/DECISIONS.md`); G-EQ-CONTAINED and G-OVS are not collected by it yet (NOT RUN).
+Nothing is deployed and no live provider has been called.
+
+## State on the pre-build branch (before the overseer's connection)
 
 The overseer package and the argument diagnostics are built by other work streams and connected in phase 2. The
 named-policy allowlist of contract 0.3 and the closed transformation values came with the end-to-end fixes, merged

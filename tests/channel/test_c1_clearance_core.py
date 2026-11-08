@@ -178,7 +178,7 @@ def test_a_decline_is_named_and_no_item_reads_as_addressed_and_its_bound_is_not_
     core fixer's handoff, item 5): the first version asserted the interim behaviour (the bounds decided and charged at
     error, naming the decline) because the transfer auditor did not yet accept a not-applicable bound; it now does, exactly
     when ``withheld_deliverable`` reads a decline in the journaled response (rule declined-bound,
-    ``tests/overseer/test_c1_handoff_bounds.py``, which also asserts the audit agrees and names the same record on an
+    ``overseer/tests/overseer_tests/test_c1_handoff_bounds.py``, which also asserts the audit agrees and names the same record on an
     answer that declines nothing)."""
     _hub, _ch, _reply, rc = deliver("ge-t14")
     assert rc.coverage and not any(c.addressed for c in rc.coverage)

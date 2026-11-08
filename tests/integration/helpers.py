@@ -2,8 +2,13 @@
 
 ``RecordingPort`` is a TEST DOUBLE of the overseer port adapter: it hands out a plain ``RouterHub`` and answers the
 port's operations with fixture messages, so the tests can exercise the TurnChecker's normative order, its budget and its
-refusals before the real embedded adapter exists (it is connected in phase 2, which runs these same tests against it).
-It is not part of the package and nothing outside the tests can import it.
+refusals, and shape every answer the port may give (a failed or pending clearance, a refused delivery). It is not part
+of the package and nothing outside the tests can import it.
+
+``RealPort`` is the REAL embedded adapter (the overseer sub-project's ``epinoic_overseer.port``, connected with the test
+keys) behind the same recording interface (``calls``, ``replies``, ``reviewed``, ``fail_on``), so the TurnChecker tests
+run against both (``PORT_KINDS``; overseer-port CONFORMANCE). Only the double can be shaped; the real adapter answers
+what the rebuilt overseer decides.
 """
 from __future__ import annotations
 
@@ -142,6 +147,103 @@ class RecordingPort:
         self.reviewed.append(admission)
         return {"schema": "epinoic.integration.overseer-review-ticket.v1", "protocol": PROTOCOL, "ticket_id": f"ticket-{task_id}", "task_id": task_id,
                 "queued": True, "dropped": False, "plan": {"origin": admission.origin, "plan_id": admission.effective.plan_id, "refusal": admission.refusal}}
+
+
+#: The two overseer ports the TurnChecker tests run against: the test double and the real embedded adapter.
+PORT_KINDS = ("double", "real")
+_REAL_PORTS: dict[str, Any] = {}
+
+
+class SilentAgentProvider:
+    """An overseer-agent provider for the asynchronous review of the real adapter: every reply is a JSON object that is no
+    verdict, so the intake rejects it (OVS-AGENT-005: no review); no model, no network."""
+    name = "test-silent-agent"
+
+    def complete(self, system: str, user: str, *, prompt_version: str) -> Any:
+        from epinoic_logic.translate.contracts import ProviderInfo
+        from epinoic_logic.translate.providers.base import ProviderResponse
+        return ProviderResponse(raw_text="{}", info=ProviderInfo(provider_name=self.name, prompt_version=prompt_version, temperature=0.0))
+
+
+def real_port(agents: str = "off") -> Any:
+    """The real embedded adapter connected with the test keys (one per agents setting, shared by the tests: it holds no
+    per-call state but its replay and review workers)."""
+    port = _REAL_PORTS.get(agents)
+    if port is None:
+        import atexit
+        from epinoic_overseer.port import connect
+        config = {"engine_key": bytes.fromhex(ENGINE_KEY_HEX), "engine_key_id": "default", "overseer_secret": bytes.fromhex(OVERSEER_SECRET_HEX),
+                  "replay_mode": "process", "agents": agents}
+        if agents == "async":
+            config["agent_provider_factory"] = lambda agent_id: SilentAgentProvider()
+        port = _REAL_PORTS[agents] = connect(config)
+        atexit.register(port.shutdown)
+    return port
+
+
+class RealPort:
+    """The REAL embedded adapter behind ``RecordingPort``'s recording interface (module docstring): every operation is the
+    adapter's own; ``calls`` records their order, ``replies`` the hub's delivered replies, ``reviewed`` the admissions handed
+    to ``review``, and ``fail_on`` raises in one operation. ``hello_message`` only selects the agents setting: a hello
+    with ``agents: "async"`` uses the adapter connected with a (silent) agent provider."""
+
+    def __init__(self, *, hello_message: Optional[dict] = None, fail_on: Optional[str] = None) -> None:
+        agents = (hello_message or {}).get("agents", "off")
+        self.port = real_port(agents)
+        self.fail_on = fail_on
+        self.calls: list = []
+        self.replies: list = []
+        self.reviewed: list = []
+
+    def _maybe_fail(self, op: str) -> None:
+        self.calls.append(op)
+        if self.fail_on == op:
+            raise RuntimeError(f"SYNTHETIC failure in {op}")
+
+    def hello(self) -> dict:
+        return self.port.hello()
+
+    def new_hub(self, *, signing_key: bytes, key_id: str, verify_claim_fn: Any, config: Any) -> Any:
+        self._maybe_fail("new_hub")
+        hub = self.port.new_hub(signing_key=signing_key, key_id=key_id, verify_claim_fn=verify_claim_fn, config=config)
+        real_receive, replies = hub.receive, self.replies
+
+        def receive(task_id, request_message_id, payload, **kw):  # noqa: ANN001 - records the delivered replies
+            reply, rc = real_receive(task_id, request_message_id, payload, **kw)
+            replies.append((reply, rc))
+            return reply, rc
+        hub.receive = receive
+        return hub
+
+    def clearance(self, hub: Any, task_id: str, message_id: str, receipt: Any, *, wait_ms: int) -> dict:
+        self._maybe_fail("clearance")
+        return self.port.clearance(hub, task_id, message_id, receipt, wait_ms=wait_ms)
+
+    def close(self, hub: Any, task_id: str) -> dict:
+        self._maybe_fail("close")
+        return self.port.close(hub, task_id)
+
+    def deliver(self, hub: Any, task_id: str, *, mode: str, synthesis: Any = None) -> dict:
+        self._maybe_fail("deliver")
+        return self.port.deliver(hub, task_id, mode=mode, synthesis=synthesis)
+
+    def view(self, hub: Any, task_id: str) -> Any:
+        self.calls.append("view")
+        return self.port.view(hub, task_id)
+
+    def repeats(self, hub: Any, task_id: str) -> dict:
+        self.calls.append("repeats")
+        return self.port.repeats(hub, task_id)
+
+    def review(self, hub: Any, task_id: str, admission: Any) -> dict:
+        self._maybe_fail("review")
+        self.reviewed.append(admission)
+        return self.port.review(hub, task_id, admission)
+
+
+def port_class(kind: str) -> type:
+    """``RecordingPort`` (the test double) or ``RealPort`` (the real embedded adapter)."""
+    return {"double": RecordingPort, "real": RealPort}[kind]
 
 
 class FixtureProbes(Probes):

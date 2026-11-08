@@ -284,7 +284,7 @@ prompt_version) -> ProviderResponse`) is the public form of the `_complete` the 
 already use: the caller supplies both texts and the provider adds nothing, while retries,
 timeouts, `ProviderInfo` (which records `prompt_version`) and `ProviderError` are reused
 unchanged. Both vendor adapters implement it; `propose` and `review` are unchanged. The overseer
-agent runner (`epinoic_logic.overseer.runner`) calls it with a knowledge pack's system text and one
+agent runner (`epinoic_overseer.runner`, the overseer sub-project) calls it with a knowledge pack's system text and one
 dossier, and its reply is untrusted data parsed only by the verdict intake.
 `FixtureCompletionProvider` serves canned replies keyed by dossier digest or in order, raises a
 canned `ProviderError` and records every call; no live provider is claimed.
@@ -320,7 +320,7 @@ thread-safe and `clear_grounding_caches()` empties them. Hashing agent text neve
 raising.
 
 **Overseen like every other agent.** Every translation this package proposes reaches the router inside a receipt
-outcome, and the Overseer re-checks it from its journal as untrusted data (`epinoic_logic.overseer.checks.translation`,
+outcome, and the Overseer re-checks it from its journal as untrusted data (`epinoic_overseer.checks.translation`,
 codes `OVS-TRN-001` to `OVS-TRN-009`): the IR re-validated with the engine's validator, the status and eligibility
 re-derived, the quotation groundings re-run against the supplied texts, every quotation and number traced to the
 specialist's report, a conclusion found among its own premises flagged as circular, the outcome summary regenerated from

@@ -11,7 +11,7 @@ converted by the STEM unit table's exact factor into its SI unit or into its uni
 (``quantities.unit_conversions``); every power as written (``cm³``, ``cm^3``, ``cm**3``, and the ASCII ``cm3`` and ``dm-3``
 glued to their atom after a number, as the STEM parser reads them there). A figure converted by any other factor is still
 introduced. The transcription check of a quotation (``grounding``, ``figures_in_excerpt``) is not one of those readers:
-it stays a check of the figure as quoted (``tests/overseer/test_stem_repair1.py``), and the overseer's rule
+it stays a check of the figure as quoted (``overseer/tests/overseer_tests/test_stem_repair1.py``), and the overseer's rule
 ``excerpt-prefix-units`` reads its conversions.
 
 No recorded round is needed: the control's translation is rebuilt here from its shape.

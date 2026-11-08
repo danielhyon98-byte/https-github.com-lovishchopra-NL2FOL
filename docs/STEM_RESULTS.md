@@ -1,5 +1,10 @@
 # STEM results
 
+> Paths: since architecture step 2 of phase 2 the Overseer is the sub-project `overseer/` (package `epinoic_overseer`):
+> `src/epinoic_logic/overseer/` is now `overseer/src/epinoic_overseer/`, `tests/overseer/` is
+> `overseer/tests/overseer_tests/`, `scripts/overseer/` is `overseer/scripts/`, and the overseer's documents are in
+> `overseer/docs/`.
+
 Measured results of STEM support (Physics, Chemistry, Biology, ESS, SEHS, Design Technology,
 Mathematics AA and AI, Computer Science) on branch `stem-build`; section 10.1 records its merge
 into the round-7 development branch. The design is docs/STEM_DESIGN.md. Everything below was run in this development

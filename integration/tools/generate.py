@@ -60,6 +60,9 @@ SCHEMA_MODELS: tuple[tuple[str, str], ...] = (
     ("router-hello.v1.schema.json", "epinoic_logic.integration.router_port:RouterHello"),
     ("routing-request.v1.schema.json", "epinoic_logic.integration.router_port:RoutingRequest"),
     ("routing-plan.v1.schema.json", "epinoic_logic.integration.router_port:RoutingPlan"),
+    ("pool-router-hello.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRouterHello"),
+    ("pool-routing-request.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingRequest"),
+    ("pool-routing-plan.v1.schema.json", "epinoic_logic.integration.router_pool:PoolRoutingPlan"),
 )
 
 

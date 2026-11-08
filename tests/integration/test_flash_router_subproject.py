@@ -93,3 +93,22 @@ def test_it_is_a_project_of_its_own_that_the_translator_never_imports(installed)
         assert not re.search(r"^\s*(from|import)\s+epinoic_flash_router", text, re.M), p
     from epinoic_flash_router import __version__
     assert __version__ == meta["project"]["version"], "the identity's version is the project's version"
+
+
+def test_the_overseer_pool_attaches_it_by_capability_through_the_router_port(installed):
+    """Architecture step 2c: the overseer pool's planning decision is the router's too. The pool attaches it by module
+    name, in its own process, only for the pool capability (PROTOCOL.md section 7b); its pool plans are in contract and
+    give every escalated dossier two independent instances (the overseer's floor decides the rest)."""
+    from epinoic_logic.integration import router_pool as RP
+    from epinoic_flash_router import __version__
+    from epinoic_flash_router.rules import COST_DATA_SHA256, RULES_SHA256
+    att = RP.attach_pool_router(installed)
+    assert att.attached and att.refusal is None and not att.in_process, att.detail
+    assert R.dump(att.hello.router) == {"name": "epinoic-flash-router", "version": __version__, "rules_sha256": RULES_SHA256,
+                                        "cost_data_sha256": COST_DATA_SHA256}
+    assert att.hello.port_version in RP.POOL_PORT_VERSIONS and RP.POOL_CAPABILITY in att.hello.capabilities
+    req = RP.build_pool_request([{"repeated_faults": 1}, {"repeated_faults": 0, "risk_signals": ["contradiction"]}, {"repeated_faults": 0}],
+                                max_instances=4, per_instance_quota=8)
+    answer = RP.ask_pool_router(req, att)
+    plan = RP.check_pool_plan(answer.data, req, hello=att.hello)
+    assert [len(a.instances) for a in plan.assignments] == [2, 2, 1] and plan.instances == 2 and plan.router == att.hello.router

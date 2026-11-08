@@ -1,0 +1,7 @@
+{
+  "basis": "planning estimates, not measurements; no model is named (decision D23)",
+  "chars_per_token": 4,
+  "name": "epinoic-flash-router/cost-model-1",
+  "review_tokens_base": 6000,
+  "seconds_per_instance": 30
+}

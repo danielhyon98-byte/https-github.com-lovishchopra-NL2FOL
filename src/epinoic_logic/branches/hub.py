@@ -14,8 +14,12 @@ Observation and the Overseer (optional; ``docs/OVERSEER_DESIGN.md`` sections 4, 
 ``observers`` and ``auditor`` opens channels with no observer, and they behave exactly as before.
 
 * ``observers=``: generic channel observers attached to every channel the hub opens (``TranslatorChannel.add_observer``).
-* ``auditor=``: a :class:`~epinoic_logic.overseer.audit.TransferAuditor`, attached FIRST to every channel the hub opens,
-  so the authoritative journal is written before any other observer runs. It also enables:
+* ``auditor=``: the overseer's transfer auditor (``epinoic_overseer.TransferAuditor``, the separate sub-project ``overseer/``,
+  which this package never imports), attached FIRST to every channel the hub opens, so the authoritative journal is written
+  before any other observer runs. It also enables the overseer methods below; the ones that run the overseer's own
+  rules (``clearance``, ``repeats``, ``consolidate``, ``review_pool`` and ``review``) are carried out by the auditor's
+  ``hub_operations`` (``epinoic_overseer.hub_ops``), to which the hub hands itself, and every one of them refuses with
+  :class:`AuditorNotAttached` first when no auditor is attached:
 
   - ``clearance(task_key, message_id, receipt=None, wait_ms=0)``: the router's check immediately before acting on a
     transfer: custody of the message and its dependencies re-checked, the receipt the router presents (or the
@@ -89,13 +93,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import threading
-import time
-import uuid
 import weakref
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence, Union
+from typing import Any, Mapping, Optional, Sequence, Union
 
 from ..engine.results import SolverConfig
 from ..integrity.contracts import AgentMessage, IntegrityFinding, WorkPlan
@@ -105,31 +106,17 @@ from ..channel.contracts import TaskRequest, TransmissionReceipt, TransmissionSt
 from .base import BranchRegistry
 from .registry import default_registry
 
-if TYPE_CHECKING:  # the overseer package is imported lazily: a hub without an auditor never loads it
-    from ..overseer.audit import TransferAuditor
-    from ..overseer.combine import CombinedAssessment
-    from ..overseer.consolidate import ConsolidatedResponse
-    from ..overseer.contracts import OverseerAudit, TransferClearance
-    from ..overseer.pool import OverseerPool, PoolPlan
-    from ..overseer.repeats import RepeatReport
-    from ..overseer.intake import VerdictIntake
-    from ..overseer.runner import AgentRun, OverseerAgentRunner
-    from ..overseer.validate import VerdictAssessment
-    from ..overseer.view import OverseerView
-
 #: Most channels ``closed_channels`` keeps (oldest dropped first; a dropped channel's journal stays with the auditor).
 MAX_CLOSED_CHANNELS = 1024
 #: The agent a quarantine plan selects: no real agent is ever addressed through a task the hub did not open.
 _NO_AGENT = "hub:no-agent"
-_AUDITOR_METHODS = ("observer_for", "clearance", "audit", "view", "audits", "journal", "channel_uids", "seal", "close", "keyring", "store", "replayer")
+#: What an attached auditor provides (the overseer's ``TransferAuditor``; ``hub_operations`` carries out the overseer methods).
+_AUDITOR_METHODS = ("observer_for", "clearance", "audit", "view", "audits", "journal", "channel_uids", "seal", "close", "keyring", "store", "replayer",
+                    "hub_operations")
 
 # Hubs attached to each auditor: the replay worker stops when the last of them closes.
 _AUDITOR_HUBS: "weakref.WeakKeyDictionary[Any, int]" = weakref.WeakKeyDictionary()
 _AUDITOR_LOCK = threading.Lock()
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class AuditorNotAttached(RuntimeError):
@@ -144,12 +131,12 @@ class HubClosed(RuntimeError):
 class HubReview:
     """What one ``RouterHub.review`` did. ``audit`` is the signed ``verdicts``-scope audit; nothing here confirms,
     passes or clears a transfer (only the auditor's own ``OVS-*`` findings do)."""
-    audit: "OverseerAudit"
-    task_audit: "OverseerAudit"
+    audit: Any
+    task_audit: Any
     mode: str
-    runs: tuple["AgentRun", ...]
-    assessments: tuple["VerdictAssessment", ...]
-    combined: Optional["CombinedAssessment"]
+    runs: tuple[Any, ...]
+    assessments: tuple[Any, ...]
+    combined: Optional[Any]
     refused: tuple[tuple[str, str], ...]
     runner_errors: tuple[tuple[str, str], ...]
     superseding_audit_ids: tuple[str, ...]
@@ -159,7 +146,7 @@ class HubReview:
 class PoolReview:
     """What one ``RouterHub.review_pool`` did: the recorded plan and, per dossier key (the channel uid), the
     :class:`HubReview` of the instances the plan assigned. Nothing here confirms, passes or clears a transfer."""
-    plan: "PoolPlan"
+    plan: Any
     reviews: dict[str, HubReview]
     task_keys: dict[str, Any]
 
@@ -171,8 +158,8 @@ def _same_subkeys(a: Any, b: Any) -> bool:
 class RouterHub:
     def __init__(self, *, signing_key: bytes, key_id: str = "hub", registry: Optional[BranchRegistry] = None,
                  verify_claim_fn: Optional[VerifyClaimFn] = None, config: SolverConfig = SolverConfig(),
-                 observers: Sequence[ChannelObserver] = (), auditor: Optional["TransferAuditor"] = None,
-                 intake: Optional["VerdictIntake"] = None) -> None:
+                 observers: Sequence[ChannelObserver] = (), auditor: Optional[Any] = None,
+                 intake: Optional[Any] = None) -> None:
         self.registry = registry or default_registry()
         self.key, self.key_id, self.verify_claim_fn, self.config = signing_key, key_id, verify_claim_fn, config
         self.channels: dict[str, TranslatorChannel] = {}
@@ -186,9 +173,9 @@ class RouterHub:
         self.closed_channels: "OrderedDict[str, TranslatorChannel]" = OrderedDict()
         self._lock = threading.RLock()
         self._closed = False
-        self.auditor: Optional["TransferAuditor"] = None
-        self.intake: Optional["VerdictIntake"] = None
-        self._consolidations: dict[str, list["ConsolidatedResponse"]] = {}
+        self.auditor: Optional[Any] = None
+        self.intake: Optional[Any] = None
+        self._consolidations: dict[str, list[Any]] = {}
         if auditor is not None:
             missing = [m for m in _AUDITOR_METHODS if not hasattr(auditor, m)]
             if missing:
@@ -332,7 +319,7 @@ class RouterHub:
             while len(self.closed_channels) > MAX_CLOSED_CHANNELS:
                 self.closed_channels.popitem(last=False)
 
-    def close_task(self, task_key: str, *, audit: bool = True) -> Optional["OverseerAudit"]:
+    def close_task(self, task_key: str, *, audit: bool = True) -> Optional[Any]:
         """Stop routing to the task's channel: it moves to ``closed_channels``; with an auditor, its FINAL task audit is
         issued (when ``audit`` and anything was journaled) and its journal is sealed. Returns that audit, or None."""
         with self._lock:
@@ -351,10 +338,18 @@ class RouterHub:
         return result
 
     # ------------------------------------------------------------------ the Overseer
-    def _require_auditor(self) -> "TransferAuditor":
+    def _require_auditor(self) -> Any:
         if self.auditor is None:
             raise AuditorNotAttached("this hub has no auditor: build it with auditor=TransferAuditor(...) to audit, clear or review transfers")
         return self.auditor
+
+    def _operations(self) -> Any:
+        """The attached auditor's ``hub_operations`` (raises :class:`AuditorNotAttached` without an auditor)."""
+        return self._require_auditor().hub_operations
+
+    def _review_intake(self) -> Any:
+        """The verdict intake this hub's reviews issue dossiers from (the attached auditor's, through its ``hub_operations``)."""
+        return self._operations()._review_intake(self)
 
     def _resolve(self, task_key: Any) -> TranslatorChannel:
         with self._lock:
@@ -374,67 +369,41 @@ class RouterHub:
         """The channel ``task_key`` names (a key of ``channels``, a ``closed_channels`` uid, or a channel of this hub)."""
         return self._resolve(task_key)
 
-    def _journaled_uid(self, auditor: "TransferAuditor", ch: TranslatorChannel) -> str:
+    def _journaled_uid(self, auditor: Any, ch: TranslatorChannel) -> str:
         uid = ch.channel_uid
         if uid not in auditor.channel_uids():
             raise LookupError(f"nothing of channel {uid} (task {ch.plan.task_id!r}) was journaled: there is nothing to audit")
         return uid
 
-    def clearance(self, task_key: Any, message_id: str, *, receipt: Any = None, wait_ms: int = 0) -> "TransferClearance":
-        """The router's check immediately before acting on a transfer (see the module docstring). ``wait_ms`` is clamped
-        to ``policy.MAX_PENDING_WAIT_MS`` and bounds the whole wait (replay and re-derivation together). A channel of
-        which nothing was journaled clears nothing (AUDIT_FAILED, CUST-003)."""
-        from ..overseer.contracts import TransferClearance
-        from ..overseer.policy import bounded_wait_ms
-        auditor = self._require_auditor()
-        ch = self._resolve(task_key)
-        uid = ch.channel_uid
-        if uid not in auditor.channel_uids():
-            return TransferClearance(clearance_id=uuid.uuid4().hex, message_id=str(message_id), task_id=ch.plan.task_id, channel_uid=uid, state="AUDIT_FAILED",
-                                     codes=["OVS-CUST-003"], finding_count=1, created_at=_now())
-        budget = bounded_wait_ms(wait_ms)
-        if budget:
-            self._wait_for_replay(auditor, budget)
-        return auditor.clearance(uid, message_id, receipt=receipt, wait_ms=0)
+    def journaled_uid(self, auditor: Any, ch: TranslatorChannel) -> str:
+        """``ch``'s uid when ``auditor`` journaled anything of it, else ``LookupError`` (a hook of the overseer's operations)."""
+        return self._journaled_uid(auditor, ch)
 
-    @staticmethod
-    def _wait_for_replay(auditor: "TransferAuditor", budget_ms: int) -> None:
-        """Wait for outstanding replay, then re-derivation, at most ``budget_ms`` IN ALL (one deadline for both waits).
-        Whatever is still outstanding leaves the transfer AUDIT_PENDING, never passed."""
-        deadline = time.monotonic() + budget_ms / 1000.0
-        replayer = auditor.replayer
-        replayer.drain(timeout_s=budget_ms / 1000.0)
-        left = deadline - time.monotonic()
-        if left > 0:
-            replayer.wait_tasks(timeout_s=left)
+    def clearance(self, task_key: Any, message_id: str, *, receipt: Any = None, wait_ms: int = 0) -> Any:
+        """The router's check immediately before acting on a transfer (see the module docstring), carried out by the
+        auditor's ``hub_operations``. ``wait_ms`` is clamped to ``policy.MAX_PENDING_WAIT_MS`` and bounds the whole wait
+        (replay and re-derivation together). A channel of which nothing was journaled clears nothing (AUDIT_FAILED,
+        CUST-003)."""
+        return self._operations().clearance(self, task_key, message_id, receipt=receipt, wait_ms=wait_ms)
 
-    def audit(self, task_key: Any, *, final: bool = False, shadow: Optional[bool] = None) -> "OverseerAudit":
+    def audit(self, task_key: Any, *, final: bool = False, shadow: Optional[bool] = None) -> Any:
         """The signed task audit of the channel ``task_key`` names (``TransferAuditor.audit``)."""
         auditor = self._require_auditor()
         return auditor.audit(self._journaled_uid(auditor, self._resolve(task_key)), final=final, shadow=shadow)
 
-    def view(self, task_key: Any) -> "OverseerView":
+    def view(self, task_key: Any) -> Any:
         """The authoritative view of the channel, parsed from its journal."""
         auditor = self._require_auditor()
         return auditor.view(self._journaled_uid(auditor, self._resolve(task_key)))
 
     # ------------------------------------------------------------------ overseer agents
-    def _review_intake(self) -> "VerdictIntake":
-        from ..overseer.intake import VerdictIntake
-        from ..overseer.pack import installed_pack
+    def ensure_intake(self, factory: Any) -> Any:
+        """This hub's verdict intake: the one given at construction, else the one ``factory()`` builds at the first
+        review (built once, under the hub's lock; a hook of the overseer's operations)."""
         with self._lock:
             if self.intake is None:
-                self.intake = VerdictIntake(self._require_auditor().keyring, accepted_packs={installed_pack().identity})
+                self.intake = factory()
             return self.intake
-
-    def _reference_audit(self, auditor: "TransferAuditor", uid: str, view: "OverseerView") -> "OverseerAudit":
-        from ..overseer.audit import verify_audit
-        task_audits = [a for a in auditor.audits(uid) if a.scope == "task"]
-        latest = task_audits[-1] if task_audits else None
-        current = [t.message_id for t in view.transfers if t.message_id]
-        if latest is not None and verify_audit(latest, auditor.keyring) and list(latest.message_ids) == current and latest.coverage.shadow_run == "run":
-            return latest
-        return auditor.audit(uid, final=bool(latest is not None and latest.final), shadow=True)
 
     # ------------------------------------------------------------------ consolidation and repeated faults
     def _task_channels(self, ch: TranslatorChannel) -> list[TranslatorChannel]:
@@ -446,59 +415,35 @@ class RouterHub:
             earlier = [c for uid, c in self.closed_channels.items() if c is not ch and c.plan.task_id == ch.plan.task_id and uid in journaled]
         return [*earlier, ch]
 
-    def _latest_verified_audit(self, auditor: "TransferAuditor", uid: str) -> Optional["OverseerAudit"]:
-        from ..overseer.audit import verify_audit
-        task_audits = [a for a in auditor.audits(uid) if a.scope == "task"]
-        return task_audits[-1] if task_audits and verify_audit(task_audits[-1], auditor.keyring) else None
+    def task_channels(self, ch: TranslatorChannel) -> list[TranslatorChannel]:
+        """The journaled channels of ``ch``'s task id, ``ch`` last (a hook of the overseer's operations)."""
+        return self._task_channels(ch)
 
-    def _repeat_inputs(self, ch: TranslatorChannel) -> tuple[list[Any], dict[str, Any], Any, Any]:
-        """(prior views, audits by channel uid, the channel's view, its reference task audit)."""
-        auditor = self._require_auditor()
-        uid = self._journaled_uid(auditor, ch)
-        view = auditor.view(uid)
-        task_audit = self._reference_audit(auditor, uid, view)
-        prior_views, audits = [], {uid: task_audit}
-        for c in self._task_channels(ch)[:-1]:
-            prior_views.append(auditor.view(c.channel_uid))
-            a = self._latest_verified_audit(auditor, c.channel_uid)
-            if a is not None:
-                audits[c.channel_uid] = a
-        return prior_views, audits, view, task_audit
-
-    def repeats(self, task_key: Any) -> "RepeatReport":
+    def repeats(self, task_key: Any) -> Any:
         """The repeat report of the task ``task_key`` names: every error-level fault of every answer, signed
-        (``overseer/repeats.py``), over the channels this hub opened for that task id, in order."""
-        from ..overseer.repeats import detect_repeats
-        auditor = self._require_auditor()
-        ch = self._resolve(task_key)
-        prior_views, audits, view, _audit = self._repeat_inputs(ch)
-        return detect_repeats([*prior_views, view], audits, keyring=auditor.keyring)
+        (``epinoic_overseer.repeats``), over the channels this hub opened for that task id, in order."""
+        return self._operations().repeats(self, task_key)
 
     def consolidate(self, task_key: Any, *, request_message_ids: Optional[Sequence[str]] = None,
-                    user_input_sha256: Optional[str] = None) -> "ConsolidatedResponse":
+                    user_input_sha256: Optional[str] = None) -> Any:
         """The consolidated response to one input several agents answered on the task ``task_key`` names (see the
-        module docstring and ``overseer/consolidate.py``). The response is signed and recorded; the router delivers an
-        answer only through ``consolidate.delivery_decision(resp, keyring, hub=self)``."""
-        from ..overseer.consolidate import consolidate as _consolidate
-        from ..overseer.repeats import detect_repeats
-        auditor = self._require_auditor()
-        ch = self._resolve(task_key)
-        prior_views, audits, view, task_audit = self._repeat_inputs(ch)
-        report = detect_repeats([*prior_views, view], audits, keyring=auditor.keyring)
-        prior_audits = {k: v for k, v in audits.items() if k != ch.channel_uid}
-        resp = _consolidate(view, keyring=auditor.keyring, store=auditor.store, audit=task_audit, request_message_ids=request_message_ids,
-                            user_input_sha256=user_input_sha256, prior_views=prior_views, prior_audits=prior_audits, repeats=report)
-        with self._lock:  # the hub keeps its own copy: an edit of the object returned to the router never reaches the record
-            self._consolidations.setdefault(ch.channel_uid, []).append(resp.model_copy(deep=True))
-        return resp
+        module docstring and ``epinoic_overseer.consolidate``). The response is signed and recorded; the router delivers
+        an answer only through ``consolidate.delivery_decision(resp, keyring, hub=self)``."""
+        return self._operations().consolidate(self, task_key, request_message_ids=request_message_ids, user_input_sha256=user_input_sha256)
 
-    def consolidations(self, task_key: Any) -> list["ConsolidatedResponse"]:
+    def record_consolidation(self, channel_uid: str, resp: Any) -> None:
+        """Record a consolidated response this hub issued for the channel ``channel_uid`` (a deep copy: an edit of the
+        object returned to the router never reaches the record; a hook of the overseer's operations)."""
+        with self._lock:
+            self._consolidations.setdefault(channel_uid, []).append(resp.model_copy(deep=True))
+
+    def consolidations(self, task_key: Any) -> list[Any]:
         """Every consolidated response this hub issued for the channel ``task_key`` names, in order (copies)."""
         ch = self._resolve(task_key)
         with self._lock:
             return [c.model_copy(deep=True) for c in self._consolidations.get(ch.channel_uid, [])]
 
-    def _latest_consolidations(self, uid: str) -> list["ConsolidatedResponse"]:
+    def _latest_consolidations(self, uid: str) -> list[Any]:
         with self._lock:
             latest: dict[str, Any] = {}
             for c in self._consolidations.get(uid, []):
@@ -506,142 +451,23 @@ class RouterHub:
                 latest[c.user_input_sha256] = c
             return list(latest.values())
 
-    def review_pool(self, task_keys: Sequence[Any], pool: "OverseerPool", *, mode: Optional[str] = None) -> PoolReview:
-        """A self-duplicating review of a batch of tasks (see the module docstring and ``overseer/pool.py``): one dossier
-        per task, keyed by its channel uid, with the task's repeated faults; ``pool.plan`` decides the instances; each task
-        is reviewed through ``review`` by exactly the instances the plan assigns it. Agents never gate clearance."""
-        from ..overseer.pool import OverseerPool, PoolItem
-        if not isinstance(pool, OverseerPool):
+    def latest_consolidations(self, channel_uid: str) -> list[Any]:
+        """The latest consolidated response per input for the channel ``channel_uid`` (a hook of the overseer's operations)."""
+        return self._latest_consolidations(channel_uid)
+
+    def review_pool(self, task_keys: Sequence[Any], pool: Any, *, mode: Optional[str] = None) -> PoolReview:
+        """A self-duplicating review of a batch of tasks (see the module docstring and ``epinoic_overseer.pool``): one
+        dossier per task, keyed by its channel uid, with the task's repeated faults; ``pool.plan`` decides the instances;
+        each task is reviewed through ``review`` by exactly the instances the plan assigns it. Agents never gate
+        clearance. Something that is no pool at all is refused (TypeError) before the auditor is asked for, as it always
+        was; the overseer's operations then require an ``OverseerPool`` configured from a loaded knowledge pack."""
+        if not (callable(getattr(pool, "plan", None)) and callable(getattr(pool, "runners_for", None))):
             raise TypeError("a pool review needs an OverseerPool configured from a loaded knowledge pack")
-        self._require_auditor()
-        chans: dict[str, TranslatorChannel] = {}
-        keys: dict[str, Any] = {}
-        for k in task_keys:
-            ch = self._resolve(k)
-            if ch.channel_uid in chans:
-                raise ValueError("a task is given twice in one batch")
-            chans[ch.channel_uid], keys[ch.channel_uid] = ch, k
-        from ..overseer.emitted import risk_reading
-        auditor = self._require_auditor()
-        # integration step: the risk signals and records each task's journaled transfers carry (named defects, load-bearing
-        # writer's assumptions, unchecked sources, STEM method errors, ...) only ever escalate its review (``pool.plan_pool``)
-        items = []
-        for uid, ch in chans.items():
-            signals, records = risk_reading(auditor.view(self._journaled_uid(auditor, ch)))
-            items.append(PoolItem(key=uid, repeated_faults=sum(1 for r in self.repeats(ch).repeats if r.channel_uid == uid),
-                                  risk_signals=signals, risk_records=records))
-        plan = pool.plan(items)
-        reviews: dict[str, HubReview] = {}
-        for it in plan.items:
-            reviews[it.key] = self.review(chans[it.key], pool.runners_for(plan, it.key), mode=mode or pool.config.mode, pool_plan=plan)
-        return PoolReview(plan=plan, reviews=reviews, task_keys=keys)
+        return self._operations().review_pool(self, task_keys, pool, mode=mode)
 
-    def review(self, task_key: Any, runners: Sequence["OverseerAgentRunner"], *, mode: str = "informed", pool_plan: Optional["PoolPlan"] = None) -> HubReview:
+    def review(self, task_key: Any, runners: Sequence[Any], *, mode: str = "informed", pool_plan: Optional[Any] = None) -> HubReview:
         """Overseer agents review the task's transfers (see the module docstring). Agents never gate clearance."""
-        from ..overseer.audit import verify_audit
-        from ..overseer.combine import combine_verdicts, combined_digest
-        from ..overseer.intake import IntakeRefused
-        from ..overseer.runner import OverseerAgentRunner
-        from ..overseer.validate import build_verdicts_audit, validate_overseer_verdict
-        from ..overseer.verdicts import MODES
-
-        auditor = self._require_auditor()
-        if mode not in MODES:
-            raise ValueError(f"unknown review mode {mode!r}")
-        runners = list(runners)
-        if not runners:
-            raise ValueError("a review needs at least one overseer agent runner")
-        for r in runners:
-            if type(r) is not OverseerAgentRunner:  # exactly the package's runner: no subclass decides how a reply reaches the intake
-                raise TypeError("an overseer agent is an OverseerAgentRunner configured from a loaded knowledge pack")
-        ids = [r.agent_id for r in runners]
-        if len(set(ids)) != len(ids):
-            raise ValueError("two runners share an agent id: each agent reviews a task once")
-        from ..overseer.pool import HARD_MAX_INSTANCES
-        if pool_plan is None and any(getattr(r, "pool_member", False) for r in runners):
-            raise ValueError("pool instances review a task only under the pool plan that assigns them (pool_plan=...)")
-        if len(runners) > HARD_MAX_INSTANCES:
-            raise ValueError(f"a review runs at most {HARD_MAX_INSTANCES} overseer agents on one task")
-        ch = self._resolve(task_key)
-        uid = self._journaled_uid(auditor, ch)
-        if pool_plan is not None:
-            from ..overseer.pool import PoolPlan
-            if not isinstance(pool_plan, PoolPlan) or uid not in pool_plan.assignments:
-                raise ValueError("the pool plan does not assign this task")
-            if sorted(ids) != sorted(pool_plan.assignments[uid]) or any(r.identity != pool_plan.pack for r in runners):
-                raise ValueError("the runners are not the instances the pool plan assigns to this task under its pack")
-        intake = self._review_intake()
-        view = auditor.view(uid)
-        task_audit = self._reference_audit(auditor, uid, view)
-        consolidations = self._latest_consolidations(uid) if mode == "informed" else []
-        ordered = sorted(runners, key=lambda r: r.agent_id)
-        # 1. every dossier is issued before any agent runs; no agent ever receives another agent's verdict
-        issued: list[tuple[Any, dict]] = []
-        refused: list[tuple[str, str]] = []
-        for r in ordered:
-            try:
-                d = intake.issue(view, agent_id=r.agent_id, lens=r.lens, mode=mode, pack=r.identity, audit=task_audit if mode == "informed" else None,
-                                 consolidations=consolidations)
-            except IntakeRefused as exc:
-                refused.append((r.agent_id, exc.reason))
-                continue
-            issued.append((r, d))
-        # 2. each agent runs once; its reply goes to the intake as data
-        runs: list[Any] = []
-        errors: list[tuple[str, str]] = []
-        for r, d in issued:
-            try:
-                runs.append(r.run(d, intake))
-            except Exception as exc:  # a broken runner never breaks the review; it is recorded as no review
-                errors.append((r.agent_id, type(exc).__name__))
-        # 3. every accepted verdict is validated against the journal and the signed results
-        assessments: list[Any] = []
-        for run in runs:
-            if run.status != "submitted" or not run.message_id:
-                continue
-            accepted = intake.accepted(run.message_id)
-            if accepted is None:
-                continue
-            assessments.append(validate_overseer_verdict(accepted.message, view, auditor.store, task_audit, auditor, intake=intake, live=ch,
-                                                         registry=getattr(ch, "registry", None)))
-        # 4. combination: no voting on facts
-        combined = combine_verdicts(assessments, intake=intake) if assessments else None
-        # 5. the signed verdicts-scope audit; its states are the auditor's latest task audit's, never an agent's
-        task_audits = [a for a in auditor.audits(uid) if a.scope == "task" and verify_audit(a, auditor.keyring)]
-        reference = task_audits[-1] if task_audits else task_audit
-        audit_ids = [a.audit_id for a in task_audits]
-        superseding = tuple(audit_ids[audit_ids.index(task_audit.audit_id) + 1:]) if task_audit.audit_id in audit_ids else ()
-        findings = list(combined.findings) if combined is not None else []
-        for run in sorted(runs, key=lambda x: x.agent_id):
-            if run.status == "invalid" and run.finding is not None:
-                findings.append(run.finding)
-        notes = [f"references task audit {reference.audit_id}" + (f" (the review started from task audit {task_audit.audit_id})" if reference is not task_audit else ""),
-                 f"review mode {mode}; {len(runners)} agent(s); {len(issued)} dossier(s) issued; {len(assessments)} verdict(s) assessed"]
-        if consolidations:
-            notes.append("dossiers show consolidated responses " + ", ".join(f"{c.consolidation_id} ({c.status})" for c in consolidations))
-        if pool_plan is not None:
-            notes.append(f"overseer pool plan {pool_plan.plan_id}: {len(pool_plan.instances)} instance(s) (maximum {pool_plan.config.max_instances}, quota "
-                         f"{pool_plan.config.per_instance_quota}, tier {pool_plan.config.model_tier}) of pack {pool_plan.pack.name} {pool_plan.pack.version} "
-                         f"{pool_plan.pack.sha256}; this task to {pool_plan.assignments[uid]}; {'; '.join(pool_plan.reasons)}")
-        for agent_id, reason in refused:
-            notes.append(f"agent {agent_id}: no dossier issued ({reason}); no review")
-        for agent_id, err in errors:
-            notes.append(f"agent {agent_id}: the runner failed ({err}); no review")
-        for run in sorted(runs, key=lambda x: x.agent_id):
-            pk = f"{run.pack.name} {run.pack.version} {run.pack.sha256}"
-            what = {"submitted": "verdict accepted by the intake and assessed", "invalid": f"verdict rejected by the intake ({run.reason}): OVS-AGENT-005",
-                    "provider_error": f"provider failure ({run.reason}): no review", "refused_input": f"input refused ({run.reason}): no review"}[run.status]
-            notes.append(f"agent {run.agent_id} under pack {pk}: {what}")
-        if combined is not None:
-            notes.append(f"combined assessment sha256 {combined_digest(combined)}; groups {len(combined.groups)}; human review queue "
-                         f"{len(combined.review_queue)}; no voting on facts")
-        else:
-            notes.append("no verdict was assessed: this is no review, and it states nothing about the transfers")
-        notes.append("OVS-AGENT-* findings never change a transfer's clearance; an agent's verdict is advisory and decides nothing")
-        audit = build_verdicts_audit(reference=reference, channel_uid=uid, task_id=reference.task_id, request_id=reference.request_id, findings=findings,
-                                     keyring=auditor.keyring, message_ids=list(reference.message_ids), notes=notes)
-        return HubReview(audit=audit, task_audit=task_audit, mode=mode, runs=tuple(runs), assessments=tuple(assessments), combined=combined,
-                         refused=tuple(refused), runner_errors=tuple(errors), superseding_audit_ids=superseding)
+        return self._operations().review(self, task_key, runners, mode=mode, pool_plan=pool_plan)
 
     # ------------------------------------------------------------------ lifecycle
     @property

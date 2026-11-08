@@ -5,7 +5,7 @@
   receipts by observing ``RouterHub.receive`` (the wrapper returns the hub's own result unchanged; it never changes
   what the harness does or decides), keyed by the delivered text (items may share a task id).
 * ``run_contained.py --replay-mode process --probe-scope all`` when the overseer's contained run exists on this tree
-  (``scripts/overseer/run_contained.py``); otherwise the contained comparison is NOT RUN with that reason.
+  (``overseer/scripts/run_contained.py``); otherwise the contained comparison is NOT RUN with that reason.
 
 Outputs per item the G-EQ projection (``compare.record_projection``), the arena's own classification of every mutation
 (for G-FAULT), and, for G-DEL, the decision the kit's decision table gives on each genuine receipt of the harness. The
@@ -34,7 +34,7 @@ def _compare_module(sim_dir: Path) -> Any:
 
 
 def contained_available(translator: Path) -> Optional[Path]:
-    path = translator / "scripts" / "overseer" / "run_contained.py"
+    path = translator / "overseer" / "scripts" / "run_contained.py"
     return path if path.exists() else None
 
 

@@ -21,9 +21,11 @@ processes of the same user (:func:`boundary_problem`). So the hosted profile att
 the service's user (decision D28).
 
 The job is one JSON object: ``paths`` (the service's import path, so the child imports exactly what the service would),
-``module`` (``EPINOIC_FLASH_ROUTER``), ``op`` (``hello`` or ``plan``) and, for a plan, ``request`` (the routing request's
-canonical JSON text). The answer is the text the router's function returned, written only by this runner: anything the
-router itself writes to standard output goes to standard error, which the service discards.
+``module`` (``EPINOIC_FLASH_ROUTER``), ``op`` (``hello`` or ``plan``; ``pool_hello`` or ``pool_plan`` when the overseer
+pool asks, PROTOCOL.md section 7b) and, for a plan, ``request`` (the routing request's canonical JSON text). A module is
+usable for ``hello`` and ``plan`` when it exposes both, and for the pool's operations when it exposes ``pool_hello`` and
+``pool_plan`` (the pool's capability). The answer is the text the router's function returned, written only by this
+runner: anything the router itself writes to standard output goes to standard error, which the service discards.
 
 Standard library only, and nothing from the translator is imported here (the service side imports what it needs inside
 its functions), so this file runs on its own and the router's process holds exactly the runner, the router and what the
@@ -43,7 +45,7 @@ EXIT_OK = 0
 EXIT_JOB = 2
 #: The router module cannot be imported.
 EXIT_IMPORT = 3
-#: The router module exposes no callable ``hello`` or ``plan``.
+#: The router module exposes no callable ``hello`` or ``plan`` (``pool_hello`` or ``pool_plan`` for the pool's operations).
 EXIT_NO_FUNCTION = 4
 #: ``hello()`` or ``plan()`` raised (any exception: ``SystemExit`` and ``KeyboardInterrupt`` included).
 EXIT_RAISED = 5
@@ -51,6 +53,11 @@ EXIT_RAISED = 5
 EXIT_NOT_TEXT = 6
 #: The router's answer is larger than the service reads.
 EXIT_TOO_LARGE = 7
+
+#: Each operation and the functions a router module must expose for it: the service's pair, and the overseer pool's pair.
+OPERATIONS: dict[str, tuple[str, str]] = {"hello": ("hello", "plan"), "plan": ("hello", "plan"),
+                                          "pool_hello": ("pool_hello", "pool_plan"), "pool_plan": ("pool_hello", "pool_plan")}
+_HELLO_OPS = ("hello", "pool_hello")
 
 MAX_JOB_BYTES = 4 * 1024 * 1024
 MAX_ANSWER_BYTES = 1024 * 1024
@@ -184,7 +191,8 @@ def _kill(proc) -> None:  # noqa: ANN001 - a subprocess.Popen
 
 
 def launch(module: str, op: str, request_json: Optional[str], timeout_s: float) -> str:
-    """One call of the flash router (``op`` ``hello`` or ``plan``) in its own process, waiting at most ``timeout_s``.
+    """One call of the flash router (``op`` ``hello`` or ``plan``, or the pool's ``pool_hello`` or ``pool_plan``) in its own
+    process, waiting at most ``timeout_s``.
 
     Returns the text the router's function returned. Raises :class:`RouterFailure` for everything else: the service
     could not mark itself non-dumpable (:func:`protect_service`), the process could not start, the module cannot be
@@ -256,6 +264,8 @@ def launch(module: str, op: str, request_json: Optional[str], timeout_s: float) 
         raise RouterFailure("KIT-RT-016", f"the router did not answer within {int(max(0.0, timeout_s) * 1000)} ms")
     if status != EXIT_OK:
         code, detail = _FAILURES.get(status, ("KIT-RT-016", f"the router's process exited with status {status}"))
+        if status == EXIT_NO_FUNCTION and op not in ("hello", "plan"):
+            detail = "the router module exposes no pool_hello() and pool_plan(request_json): it does not offer the pool's capability"
         raise RouterFailure(code, f"{detail} ({op})")
     try:
         return bytes(out).decode("utf-8")
@@ -283,7 +293,7 @@ def main() -> None:
         job = json.loads(raw.decode("utf-8"))
         paths, module_name, op, request = job["paths"], job["module"], job["op"], job.get("request")
         if (not isinstance(paths, list) or not all(isinstance(p, str) for p in paths) or not isinstance(module_name, str)
-                or op not in ("hello", "plan") or (op == "plan" and not isinstance(request, str))):
+                or op not in OPERATIONS or (op not in _HELLO_OPS and not isinstance(request, str))):
             _exit(EXIT_JOB)
     except BaseException:  # noqa: BLE001 - a malformed job is the service's defect: one exit status, no traceback
         _exit(EXIT_JOB)
@@ -292,15 +302,15 @@ def main() -> None:
         module = importlib.import_module(module_name)
     except BaseException:  # noqa: BLE001 - SystemExit or KeyboardInterrupt at import time included
         _exit(EXIT_IMPORT)
-    try:  # a router exposes both functions, whichever one this call needs
+    try:  # a router exposes both functions of the pair, whichever one this call needs
         fn = getattr(module, op, None)
-        usable = callable(getattr(module, "hello", None)) and callable(getattr(module, "plan", None))
+        usable = all(callable(getattr(module, name, None)) for name in OPERATIONS[op])
     except BaseException:  # noqa: BLE001
         usable = False
     if not usable:
         _exit(EXIT_NO_FUNCTION)
     try:
-        answer = fn() if op == "hello" else fn(request)  # type: ignore[misc]
+        answer = fn() if op in _HELLO_OPS else fn(request)  # type: ignore[misc]
     except BaseException:  # noqa: BLE001 - whatever the router raises, the service only sees this status
         _exit(EXIT_RAISED)
     if not isinstance(answer, str):

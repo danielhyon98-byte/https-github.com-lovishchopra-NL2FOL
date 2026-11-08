@@ -18,7 +18,7 @@ at its cause, for its whole class, and every new reading has a clean control (co
   its line closes was no restatement ('= 2.67 A, which is about 2.6 A', '= 37.7%, about 37%'), so a wrong rounding had no check. Such a
   value restates the chain, the approximation word naming its rounding: τ 0, as for every restated result (R8).
 
-The fourth (a circular translation in affine or scaled form) is the overseer's: tests/overseer/test_stem_repair12.py.
+The fourth (a circular translation in affine or scaled form) is the overseer's: overseer/tests/overseer_tests/test_stem_repair12.py.
 """
 from __future__ import annotations
 

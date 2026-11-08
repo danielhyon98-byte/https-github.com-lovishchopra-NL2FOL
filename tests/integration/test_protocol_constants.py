@@ -32,6 +32,15 @@ def test_the_audit_scope_sentence_is_the_designs_tr6_text():
     assert P.AUDIT_SCOPE_STATEMENT.endswith("It does not show that any claim is true or any reading correct.")
 
 
+def test_the_audit_scope_sentence_is_the_overseers_own_constant_verbatim():
+    """Pre-build NOTES item 3, the half that needs the overseer: the protocol's TR6 sentence IS the overseer's (the overseer
+    sub-project's ``contracts.AUDIT_SCOPE_SENTENCE``; its audits carry the engine scope statement before it), and the engine
+    scope statement is the one every overseer audit starts with."""
+    from epinoic_overseer import contracts as overseer_contracts
+    assert P.AUDIT_SCOPE_STATEMENT == overseer_contracts.AUDIT_SCOPE_SENTENCE
+    assert overseer_contracts.AUDIT_SCOPE_STATEMENT == P.SCOPE_STATEMENT + " " + P.AUDIT_SCOPE_STATEMENT
+
+
 def test_closed_router_vocabularies_carry_no_free_text():
     for word in REASON_CODES + FEATURE_NAMES:
         assert word.replace("_", "").isalpha() and word == word.lower()

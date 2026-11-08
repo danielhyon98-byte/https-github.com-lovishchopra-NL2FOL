@@ -100,17 +100,25 @@ leaves it NOT RUN: the pinned runtime was not simulated.
 
 ## What runs on this tree, and what is connected with the rebuilt overseer
 
-The overseer package is on this tree since its merge, but its embedded port adapter (`epinoic_overseer.port`) is not
-built yet, so the checks service still refuses to start (`KIT-HS-007 overseer_unavailable`).
-`run_sim.py` reports that refusal as the reason of every website-path and agents-path gate, every gate is NOT RUN,
-never PASS, and the exit status is 1. What still runs: the fault cases (sub-check `fault_cases`), the reference harness
-on a copy (sub-check `arena:s1`: every genuine and mutation record functional, the round not qualified), and the
-tampering cases through the release-gate module alone (sub-check `tamper_adapter`; evidence about one module, never
-the gate).
+The overseer is a sub-project of this repository (`overseer/`, package `epinoic_overseer`; architecture step 2 of
+phase 2), and its embedded port adapter `epinoic_overseer.port` is the service's default overseer port:
+`run_sim.py` puts `overseer/src` on the service's path, and the service starts with it (its hello: port 1.0,
+`embedded`, replay `process`, profiles `["standard"]`, the pack this release pins). Without copies, every website-path
+and agents-path gate is NOT RUN with the missing copy as its reason, and the exit status is 1. What runs without
+copies: the fault cases (sub-check `fault_cases`), the reference harness on a copy (sub-check `arena:s1`: every
+genuine and mutation record functional, the round not qualified), and the tampering cases through the release-gate
+module alone (sub-check `tamper_adapter`; evidence about one module, never the gate).
 
-Connected when the rebuilt overseer is merged (the pre-build notes list them): its port adapter (the service then
-starts and the drivers run), the contained run for G-EQ-CONTAINED, and the probe providers through the asynchronous
-review for G-OVS.
+With the copies (a patched export of website base M, the runtime copy and the agents copy) and no test double, the
+run of the connection step computed G-EQ-ARENA PASS (6 items, 0 differences), G-INV PASS (9), G-HON PASS (29), G-DEL
+PASS (77 verdicts), G-TAMPER PASS (W-T1 to W-T8) and G-FAULT FAIL on the 12 cases below, which the overseer's delivery
+rule delivers as the kit's decision table does (decision D34, open, in `../DECISIONS.md`).
+
+Not collected by the simulation yet (pre-build NOTES 83d): G-EQ-CONTAINED (the contained run,
+`overseer/scripts/run_contained.py`, on the corpus copy) and G-OVS (the probe providers through the port's
+asynchronous review). Both are NOT RUN with that reason (`run_sim.CONTAINED_NOT_CONNECTED`,
+`run_sim.PROBES_NOT_CONNECTED`), never PASS; on a tree without the overseer sub-project they keep the reasons
+`gates.py` gives.
 
 ## The wiring check with a test double (tests only)
 
@@ -132,8 +140,8 @@ export's provenance, the commits of both copies with the runtime copy's contract
 The last wiring run (`TESTED.json`; information only, under the double) computed PASS for G-EQ-ARENA, G-INV, G-HON,
 G-DEL and G-TAMPER, NOT RUN for G-EQ-CONTAINED and G-OVS, and FAIL for G-FAULT on the cases it names: mutations the arena names only by a warning-level finding (an unverifiable
 invented quotation, `CORE-SRC-003`; a self-certification, `CORE-SELF-001`) are delivered by the kit's decision table,
-which refuses on error findings and negative results only (D3). Whether such an answer is withheld is the rebuilt
-overseer's delivery rule or a new decision: recorded in the pre-build notes for the overseer step, never changed here.
+which refuses on error findings and negative results only (D3). The rebuilt overseer's delivery rule delivers them
+too (measured without the double, above): whether such an answer is withheld is decision D34 (open), never changed here.
 
 ## Which gates have material on the synthetic corpus
 

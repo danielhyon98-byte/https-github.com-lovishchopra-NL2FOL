@@ -1,16 +1,20 @@
-"""The flash router's planner: a routing request (``epinoic.integration.routing-request.v1``, features only) in, one
-routing plan (``epinoic.integration.routing-plan.v1``) out, by the rules of :mod:`epinoic_flash_router.rules`.
+"""The flash router's port planner: a routing request (``epinoic.integration.routing-request.v1``, features only) in, one
+routing plan (``epinoic.integration.routing-plan.v1``) out, by the port rules of the current rules file
+(:mod:`epinoic_flash_router.rules`, port rules 1 to 7).
 
-Pure and deterministic: no network, no clock, no randomness, no model call, no file read; the same request gives the
-same plan. It reads the request's features only (the request never carries an answer, a claim text or an overseer
-finding) and writes closed vocabularies, the request's own transfer keys and digests, and the router's identity.
+Pure and deterministic: no network, no clock, no randomness, no model call, no file read (the data were read once, when
+they were loaded); the same request and the same data give the same plan. It reads the request's features only (the
+request never carries an answer, a claim text or an overseer finding) and writes closed vocabularies, the request's own
+transfer keys and digests, and the router's identity. Its numbers (split_words, max_parts, max_reviews,
+hard_max_instances, context_max_bytes), the agreement signals it reads, the features it records and its cost estimates
+all come from the data, so a re-tuned data file changes the plan without any change here.
 """
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
-from .rules import COST_MODEL, PARAMETERS, canonical
+from .rules import DEFAULT, DataSet, canonical
 
 __all__ = ["REASON_ORDER", "FEATURE_ORDER", "agreement_signals", "escalations", "plan_for"]
 
@@ -18,10 +22,6 @@ PLAN_SCHEMA = "epinoic.integration.routing-plan.v1"
 PROTOCOL = "epinoic.integration.v1"
 PORT_VERSION = "1.0"
 TIER = "cheapest"
-
-_NEGATIVE = ("COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "UNSATISFIABLE")
-_UNDECIDED = ("UNKNOWN", "TIMEOUT", "INTERNAL_ERROR", "NOT_ATTEMPTED")
-_STEM_UNDECIDED_CODES = ("INT-SUBJ-002",)
 
 #: The order reasons are written in (a subset of the port's closed REASON_CODES).
 REASON_ORDER = (
@@ -34,12 +34,12 @@ FEATURE_ORDER = (
     "subjects", "stem", "task_type", "course_level", "items", "constraints", "supplied_texts", "size", "claims",
     "engine_statuses", "receipt", "diagnostics", "unverified_dependencies", "peer_relays", "repeated_faults", "topology",
 )
-#: The features every entry's decision reads (rules 2 to 4), and the one a combined answer's entries read (rule 5).
-_READ = ("stem", "size", "engine_statuses", "receipt", "diagnostics", "unverified_dependencies", "repeated_faults")
 
 
-def agreement_signals(out: Mapping[str, Any]) -> list[str]:
-    """Rule 2: the floor's agreement signals that hold for one output, as reason codes."""
+def agreement_signals(out: Mapping[str, Any], data: DataSet = DEFAULT) -> list[str]:
+    """Port rule 2: the floor's agreement signals that hold for one output, as reason codes (the statuses and codes read
+    are the data's ``signals``)."""
+    signals = data.signals
     receipt, statuses = out["receipt"], out["engine_statuses"]
     found = []
     if receipt["status"] == "REJECTED":
@@ -48,15 +48,16 @@ def agreement_signals(out: Mapping[str, Any]) -> list[str]:
         found.append("risk_error_findings")
     if out["repeated_faults"] > 0:
         found.append("risk_repeated_faults")
-    if any(statuses.get(s, 0) > 0 for s in _NEGATIVE):
+    if any(statuses.get(s, 0) > 0 for s in signals["negative_statuses"]):
         found.append("risk_negative_results")
-    if out["stem"] and (any(statuses.get(s, 0) > 0 for s in _UNDECIDED) or any(c in _STEM_UNDECIDED_CODES for c in receipt["warning_codes"])):
+    if out["stem"] and (any(statuses.get(s, 0) > 0 for s in signals["undecided_statuses"])
+                        or any(c in signals["stem_undecided_codes"] for c in receipt["warning_codes"])):
         found.append("risk_stem_undecided")
     return found
 
 
 def escalations(out: Mapping[str, Any]) -> list[str]:
-    """Rule 2: what this router adds to the floor's signals (it can only add oversight)."""
+    """Port rule 2: what this router adds to the floor's signals (it can only add oversight)."""
     found = []
     if out["diagnostics"]:
         found.append("risk_diagnostics")
@@ -65,27 +66,31 @@ def escalations(out: Mapping[str, Any]) -> list[str]:
     return found
 
 
-def _reviews(signals: list[str], extra: list[str], cap: int) -> int:
-    """Rule 3."""
+def _reviews(signals: list[str], extra: list[str], cap: int, params: Mapping[str, int]) -> int:
+    """Port rule 3."""
     wanted = 1 + (1 if signals or extra else 0) + (1 if signals and extra else 0)
-    return max(min(wanted, PARAMETERS["max_reviews"], cap), 2 if signals else 1)
+    return max(min(wanted, params["max_reviews"], cap), 2 if signals else 1)
 
 
-def _cost(instances: int, chars_each: int) -> dict[str, int]:
-    """Rule 7."""
-    per_token = COST_MODEL["chars_per_token"]
-    tokens = COST_MODEL["review_tokens_base"] + -(-chars_each // per_token)
-    return {"tokens": instances * tokens, "seconds": instances * COST_MODEL["seconds_per_instance"]}
+def _cost(instances: int, chars_each: int, cost: Mapping[str, Any]) -> dict[str, int]:
+    """Port rule 7."""
+    per_token = cost["chars_per_token"]
+    tokens = cost["review_tokens_base"] + -(-chars_each // per_token)
+    return {"tokens": instances * tokens, "seconds": instances * cost["seconds_per_instance"]}
 
 
 def _ordered(names: set[str], order: tuple[str, ...]) -> list[str]:
     return [n for n in order if n in names]
 
 
-def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str]) -> dict:
-    """The plan for one routing request (a parsed ``routing-request.v1`` object), under this router's ``identity``."""
+def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str], data: Optional[DataSet] = None) -> dict:
+    """The plan for one routing request (a parsed ``routing-request.v1`` object), under this router's ``identity`` and
+    ``data`` (the package's own data by default)."""
+    data = DEFAULT if data is None else data
+    params, cost = data.parameters, data.cost_data
+    read, read_combined = set(data.features["port"]), set(data.features["port_combined"])
     limits, topology = request["limits"], request["topology"]
-    cap = min(int(limits["max_instances"]), PARAMETERS["hard_max_instances"])
+    cap = min(int(limits["max_instances"]), params["hard_max_instances"])
     profile = "standard" if "standard" in limits["profiles"] else limits["profiles"][0]
     combined = topology["kind"] == "combined"
     synthesis = topology.get("synthesis") if combined else None
@@ -93,23 +98,23 @@ def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str]) -> dict
     transfers = []
     for out in request["outputs"]:
         key = out["transfer_key"]
-        signals, extra = agreement_signals(out), escalations(out)
-        reviews = _reviews(signals, extra, cap)
+        signals, extra = agreement_signals(out, data), escalations(out)
+        reviews = _reviews(signals, extra, cap, params)
         reasons = set(signals) | set(extra) | {"profile_standard" if profile == "standard" else "profile_fast", "cost_cheapest"}
-        features = set(_READ)
+        features = set(read)
         entry: dict[str, Any] = {"transfer_key": key, "profile": profile, "tier": TIER, "sources": [], "context": None}
         if key == synthesis:
             sources = list(topology["sources"])
             reasons.add("topology_combined")
-            features.add("topology")
+            features |= read_combined
             entry.update(method="N_FOLD", reviews=reviews, parts=1, instances=reviews, sources=sources,
-                         context={"scope": "request", "contents": "validated_outcomes", "max_bytes": PARAMETERS["context_max_bytes"],
+                         context={"scope": "request", "contents": "validated_outcomes", "max_bytes": params["context_max_bytes"],
                                   "discard": "after_request"},
-                         estimated_cost=_cost(reviews, chars[key] + sum(chars.get(s, 0) for s in sources)))
+                         estimated_cost=_cost(reviews, chars[key] + sum(chars.get(s, 0) for s in sources), cost))
         else:
             parts = 1
-            if reviews == 1 and int(out["size"]["words"]) > PARAMETERS["split_words"]:
-                parts = min(-(-int(out["size"]["words"]) // PARAMETERS["split_words"]), PARAMETERS["max_parts"], cap)
+            if reviews == 1 and int(out["size"]["words"]) > params["split_words"]:
+                parts = min(-(-int(out["size"]["words"]) // params["split_words"]), params["max_parts"], cap)
             if parts >= 2:
                 method = "SPLIT"
                 reasons.add("volume_split")
@@ -118,12 +123,12 @@ def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str]) -> dict
                 method = "DUPLICATE" if reviews >= 2 else "IN_DEPTH"
             if combined:
                 reasons.add("topology_source")
-                features.add("topology")
+                features |= read_combined
             if not signals and not extra:
                 reasons.add("baseline_single_review")
             instances = reviews * parts
             entry.update(method=method, reviews=reviews, parts=parts, instances=instances,
-                         estimated_cost=_cost(instances, -(-chars[key] // parts)))
+                         estimated_cost=_cost(instances, -(-chars[key] // parts), cost))
         entry["reasons"] = _ordered(reasons, REASON_ORDER)
         entry["features_used"] = _ordered(features, FEATURE_ORDER)
         transfers.append(entry)

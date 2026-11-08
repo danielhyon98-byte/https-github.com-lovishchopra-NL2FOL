@@ -230,9 +230,10 @@
   <workdir>/venv/bin/python integration/readiness/check.py --translator .
   ```
   When the overseer is on the kit commit, also the suite with a transfer auditor attached to every channel
-  (`scripts/overseer/README.md`):
+  (`overseer/scripts/README.md`; the overseer is the sub-project `overseer/`, installed with
+  `<workdir>/venv/bin/pip install -e <kit>/overseer --no-deps`):
   ```
-  cd <kit> && PYTHONPATH=src:scripts/overseer <workdir>/venv/bin/python -m pytest -q -p pytest_attach
+  cd <kit>/overseer && PYTHONPATH=scripts <workdir>/venv/bin/python -m pytest -q -p pytest_attach <kit>/tests
   ```
   Expect `failed` 0 there too (record the counts; it took about an hour on a four-core host).
   The constraints file (`integration/constraints.txt`) pins every distribution to the version the suite was measured with,
@@ -492,9 +493,12 @@ values `check.py --start-service` generates in memory. The names, for the report
   G-HON, G-DEL, G-TAMPER) with the service's own refusal as their reason (`KIT-HS-007 overseer_unavailable`: the checks
   service needs the rebuilt overseer's port adapter), and G-EQ-CONTAINED and G-OVS with their own reasons, "the
   contained run (the overseer's run_contained.py) is not available on this tree" and "the overseer's asynchronous
-  review and its probe providers are not available on this tree" (the rebuilt overseer brings both; on a commit that
-  carries its `scripts/overseer/run_contained.py`, G-EQ-CONTAINED's reason is "the contained comparison is connected
-  with the rebuilt overseer", and `sim/TESTED.json` keeps the reason of the run it recorded). The drivers and
+  review and its probe providers are not available on this tree". From architecture step 2 of phase 2 the overseer is
+  the sub-project `overseer/` and the service starts with its port adapter (`epinoic_overseer.port`): the six gates
+  are computed, and G-EQ-CONTAINED and G-OVS stay NOT RUN with the reasons `run_sim.CONTAINED_NOT_CONNECTED` and
+  `run_sim.PROBES_NOT_CONNECTED` (the simulation does not collect them yet), so the exit status stays 1. The run of
+  that step computed five of the six PASS and G-FAULT FAIL on 12 cases (decision D34, open: `DECISIONS.md`), and
+  `sim/TESTED.json` keeps the reasons of the wiring run it recorded. The drivers and
   the gates' wiring are tested with a test double of the overseer port (`--test-overseer-port`,
   `integration/sim/README.md`): such a run reports every gate NOT RUN, never PASS, and is not this step's result.
 

@@ -236,7 +236,7 @@ from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa:
 
 from epinoic_logic.branches import RouterHub, default_registry
 from epinoic_logic.branches.generic_parser import agent_claim_tag
-# the delivery pass's hub, bound at import: a harness that replaces RouterHub in this module (scripts/overseer's contained
+# the delivery pass's hub, bound at import: a harness that replaces RouterHub in this module (overseer/scripts's contained
 # run substitutes a hub carrying its own auditor) never reaches the delivery pass, which carries an auditor of its own
 from epinoic_logic.branches.hub import RouterHub as _DeliveryHub
 from epinoic_logic.channel import TransmissionStatus
@@ -256,7 +256,7 @@ from epinoic_logic.translate.subjects import resolve_profile
 #: The delivery pass's claim verifier, bound at import like its hub: a harness that replaces ``verify_claim`` in this
 #: module (the contained harness's tampering hooks) never reaches the delivery pass.
 _DELIVERY_VERIFY_CLAIM = verify_claim
-#: Whether ``run_round`` runs the delivery pass. The contained harness (``scripts/overseer/ovs_harness.py``) switches it
+#: Whether ``run_round`` runs the delivery pass. The contained harness (``overseer/scripts/ovs_harness.py``) switches it
 #: off while it replaces this module's hub and verifier: its runs measure the transfer auditor, not delivery.
 DELIVERY_PASS = True
 
@@ -2013,7 +2013,7 @@ DELIVERY_SECRET = b"arena-delivery-pass-overseer-secret-0123456789"
 #: The translator versions of hand-built translations the delivery pass's auditor is told about (as the contained run).
 DELIVERY_HAND_BUILT = ("test", "harness")
 #: Every engine key id the hub's own components sign under, each with the arena's one engine key (as the contained
-#: harness declares them, scripts/overseer/ovs_harness.py ENGINE_KEY_IDS): the hub's channels ("hub", RouterHub's key
+#: harness declares them, overseer/scripts/ovs_harness.py ENGINE_KEY_IDS): the hub's channels ("hub", RouterHub's key
 #: id), a channel opened on its own ("channel", TranslatorChannel's), the claim verifier ("default", the engine's key id
 #: when none is named) and the cross-agent consistency and synthesis checks ("integrity", integrity.cross_check).
 #: Integration gate, round 1: the keyring declared only "hub" and "default", so every result the cross-agent check
@@ -2024,7 +2024,7 @@ DELIVERY_ENGINE_KEY_IDS = ("hub", "channel", "default", "integrity")
 def _delivery_auditor():
     """The delivery pass's transfer auditor: its own key ring (the engine key under every key id the hub's components
     sign under, DELIVERY_ENGINE_KEY_IDS) and inline replay, so every decision reads a complete signed task audit."""
-    from epinoic_logic.overseer import EngineKey, KeyRing, TransferAuditor
+    from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
     keyring = KeyRing({key_id: EngineKey(KEY) for key_id in DELIVERY_ENGINE_KEY_IDS}, DELIVERY_SECRET)
     return TransferAuditor(keyring, replay_mode="inline", eager=True, hand_built_translators=DELIVERY_HAND_BUILT, inline_final_release=True)
 
@@ -2040,7 +2040,7 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
     translation and overseer times, the formal path's reasons and claims, every candidate with its accuracy and the one
     chosen, the reasons, the signed receipt's id and whether it verifies, and whether the delivery pass's receipt is the
     genuine record's (status and codes)."""
-    from epinoic_logic.overseer.delivery_policy import verify_delivery_receipt
+    from epinoic_overseer.delivery_policy import verify_delivery_receipt
     r = decision.receipt
     fb = r.fallback
     codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}) if rc is not None else None
@@ -2072,7 +2072,7 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
 
 
 def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None = None) -> dict:
-    """The delivery policy (``epinoic_logic.overseer.delivery_policy``, ``docs/DELIVERY.md``) applied to every genuine
+    """The delivery policy (``epinoic_overseer.delivery_policy``, ``docs/DELIVERY.md``) applied to every genuine
     answer of the round, on a hub of its own carrying a transfer auditor: each group's genuine traffic is replayed in the
     genuine pass's order (requests, peer relays, answers with the same fixtures) and, for each answer, a delivery session
     starts when the answer reaches the hub and decides: formally_checked, overseer_selected, not_checked or withheld,
@@ -2080,7 +2080,7 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     "pool_config": ...}``) configures the fallback's overseer agents; without it (the command line: the harness calls no
     model) the fallback establishes no accuracy, so an answer the formal path does not complete is withheld. The pass
     changes no record of the round and no transport count: its records are ``deliveries``, a measure of its own."""
-    from epinoic_logic.overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
+    from epinoic_overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
     t_pass = time.perf_counter()
     cfg = DeliveryConfig()
     out = {"policy": DELIVERY_POLICY_VERSION, "translation_budget_s": cfg.translation_budget_s, "overseer_budget_s": cfg.overseer_budget_s,

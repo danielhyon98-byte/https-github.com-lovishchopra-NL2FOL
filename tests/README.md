@@ -9,6 +9,12 @@ Every figure below was measured on the code at the commit named. This file is up
 each round. Last update: after the round-4 fix round (commit `a2d874d`), with the round-5
 overseer verdicts that had arrived.
 
+Paths: since architecture step 2 of phase 2 the Overseer is the sub-project `overseer/` (package `epinoic_overseer`), so
+the overseer's tests named below as `tests/overseer/...` are `overseer/tests/overseer_tests/...`, `scripts/overseer/` is
+`overseer/scripts/` and `src/epinoic_logic/overseer/` is `overseer/src/epinoic_overseer/`. `python -m pytest -q` at the
+repository root runs the translator's suite (`tests/`), the overseer's (`overseer/tests/`) and, since architecture step
+2c, the flash router's (`flash-router/tests/`).
+
 ## Which model runs which role
 
 Deployment is kept as cheap as possible; checking during testing is done by the strongest
@@ -1951,3 +1957,50 @@ Work in progress after it is labelled as such.
   fallback now decides the mode instead of withholding the answer); the five end-to-end tests accept a reason from any of the
   rules they name, not only the one rule; the renamed tests keep their cases against the landing, while against the parent
   commit their assertions changed to the withheld label. With no overseer agents configured, every answer is withheld.
+
+### Progress, 21:40 UTC (7 November): the overseer connected, then made a sub-project (architecture step 2, not committed)
+
+- The overseer port is connected to the rebuilt overseer: its embedded adapter `epinoic_overseer.port` is the service's
+  default overseer port, the service pins the overseer's knowledge pack (`overseer_port.PINNED_PACK_DIGESTS`; another
+  pack is refused with `KIT-HS-007`), and `tests/integration/test_turn_checker.py`, `test_turn_review.py` and
+  `test_turn_fixes.py` run on both the test double and the adapter. The overseer then moved into the sub-project
+  `overseer/` (package `epinoic_overseer` 1.0.0, its own `pyproject.toml`, README, docs, tests and harness); it imports
+  the translator only through `epinoic_logic.api` (`docs/PUBLIC_API.md`) and `epinoic_logic.integration`, the
+  translator never imports it, and nothing stays at the old path.
+- Measured against a record taken on 32a5c0e before the move: the 96 moved overseer test files keep their counts (4,904
+  assertions, 1,533 test functions, 188 `pytest.raises`/`warns`); every pack digest and the exported zip are unchanged;
+  the planner is identical on all 268 recorded channels of r2 to r5 and r7; the harness is unchanged on every recorded
+  round (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203); the contained run, now run from `overseer/`,
+  is identical to the base commit's (12 of 14 gates PASS; `tamper_suite` and `stem_fault_classes_named` FAIL on the base
+  commit too, `overseer/docs/OVERSEER_RESULTS.md` section 36).
+- The simulation without its test double (a fresh patched export of website base M, the runtime copy and the agents
+  copy): five gates PASS, G-FAULT FAIL on the 12 warning-level cases (decision D34, open), G-EQ-CONTAINED and G-OVS not
+  collected by the simulation yet.
+- Tests rewritten to the connected state, each keeping or adding assertions: the simulation on this tree
+  (`test_sim_gates.py`: the service now starts, so the gates name the missing copies and the service's start is
+  asserted), the readiness check's import path (`test_readiness.py`: the overseer's `src/` added), the package data of
+  the pack (`overseer/tests/overseer_tests/test_knowledge_drift.py`: read from the sub-project's `pyproject.toml`).
+- `python -m pytest -q` at the repository root (both suites, one session): 22,601 passed, 12 skipped (the recorded rounds
+  are not in the repository), 45 deselected, 0 failed, in 1 h 20 min. The overseer's suite run alone from a split copy of
+  the sub-project: 7,055 passed, 12 skipped.
+
+### Progress, 00:57 UTC (8 November): the flash router carries the pool's planning decision (architecture step 2c, not committed)
+
+- The overseer pool's planning decision (which instances review which dossiers, and which go to independent duplicates)
+  moved into the flash router, `flash-router/` (`epinoic-flash-router` 0.2.0; not the translator's `RouterHub`): its rules
+  and cost data are versioned data files with digests (`src/epinoic_flash_router/data/`, the 0.1.0 files kept at their
+  digests), it has a runner (`python -m epinoic_flash_router_cli`) and its own docs and tests, and it is reached through
+  the router port's new pool operation (`router_pool.py`, PROTOCOL.md section 7b, pool port 1.1). The overseer pool
+  attaches it by capability (`OverseerPool(..., router=)`, `DeliveryPolicy(router=)`), never imports it, and keeps the
+  floor (`epinoic_overseer.floor`, `minimum-oversight-floor/pool-1`): a plan below it is refused (`KIT-RT-020`, recorded
+  in the plan's admission and the signed audit) and the floor plan runs; with no router the floor plan runs.
+- With the router attached, all 278 recorded plans of r2 to r5 and r7 (268 channels, 10 batches) are reproduced exactly;
+  the harness on every recorded round and the contained run are unchanged (12 of 14 gates PASS, the same two FAIL as on
+  the base commit); `git subtree split --prefix flash-router` on a disposable clone gives the directory's tree, whose
+  suite passes standalone (52 passed).
+- Tests changed, none weakened: five tests that pin the planner's decision (`test_consolidation_pool.py`,
+  `test_integration_codes.py`) attach the router and assert the plan is the router's; the root `testpaths` pin
+  (`tests/integration/test_overseer_subproject.py`) lists the three suites; the router's conformance suite moved into its
+  test package (`flash-router/tests/flash_router_tests/`).
+- `python -m pytest -q` at the repository root (three suites, one session): 22,689 passed, 12 skipped, 45 deselected,
+  0 failed, in 1 h 14 min.

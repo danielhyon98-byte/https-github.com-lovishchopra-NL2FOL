@@ -88,8 +88,14 @@ def _named_policies_merged() -> bool:
 
 def _overseer_merged() -> bool:
     """The overseer package is on this tree (the second translator merge joined the overseer build, OVERSEER_DESIGN
-    section 44); its embedded port adapter (``epinoic_overseer.port``) is still connected in phase 2."""
-    return (ROOT / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists()
+    section 44; since architecture step 2 of phase 2 it is the sub-project ``overseer/``)."""
+    return (ROOT / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists() or (ROOT / "overseer" / "src" / "epinoic_overseer" / "__init__.py").exists()
+
+
+def _overseer_port_connected() -> bool:
+    """The embedded overseer port adapter (``epinoic_overseer.port``, the overseer sub-project's) is on this tree: phase 2
+    connected it (architecture step 2), so the service's preflight passes."""
+    return (ROOT / "overseer" / "src" / "epinoic_overseer" / "port.py").exists()
 
 
 def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router():
@@ -133,8 +139,12 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--translator", str(ROOT)], capture_output=True, text=True, timeout=600, env=env)
     [preflight] = [line for line in out.stdout.splitlines() if line.startswith("service preflight")]
-    stop = "KIT-HS-007 overseer_unavailable" if merged else "KIT-HS-006"
-    assert "BLOCKER" in preflight and stop in preflight and "(connected in phase 2: " in preflight, out.stdout
+    if merged and _overseer_port_connected():
+        # architecture step 2 of phase 2: the overseer sub-project's port adapter is connected, so the service starts
+        assert "PASS" in preflight and preflight.rstrip().endswith("ready"), out.stdout
+    else:
+        stop = "KIT-HS-007 overseer_unavailable" if merged else "KIT-HS-006"
+        assert "BLOCKER" in preflight and stop in preflight and "(connected in phase 2: " in preflight, out.stdout
     assert not [line for line in out.stdout.splitlines() if "  BLOCKER  " in line and "connected in phase 2" not in line], out.stdout
 
 
@@ -148,11 +158,13 @@ def _check_module():
 
 def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_own_process(monkeypatch):
     """check.py --start-service with EPINOIC_FLASH_ROUTER=epinoic_flash_router.port: the service's import path holds the
-    kit's src/ and then the sub-project's src/, so the router's own process (which receives that path) imports it.
-    No EPINOIC_ variable of the caller reaches the service (check.py _py drops them): a stray one is planted to show it."""
+    kit's src/ and then the sub-projects' src/ (the overseer's, whose port adapter is the service's default overseer port
+    since architecture step 2 of phase 2, then the flash router's), so the router's own process (which receives that
+    path) imports it. No EPINOIC_ variable of the caller reaches the service (check.py _py drops them): a stray one is
+    planted to show it. (The expected path gained the overseer's src/ with that step; the assertion is otherwise the same.)"""
     monkeypatch.setenv("EPINOIC_STRAY_CALLER_VARIABLE", "must-not-reach-the-service")
     env = _check_module().service_env(ROOT)
-    assert env["PYTHONPATH"].split(os.pathsep) == [str(ROOT / "src"), str(ROOT / "flash-router" / "src")]
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(ROOT / "src"), str(ROOT / "overseer" / "src"), str(ROOT / "flash-router" / "src")]
     code = ("from epinoic_logic.integration import router_port as R\n"
             "a = R.attach_router('epinoic_flash_router.port')\n"
             "print(a.attached, a.refusal, a.hello.router.name if a.hello else None)")

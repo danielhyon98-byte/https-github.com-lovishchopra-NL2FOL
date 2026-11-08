@@ -12,6 +12,7 @@ import pytest
 from epinoic_logic.integration.capabilities import build_capabilities
 from epinoic_logic.integration.errors import IntegrationError
 from epinoic_logic.integration.handshake import evaluate
+from epinoic_logic.integration.overseer_port import PINNED_PACK_DIGESTS
 from epinoic_logic.integration.preflight import Probes, run_preflight
 from epinoic_logic.integration.runtime import build_runtime
 from epinoic_logic.integration.selftest import run_selftest
@@ -56,6 +57,28 @@ def test_on_this_tree_the_named_policies_of_contract_0_3_are_missing():
         assert _code(lambda: run_preflight(settings(), FixtureProbes(missing="named_policies"))) == "KIT-HS-006"
     else:  # pragma: no cover - after phase 2's merge the allowlist is present and the real probe passes
         assert run_preflight(settings(), FixtureProbes(missing="named_policies")).named_policies == ("joint", "linear", "nonlinear")
+
+
+def test_the_default_overseer_port_adapter_is_the_overseer_sub_projects_and_connects():
+    """Phase 2, architecture step 2: the default ``EPINOIC_OVERSEER_PORT`` (``epinoic_overseer.port``, the overseer
+    sub-project) connects through the real probe, its hello names the pinned pack and the standard profile only (D30)."""
+    facts = run_preflight(settings(), FixtureProbes(missing="overseer"))
+    assert facts.settings.overseer_port == "epinoic_overseer.port"
+    assert set(facts.overseer.pack_digests) <= PINNED_PACK_DIGESTS and facts.overseer.mode == "embedded" and facts.overseer.profiles == ["standard"]
+    assert "overseer-audit" in facts.overseer.key_ids and facts.overseer.agents == "off" and facts.overseer.replay_mode == "process"
+    facts.overseer_port.shutdown()
+
+
+def test_an_overseer_hello_naming_a_pack_the_service_does_not_pin_is_overseer_unavailable(tmp_path, monkeypatch):
+    """Pre-build NOTES item 33: the hello's pack digests are compared with the service's pin, never only checked for their
+    shape (a well-formed digest of another pack is refused at start-up)."""
+    mod = tmp_path / "unpinned_overseer_port_for_test.py"
+    mod.write_text("import json\nHELLO = json.loads(%r)\nclass _P:\n    def hello(self):\n        return HELLO\n"
+                   "def connect(config):\n    return _P()\n" % __import__("json").dumps(hello(pack_digests=["ab" * 32])))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(IntegrationError) as exc:
+        run_preflight(settings(OVERSEER_PORT="unpinned_overseer_port_for_test"), FixtureProbes(missing="overseer"))
+    assert exc.value.code == "KIT-HS-007" and "does not pin" in exc.value.detail
 
 
 def test_without_an_overseer_port_adapter_the_service_refuses_with_kit_hs_007():
@@ -109,7 +132,8 @@ def test_the_overseer_hello_is_validated_once_and_that_hello_is_the_one_used(tmp
     """A hello that changes between two calls can no longer surface as a KIT-OP code at start-up: load_port returns the
     hello it validated, and the preflight never asks again."""
     body = "        return GOOD if _P.calls == 1 else BAD"
-    (tmp_path / "adapter_changing_hello.py").write_text(_ADAPTER.format(good=__import__("json").dumps(hello()), bad=__import__("json").dumps(hello(port_version="2.0")),
+    pinned = hello(pack_digests=sorted(PINNED_PACK_DIGESTS))  # a good hello names a pack the service pins (NOTES 33)
+    (tmp_path / "adapter_changing_hello.py").write_text(_ADAPTER.format(good=__import__("json").dumps(pinned), bad=__import__("json").dumps(hello(port_version="2.0")),
                                                                       hello=body, connect="    return _P()"))
     monkeypatch.syspath_prepend(str(tmp_path))
     facts = run_preflight(settings(OVERSEER_PORT="adapter_changing_hello"), FixtureProbes(missing="overseer"))

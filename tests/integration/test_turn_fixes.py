@@ -1,6 +1,7 @@
 """The checks port's fixes of the pre-build's third verification (PROTOCOL.md section 5.2), on the synthetic corpus through
-the real hub, parsers, fixture translations and engine; the overseer is the TEST DOUBLE ``RecordingPort``
-(tests/integration/helpers.py), as in test_turn_checker.py.
+the real hub, parsers, fixture translations and engine; as in test_turn_checker.py, every test whose port is not shaped
+runs with the TEST DOUBLE ``RecordingPort`` and with ``RealPort``, the overseer sub-project's real embedded adapter
+(tests/integration/helpers.py); the shaped ones (a failed clearance) run with the double.
 
 * V3-M2: whatever an overseer-port adapter raises, ``SystemExit`` included (only ``KeyboardInterrupt`` goes through), the
   call answers a signed ``refuse_incomplete`` KIT-DL-900 verdict, never an exception (an HTTP 500); a ``SystemExit`` in
@@ -20,13 +21,30 @@ import pytest
 from epinoic_logic.adapters.sources import specialist_names
 from epinoic_logic.integration.delivery import verify_verdict_signature
 from epinoic_logic.integration.turn import CheckerConfig, hub_agent_id
-from tests.integration.helpers import VERDICT_KEY_HEX, RecordingPort, hello
+from tests.integration.helpers import PORT_KINDS, VERDICT_KEY_HEX, RecordingPort, hello, port_class
 from tests.integration.test_turn_checker import _checker, _request, _run
 
 ASYNC = {"OVERSEER_AGENTS": "async"}
 
 
-class ExitingPort(RecordingPort):
+@pytest.fixture(params=PORT_KINDS)
+def port_kind(request) -> str:
+    """``double`` (the test double) or ``real`` (the overseer sub-project's embedded adapter)."""
+    return request.param
+
+
+def exiting(port_kind: str, exit_on: str, **kw):
+    """``ExitingPort`` built on the test double or on the real adapter."""
+    return _exiting_class(port_class(port_kind))(exit_on, **kw)
+
+
+def _exiting_class(base: type) -> type:
+    class Exiting(_ExitingMixin, base):
+        pass
+    return Exiting
+
+
+class _ExitingMixin:
     """An adapter whose operation ``exit_on`` raises ``SystemExit`` (as a sidecar client or a crashing adapter might)."""
 
     def __init__(self, exit_on: str, **kw) -> None:
@@ -68,9 +86,13 @@ def _check_raw(port, names=("hi-s1",), **env):
     return rt.checker.check(req), port
 
 
+#: The exiting adapter on the test double (the name the tests below used before the real adapter ran them too).
+ExitingPort = _exiting_class(RecordingPort)
+
+
 @pytest.mark.parametrize("op", ["new_hub", "clearance", "close", "deliver"])
-def test_a_system_exit_in_an_overseer_operation_is_a_signed_internal_error_verdict(op):
-    verdict, _ = _check_raw(ExitingPort(op))
+def test_a_system_exit_in_an_overseer_operation_is_a_signed_internal_error_verdict(op, port_kind):
+    verdict, _ = _check_raw(exiting(port_kind, op))
     assert verify_verdict_signature(verdict, bytes.fromhex(VERDICT_KEY_HEX))
     assert verdict["delivery"] == {"decision": "refuse_incomplete", "deliverable": None, "reasons": ["KIT-DL-900"], "consolidation": None,
                                    "synthesis": None}
@@ -79,17 +101,17 @@ def test_a_system_exit_in_an_overseer_operation_is_a_signed_internal_error_verdi
 
 @pytest.mark.parametrize("op", ["repeats", "review"])
 @pytest.mark.parametrize("name", ["hi-s1", "hi-s2"])
-def test_a_system_exit_in_the_review_changes_neither_the_decision_nor_its_reasons(op, name):
-    baseline, _ = _run([name])
-    verdict, _ = _check_raw(ExitingPort(op, hello_message=hello(agents="async")), names=(name,), **ASYNC)
+def test_a_system_exit_in_the_review_changes_neither_the_decision_nor_its_reasons(op, name, port_kind):
+    baseline, _ = _run([name], port=port_class(port_kind)())
+    verdict, _ = _check_raw(exiting(port_kind, op, hello_message=hello(agents="async")), names=(name,), **ASYNC)
     assert verify_verdict_signature(verdict, bytes.fromhex(VERDICT_KEY_HEX))
     assert verdict["delivery"]["decision"] == baseline["delivery"]["decision"] and verdict["delivery"]["reasons"] == baseline["delivery"]["reasons"]
     assert verdict["overseer"]["review"]["queued"] is False
     assert verdict["overseer"]["refusal"] != "internal_error"
 
 
-def test_a_keyboard_interrupt_still_goes_through():
-    class Interrupting(RecordingPort):
+def test_a_keyboard_interrupt_still_goes_through(port_kind):
+    class Interrupting(port_class(port_kind)):
         def close(self, hub, task_id):
             raise KeyboardInterrupt
     rt, _ = _checker(Interrupting())
@@ -112,13 +134,13 @@ def test_the_checker_configuration_shows_no_key_in_its_repr():
 # ----------------------------------------------------------------------------------------------- V3-L5: the review of a refused call
 
 
-def test_a_call_refused_at_the_response_clearance_still_has_its_review_queued():
+def test_a_call_refused_at_the_response_clearance_still_has_its_review_queued(port_kind):
     """The response's clearance does not pass: the call is refused (KIT-DL-003), and the review of the response received
     is planned at the floor (an agreement signal: two reviews) and queued; the decision is the one without a review."""
     plain, _ = _run(["hi-s1"], port=RecordingPort(clearance_state="AUDIT_FAILED"))
     calls = []
 
-    class FailsOnTheResponse(RecordingPort):
+    class FailsOnTheResponse(port_class(port_kind)):
         def clearance(self, hub, task_id, message_id, receipt, *, wait_ms):
             out = super().clearance(hub, task_id, message_id, receipt, wait_ms=wait_ms)
             calls.append(receipt.direction)
@@ -147,16 +169,16 @@ def test_a_call_refused_before_any_output_was_received_has_nothing_to_review(tmp
 # ----------------------------------------------------------------------------------------------- agent ids (NOTES 55)
 
 
-def test_the_hub_names_the_specialists_as_the_arena_does_and_the_verdict_by_protocol_ids():
-    verdict, port = _run(["hi-s1"])
+def test_the_hub_names_the_specialists_as_the_arena_does_and_the_verdict_by_protocol_ids(port_kind):
+    verdict, port = _run(["hi-s1"], port=port_class(port_kind)())
     assert [a["agent_id"] for a in verdict["bound"]["answers"]] == ["history"]
     assert verdict["delivery"]["deliverable"]["agent_id"] == "history"
     assert [reply.sender_agent_id for reply, _rc in port.replies] == ["history-specialist"]
     assert [reply.payload["agent_id"] for reply, _rc in port.replies] == ["history-specialist"]  # the delivered report's author
 
 
-def test_duplicate_instances_are_named_as_their_specialist():
-    verdict, port = _run(["hi-s1", "hi-s1"], mode="duplicate")
+def test_duplicate_instances_are_named_as_their_specialist(port_kind):
+    verdict, port = _run(["hi-s1", "hi-s1"], mode="duplicate", port=port_class(port_kind)())
     assert [a["agent_id"] for a in verdict["bound"]["answers"]] == ["history@a", "history@b"]
     assert {reply.sender_agent_id for reply, _rc in port.replies} == {"history-specialist@a", "history-specialist@b"}
     assert verdict["delivery"]["deliverable"]["agent_id"] in ("history@a", "history@b")

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epinoic-overseer"
+version = "1.0.0"
+description = "Epinoic AI overseer: the deterministic transfer auditor of every transfer between agents, the overseer-agent verdict protocol and its versioned knowledge pack, consolidation, the self-duplicating pool and the delivery policy; attached to the translator's hub and reached by the service through the overseer port (epinoic.integration.overseer-port.v1). It depends on the translator only through the translator's public API (epinoic_logic.api) and the integration protocol (epinoic_logic.integration); the translator never imports it."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+# The overseer re-derives the translator's decisions with the translator's own code (engine, channel rules, parsers, STEM
+# front end), reached only through epinoic_logic.api: install the translator (epinoic-logic) first, from its repository.
+dependencies = ["epinoic-logic>=0.1.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-timeout>=2", "hypothesis>=6", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"epinoic_overseer" = [
+  "knowledge/*/*.txt",
+  "knowledge/*/*.md",
+  "knowledge/*/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+addopts = "-ra -m 'not stress'"
+markers = ["stress: long-running load and soak tests (run with -m stress)"]

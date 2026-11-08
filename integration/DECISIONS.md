@@ -112,8 +112,6 @@ changes is made yet; the kit's behaviour is the default in the table until each 
 - **D29** (`minimum-oversight-floor/2`): `router_port.FLOOR_RULES` version 2 (an error-level named diagnostic and an
   unverified dependency call for 2 reviews), its digest and vectors, when the argument diagnostics are connected
   (`routing_features.OutputRecord.diagnostics`).
-- **D30** (the `standard` profile only): the rebuilt overseer's port adapter's hello lists `["standard"]` (connected
-  with the overseer).
 - **D33** (the combinator's process when connected, M3): the launcher that gives its process only the cheapest-tier
   provider credential and the model configuration.
 
@@ -1399,7 +1397,8 @@ here briefly, in the same form.
 - **Decision:** `standard` only. `fast` is not offered.
 - **Why:** The flash pilot named more faults with `fast` (15 of 37 against 11 of 37), but made 10 false accusations
   against 3. It was not adopted, and no optimisation work is done now.
-- **What the kit changes:** the overseer hello lists `["standard"]`.
+- **What the kit changes:** the overseer hello lists `["standard"]`. Built with the overseer sub-project's port adapter
+  (`epinoic_overseer.port`, architecture step 2 of phase 2): its hello lists `["standard"]`, and no fast profile exists.
 - **Who acts, when:** nobody.
 - **How to reverse:** a measured profile adopted under a new kit tag.
 
@@ -1435,6 +1434,38 @@ here briefly, in the same form.
 - **What the kit changes:** the M3 process launcher, documented now and built at M3.
 - **Who acts, when:** nobody now.
 - **How to reverse:** set the variable to `none`.
+
+## Appendix: D34, found by connecting the rebuilt overseer (open, not decided)
+
+D34 is not in the table above: the table holds decided rows only, and D34 is open. Nothing below changed the kit's
+behaviour or a gate.
+
+### D34. Warning-level catches on a delivered answer
+
+- **Status:** open. Owner: the founder, with Daniel. Not decided by the connection step.
+- **Measured** (architecture step 2 of phase 2, the overseer's port adapter `epinoic_overseer.port` connected; pre-build
+  NOTES 83c and 83d): the simulation without the test double (`run_sim.py` on a patched export of website base M, the
+  runtime copy and the agents copy, playbook step 12) computes G-EQ-ARENA PASS (6 items, 0 differences), G-INV PASS
+  (9 invariants), G-HON PASS (29 displays), G-DEL PASS (77 verdicts, kit-derived re-derivation), G-TAMPER PASS
+  (W-T1 to W-T8) and G-FAULT FAIL on 12 of 34 fault cases; G-EQ-CONTAINED and G-OVS are NOT RUN (the simulation does
+  not collect them yet). The 12 are exactly the cases the wiring run with the test double named (`sim/TESTED.json`):
+  the invented quotations (`CORE-SRC-003`, unverifiable) and the self-certifications (`CORE-SELF-001`,
+  `INT-HANDOFF-006`, `ES-META-001`) on hi-s1, hi-s3, en-s1 and ph-s1. The overseer's delivery rule delivers them, as
+  the kit's decision table does: both refuse on error-level findings, negative results, a failed or pending audit, a
+  repeated fault and a conflicting consolidation, and neither refuses on a warning-level finding alone (D3).
+- **The other differences** between the test double and the real adapter, from the turn checker's tests run on both
+  (`tests/integration/test_turn_checker.py`, `test_turn_review.py`, `test_turn_fixes.py`): on hi-s2 the real adapter's
+  refusal also carries `KIT-DL-008` (its consolidation excludes the answer that has an error-level finding; the double
+  has no consolidation); two duplicated answers with the same material claims (hi-s1 and hi-s3) are consolidated and
+  delivered by the real adapter, where the double's own settings force a conflicting consolidation in the tests that
+  set them. The turn checker's tests compare each port with its own baseline, and the tests that set the double's own
+  settings run on the double only.
+- **Options:** (a) withhold an answer whose delivered text carries a self-certification or an unverifiable invented
+  quotation (a kit change: the decision table, the overseer's delivery rule, the vectors and G-FAULT's expectation
+  together); (b) keep delivering it, labelled as not formally checked, and refine G-FAULT so that an advisory catch shown
+  with the delivered answer counts as caught (a gate change); (c) keep both as they are, so G-FAULT stays FAIL and the
+  simulation never exits 0.
+- **Until decided:** the kit and the overseer keep their behaviour; G-FAULT reports FAIL with the 12 case ids.
 
 ---
 

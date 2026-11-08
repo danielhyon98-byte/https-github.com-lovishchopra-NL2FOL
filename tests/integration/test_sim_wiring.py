@@ -257,7 +257,7 @@ def test_the_copies_lines_say_when_a_path_did_not_run(tmp_path):
     assert lines[2] == f"- website path: --specialist {'a' * 40} ({v2}), not run: {refused}"
     assert lines[3] == f"- agents path: --agents {'b' * 40} ({v1}), not run: {refused}"
     stopped = "not runnable: unsupported runtime contract epinoic.specialist-runtime.v0.9.0"
-    lines = RS.copy_lines(dict(given, not_run={"website_path": stopped, "contained": "scripts/overseer/run_contained.py is not on this tree"}))
+    lines = RS.copy_lines(dict(given, not_run={"website_path": stopped, "contained": "overseer/scripts/run_contained.py is not on this tree"}))
     assert lines[2].endswith(f", not run: {stopped}") and lines[3] == f"- agents path: --agents {'b' * 40} ({v1})", lines
     assert RS.copy_lines(dict(given, not_run={}))[2:] == [f"- website path: --specialist {'a' * 40} ({v2})", f"- agents path: --agents {'b' * 40} ({v1})"]
     assert RS.copy_lines({"not_run": {"agents_path": "no agents copy (--agents)"}})[3] == "- agents path: no copy, not run: no agents copy (--agents)"
