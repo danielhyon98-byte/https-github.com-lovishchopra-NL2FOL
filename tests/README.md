@@ -2043,3 +2043,13 @@ Work in progress after it is labelled as such.
   ab44c8a. With the recorded rounds supplied the full suite gave 22,721 passed, 0 failed and 0 skipped; the contained run
   passed all 14 gates (355 of 355 tamperings, all 677 STEM probes named); the harness is unchanged on every recorded round.
   Its push check and the upload simulation are running. Nothing from round 8 is uploaded yet.
+
+### Progress, 18:00 UTC (8 November)
+- Commit 5060a52 passed its independent push check: it holds nothing, has no open critical item and supersedes the hold
+  on f2329df. Its upload simulation on a clean copy gave 22,721 passed, 0 failed and 0 skipped with the recorded rounds
+  supplied; the harness is unchanged on every recorded round; the contained run detected 355 of 355 tamperings. Its upload
+  waits for the owner's decision on the publisher gate.
+- Architecture step 3 is committed. b570339 adds the flash decision maker and the twofold review of combined answers
+  (suite 22,783 passed, 0 skipped; harness unchanged, c1 203 of 203). f3d338a adds the specialist feedback and revision
+  function (suite 22,967 passed, 0 failed, 0 skipped; harness unchanged). The architecture review runs now; arena rounds
+  9 and 10 follow.

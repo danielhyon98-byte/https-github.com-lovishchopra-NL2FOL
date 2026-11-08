@@ -72,7 +72,8 @@ from .view import RESPONSE_KINDS, OverseerView, Transfer
 
 __all__ = [
     "SIGNATURE_RULE", "REPEAT_CODE", "ANSWER_KINDS", "AUDIT_FAULT_PREFIXES", "QUOTATION_CODES", "AnchorKind", "FaultOccurrence", "RepeatRecord",
-    "RepeatReport", "content_form", "figures_of", "quotations_of", "fault_signature", "fault_occurrences", "detect_repeats",
+    "RepeatReport", "content_form", "figures_of", "quotations_of", "fault_signature", "fault_occurrences", "detect_repeats", "occurrence_of",
+    "answer_identifiers",
 ]
 
 #: The signature rule's name and version; it is part of every signature, so a changed rule never matches an old one.
@@ -309,6 +310,18 @@ def _occurrence(view: OverseerView, t: Transfer, f: IntegrityFinding, source: st
                            seq=t.seq, message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=agent if isinstance(agent, str) else None,
                            report_id=t.report_id, claim_ids=[c.claim_id for c in claims] or list(f.claim_ids), source=source,  # type: ignore[arg-type]
                            result_ids=_finding_result_ids(f, t))
+
+
+def occurrence_of(view: OverseerView, t: Transfer, f: IntegrityFinding, source: str = "receipt") -> FaultOccurrence:
+    """The fault occurrence of ONE finding of an answer, of any severity, under the same signature rule (``fault-signature/1``):
+    specialist feedback (``feedback.py``) signs every flaw it feeds back with it, warning-level ones included, so a fault that
+    comes back after feedback is recognised by the rule repeats are detected by. The rule itself is unchanged."""
+    return _occurrence(view, t, f, source, _answer_identifiers(t, t.report))
+
+
+def answer_identifiers(t: Transfer) -> list[tuple[str, str]]:
+    """``(identifier, type)`` of everything that names the answer ``t`` rather than its content, longest first."""
+    return _answer_identifiers(t, t.report)
 
 
 def fault_occurrences(view: OverseerView, t: Transfer, audit: Optional[OverseerAudit] = None) -> list[FaultOccurrence]:

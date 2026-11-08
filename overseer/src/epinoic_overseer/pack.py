@@ -413,6 +413,25 @@ tokens) in every composition: a module of its own would spare the dossiers that 
 optimisation recorded for later (design section 52). The README states the sizes, the combined-answer review in its
 section 8 and the version in its section 9, and names the package by its module path since the move,
 ``epinoic_overseer``.
+
+**Pack 2.1** (integration step 2, specialist feedback and revision, design section 53; a MINOR version: contracts, kinds and
+the copied header unchanged; 1.0 to 2.0 stay pinned and unchanged). It teaches the review of a revision request, the request
+the infrastructure re-sends to the specialist that wrote an answer with a signed ``revision`` block (contract
+``task_request/1.1``), and of the revised answer that replies to it: the master prompt's step 4, a REVISION REQUESTS section
+and a WHEN IN DOUBT line; Role and trust's new §7 with T16 (what a revision request is, where its flaws come from and never
+come from, the bound and the escalation), Common mistakes now §8; the Dossier guide's new §17 with D41 (the ``revision``
+block field by field, the request receipt and its summary sentence) and the transfer table's ``task_request/1.1``, Common
+mistakes now §18; the Inspection guide's new §15 with I105 (the original request unchanged), I106 (the flaws are the
+answer's own and never the reviewer's to judge), I107 (a revised answer is an answer), I108 (what a revision must keep:
+INT-REV-002) and I109 (supersession, rejection and repeats), Common mistakes now §16; Kinds and codes (the ``INT-REV-*``
+family row, INT-HANDOFF-018, the ``OVS-FB-*`` family and the code table's rows of INT-HANDOFF-018, INT-REV-001 and
+INT-REV-002); Never N16 (never write feedback); a mistakes row in each document that gained a rule. It also states the
+report condition of the carried-fault check in I102, which 2.0 left for the next version (``docs/OVERSEER_RESULTS.md``
+section 38): a cited id held by another report of the synthesis's ledger scope than the record's, or by two, goes to human
+review. Everything is in the core, which grows by 13,360 characters (about 3,340 tokens) in every composition; a module of
+its own, sent only with a dossier that carries a revision request, would spare the others (recorded for the optimisation
+checks, design section 53). The README states the sizes, the revision requests in its section 8 and the version in its
+section 9.
 """
 from __future__ import annotations
 
@@ -448,7 +467,7 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "2.0"
+PACK_VERSION = "2.1"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -465,6 +484,9 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     # architecture step 3: the twofold (N_FOLD) review of a combined answer and the kind synthesis_carries_fault, a MAJOR
     # version (a kind added); the contracts are unchanged, so 1.0 to 1.5 stay pinned and their verdicts still validate
     (PACK_NAME, "2.0"): "c2be21abf85f01cf672666650cdf5bb2ee26926c6095eb1569db3e193123f673",
+    # specialist feedback (design section 53): the review of a revision request and of the revised answer, and I102's report
+    # condition, a MINOR version (no kind, no contract changed); 2.0 stays pinned and its verdicts still validate
+    (PACK_NAME, "2.1"): "a60727fce80a4190f59a8a0e21bf0c69cb759bab4a04876d81c88095ea21ebb5",
 })
 
 MANIFEST_VERSION = "1.0"

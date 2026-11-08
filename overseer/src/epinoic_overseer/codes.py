@@ -8,6 +8,10 @@ overseer agents and never change a transfer's clearance (design decision 16).
 agents' answers to one input and by repeated-fault detection. They are recorded in the signed consolidated response
 and the repeat report, outside the task audit, so they never change a transfer's clearance either: an answer with a
 repeated fault already carries the error-level fault the signature was taken from.
+
+``OVS-FB-001`` (stage ``feedback``, design section 53) is raised in the task audit on a revision request whose block the
+auditor cannot verify or bind; ``OVS-FB-002`` (stage ``revisions``) is the escalation of a revision chain, recorded in the
+hub's signed revision ledger, outside the task audit.
 """
 from __future__ import annotations
 
@@ -90,6 +94,8 @@ OVS_CODES: dict[str, tuple[Severity, str, str]] = {
     "OVS-CONS-003": ("info", "consolidation", "answers with the same material claims under the lexical rule kept apart: the engine did not confirm them mutually consistent (advisory; never merged)"),
     "OVS-CONS-004": ("error", "consolidation", "a consolidated response that does not verify under the consolidation key, or that a recomputation from the journal does not reproduce"),
     "OVS-REP-001": ("error", "repeats", "a repeated fault: an error-level fault whose signature (code, normalised offending claim or quoted phrase, figures) already occurred earlier in the same task; the answer is never delivered or consolidated"),
+    "OVS-FB-001": ("error", "feedback", "a revision request whose block does not verify under the overseer feedback key, does not bind to the journaled answer it revises (its addressee, report, receipt, request or chain), has a rendered digest, revision id or keep list that is not the block's own, or names a flaw that neither the journal nor the auditor's own signed task audits hold (or one signed otherwise than by the fault-signature rule); the request and the answer replying to it never pass"),
+    "OVS-FB-002": ("warning", "revisions", "a revision chain escalated for human review (outside the task audit): the budget was spent with flaws left, a fed-back error-level fault came back, or the revision was not delivered; nothing more is sent to the specialist on that chain"),
     "OVS-AGENT-001": ("error", "verdicts", "an overseer agent's statement is refuted by a verified signed result or a deterministic check"),
     "OVS-AGENT-002": ("warning", "verdicts", "an accusation's identifiers or evidence pointers do not resolve"),
     "OVS-AGENT-003": ("info", "verdicts", "accusation confirmed; the router acts on the confirming OVS-* finding"),
@@ -98,11 +104,13 @@ OVS_CODES: dict[str, tuple[Severity, str, str]] = {
 }
 
 #: The stage names an audit's ``checks_run`` uses, in run order.
-STAGES = ("custody", "receipts", "results", "formal", "fidelity", "translation", "peer", "synthesis", "joint", "divergence", "shadow", "replay", "verdicts")
-#: Stages outside the task audit: the consolidation of several agents' answers to one input (``consolidate.py``) and
-#: repeated-fault detection (``repeats.py``). Their codes appear in a consolidated response and in a repeat report,
-#: never in a task audit's ``checks_run``, so they never change a transfer's clearance.
-CONSOLIDATION_STAGES = ("consolidation", "repeats")
+STAGES = ("custody", "feedback", "receipts", "results", "formal", "fidelity", "translation", "peer", "synthesis", "joint", "divergence", "shadow", "replay",
+          "verdicts")
+#: Stages outside the task audit: the consolidation of several agents' answers to one input (``consolidate.py``),
+#: repeated-fault detection (``repeats.py``) and the revision ledger's escalations (``feedback.py``: OVS-FB-002). Their
+#: codes appear in a consolidated response, a repeat report and the hub's revision ledger, never in a task audit's
+#: ``checks_run``, so they never change a transfer's clearance.
+CONSOLIDATION_STAGES = ("consolidation", "repeats", "revisions")
 
 
 def severity_of(code: str) -> Severity:

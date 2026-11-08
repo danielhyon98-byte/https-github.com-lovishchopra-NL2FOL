@@ -157,16 +157,17 @@ python scripts/arena/run_arena.py <copy> --fail-on-qualification
 **Export the overseer pack.**
 
 ```
-python -m epinoic_overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-2.0/ and its zip
-python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.0.zip
+python -m epinoic_overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-2.1/ and its zip
+python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.1.zip
 ```
 
 - The export writes the master prompt, nine numbered documents, a README for whoever deploys it, the dossier and
   verdict schemas, and a manifest.
-- Checked here: pack 2.0 (architecture step 3: the twofold review of a combined answer), digest
-  `c2be21abf85f01cf672666650cdf5bb2ee26926c6095eb1569db3e193123f673`, which is the digest pinned in
-  `overseer/src/epinoic_overseer/pack.py` and in the service (`integration/overseer_port.py`). `--verify` on the zip
-  returned `ok`. Pack 1.5, the round-8 pack (`cac995dc…`), stays pinned beside it.
+- Checked here: pack 2.1 (integration step 2: the review of a specialist's revision request, beside architecture step
+  3's twofold review of a combined answer), digest `a60727fce80a4190f59a8a0e21bf0c69cb759bab4a04876d81c88095ea21ebb5`,
+  which is the digest pinned in `overseer/src/epinoic_overseer/pack.py` and in the service (`integration/overseer_port.py`).
+  `--verify` on the zip returned `ok`. Pack 2.0 (`c2be21ab…`) and pack 1.5, the round-8 pack (`cac995dc…`), stay pinned
+  beside it.
 - The delivery policy loads the exported pack: `DeliveryPolicy(pack=load_pack(<zip>), provider_factory=...)`.
 
 ## 3. What round 8 measured

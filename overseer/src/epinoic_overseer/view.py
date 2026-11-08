@@ -25,6 +25,7 @@ Links resolved here:
   (or user input stated) before the report's delivery carries (rule ``source-explained``: the same passage under another
   id, or a longer document containing it, resembles the source the answer copied, not the answer);
 * a synthesis to the deliveries of the reports it cites;
+* a revision request (a request carrying a revision block, design section 53) to the answer it revises;
 * a result id to the stored result and its citation kinds.
 
 Rule ``pinned-setup`` (review round 3): every rule reads the FIRST journaled plan (``plan_at``) and the first event's
@@ -353,6 +354,12 @@ class OverseerView:
             if t.delivering_seq is not None:
                 t.depends_on.append(t.delivering_seq)
             self._forwards.append(t)
+        if t.kind == "request" and t.request is not None and t.request.revision is not None:
+            # specialist feedback (design section 53): a revision request depends on the answer it revises, so that answer's
+            # custody gates the request (and the revision replying to it)
+            revised = self.by_message.get(t.request.revision.revises_message_id)
+            if revised is not None and revised.seq < t.seq:
+                t.depends_on.append(revised.seq)
         if t.kind == "request" and t.request is not None:
             for doc in t.request.supplied_texts:
                 is_peer = doc.document_id.startswith("peer:")

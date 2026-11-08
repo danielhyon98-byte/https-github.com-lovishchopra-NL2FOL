@@ -9,7 +9,8 @@ when that composition's argument diagnosis is not the journaled outcome's, with 
 ``translate.outcome.verify_claim`` composes it (its evidence rules read the supplied texts and the task record). The
 journaled transfers are re-issued in sequence order:
 
-* requests with the journaled call (items and constraints given, the user input and supplied texts);
+* requests with the journaled call (items and constraints given, the user input and supplied texts); a revision request
+  (design section 53) with its journaled block, the answer, original request and receipt it names mapped to the shadow's;
 * raw texts the hub refused are re-sent as raw text; a raw text that was parsed is re-issued as the delivered report
   through ``respond`` with the same stated sender (exactly what ``respond_text`` does after parsing), so later
   forwards of it compare against the same payload;
@@ -457,6 +458,7 @@ def run_shadow(ctx: CheckContext) -> str:
     if hook:
         ctx.note("shadow replay: synthesis transfers not comparable (the channel had a synthesis-formalization hook)")
     mid_map: dict[str, str] = {}
+    rid_map: dict[str, str] = {}  # journaled receipt id -> the shadow's (a revision block names the receipt of the answer it revises)
 
     def m(x: Optional[str]) -> Optional[str]:
         return mid_map.get(x, x) if x else x
@@ -472,7 +474,14 @@ def run_shadow(ctx: CheckContext) -> str:
                     req = t.request
                     items = [faithful(RequestItem, i) for i in call["items"]] if call.get("items") is not None else None
                     cons = [faithful(Constraint, c) for c in call["constraints"]] if call.get("constraints") is not None else None
-                    msg, _req, rc = shadow.request(req.from_agent_id, req.to_agent_id, req.user_input, list(req.supplied_texts), items=items, constraints=cons)
+                    extra = {}
+                    if req.revision is not None:  # a revision request is re-issued with its block, the ids it names mapped to the shadow's
+                        rev = req.revision
+                        extra["revision"] = rev.model_copy(update={"revises_message_id": m(rev.revises_message_id),
+                                                                   "original_request_message_id": m(rev.original_request_message_id),
+                                                                   "revises_receipt_id": rid_map.get(rev.revises_receipt_id, rev.revises_receipt_id)})
+                    msg, _req, rc = shadow.request(req.from_agent_id, req.to_agent_id, req.user_input, list(req.supplied_texts), items=items, constraints=cons,
+                                                   **extra)
                 elif t.kind == "response_text" and t.withheld is not None:
                     texts = [faithful(SuppliedText, s) for s in call["supplied_texts"]] if call.get("supplied_texts") is not None else None
                     msg, rc = shadow.respond_text(m(call.get("request_message_id")), t.raw_text or "", agent_id=call.get("agent_id") or t.withheld.get("agent_id"),
@@ -492,6 +501,8 @@ def run_shadow(ctx: CheckContext) -> str:
             continue
         if t.message_id and rc is not None:
             mid_map[t.message_id] = rc.message_id
+        if t.receipt_id and rc is not None:
+            rid_map[t.receipt_id] = rc.receipt_id
         if t.kind == "relay_synthesis" and hook:
             continue
         undecided = _undecided(t.event.captured, allowed) or _undecided(cap.items, allowed)

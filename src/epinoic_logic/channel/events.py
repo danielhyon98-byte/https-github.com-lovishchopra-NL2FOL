@@ -265,8 +265,9 @@ def _jsonable(value: Any) -> Any:
     return f"<{type(value).__name__}>"
 
 
-#: Arguments already carried by the envelope or the raw text; the call record leaves them out.
-_IN_ENVELOPE = {"request": ("user_input", "supplied_texts"), "respond": ("report",), "respond_text": ("text",), "relay": ("payload_obj",)}
+#: Arguments already carried by the envelope or the raw text; the call record leaves them out (a request's revision block
+#: travels inside its envelope only, so it is journaled once, as the payload carries it).
+_IN_ENVELOPE = {"request": ("user_input", "supplied_texts", "revision"), "respond": ("report",), "respond_text": ("text",), "relay": ("payload_obj",)}
 
 
 def call_record(channel: Any, method: str, args: tuple, kwargs: dict) -> dict:

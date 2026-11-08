@@ -158,14 +158,16 @@ def test_the_code_table_has_every_code_once_with_one_severity():
     # OVS-TRN-011 by the third repair of the translator merge, decision 55: the count rewritten from 74, the TRN family
     # from 10), the five consolidation codes of section 19 (OVS-CONS-001..004, OVS-REP-001) and OVS-AUDIT-005 (review
     # round 1: a check a transfer needs cannot run); OVS-FORM-005 by STEM repair 12, decision 72 (rule identity-statement:
-    # the count rewritten from 75, the FORM family from 4)
-    assert len(OVS_CODES) == 76
+    # the count rewritten from 75, the FORM family from 4); OVS-FB-001 and OVS-FB-002 by specialist feedback and revision
+    # (design section 53: the count rewritten from 76, the FB family added; their severities and stages asserted below)
+    assert len(OVS_CODES) == 78
     families = {}
     for code, (sev, stage, meaning) in OVS_CODES.items():
         assert code.startswith("OVS-") and sev in ("error", "warning", "info") and stage and meaning
         families[code.split("-")[1]] = families.get(code.split("-")[1], 0) + 1
     assert families == {"CUST": 6, "RCPT": 8, "RES": 10, "FORM": 5, "FID": 9, "PEER": 3, "SYN": 3, "JOINT": 4, "DIV": 2, "AUDIT": 5, "AGENT": 5, "TRN": 11,
-                        "CONS": 4, "REP": 1}
+                        "CONS": 4, "REP": 1, "FB": 2}
+    assert OVS_CODES["OVS-FB-001"][:2] == ("error", "feedback") and OVS_CODES["OVS-FB-002"][:2] == ("warning", "revisions")
     assert OVS_CODES["OVS-FORM-005"][:2] == ("error", "formal")
     assert {OVS_CODES[c][0] for c in ("OVS-CONS-004", "OVS-REP-001", "OVS-AUDIT-005")} == {"error"} and OVS_CODES["OVS-CONS-003"][0] == "info"
     assert OVS_CODES["OVS-TRN-006"][0] == "error" and OVS_CODES["OVS-TRN-010"][0] == "warning" and OVS_CODES["OVS-TRN-011"][0] == "warning"

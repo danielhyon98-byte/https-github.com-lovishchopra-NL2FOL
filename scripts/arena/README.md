@@ -7,6 +7,7 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
 | `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload, its document id and the relay status only) and the router's record of it (`<round>/router/<task>.json`: the plan, the request, the peer's receipt and the relay receipt; no agent reads it) |
+| `revision_feedback.py` | Records the infrastructure's feedback on every genuine answer (`<round>/feedback/<task>.json`: whether a revision request was issued and, if not, why; the signed block; `rendered`, the exact message the specialist reads, and its digest; the flaws), built through an audited hub from the answer's receipt and a signed task audit, never from an agent (design section 53 of `overseer/docs/OVERSEER_DESIGN.md`). The pipeline sends `rendered` alone as the specialist's next turn, after its own answer, and records the revision in `<round>/revisions/<task>.json` |
 | `list_claims.py` | Lists the claims of an answer as transmitted, under the claim ids the hub delivers (below, "Claim ids in a group"); with `--json`, each claim text's digest, the file's group, the files of the group delivered before it and whether its ids are agent-qualified, and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
@@ -383,9 +384,32 @@ because the harness calls no model, and a replay calls no fidelity reviewer. So 
 is withheld with its reasons. `run_round(round_dir, delivery_overseer={"pack": ..., "provider_factory": ...})` configures
 overseer agents (tests only: scripted providers).
 
+## Specialist revisions
+
+`revision_feedback.py <round> --all` replays each group's genuine traffic on a hub carrying a transfer auditor and writes
+`feedback/<task>.json` for every genuine answer, standalone and peer-dependent (never a synthesis). An answer whose receipt
+and task audit hold no allowlisted flaw gets no feedback (`no_actionable_flaw`): the counted negative control. A round's
+`tasks.json` may set `revision_rounds` per task (round 8: 1), which `group_plan` puts in the plan's budget; without it the
+plan is the one it was. The pipeline then makes one cheapest-tier call per issued file and records
+`revisions/<task>.json` (`task_id`, `agent_id`, `feedback_sha256`, the digest of the message the specialist read,
+`response_text`, and the call's model, effort, knowledge-base version, bundle digest, times and tokens).
+
+When the round holds `feedback/`, `run_arena.py` runs a revision pass of its own after the delivery pass: it replays the
+genuine traffic again, re-issues every request and compares it with the recorded file (`recorded_feedback_checks`: the
+flaws, the keep list and the rendered digest; a difference is "feedback differs from what the specialist read"),
+delivers each recorded revision in reply to its request under `rep-<task>-rev1`, audits with the shadow, decides each
+outcome (fixed, removed, evaded, persisted, not re-checked; flaws introduced, INT-REV-002 findings, claims lost; the next
+step) and consolidates the original with its revision. `results.json` carries it under `revisions` and `summary.md` in
+"Specialist revisions": answers checked, feedback issued, answers revised, the fix rate (fixed plus removed where allowed,
+over the flaws fed back less those not re-checked), the specialist's median and p90 time, the negative controls and the
+gates (feedback as read, no revision without a request, no OVS-FB-001, the shadow agreeing, originals unchanged,
+persisting errors withheld and escalated). The pass adds no record and moves no transport count: the headline rate
+excludes it. No fixture is served in it (no claim outcome is ever fed back, so the flaws do not depend on one).
+
 ## Tests
 
 ```
+python -I -m pytest -q tests/e2e/test_arena_revisions.py   # the specialist revisions: feedback files, the revision pass, the headline unchanged, feedback as read, the round's budget
 python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), and the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)

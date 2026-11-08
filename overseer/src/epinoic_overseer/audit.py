@@ -216,6 +216,8 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
         ctx.ovs(t.seq, "OVS-AUDIT-001", f"the delivered payload of {t.kind} {t.message_id} could not be parsed against its contract ({t.typed_error}); "
                 "the content checks did not run and the transfer cannot pass", **t.ids())
     ctx.guard("custody", "custody", lambda: (custody.check_issue_consistency(ctx, t), None if at_issue else custody.check_custody(ctx, t), custody.check_raw_text(ctx, t)), transfer=t)
+    if t.kind == "request" and t.request is not None and t.request.revision is not None:  # specialist feedback (design section 53)
+        ctx.guard("feedback", "revision request (FB-001)", lambda: _feedback_check(ctx, t), transfer=t)
     if dependencies:
         for s in t.depends_on:
             d = ctx.view.by_seq.get(s)
@@ -232,6 +234,18 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
                                        peer.check_document_ids(ctx, t)), transfer=t)
     ctx.guard("synthesis", "synthesis citations", lambda: synthesis.check_synthesis_citations(ctx, t), transfer=t)
     ctx.guard("joint", "pool", lambda: joint.check_pool(ctx, t), transfer=t)
+
+
+def _feedback_check(ctx: CheckContext, t: Transfer) -> None:
+    """OVS-FB-001 for one revision request (``feedback.check_revision_request``), naming the request and the answer it revises."""
+    from .feedback import check_revision_request
+    reasons = check_revision_request(ctx.view, t, ctx.keyring, ctx.task_audits)
+    if reasons:
+        block = t.request.revision
+        ctx.ovs(t.seq, "OVS-FB-001", f"revision request {t.message_id} (revision {block.round} of {block.max_rounds} of answer {block.revises_message_id}) "
+                "does not verify or bind: " + "; ".join(reasons[:6]) + ("; ..." if len(reasons) > 6 else "")
+                + ": the request and the answer replying to it never pass", message_ids=[t.message_id, block.revises_message_id],
+                agent_ids=[block.to_agent_id], report_ids=[block.revises_report_id])
 
 
 def run_translation_checks(ctx: CheckContext, t: Transfer) -> None:
@@ -312,11 +326,12 @@ def run_overseer_checks(view: OverseerView, *, keyring: KeyRing, store: ResultSt
                         replays: Optional[dict[str, Replay]] = None, rederived: Optional[dict[int, Rederived]] = None, presented: Optional[dict[str, Any]] = None,
                         batch: bool = True, shadow: bool = True, replay_mode: str = "none", pending: Optional[dict[str, set[str]]] = None,
                         extra_findings: Iterable[tuple[int, IntegrityFinding]] = (), sampled: tuple[int, int] = (0, 0),
-                        hand_built_translators: Iterable[str] = ()) -> AuditResult:
+                        hand_built_translators: Iterable[str] = (), task_audits: Iterable[Any] = ()) -> AuditResult:
     """Run every check over ``view``; never raises. ``hand_built_translators``: the ``translator_version`` values the
-    operator declared hand-built (TRN-002 exempts their provider-less translations; recorded in the coverage)."""
+    operator declared hand-built (TRN-002 exempts their provider-less translations; recorded in the coverage).
+    ``task_audits``: the auditor's own signed task audits of the channel so far (the ``feedback`` stage reads them)."""
     ctx = CheckContext(view=view, keyring=keyring, store=store, live=live, registry=registry, presented=dict(presented or {}),
-                       hand_built_translators=frozenset(hand_built_translators))
+                       hand_built_translators=frozenset(hand_built_translators), task_audits=list(task_audits))
     ctx.coverage.replay_mode = replay_mode
     if ctx.hand_built_translators:
         ctx.coverage.hand_built_translators = sorted(ctx.hand_built_translators)
@@ -601,7 +616,7 @@ class TransferAuditor:
 
     def _ctx(self, st: _ChannelState) -> CheckContext:
         return CheckContext(view=st.view, keyring=self.keyring, store=self.store, live=st.live(), registry=st.registry,
-                            hand_built_translators=self.hand_built_translators)
+                            hand_built_translators=self.hand_built_translators, task_audits=[a for a in st.audits if a.scope == "task"])
 
     def _always_ids(self, st: _ChannelState, t: Transfer) -> set[str]:
         out: set[str] = set()
@@ -942,7 +957,7 @@ class TransferAuditor:
             result = run_overseer_checks(view, keyring=self.keyring, store=self.store, live=live, registry=st.registry, replays=replays, rederived=rederived,
                                          batch=True, shadow=do_shadow, replay_mode=self.replay_mode, pending=pending, extra_findings=carried_in,
                                          sampled=(st.sampled_total - st.sampled_live, st.sampled_total) if st.sampled_live else (0, 0),
-                                         hand_built_translators=self.hand_built_translators)
+                                         hand_built_translators=self.hand_built_translators, task_audits=[a for a in st.audits if a.scope == "task"])
             cov = result.coverage
             cov.results_sampled_out = st.sampled_live
             cov.results_replay_pending = sum(len(v) for v in pending.values())

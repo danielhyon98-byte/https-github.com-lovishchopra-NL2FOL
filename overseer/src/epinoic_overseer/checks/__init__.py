@@ -24,6 +24,9 @@ Modules (live tier L1-L6, re-derivation R2, batch tier B1-B5):
 * ``divergence`` B4: DIV-001/002
 * ``shadow``    B5: RCPT-004/005/008 (RES-008 when an undecided run explains a difference; rule ``budget-cut``: the checks a
   STEM check budget left undecided are compared as the channel states them, with a note or RES-008)
+* ``feedback``  (design section 53) FB-001 on every request carrying a revision block: its signature under the feedback key,
+  its binding to the journaled answer, its digests and keep list, and every flaw a finding the journal or the auditor's own
+  signed task audit holds (``epinoic_overseer.feedback.check_revision_request``)
 """
 from __future__ import annotations
 
@@ -94,6 +97,9 @@ class CheckContext:
     #: translators): a translation carrying a problem and no provider is a fault unless its translator is listed here
     #: (TRN-002). Configured on the auditor and recorded in every audit's coverage; empty in production.
     hand_built_translators: frozenset = frozenset()
+    #: The auditor's own signed task audits of the channel issued before this run (the ``feedback`` stage, OVS-FB-001, verifies
+    #: a revision request's audit-basis flaws against them).
+    task_audits: list = field(default_factory=list)
     _universe: Optional[dict] = None
 
     # ------------------------------------------------------------------ findings

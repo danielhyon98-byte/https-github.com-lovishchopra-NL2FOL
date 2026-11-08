@@ -5650,3 +5650,138 @@ tokens) in every composition: a `twofold` module sent only with a part dossier w
 the flash router's cost data would then price it. That changes no receipt, finding or status, so it is recorded for the
 optimisation checks, not done (the founder's order). The service's asynchronous review (`port.py`) still reviews a task as one
 dossier: the service offers no combined mode (`KIT-REQ-002`), so N_FOLD there waits for that mode.
+
+## 53. Specialist feedback and revision (integration step 2)
+
+Founder's step: the overseer gives the specialist that wrote an answer feedback on the flaws the infrastructure found in
+it. What the checks confirmed goes back to the answer's author as a bounded, typed revision request through the channel,
+never as free agent text, never from a refuted finding and never with another agent's material; the revision goes through
+the same translation, checks and overseer as any answer, is linked to the original, counts as a repeat when it repeats the
+fault, and the number of revisions is bounded. The proposal for the specialists' own knowledge bases (owned by the
+agent-training project) is recorded in `docs/specialist-revision-requests.md`; until it is adopted, every rendered message
+carries the same rules.
+
+The parts: the contract and the channel's checks (`src/epinoic_logic/channel/contracts.py`, `channel/feedback.py`,
+`channel/bus.py`), the hub's entry points (`branches/hub.py`: `request_revision`, `revision_outcome`, `revisions`), the
+overseer's builder, signer, audit stage and revision ledger (`overseer/src/epinoic_overseer/feedback.py`, `hub_ops.py`,
+`checks/__init__.py`, `checks/receipts.py`, `checks/shadow.py`, `view.py`, `repeats.py`, `consolidate.py`, `keys.py`,
+`codes.py`), the knowledge pack 2.1, and the arena and contained-run tools (`scripts/arena/revision_feedback.py`,
+`run_arena.py`'s revision pass, `overseer/scripts/revision_probes.py`).
+
+**Decision 121 (a revision request is the original request re-issued).** The router re-issues the original request to the
+answer's author with one typed member, `revision` (`revision_request/1.0`), in the envelope `task_request/1.1` in reply to
+the answer; `user_input`, `items`, `constraints` and `supplied_texts` are byte-identical to the original's. `respond()` then
+checks the revision against exactly the original question, items, constraints and evidence, and the journal, view, shadow,
+dossier, repeats and consolidation handle it as a request. A request without the member is dumped without it, so every other
+request's payload and digest is unchanged (the 44 recorded first requests of r2 to r7 and three synthetic requests have the
+payload digests they had before the change: `tests/channel/data/plain_request_digests_r2_r7.json`). The sender role stays the
+router's, so the role contracts are unchanged: the router names an answer and supplies no text.
+
+**Decision 122 (only the infrastructure writes feedback, as data, from an allowlist).** `RouterHub.request_revision` is the
+only producer (`AuditorNotAttached` without an auditor). The overseer's builder reads the journaled answer and its receipt, a
+verified signed task audit that covers the answer, the hub's own signed verdicts audits and the repeat report, and keeps only
+the allowlisted findings (`feedback-rules/1`, `channel.feedback.CODE_RULES`): checks that re-run on any answer without any
+agent (the channel's checks, the branch packs, the auditor's OVS-FID checks, the engine-decided checks of the answer's own
+statements). Each flaw is a rule of a code-owned template table with short parameters (numbers, ids, item labels, constraint
+values, or text the answer, the question or the supplied texts contain); its instruction is the template rendered with them,
+never a finding message. Never fed back: claim outcomes of any status and what derives from them (the argument diagnosis's
+INT-ARG-001 included: a defect of an encoding fed back would invite a specialist to make a statement "follow"), the
+translator's faults, cross-agent conflicts, custody, identity, envelope and internal codes, the STEM front end's parse,
+undecided, limit and scope codes, and refuted, unverifiable or invalid accusations. A flaw whose rule shows a passage but whose
+finding names no claim (r7's lit-p7c ES-META-001, "paragraph 2 is meta-text") is not fed back: it has nothing to show. At most
+12 flaws, errors first. Advisory items come only from validated, unresolved accusations (OVS-AGENT-004) of the kinds
+`quotation_absent`, `figure_changed` and `self_certification_as_content` that name the answer's claims, in fixed text, at most 3,
+never counted and never enough for a request on their own. Every flaw carries its fault signature (`fault-signature/1`,
+`repeats.occurrence_of`); the block is signed under the overseer subkey `feedback` (key id `overseer-feedback`) and carries the
+digest of the exact message the specialist reads (`rendered_sha256`).
+
+**Decision 123 (the rendered message).** `render_revision_message` gives the specialist a header that opens the message as a
+correction of its last deliverable from the tutoring system's automatic checks, the problems with their instructions and its
+own passages (sanitised: control, format and surrogate characters removed, white space collapsed, check codes masked; one
+line each behind `> `, labelled as evidence; cut at 600 characters, 12,000 in all), what to keep unchanged, the scope
+statement and, last, the nine fixed course-correction rules (`REVISION_RULES`). It carries no finding code and no identifier,
+and never pastes the whole answer (a v4 specialist reads a pasted answer as a text to mark). A block whose message would be
+longer than 16,000 characters is refused by the channel.
+
+**Decision 124 (the channel binds and contains the block: INT-REV-001).** INT-REV-001 (error: the request is REJECTED and
+never shown to the specialist) when the block does not bind to the answer it revises or carries text it may not: another
+addressee than the answer's author, a sender that is not the channel's router, an answer that is not a parsed response of
+the channel, carries an identity or envelope error, is not the latest of its chain or already has a revision request, a round
+or budget that is not the chain's, request fields that differ from the original's, a claim the answer does not hold or quoted
+otherwise than the answer wrote it, a parameter that is no number, id or text of the answer, the question or the supplied
+texts, an instruction that is not its template, a channel or engine flaw that matches no allowlisted finding of that code
+naming those claims on the answer's receipt, a keep list, rules or scope statement that are not the channel's, a rendered
+digest that does not match, or no signature fields. The channel cannot verify the signature: the auditor does (decision 127).
+
+**Decision 125 (the revision is an answer, checked in full: INT-HANDOFF-018, INT-REV-002, supersession).** `respond()` runs
+every check unchanged on the revision and adds: INT-HANDOFF-018 (error, blocking through the INT-HANDOFF prefix) when the
+revision reuses a report id of its chain, also when the answer it revises was REJECTED and never stored; INT-REV-002 (warning,
+one finding per reason, naming the claims) when the revision does not keep what its request did not ask it to change (a claim
+that is no note and that no flaw names gone, a figure or date of a kept claim no longer stated, an exact figure made
+approximate or turned into a range, a certainty raised or a hedge dropped, a definition or assumption turned into an
+assertion, a note turned into content, a figure or date no source states outside a corrected calculation, the request's own
+text or a check code echoed); claims are matched between the versions by light-stemmed token Jaccard (0.5, or 0.25 for a
+claim kept under its id and role), figures compared by value. A delivered revision supersedes the answer it revises,
+whatever their claims share: INT-HANDOFF-009 names the revision request and the answer, every formalization of the old report
+leaves the pool, and its copies still in circulation are named (INT-HANDOFF-014). A REJECTED revision, or one that answers
+nothing, supersedes nothing. Feedback never changes a receipt, a signed result, a status, a clearance or an audit.
+
+**Decision 126 (outcome, budget, suppression, escalation).** `revision_outcome` classifies each fed-back flaw from the
+revision's receipt and a fresh task audit, never from the specialist's words: `fixed`, `removed` (allowed only where its rule
+says removal is the fix), `evaded` (gone because the statement was weakened: the revision's INT-REV-002 names it), `persisted`
+(the same signature, or the same code on the matched claim) or `not_rechecked` (the revision was REJECTED, or its check could
+not run); it lists the flaws introduced, the preservation findings and the claims lost, and decides the next step (`done`,
+`revise_again`, `escalated`), signed. The budget is the plan's `budgets["revision_rounds"]` (default 2, hard maximum 3, 0
+disables). A signature is fed back at most once; a revision that repeats an error-level fault is OVS-REP-001, never delivered
+or consolidated; a fed-back error that comes back, a spent budget with flaws left, or a revision that was not delivered
+escalates the chain (OVS-FB-002, warning, signed, in the hub's revision ledger outside the task audit): nothing more is sent
+on it, and `hub.revisions` lists it for human review.
+
+**Decision 127 (audit, shadow, consolidation).** A new audit stage, `feedback`, raises OVS-FB-001 (error) on a revision
+request whose block does not verify under the feedback key, does not bind to the journaled answer it revises (addressee,
+report, receipt, request, chain), has a rendered digest, revision id or keep list that is not the block's own, or names a flaw
+that neither the journal nor the auditor's own signed task audits hold, or one signed otherwise than by the fault-signature
+rule; the request and the answer replying to it never pass, and consolidation excludes that answer. The shadow re-issues a
+revision request with its block, the answer, original request and receipt it names mapped to the shadow's, so a missing
+INT-REV-001, INT-REV-002 or INT-HANDOFF-018 is OVS-RCPT-004 like any other. The view makes the request depend on the answer it
+revises. Consolidation excludes an answer a delivered revision superseded ("superseded by its revision <message id>", rule
+`superseded-by-revision`), so the revision stands alone instead of conflicting with its original. The hub keeps deep copies
+of its signed verdicts audits (`record_verdicts`), which the builder reads for advisory items.
+
+**Decision 128 (pack 2.1, a MINOR version).** Pack 2.0 was pinned and pushed, so it never changes (section 17.12): pack 2.1
+teaches the review of a revision request and of the revised answer (Role and trust T16, Dossier guide D41, Inspection I105 to
+I109, Never N16, the master prompt's REVISION REQUESTS section and a WHEN IN DOUBT line, the code table's INT-HANDOFF-018,
+INT-REV-001 and INT-REV-002, the `INT-REV-*` and `OVS-FB-*` families), and states the report condition of the carried-fault
+check in I102, which pack 2.0 left for the next version (OVERSEER_RESULTS section 38). The rule numbers T15, D29, I90 to I93
+and N14 the design proposed were taken in the merged pack, so the new rules follow the last of each family. Each
+`finding_missing` case the pack teaches is one the shadow re-derives (a missing INT-REV-001, INT-REV-002 or INT-HANDOFF-018 is
+OVS-RCPT-004); a flaw of basis `audit` or `advisory` is left alone in blind mode, since no check an agent's accusation could
+reach decides it. Contracts, kinds and the copied header are unchanged; 1.0 to 2.0 stay pinned. The service pins 2.1
+(`overseer_port.PINNED_PACK_DIGESTS`). The optional worked example of the design (a figure widened into an estimate) is not
+added.
+
+**Decision 129 (the arena and the contained run).** `scripts/arena/revision_feedback.py <round> --all` writes, for every
+genuine answer (standalone and peer-dependent, never a synthesis), the router's record of the feedback
+(`feedback/<task>.json`: issued or why not, the signed block, the rendered message and its digest, the flaws); the pipeline
+sends `rendered` alone as the specialist's next turn and records the revision (`revisions/<task>.json`). `run_arena.py`'s
+revision pass, run only when the round holds `feedback/`, re-issues every request (a difference from the recorded flaws, keep
+list or digest is "feedback differs from what the specialist read"), delivers each revision under `rep-<task>-rev1`, audits
+with the shadow, decides each outcome and consolidates, in a section of its own: the headline rate excludes it. The plan's
+budget is set from an optional `revision_rounds` of the round's tasks. The contained run's stage `revision_probes.py` runs the
+same replay on every requested round with identity revisions and three controls (a corrected revision fixed, an unsigned
+block refused by the channel, a fabricated audit flaw caught by the audit), with the gates `revision_requests_bind` and
+`shadow_agrees_on_revision_transfers`.
+
+**Decision 130 (stated limits).** Advisory items rest on the block's signature only (the auditor holds no verdicts audit).
+A synthesis or a peer relay made before a revision cites the superseded answer (INT-HANDOFF-014 names it); syntheses are not
+redone. A second report of one agent on a task gives the integrity package's report-set rule INT-HANDOFF-009 naming all its
+claims, which no receipt carries under that claim set, so every delivered revision raises OVS-DIV-002 (`rule_ownership`, a
+warning that fails nothing), as any resubmission did before. An escalated chain reaches two overseer instances through the
+risk signals it carries (a repeated error, an error-level finding, a rejection); a chain escalated with warnings only is
+reviewed at the floor's baseline, since a risk class of its own would change the pool port contract. Heuristic flaws can be
+false (INT-REQ-004 coverage, ES-STR-001 strands) and engine flaws can rest on a reading the specialist did not mean: the
+templates forbid invention and let a correct result stand with its step shown, and what results is counted as introduced,
+evaded or persisted. Everything new in the pack is in its core (13,360 characters, about 3,340 tokens, in every
+composition): a module sent only with a dossier that carries a revision request would spare the others; the flash router's
+cost data still holds pack 2.0's composition sizes (planning estimates, a released data file that never changes). Neither
+changes a receipt, a finding or a status, so both are recorded for the optimisation checks, not done (the founder's order).
