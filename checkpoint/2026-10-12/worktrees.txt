@@ -25,6 +25,6 @@
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-checks                                 50611e6 [review-stem-checks]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-translate                                   6c3b802 [review-translate]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/stem                                               b5cf312 [stem-build]
-/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/contained-fix/tree                6947c2d [contained-fix]
+/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/contained-fix/tree                6947c2d [contained-fix] prunable
 /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/final-handoff                     e88a793 [docs/final-z3-handoff]
-/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/review-fixes/integrate/rehearsal  361cc4e (detached HEAD)
+/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/review-fixes/integrate/rehearsal  361cc4e (detached HEAD) prunable
