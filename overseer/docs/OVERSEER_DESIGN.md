@@ -5492,3 +5492,41 @@ recorded for a decision, not changed here: an undecided STEM check alone (`INT-S
 agreement signal of the service's floor (`minimum-oversight-floor/1`, `risk_stem_undecided`) but not one of the overseer's
 risk classes, so neither the pool's floor nor the router's pool rules escalate on it; no recorded transfer carries it, and
 making it one changes the overseer's risk vocabulary and the pool floor's version.
+
+**Decision 111 (rules `declined-bound` and `derived-figures` tightened, tampering T5 made stricter; the round-8 r7 stage-2
+repair).** The publisher's contained run of the round-8 commit (32a5c0e) failed two gates that pass at the published base
+16d5a4a: the tampering suite detected 353 of 355 (T5 and T5c missed on r7/ch-t13), and the STEM probes `units-translation`
+and `units-translation-prefix` were no longer named. Three changes of the clearance account for every item.
+
+1. Rule `declined-bound` (Decision 96) is intended: r7/ch-t13 opens with "I cannot write the Data analysis or Conclusion
+   sections ... because they are assessed work", so its word bounds are recorded not applicable and the declining sentence
+   is an answer note with no translation. But R2 accepted the record on its shape and the decline alone, while the record
+   still states a measurement ("...; measured 418 words; bound min_words 540") that the router reads and that R2 used to
+   verify. T5c (the channel's measure patched to 7) therefore crossed unnamed. R2 now recounts first and accepts a declined
+   record only when the last "; measured N words|paragraphs; bound KIND VALUE" of its detail states the recount; otherwise,
+   or when the detail states no count, it is OVS-FORM-003 naming MEASURED ("constraint c1 is recorded not applicable (rule
+   declined-bound) with a MEASURED count the response does not yield: the record states 7, the recount gives 418"). Stricter
+   than Decision 96, and the harness expectation of T5c (FORM-003 with MEASURED) is unchanged.
+2. Tampering T5 flipped only a definitive formal_status. On a receipt whose every bound is declined it presented the genuine
+   receipt, and the no-op was counted as a tampering and as a miss. `tamper.t5_presented` keeps the flip when a definitive
+   status exists; otherwise it presents the first not-applicable record as decided and satisfied (formal_status ENTAILED,
+   method formal, `satisfied` True: a decline hidden as a passed bound, which RCPT-001 must name); with neither it skips,
+   and it never presents a receipt equal to the genuine one. Stricter than the old case (which could inject nothing) and
+   than a plain skip. The expectation is unchanged (RCPT-001).
+3. Rule `derived-figures` (Decision 90) traced figures through readings its own text excludes, so two planted unit
+   conversions passed as coincidences of value. On bi-t13 the reciprocal reading took every derived value, so 1/12.5 (12.5
+   being only the upper end of the stated precision of "an increase of 12 mm³") traced the planted 0.08; on ch-t13 rule
+   `task-and-supplied` took a supplied text's precision ends, so 0.005 (the lower end of "stopwatch reading +/-0.01 s")
+   traced the planted 0.0050 dm³. Both contradict Decision 90's wording ("a reciprocal ... of stated figures", "a figure
+   ... the task text or a supplied table states") and its limit that a conversion the translator makes on its own is still
+   named (Inspection I91). Now the reciprocal reading takes only figures a text writes as written (`_as_written`: a numeral,
+   thousands by commas or spaces), and the request's and supplied texts' figures count only as stated (`_as_stated`:
+   `_as_written`, the figure with its written scale word or per cent sign, scientific notation and vulgar fractions; never a
+   precision end, an SI prefix factor or a unit conversion). The answer's own texts keep every extended reading, and a
+   task-setting premise keeps its earlier reading of the request (`text_numbers`). Every case of Decision 90's tests still
+   traces, and the translator delivers the same encodings as at the base.
+
+Unchanged and intended: on r7/ch-t13 the cases that need a definitive bound or the declining claim's signed result (T3,
+T5b, T22b and T22w) skip with their reasons, and T10d (Decision 93) adds one tampering on the synthetic target, so the suite
+generates 355 tamperings (358 − 4 + 1). The regression tests are `overseer/tests/overseer_tests/test_r7_stage2_detection.py` (all but one
+need no recorded round; the last replays r7/ch-t13 and pins the four skips with their reasons before asserting T5 and T5c).

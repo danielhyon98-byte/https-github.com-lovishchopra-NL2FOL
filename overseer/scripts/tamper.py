@@ -1115,6 +1115,33 @@ def t2d(suite: Suite, target: str) -> list[Fault]:
     return _with(suite, target, body)
 
 
+def t5_presented(rc: Any) -> Any:
+    """The receipt T5 presents in place of ``rc``: the first constraint result with a definitive formal_status flipped
+    (ENTAILED to COUNTEREXAMPLE and back, ``satisfied`` with it). When no result has a definitive status, the first bound
+    recorded not applicable (rule declined-bound: method ``not_checkable``, no status) is presented as decided and satisfied
+    (formal_status ENTAILED, method formal): a decline hidden as a passed bound (round-8 r7 stage 2; before, such a receipt
+    was presented unchanged and the no-op counted as a missed tampering). With neither, :class:`SkipCase`; a presented
+    receipt equal to ``rc`` is never returned."""
+    flipped, done = [], False
+    definitive = any(c.formal_status in ("ENTAILED", "COUNTEREXAMPLE") for c in rc.constraint_results)
+    for c in rc.constraint_results:
+        if not done and c.formal_status in ("ENTAILED", "COUNTEREXAMPLE"):
+            new = "COUNTEREXAMPLE" if c.formal_status == "ENTAILED" else "ENTAILED"
+            flipped.append(c.model_copy(update={"formal_status": new, "satisfied": new == "ENTAILED"}))
+            done = True
+        elif not done and not definitive and c.method == "not_checkable":
+            flipped.append(c.model_copy(update={"formal_status": "ENTAILED", "satisfied": True, "method": "formal"}))
+            done = True
+        else:
+            flipped.append(c)
+    if not done:
+        raise SkipCase("no constraint result of this task has a status to flip or a not-applicable record to present as decided")
+    presented = rc.model_copy(update={"constraint_results": flipped})
+    if presented == rc:
+        raise SkipCase("the presented receipt equals the genuine one: nothing would be injected")
+    return presented
+
+
 @case("T5", "receipt_altered", "the router edits formal_status on its receipt copy", module=("receipts",))
 def t5(suite: Suite, target: str) -> list[Fault]:
     def body(aud):
@@ -1123,14 +1150,7 @@ def t5(suite: Suite, target: str) -> list[Fault]:
         if t is None:
             raise SkipCase("no delivered report of this task carries a constraint result")
         rc = run.live_receipt(t.message_id)
-        flipped = []
-        for c in rc.constraint_results:
-            if c.formal_status in ("ENTAILED", "COUNTEREXAMPLE") and not flipped:
-                new = "COUNTEREXAMPLE" if c.formal_status == "ENTAILED" else "ENTAILED"
-                flipped.append(c.model_copy(update={"formal_status": new, "satisfied": new == "ENTAILED"}))
-            else:
-                flipped.append(c)
-        presented = rc.model_copy(update={"constraint_results": flipped})
+        presented = t5_presented(rc)
         f = Fault("T5", target, "receipt_altered", "the router presents its receipt copy with a constraint's formal_status flipped",
                   expected_codes=["OVS-RCPT-001"], visibility="live", injected=ids(message_ids=[t.message_id], receipt_ids=[t.receipt_id]))
         clr = aud.clearance(run.uid, t.message_id, receipt=presented)

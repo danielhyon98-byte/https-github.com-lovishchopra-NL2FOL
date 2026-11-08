@@ -6,6 +6,43 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
 
+## 8 Nov 04:1x UTC: THE ROUND-8 REGRESSION FIX IS LANDED (5060a52); its push check and presim are running; the upload still waits for Daniel's gate decision
+- The presim of 32a5c0e (7 Nov) FAILED. It found three f2329df regressions that the landing verification missed because it ran without
+  EPINOIC_ARENA_ROUNDS (12 tests skipped), plus the contained run:
+  (1) a stale r7 overseer test: f2329df's semantic circularity gate withholds mai-t13 m1.1/m7.1, so the test was rewritten stricter;
+  (2) the T5c auditor loosened: overseer/checks/formal.py now recounts before accepting a declined-bound record, else OVS-FORM-003;
+  (3) the units-translation probes: translation.py takes figures only as written;
+  (4) the T5 harness became a no-op: overseer/scripts/tamper.py presents the declined record as a passed bound.
+  These were fixed on branch r7-ovs-fix (dd893de, 3ac5d30) and ported onto ab44c8a in worktree R/.worktrees/c1-land2 (branch c1-land2:
+  8944c81, 402276d). The stage-2 decision is Decision 111, because the architecture step used 105-110.
+- Landed as dev commit 5060a52 "Fix the c1 clearance findings" (tree aa288c2, parent ab44c8a; message S/landing/commit-msg-land3.txt).
+  Verified by S/landing/verify.sh, which now supplies a copy of the rounds:
+  suite 22721 passed, 0 skipped, 0 failed; harness unchanged (r1 30/30, r1-adv 150/151, r2-r6 46/46, r7 177/177, c1 203/203);
+  contained run 14/14 gates, 355/355 tamperings, 677 probes. Pushed to origin. Progress note 3c29be0 (04:00) follows it.
+- ab44c8a "Integration: the overseer and the flash router as separate sub-projects..." is phase 2's architecture commit
+  (commit:arch-overseer). The overseer moved to overseer/ (package epinoic_overseer; tests in overseer/tests/overseer_tests;
+  harness in overseer/scripts with run_contained.py and tamper.py; docs in overseer/docs; docs/OVERSEER_*.md are pointer stubs).
+  The router moved to flash-router/src, and there is also combinator/src. Worktree tests need
+  PYTHONPATH=<wt>/src:<wt>/overseer/src:<wt>/flash-router/src:<wt>/combinator/src.
+  S/simulate.sh was updated for this layout (backup simulate.sh.before-subprojects): its overlay lists every sub-project src, and
+  the contained-run path falls back to overseer/scripts/run_contained.py.
+- RUNNING:
+  (a) The push check of 5060a52: wf_0b60d10a-de2 (task w12q05502), worktree R/.worktrees/pc-5060a52 (detached). Three lenses,
+      a challenger and a judge; the judge writes S/push-check/5060a52500a39bdadbe5f14d73feadbbd8fe9868.json, superseding f2329df
+      only if every held item is resolved. Never write it by hand.
+  (b) The presim of 5060a52, started 03:50 detached. Log S/presim-20261108-0400.log; cache
+      S/simcache/translator-5060a52500a39bdadbe5f14d73feadbbd8fe9868.txt.
+  (c) Phase 2, resumed (wf_eee12853-0ae, task wfk2cwnqn). Cached through commit:arch-overseer; arch:twofold is running, then
+      feedback, the architecture lenses and fixes, then rounds 9 (c2) and 10 (c3). phase2-cont.js gained ROUNDS_ENV (backup
+      .before-rounds-env): from the step after the architecture commit, verification runs the suite with a copy of the rounds.
+      The first 62 prompts are unchanged, so the cache holds.
+- NEXT: when (a) and (b) both pass, tell Daniel that round 8 is ready to upload and that only gate decision #208 blocks it. FINAL is
+  now 5060a52. The live gate holds on f2329df; under the proposed S/publish_final.sh.new it is superseded by 32a5c0e's check.
+  After Daniel's go: install the gate, run event_push.sh (outside hh:56-hh:03), read back, run release_prototype.sh (--dry-run first),
+  then the handoff refresh. The refresh carries the 32a5c0e message corrections below, any 5060a52 corrections from its push
+  check, and the 38 -> 37 fix.
+  Before any overseer upload, check publish_overseer.sh and overseer_gate.py for the old paths (scripts/overseer, tests/overseer).
+
 ## 7 Nov 19:3x UTC: ROUND 8 FINISHED ON THE DEVELOPMENT SIDE; the upload waits for Daniel's gate decision
 - Commit 32a5c0e "Fix the c1 clearance findings" (tree 85dd7c9, parent fda19ec) is on origin dev: the follow-up to f2329df (whose
   push check held). Suite 22503 passed, 12 skipped, 45 deselected, 0 failed; harness r1 30/30, r1-adv 150/151, r2-r6 46/46,

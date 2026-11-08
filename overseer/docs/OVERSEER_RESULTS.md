@@ -4621,3 +4621,24 @@ assertions unchanged; the docstring of its purity test now says that the router'
 which `test_data.py` holds to the data directory). New: `test_flash_router_pool.py` (20 tests), the router's
 `test_pool.py`, `test_data.py`, `test_runner.py` and `test_subproject.py` (33 tests), the kit's `test_router_pool.py` (15
 tests) and one test in `test_flash_router_subproject.py`.
+
+### The round-8 r7 stage-2 repair (design Decision 111)
+
+Measured 2026-11-08 on the working tree (dd893de plus this repair, not committed), Python 3.13, on a fresh copy of the
+recorded rounds (not written: gate `arena_unchanged_by_the_auditor` holds). The contained run
+(`overseer/scripts/run_contained.py`) of the round-8 commit 32a5c0e failed two gates that pass at the published base
+16d5a4a; with this repair every gate passes.
+
+| Measure | 16d5a4a | 32a5c0e | this repair |
+| --- | --- | --- | --- |
+| tampering suite: detected of generated (skipped) | 358 of 358 (644) | 353 of 355 (655): T5 and T5c missed on r7/ch-t13 | 355 of 355 (655); 375 of 375 assertions, 16 of 16 controls clean |
+| T5@r7/ch-t13 | OVS-RCPT-001 | only OVS-DIV-002 (the genuine receipt presented) | OVS-RCPT-001 (a declined bound presented as decided) |
+| T5c@r7/ch-t13 | OVS-FORM-003 | only OVS-DIV-002 | OVS-FORM-003 (MEASURED: the declined record states 7) |
+| STEM probes `stem_fault_classes_named` (677 probes) | every class named | units-translation, units-translation-prefix failing | every class named |
+
+The four r7/ch-t13 cases T3, T5b, T22b and T22w skip with their reasons, as on 32a5c0e: the answer declines two sections
+(rule declined-bound and the adapters' note reading, intended), and T10d adds one tampering on the synthetic target
+(358 − 4 + 1 = 355). Tests: `tests/overseer` 7047 passed (with the recorded rounds supplied), and the channel and translate
+files of the round-8 rules this repair touches (`tests/channel/test_c1_clearance_core.py`, `tests/contract/test_repair_round1_cases.py`,
+`tests/translate/test_repair_round1_grounding.py`, `tests/translate/test_repair_round2_grounding.py`,
+`tests/translate/test_c1_clearance_core_translate.py`) 402 passed.

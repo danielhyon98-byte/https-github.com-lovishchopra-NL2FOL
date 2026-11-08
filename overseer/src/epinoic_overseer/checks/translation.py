@@ -1037,12 +1037,17 @@ def number_traced(value: Fraction, known: set[Fraction], *, date_encoded: bool =
 #:   thousand);
 #: * ``task-and-supplied``: every assertion of the IR may take its figures from the request the report answers and from the
 #:   texts supplied with it (a supplied table's cell included), not only a task-setting premise: such a figure is the
-#:   task's, not the translator's invention (a figure the report and its sources state nowhere is still named);
+#:   task's, not the translator's invention (a figure the report and its sources state nowhere is still named). Only the
+#:   values those texts state as written count (:func:`_as_stated`: a numeral, with its written scale word or per cent
+#:   sign, scientific notation, a vulgar fraction), never a precision end or a conversion of theirs (round-8 r7 stage 2:
+#:   the end 0.005 of a supplied "±0.01 s" traced a planted 5.0 cm³ → 0.0050 dm³ conversion);
 #: * ``derived-constants``: a rational value within 10⁻³ (relative) of a simple multiple of π (``6.28318`` for 2π) when a
 #:   text writes π or "pi"; of the square root of a stated figure (``1.7320 < √3 < 1.7321``, ``√16 379.41``) when a text
 #:   writes a root; within 10⁻⁶ of the sine, cosine or tangent of a stated angle (in degrees or radians) when a text
 #:   writes the function; the exact quotient of two stated figures whose decimal expansion does not end (``115/4608`` for
-#:   1.15 ÷ 46.08); and the reciprocal of a stated figure (``0.2`` for the ``/5`` of ``√3/5``);
+#:   1.15 ÷ 46.08); and the reciprocal of a figure a text writes (``0.2`` for the ``/5`` of ``√3/5``), only of the figure as
+#:   written (:func:`_as_written`), never of a precision end or a derived value (round-8 r7 stage 2: 1/12.5, the end of
+#:   "12 mm³", traced a planted 80 mm³ → 0.08 conversion);
 #: * ``prefix-factor``: a unit symbol written with an SI prefix (``kJ``, ``cm``) states the factor between it and the unit
 #:   without the prefix (1000, 1/100), so a translation that converts J to kJ by it is not named for the factor;
 #: * ``written-operation``: a product or quotient the text writes between two figures (``120 tonnes × 4.212``) states its
@@ -1158,6 +1163,41 @@ def _read_derived_numbers(text: str) -> set[Fraction]:
     return out
 
 
+def _as_written(text: str) -> set[Fraction]:
+    """The figures ``text`` writes, each at its written value only: a numeral (thousands separated by commas or by spaces).
+    No precision end, conversion, scale or per cent reading (rule ``as-written``, round-8 r7 stage 2): the reciprocal
+    reading of rule ``derived-constants`` takes only these."""
+    out: set[Fraction] = set()
+    for m in _FIGURE_RE.finditer(text or ""):
+        if _digits_ok(m.group(1), m.group(2)):
+            out.add(Fraction(int(m.group(1).replace(",", ""))) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0))
+    for m in _SPACED_THOUSANDS_RE.finditer(text or ""):
+        whole = _THOUSANDS_SEP_RE.sub("", m.group(1))
+        if _digits_ok(whole, m.group(2)):
+            out.add(Fraction(int(whole)) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0))
+    return out
+
+
+def _as_stated(text: str) -> set[Fraction]:
+    """Rule ``task-and-supplied`` (narrowed, round-8 r7 stage 2): the values a request or a supplied text states as written:
+    :func:`_as_written`, a figure with the scale word or per cent sign written after it (``3 million``, ``41%``), and a
+    value written in scientific notation or as a vulgar fraction. Never the ends of a stated precision (``±0.01`` does not
+    state 0.005), an SI prefix's factor or a unit conversion: a figure the translator reaches from a supplied text only
+    through such a reading is its own conversion and stays named (Decision 90's limit, Inspection I91)."""
+    out = _as_written(text)
+    for m in _FIGURE_RE.finditer(text or ""):
+        if not _digits_ok(m.group(1), m.group(2)):
+            continue
+        value = Fraction(int(m.group(1).replace(",", ""))) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0)
+        tail = text[m.end():m.end() + _TAIL_CHARS]
+        sc = _SCALE_AFTER_RE.match(tail)
+        if sc:
+            out.add(value * _SCALES[sc.group(1).lower()])
+        if tail.startswith("%") or _PERCENT_RE.match(tail.lstrip()[:8]):
+            out.add(value / 100)
+    return out | _scientific_numbers(text or "")
+
+
 class _DerivedConstants:
     """Rule ``derived-constants`` (:data:`DERIVED_FIGURES_RULE`), read ONCE per translation: whether a value is a simple
     multiple of π, the root of a stated figure, a function value of a stated angle, the exact quotient of two stated figures
@@ -1169,7 +1209,7 @@ class _DerivedConstants:
 
     __slots__ = ("known", "figures", "recips", "pi", "squares", "trig")
 
-    def __init__(self, known: set[Fraction], texts: list[str]) -> None:
+    def __init__(self, known: set[Fraction], texts: list[str], *, as_written: Optional[set[Fraction]] = None) -> None:
         import math
         joined = [t for t in texts if t]
         self.known = known
@@ -1180,7 +1220,10 @@ class _DerivedConstants:
                 if len(figures) >= _DERIVED_MAX_KNOWN:
                     break
         self.figures = figures
-        self.recips = {1 / k for k in figures}
+        # the reciprocal reading takes only the figures the texts write as written (round-8 r7 stage 2: the reciprocal of a
+        # precision end, 1/12.5 from "12 mm³", traced a planted 0.08)
+        written = as_written if as_written is not None else set().union(*(_as_written(t) for t in joined)) if joined else set()
+        self.recips = {1 / k for k in written if k != 0}
         self.pi = any(_PI_RE.search(t) for t in joined)
         self.squares = sorted({float(k) for k in figures if k > 0}) if any(_ROOT_RE.search(t) for t in joined) else []
         values: set[float] = set()
@@ -1292,12 +1335,14 @@ def untraced_content(problem: Problem, problem_obj: Optional[dict], scope_texts:
             continue
         if derived is None:
             # rule derived-figures (round-8 clearance c1): read only when a figure is not traced as written; every assertion may
-            # take its figures from the request and the supplied texts (rule task-and-supplied), and the figures the texts
-            # state are read with their stated precision, spaced thousands and other scales, and through the constants,
-            # roots, function values, quotients and reciprocals a text writes
-            stated = known | task_known | set().union(*(text_numbers(t) for t in supplied_texts)) if supplied_texts else known | task_known
-            derived = stated | set().union(*(derived_numbers(t) for t in texts + sources)) if (texts or sources) else set(stated)
-            constants = _DerivedConstants(derived, texts + sources)
+            # take the figures the request and the supplied texts state as written (rule task-and-supplied, narrowed in round-8
+            # r7 stage 2: no precision end or conversion of theirs), the figures the answer's own texts state are read with
+            # their stated precision, spaced thousands and other scales, and the constants, roots, function values and
+            # quotients a text writes; a reciprocal only of a figure a text writes as written
+            as_written = set().union(*(_as_written(t) for t in texts + sources)) if (texts or sources) else set()
+            stated = known | set().union(*(_as_stated(t) for t in sources)) if sources else set(known)
+            derived = stated | set().union(*(derived_numbers(t) for t in texts)) if texts else set(stated)
+            constants = _DerivedConstants(derived, texts + sources, as_written=as_written)
         if number_traced(v, derived, date_encoded=date_encoded, exact_scale=exact_scale) or (constants is not None and constants.holds(v)):
             continue
         out.append((aid, f"{aid} uses the number {v}"))
