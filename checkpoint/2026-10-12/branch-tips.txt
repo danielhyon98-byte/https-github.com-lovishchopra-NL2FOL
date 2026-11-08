@@ -1,7 +1,6 @@
-refs/checkpoint/2026-10-12/c1-metanote-staged 353838d792d7bbe8988f63878779eec8a37cd305
-refs/checkpoint/2026-10-12/main-staged e52f61c100807a9701ef3a39b029d0e97e74dde0
-refs/checkpoint/2026-10-12/probe-staged 8c38ad405345f6a5b074c6042be93d80930115d8
-refs/checkpoint/2026-10-12/r7-ovs-fix-staged 36c5c697db4c5af6f1a6f5efa4167a373dc31899
+refs/checkpoint/2026-10-12/c1-metanote-staged ddb5f2b9dde07427955f5c3082d37406d66850ef
+refs/checkpoint/2026-10-12/main-staged 266f607f8f4ba0eb090cf52e107d443d977bdc03
+refs/checkpoint/2026-10-12/probe-staged f5f504ccdbf43b3416a4ef002d35be787f1caa16
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-accfix-before 4267cb3c6b99f833ec7fa0ac84c6351a563e0d8c
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
@@ -32,7 +31,7 @@ refs/heads/preserve/2026-10-16/review-metrics d3a148ec4a2b4cb975f525dda5270824be
 refs/heads/preserve/2026-10-16/review-stem-channel 640abcc6d216d133ab56c4c89d8e105a95b4ec4a
 refs/heads/preserve/2026-10-16/review-stem-checks 18d7202f182e42c42210e3f2f14a16ae35d94458
 refs/heads/preserve/2026-10-16/review-translate f24d8b121dfcfd56ba1ae3cb1c76d1a5b5b45877
-refs/heads/r7-ovs-fix 32a5c0e83b185171ed6da7be1c0cd8e215862efe
+refs/heads/r7-ovs-fix dd893dec75657cee9ea21183de03252b53364ab2
 refs/heads/review-engine f902edd1a511a27d7f6ea8bcdf8912c672e81396
 refs/heads/review-metrics 2b1cad3dd48cbf2a5103bf12c3bcc538f5982dd7
 refs/heads/review-stem-channel eb660383ba7abb190b4c030b684a3ef33a9be71a
