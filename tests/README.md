@@ -2034,3 +2034,12 @@ Work in progress after it is labelled as such.
   test package (`flash-router/tests/flash_router_tests/`).
 - `python -m pytest -q` at the repository root (three suites, one session): 22,689 passed, 12 skipped, 45 deselected,
   0 failed, in 1 h 14 min.
+
+### Progress, 04:00 UTC (8 November)
+
+- The simulation of 32a5c0e found three regressions of the round-8 fixes that every earlier run had skipped (they need the
+  recorded rounds or the contained run): a stale round-7 overseer test, a declined answer's word count accepted without a
+  recount, and figures traced through values the task never writes. Commit 5060a52 fixes them on the sub-project layout of
+  ab44c8a. With the recorded rounds supplied the full suite gave 22,721 passed, 0 failed and 0 skipped; the contained run
+  passed all 14 gates (355 of 355 tamperings, all 677 STEM probes named); the harness is unchanged on every recorded round.
+  Its push check and the upload simulation are running. Nothing from round 8 is uploaded yet.
