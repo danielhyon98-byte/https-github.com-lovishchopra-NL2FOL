@@ -38,6 +38,16 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
       feedback, the architecture lenses and fixes, then rounds 9 (c2) and 10 (c3). phase2-cont.js gained ROUNDS_ENV (backup
       .before-rounds-env): from the step after the architecture commit, verification runs the suite with a copy of the rounds.
       The first 62 prompts are unchanged, so the cache holds.
+- (d) ROUND 9 PREPARATION (8 Nov). The leftover check carry-c2 (wf_d9185945-35f) is DONE: S/wf/carry-c2/carry-c2.json holds 54 records
+      for round 9's fixes and carry-c2-other.json holds 17 workflow, label and release items. The script candidate is
+      S/wf-scripts/phase2-cont.js.candidate: the post-architecture paths and owners, the bind step, the overseer gold, pool and
+      re-score edits, and CARRY.c2. It is NOT installed yet. Install it by stop/resume
+      (TaskStop wfk2cwnqn, then Workflow scriptPath phase2-cont.js with resumeFromRunId wf_eee12853-0ae and the ORIGINAL args
+      S/wf/phase2-cont-args.json) when arch-lens:* starts (watchdog MILESTONE line), after adding the twofold and feedback
+      live-exercise edits. Every edit is conditional on LAYOUT2. Check with patches/dry_cont3.mjs that the first difference
+      from the backup phase2-cont.js.before-layout2 comes after the step that runs at the stop.
+- (e) The handoff refresh for round 8 (wf_67391afb-ab7) writes S/handoff/refresh-8nov. Publish it only after the upload:
+      run fill.py, then push_handoff.sh, then read back.
 - NEXT: when (a) and (b) both pass, tell Daniel that round 8 is ready to upload and that only gate decision #208 blocks it. FINAL is
   now 5060a52. The live gate holds on f2329df; under the proposed S/publish_final.sh.new it is superseded by 32a5c0e's check.
   After Daniel's go: install the gate, run event_push.sh (outside hh:56-hh:03), read back, run release_prototype.sh (--dry-run first),
