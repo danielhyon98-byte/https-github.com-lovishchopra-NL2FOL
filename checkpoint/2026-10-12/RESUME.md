@@ -30,8 +30,10 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   (a) The push check of 5060a52: wf_0b60d10a-de2 (task w12q05502), worktree R/.worktrees/pc-5060a52 (detached). Three lenses,
       a challenger and a judge; the judge writes S/push-check/5060a52500a39bdadbe5f14d73feadbbd8fe9868.json, superseding f2329df
       only if every held item is resolved. Never write it by hand.
-  (b) The presim of 5060a52, started 03:50 detached. Log S/presim-20261108-0400.log; cache
-      S/simcache/translator-5060a52500a39bdadbe5f14d73feadbbd8fe9868.txt.
+  (b) DONE 05:55: the presim of 5060a52 gave SIMULATION OK on a clean tree (suite 22721 passed, 0 failed, 0 skipped;
+      harness = recorded; contained 355/355). Cache S/simcache/translator-5060a52500a39bdadbe5f14d73feadbbd8fe9868.txt.
+      (a) DONE 04:18: push check hold=false, supersedes f2329df. Gate evaluation: the live gate holds on f2329df; the
+      proposed gate gives FINAL 5060a52. ROUND 8 IS READY TO UPLOAD; only Daniel's decision #208 blocks it.
   (c) Phase 2, resumed (wf_eee12853-0ae, task wfk2cwnqn). Cached through commit:arch-overseer; arch:twofold is running, then
       feedback, the architecture lenses and fixes, then rounds 9 (c2) and 10 (c3). phase2-cont.js gained ROUNDS_ENV (backup
       .before-rounds-env): from the step after the architecture commit, verification runs the suite with a copy of the rounds.
