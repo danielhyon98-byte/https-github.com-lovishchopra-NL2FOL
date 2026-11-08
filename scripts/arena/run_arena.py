@@ -214,6 +214,12 @@ warning (W110, W111: the encoding leaves open a figure no source asserts) are co
 for a STEM id) is never served; each genuine record names such fixtures (``fixtures_matching_no_delivered_claim``) and results.json and
 summary.md total them (``translation_fixtures_matching_no_delivered_claim``), so a smaller outcome count is not read as fewer eligible
 claims.
+
+Specialist revisions (design section 53 of ``overseer/docs/OVERSEER_DESIGN.md``): when the round holds ``feedback/`` (written by
+``revision_feedback.py``) the revision pass (``revision_pass``) replays the genuine traffic on an audited hub of its own,
+re-issues every revision request and compares it with the recorded feedback, delivers each recorded revision
+(``revisions/<task>.json``) and reports each outcome in ``revisions`` (results.json) and "Specialist revisions" (summary.md),
+apart from every other measure: it adds no record and moves no transport count, so the headline rate excludes it.
 """
 from __future__ import annotations
 
@@ -259,6 +265,9 @@ _DELIVERY_VERIFY_CLAIM = verify_claim
 #: Whether ``run_round`` runs the delivery pass. The contained harness (``overseer/scripts/ovs_harness.py``) switches it
 #: off while it replaces this module's hub and verifier: its runs measure the transfer auditor, not delivery.
 DELIVERY_PASS = True
+#: The specialist revisions of a round (``revision_pass``; design section 53): a measure of its own, run only when the round
+#: holds ``feedback/`` (and ``revisions/``). A harness may switch it off as it does the delivery pass.
+REVISION_PASS = True
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
@@ -573,6 +582,16 @@ def load_items(spec_dir: Path, include_pending: bool = False) -> list[dict]:
         for task in json.loads(tasks_file.read_text()):
             if task["task_id"] not in have:
                 items.append({**task, "_path": spec_dir / f"{task['task_id']}.json", "_pending": True})
+    if tasks_file.exists():
+        # a task's revision budget (design section 53) is the round's setting: taken from tasks.json when the specialist file
+        # does not carry it (no recorded round before round 8 sets one, so their plans are unchanged)
+        try:
+            budgets = {t["task_id"]: t["revision_rounds"] for t in json.loads(tasks_file.read_text()) if isinstance(t, dict) and "revision_rounds" in t}
+        except (ValueError, KeyError, TypeError):
+            budgets = {}
+        for it in items:
+            if "revision_rounds" not in it and it["task_id"] in budgets:
+                it["revision_rounds"] = budgets[it["task_id"]]
     order = {it["task_id"]: i for i, it in enumerate(items)}
     items.sort(key=lambda it: (1 if it.get("peer_of") else 0, order[it["task_id"]]))
     return items
@@ -599,8 +618,13 @@ def group_plan(items: list[dict], group: str) -> WorkPlan:
     agent_subjects = {it["agent_id"]: it["subject"] for it in gitems if it["subject"] != primary["subject"]}
     agent_task_types = {it["agent_id"]: it["task_type"] for it in gitems if it.get("task_type") and it["task_type"] != primary_task_type}
     doc_ids = sorted({t["document_id"] for it in gitems for t in it.get("supplied_texts", [])} | {f"peer:{it['peer_of']}" for it in gitems if it.get("peer_of")})
+    # the revision rounds a round's tasks set (round 8: revision_rounds 1, so each flawed answer gets feedback once); a group
+    # whose tasks set none has the plan it had before, budgets and digest included
+    rounds = sorted({it["revision_rounds"] for it in gitems if isinstance(it.get("revision_rounds"), int) and not isinstance(it.get("revision_rounds"), bool)})
+    extra = {"budgets": {"revision_rounds": rounds[0]}} if rounds else {}
     return WorkPlan(plan_id=f"plan-{group}", request_id=f"req-{group}", task_id=group, subject=primary["subject"], task_type=primary_task_type,
-                    selected_agent_ids=[*agents, "dummy-combinator"], allowed_document_ids=doc_ids, agent_subjects=agent_subjects, agent_task_types=agent_task_types)
+                    selected_agent_ids=[*agents, "dummy-combinator"], allowed_document_ids=doc_ids, agent_subjects=agent_subjects, agent_task_types=agent_task_types,
+                    **extra)
 
 
 def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_name: str, document_text: str | None = None):
@@ -2172,6 +2196,299 @@ def delivery_lines(d: dict) -> list[str]:
     return lines
 
 
+# ============================================================================================ specialist feedback (design section 53)
+#: Where ``revision_feedback.py`` writes the infrastructure's feedback on each genuine answer (``<round>/feedback/<task>.json``)
+#: and where the round's pipeline records each specialist's revision (``<round>/revisions/<task>.json``).
+FEEDBACK_DIR = "feedback"
+REVISIONS_DIR = "revisions"
+#: The keys of a feedback file. ``rendered`` is the one part the specialist reads (its next turn, after its own answer);
+#: the rest is the router's record: whether a revision request was issued and, if not, why; the signed block, its digest,
+#: the flaws (code, severity, class, basis, rule, claim ids, fault signature) and the number of advisory items.
+FEEDBACK_FILE_KEYS = ("task_id", "agent_id", "answer_status", "issued", "reason", "round", "max_rounds", "rendered", "rendered_sha256", "block", "flaws",
+                      "advisory", "refusal")
+#: The keys a revision file must carry; the pipeline records the specialist's call beside them (model, effort, kb_version,
+#: bundle_sha256, started_at, finished_at, elapsed_s, input_tokens, output_tokens), which the harness reports as given.
+REVISION_FILE_REQUIRED = ("task_id", "agent_id", "feedback_sha256", "response_text")
+#: The fields of a feedback file a re-issued request must reproduce exactly (recorded_feedback_checks).
+FEEDBACK_COMPARED = ("issued", "reason", "round", "max_rounds", "rendered_sha256", "flaws", "keep")
+#: The shadow's codes on a transfer it does not reproduce (OVS-RCPT-004 a finding missing, 005 a finding the shadow does not
+#: raise, 008 another status or other structured results).
+SHADOW_CODES = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
+
+
+def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, auditor=None, task_ids=None):
+    """Each group's genuine traffic replayed on a hub of its own carrying a transfer auditor (the delivery pass's unless
+    ``auditor`` is given), in the genuine pass's order: the requests, the peer relays (the recorded relayed document when
+    there is one) and the answers, with no translator fixture (no claim outcome is ever fed back, so the flaws do not
+    depend on one); then, for every genuine specialist answer (standalone and peer-dependent, never a synthesis;
+    ``task_ids`` limits them), the infrastructure's revision request (``RouterHub.request_revision``: the flaws come from
+    the answer's receipt and a signed task audit, never from an agent). Returns ``(hub, entries)``: per task id its item,
+    hub key, request, answer (None when not delivered), receipt and ``RevisionIssue``, or ``error``. The caller closes
+    the hub."""
+    hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor if auditor is not None else _delivery_auditor())
+    channels: dict[str, object] = {}
+    delivered: dict[str, object] = {}
+    entries: dict[str, dict] = {}
+    recorded_relays = recorded_relays or {}
+    for item in items:
+        sp, task_id, group = item["_path"], item["task_id"], group_of(item)
+        entry = entries[task_id] = {"item": item, "key": group}
+        try:
+            if group not in channels:
+                channels[group] = hub.open_task(group_plan(items, group))
+            texts = supplied(item)
+            if item.get("peer_of"):
+                recorded_doc = recorded_relays[task_id]["payload"].get("original_response") if task_id in recorded_relays else None
+                _rec, ptext, _relayed = relay_from_peer(channels[group], items, item, delivered, sp.name, recorded_doc)
+                if ptext is None:
+                    entry["error"] = "its peer report was not relayed"
+                    continue
+                texts = [*texts, ptext]
+            m, _req, rq = hub.dispatch(group, item["agent_id"], item["question"], texts)
+            if m is None:
+                entry["error"] = f"its request was {rq.status.value}"
+                continue
+            reply, rc = hub.receive(group, m.message_id, item["response_text"], agent_id=item["agent_id"], report_id=f"rep-{task_id}-0")
+            entry.update(request=m, answer=reply, receipt=rc, receipt_dump=rc.model_dump(mode="json"))
+            if reply is not None:
+                delivered[sp.stem] = reply
+        except Exception as exc:  # recorded, never allowed to end the round
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+    for task_id, entry in entries.items():
+        if entry.get("error") or (task_ids is not None and task_id not in task_ids):
+            continue
+        try:
+            t0 = time.perf_counter()
+            entry["issue"] = hub.request_revision(entry["key"], entry["receipt"].message_id)
+            entry["issue_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        except Exception as exc:
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+    return hub, entries
+
+
+def feedback_document(entry: dict) -> dict:
+    """The content of ``<round>/feedback/<task>.json`` (FEEDBACK_FILE_KEYS, nothing else) for one replayed answer."""
+    item, issue, rc = entry["item"], entry.get("issue"), entry.get("receipt")
+    doc = {k: None for k in FEEDBACK_FILE_KEYS}
+    doc.update(task_id=item["task_id"], agent_id=item["agent_id"], answer_status=rc.status.value if rc is not None else None, issued=False,
+               reason="not_replayed" if issue is None else issue.reason, flaws=[], advisory=0)
+    if issue is None:
+        doc["refusal"] = entry.get("error")
+        return doc
+    doc.update(round=issue.round or None, max_rounds=issue.max_rounds or None)
+    if issue.receipt is not None and not issue.allowed:
+        doc["refusal"] = "; ".join(f"{f.code}: {f.message[:400]}" for f in issue.receipt.findings if f.severity == "error") or None
+    if issue.escalation is not None:
+        doc["refusal"] = f"escalated: {issue.escalation.reason}"
+    if issue.allowed and issue.revision is not None:
+        block = issue.revision
+        doc.update(issued=True, rendered=issue.rendered, rendered_sha256=block.rendered_sha256, block=block.model_dump(mode="json", exclude_none=True),
+                   flaws=[{"flaw_id": f.flaw_id, "code": f.code, "severity": f.severity, "flaw_class": f.flaw_class, "basis": f.basis, "rule": f.rule,
+                           "claim_ids": [c.claim_id for c in f.claims], "signature": f.signature} for f in block.flaws],
+                   advisory=sum(1 for f in block.flaws if f.basis == "advisory"))
+    return doc
+
+
+def _keep_of(doc: dict | None) -> list | None:
+    return None if doc is None or not doc.get("block") else doc["block"].get("must_not_change")
+
+
+def feedback_differences(recorded: dict, current: dict | None) -> list[str]:
+    """The fields of FEEDBACK_COMPARED in which the re-issued request differs from the recorded feedback file (empty when the
+    specialist read what this code issues): a difference means the feedback differs from what the specialist read."""
+    if current is None:
+        return ["the answer was not replayed"]
+    out = []
+    for k in FEEDBACK_COMPARED:
+        a, b = (_keep_of(recorded), _keep_of(current)) if k == "keep" else (recorded.get(k), current.get(k))
+        if a != b:
+            out.append(k)
+    return out
+
+
+def revision_feedback(round_dir: Path, task_ids=None) -> dict:
+    """Build, through the audited hub, the infrastructure's feedback on every genuine answer of the round (or on
+    ``task_ids``) and write ``<round>/feedback/<task_id>.json`` (``feedback_document``). Returns the files and the count by
+    reason. Nothing is sent to a specialist: the pipeline sends ``rendered`` as the specialist's next turn."""
+    items = load_items(round_dir / "specialists")
+    wanted = set(task_ids) if task_ids else None
+    hub, entries = _feedback_replay(items, load_recorded_relays(round_dir, items), task_ids=wanted)
+    out = {"files": [], "by_reason": {}, "issued": 0}
+    try:
+        (round_dir / FEEDBACK_DIR).mkdir(exist_ok=True)
+        for task_id, entry in entries.items():
+            if wanted is not None and task_id not in wanted:
+                continue
+            doc = feedback_document(entry)
+            path = round_dir / FEEDBACK_DIR / f"{task_id}.json"
+            path.write_text(json.dumps(doc, indent=2, ensure_ascii=False, default=str))
+            out["files"].append(str(path))
+            out["by_reason"][doc["reason"]] = out["by_reason"].get(doc["reason"], 0) + 1
+            out["issued"] += 1 if doc["issued"] else 0
+            out.setdefault("tasks", []).append({k: doc[k] for k in ("task_id", "agent_id", "issued", "reason")} | {"codes": [f["code"] for f in doc["flaws"]]})
+    finally:
+        hub.close()
+    return out
+
+
+def _consolidation_state(hub, key: str, mids: list[str]) -> dict:
+    try:
+        resp = hub.consolidate(key, request_message_ids=mids)
+        return {"status": resp.status, "deliverable_message_id": resp.deliverable_message_id, "excluded": sorted(resp.excluded_message_ids())}
+    except Exception as exc:  # recorded, never allowed to end the pass
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> dict:
+    """The specialist revisions of the round (design section 53), a measure of its own: only when the round has a
+    ``feedback/`` directory. Each group's genuine traffic is replayed on an audited hub and each request re-issued
+    (``recorded_feedback_checks``: the flaws, the keep list and the rendered digest against what was recorded; a difference
+    means the feedback differs from what the specialist read); each recorded revision (``revisions/<task>.json``) is
+    delivered in reply to it under the report id ``rep-<task>-rev1``, the task audit runs with the shadow, and each
+    revision's outcome (fixed, removed, evaded, persisted, not re-checked; introduced flaws, preservation findings, claims
+    lost; the next step) and its consolidation before and after are recorded with the times. The pass adds no record to
+    the round and moves no transport count: the headline rate excludes it."""
+    fb_dir, rev_dir = round_dir / FEEDBACK_DIR, round_dir / REVISIONS_DIR
+    if not fb_dir.is_dir():
+        return {"skipped": "the round has no feedback/ directory (scripts/arena/revision_feedback.py was not run)", "tasks": [], "checks": [], "errors": []}
+    t_pass = time.perf_counter()
+    recorded = {p.stem: json.loads(p.read_text()) for p in sorted(fb_dir.glob("*.json"))}
+    revisions = {p.stem: json.loads(p.read_text()) for p in sorted(rev_dir.glob("*.json"))} if rev_dir.is_dir() else {}
+    out: dict = {"tasks": [], "checks": [], "errors": [], "answers_checked": 0, "feedback_issued": 0, "negative_controls": 0}
+    try:
+        hub, entries = _feedback_replay(items, recorded_relays)
+    except Exception as exc:
+        out["errors"].append({"error": f"the revision pass could not start: {type(exc).__name__}: {exc}"})
+        return out
+    try:
+        for task_id, entry in entries.items():
+            if entry.get("receipt") is not None:
+                out["answers_checked"] += 1
+            issue = entry.get("issue")
+            if issue is not None and issue.allowed:
+                out["feedback_issued"] += 1
+            elif issue is not None and issue.reason == "no_actionable_flaw":
+                out["negative_controls"] += 1
+        for task_id, rec in recorded.items():
+            entry = entries.get(task_id)
+            diff = feedback_differences(rec, feedback_document(entry) if entry is not None else None)
+            out["checks"].append({"task_id": task_id, "identical": not diff, "differences": diff})
+        groups: dict[str, list[str]] = {}
+        for task_id, rev in revisions.items():
+            entry = entries.get(task_id)
+            issue = (entry or {}).get("issue")
+            rec = {"task_id": task_id, "agent_id": (entry or {}).get("item", {}).get("agent_id"), "delivered": False}
+            missing = [k for k in REVISION_FILE_REQUIRED if k not in rev]
+            if missing or issue is None or not issue.allowed:
+                rec["error"] = (f"the revision file lacks {missing}" if missing else
+                                f"no revision request was issued for this answer ({issue.reason if issue is not None else (entry or {}).get('error')}): "
+                                "a revision of a flawless answer, or of one whose chain ended, is never delivered")
+                out["tasks"].append(rec)
+                continue
+            rec["feedback_read"] = rev["feedback_sha256"] == issue.revision.rendered_sha256
+            if not rec["feedback_read"] or (task_id in recorded and recorded[task_id].get("rendered_sha256") != issue.revision.rendered_sha256):
+                rec["flag"] = "feedback differs from what the specialist read"
+            key = entry["key"]
+            rec["consolidation_before"] = _consolidation_state(hub, key, [entry["request"].message_id])
+            t0 = time.perf_counter()
+            r2, rc2 = hub.receive(key, issue.message.message_id, rev["response_text"], agent_id=entry["item"]["agent_id"], report_id=f"rep-{task_id}-rev1")
+            rec.update(delivered=r2 is not None, receive_ms=round((time.perf_counter() - t0) * 1000, 1), revision_status=rc2.status.value,
+                       revision_codes=sorted({f.code for f in rc2.findings} | {sf.code for sf in rc2.structural_findings}),
+                       flaws_before=[{k: f[k] for k in ("code", "severity", "flaw_class", "basis")} for f in feedback_document(entry)["flaws"]],
+                       issue_ms=entry.get("issue_ms"), specialist={k: rev.get(k) for k in ("elapsed_s", "input_tokens", "output_tokens", "model", "effort",
+                                                                                          "kb_version", "bundle_sha256")})
+            entry.update(revision_receipt=rc2, record=rec)
+            groups.setdefault(key, []).append(task_id)
+            out["tasks"].append(rec)
+        for key, task_ids in groups.items():
+            t0 = time.perf_counter()
+            audit = hub.audit(key, shadow=True)
+            audit_ms = round((time.perf_counter() - t0) * 1000, 1)
+            for task_id in task_ids:
+                entry = entries[task_id]
+                rec, issue, rc2 = entry["record"], entry["issue"], entry["revision_receipt"]
+                mids = {issue.message.message_id, rc2.message_id}
+                rec["audit_ms"] = audit_ms
+                rec["shadow_codes"] = sorted({f.code for f in audit.report.findings if f.code in SHADOW_CODES and mids & set(f.message_ids)})
+                rec["feedback_audit_codes"] = sorted({f.code for f in audit.report.findings if f.code == "OVS-FB-001" and mids & set(f.message_ids)})
+                held = next((r for r in hub.channels[key].receipts if r.message_id == entry["receipt"].message_id), None)
+                rec["original_receipt_unchanged"] = held is not None and held.model_dump(mode="json") == entry["receipt_dump"]
+                t0 = time.perf_counter()
+                outcome = hub.revision_outcome(key, rc2.message_id)
+                rec["outcome_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                rec.update(buckets=[{"code": f.code, "severity": f.severity, "basis": f.basis, "bucket": f.bucket, "removal_allowed": f.removal_allowed}
+                                    for f in outcome.flaws],
+                           introduced=[i.code for i in outcome.introduced], preservation=list(outcome.preservation), claims_lost=list(outcome.claims_lost),
+                           repeats=list(outcome.repeat_signatures), next=outcome.next, escalation_reason=outcome.escalation_reason)
+                rec["consolidation_after"] = _consolidation_state(hub, key, [entry["request"].message_id, issue.message.message_id])
+                persisting = [b for b in rec["buckets"] if b["bucket"] == "persisted" and b["severity"] == "error"]
+                after = rec["consolidation_after"]
+                rec["persisting_error_withheld"] = not persisting or (rc2.message_id in after.get("excluded", []) and outcome.next == "escalated")
+    except Exception as exc:  # recorded, never allowed to end the round
+        out["errors"].append({"error": f"{type(exc).__name__}: {exc}", "trace": traceback.format_exc()[-1500:]})
+    finally:
+        try:
+            hub.close()
+        except Exception:
+            pass
+    out.update(revision_summary(out))
+    out["wall_s"] = round(time.perf_counter() - t_pass, 3)
+    return out
+
+
+def revision_summary(d: dict) -> dict:
+    """The round summary of its revisions: counts, the fix rate (fixed plus removed where allowed, over the flaws fed back
+    less those not re-checked), the specialist's median and p90 time, and the gates."""
+    tasks = [t for t in d.get("tasks", []) if t.get("delivered") or "buckets" in t]
+    flaws = [b for t in tasks for b in t.get("buckets", []) if b["basis"] != "advisory"]
+    n = {k: sum(1 for b in flaws if b["bucket"] == k) for k in ("fixed", "removed", "evaded", "persisted", "not_rechecked")}
+    allowed = sum(1 for b in flaws if b["bucket"] == "removed" and b.get("removal_allowed"))
+    base = len(flaws) - n["not_rechecked"]
+    times = [float(t["specialist"]["elapsed_s"]) for t in tasks if (t.get("specialist") or {}).get("elapsed_s") is not None]
+    gates = {"feedback_as_read": all(c["identical"] for c in d.get("checks", [])) and not any(t.get("flag") for t in d.get("tasks", [])),
+             "no_feedback_without_request": not any("no revision request was issued" in (t.get("error") or "") for t in d.get("tasks", [])),
+             "feedback_verifies": not any(t.get("feedback_audit_codes") for t in tasks),
+             "shadow_agrees_on_revision_transfers": not any(t.get("shadow_codes") for t in tasks),
+             "original_receipts_unchanged": all(t.get("original_receipt_unchanged", True) for t in tasks),
+             "persisting_errors_withheld_and_escalated": all(t.get("persisting_error_withheld", True) for t in tasks)}
+    return {"answers_revised": sum(1 for t in tasks if t.get("delivered")), "flaws_fed_back": len(flaws), "buckets": n, "removed_allowed": allowed,
+            "fix_rate": ((n["fixed"] + allowed) / base) if base else None, "introduced": sum(len(t.get("introduced", [])) for t in tasks),
+            "preservation_findings": sum(len(t.get("preservation", [])) for t in tasks), "claims_lost": sum(len(t.get("claims_lost", [])) for t in tasks),
+            "escalated": sum(1 for t in tasks if t.get("next") == "escalated"),
+            "specialist_time_s": {"median": statistics.median(times), "p90": _percentile(times, 0.9)} if times else None, "gates": gates}
+
+
+def revision_lines(d: dict) -> list[str]:
+    """summary.md's section on the specialist revisions: kept apart from the transport, fidelity and coverage measures
+    and from the functional rate (the headline excludes it)."""
+    if d.get("skipped"):
+        return ["## Specialist revisions", "", f"(not run: {d['skipped']})"]
+    b = d.get("buckets") or {}
+    rate = "-" if d.get("fix_rate") is None else f"{d['fix_rate']:.1%}"
+    st = d.get("specialist_time_s") or {}
+    lines = ["## Specialist revisions (design section 53: a separate measure; the headline rate excludes it)", "",
+             f"Answers checked {d.get('answers_checked', 0)}, feedback issued {d.get('feedback_issued', 0)}, answers revised {d.get('answers_revised', 0)}; "
+             f"negative controls (no actionable flaw, no feedback) {d.get('negative_controls', 0)}. Flaws fed back {d.get('flaws_fed_back', 0)}: fixed {b.get('fixed', 0)}, "
+             f"removed {b.get('removed', 0)} ({d.get('removed_allowed', 0)} allowed), evaded {b.get('evaded', 0)}, persisted {b.get('persisted', 0)}, "
+             f"not re-checked {b.get('not_rechecked', 0)}; fix rate {rate}. Introduced {d.get('introduced', 0)}, preservation findings (INT-REV-002) "
+             f"{d.get('preservation_findings', 0)}, claims lost {d.get('claims_lost', 0)}, escalated {d.get('escalated', 0)}."
+             + (f" Specialist time: median {st['median']:g} s, p90 {st['p90']:g} s." if st else ""), "",
+             "Gates: " + ", ".join(f"{k} {'PASS' if v else 'FAIL'}" for k, v in (d.get("gates") or {}).items()), "",
+             "| task | revision | flaws (bucket) | introduced | INT-REV-002 | next | flag |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    for t in d.get("tasks", []):
+        if "error" in t and not t.get("delivered"):
+            lines.append(f"| {t['task_id']} | not delivered | - | - | - | - | {t['error'][:160]} |")
+            continue
+        fl = "; ".join(f"{x['code']} {x['bucket']}" for x in t.get("buckets", [])) or "-"
+        lines.append(f"| {t['task_id']} | {t.get('revision_status')} | {fl} | {', '.join(t.get('introduced', [])) or '-'} | {len(t.get('preservation', []))} | "
+                     f"{t.get('next', '-')} | {t.get('flag', '')} |")
+    diffs = [c for c in d.get("checks", []) if not c["identical"]]
+    lines += [f"- feedback differs from what the specialist read: {c['task_id']} ({', '.join(c['differences'])})" for c in diffs]
+    lines += [f"- revision pass error: {e.get('error')}" for e in d.get("errors", [])]
+    return lines
+
+
+
 def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_record: bool = True) -> dict:
     """Run one recorded round (module docstring). ``delivery_overseer`` configures the delivery pass's overseer agents
     (``delivery_pass``); the command line passes none. ``task_record`` (default True, as production): the claim verifier
@@ -2433,6 +2750,10 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer) if DELIVERY_PASS else
                   {"skipped": "the delivery pass is switched off (DELIVERY_PASS is False: a harness that replaces this module's hub or verifier "
                               "runs this round)", "tasks": [], "by_mode": {}, "errors": []})
+    # the specialist revisions (design section 53): a pass of its own, only when the round recorded the feedback its specialists
+    # read; it adds no record and moves no transport count
+    revisions = (revision_pass(round_dir, items, recorded_relays) if REVISION_PASS else
+                 {"skipped": "the revision pass is switched off (REVISION_PASS is False)", "tasks": [], "checks": [], "errors": []})
     total = len(records)
     functional = sum(1 for r in records if r.get("functional"))
     # Translation outcomes: the genuine pass verifies every eligible claim with a fixture exactly once, so its counts are
@@ -2481,6 +2802,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "deliveries": deliveries,
+           "revisions": revisions,
            "failures": [r for r in records if not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
     out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record)
@@ -2528,6 +2850,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     if not out["mutations_with_unexplained_findings"]:
         lines.append("(none)")
     lines += [""] + delivery_lines(out["deliveries"])
+    lines += [""] + revision_lines(out["revisions"])
     lines += ["", "## Failures", ""] + ([f"- {r['file']} [{r['variant']}]: {'; '.join(([r['error']] if r.get('error') else []) + (r.get('failure_reasons') or [])) or ('status ' + str(r.get('status')) + ' codes ' + str(r.get('codes')))}" for r in out["failures"]] or ["(none)"])
     (round_dir / "summary.md").write_text("\n".join(lines))
     return out

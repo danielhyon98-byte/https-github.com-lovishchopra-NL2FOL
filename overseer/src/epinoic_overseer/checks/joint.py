@@ -112,11 +112,21 @@ class PooledClaim:
         self.claim_id, self.problem, self.ambiguous, self.report_id, self.agent_id, self.seq = claim_id, problem, ambiguous, report_id, agent_id, seq
 
 
+def _revised_report_id(view, t: Transfer) -> Optional[str]:
+    """The report id a revision's revision request revises (``None`` for an answer to any other request)."""
+    if t.kind not in ("response", "response_text"):
+        return None
+    req = view.by_message.get(t.in_reply_to or "")
+    block = req.request.revision if req is not None and req.request is not None else None
+    return block.revises_report_id if block is not None else None
+
+
 def derived_pool(view, upto_seq: Optional[int] = None) -> list[PooledClaim]:
     """The cross-agent pool as the journaled OUTCOMES define it (the channel's pooling rule re-applied, never its own
     pool): in delivery order, every delivered non-echo report first supersedes the claims of the same ids that the same
     agent formalized in another report (the channel's ``_supersession`` rule; a report that answers nothing supersedes
-    nothing), then pools each of its outcomes that carries a problem, keyed by claim id (a later version wins)."""
+    nothing; a revision first supersedes every claim of the report its revision request revises), then pools each of its
+    outcomes that carries a problem, keyed by claim id (a later version wins)."""
     from epinoic_logic.api.channel import material_claims as _material_claims
     from epinoic_logic.api.translate import TranslationStatus
     pool: dict[str, PooledClaim] = {}
@@ -128,6 +138,12 @@ def derived_pool(view, upto_seq: Optional[int] = None) -> list[PooledClaim]:
         rep = t.report
         answers = not any(f.code in ("INT-REQ-011", "INT-REQ-012") for f in t.receipt.findings) and bool(_material_claims(rep))
         if answers:
+            # a revision supersedes the report its revision request revises, whatever their claims share: every pooled claim
+            # of that report leaves the pool (the channel's ``_revision_supersession``, design section 53)
+            revised = _revised_report_id(view, t)
+            if revised is not None and revised != rep.report_id:
+                for cid in [cid for cid, held in pool.items() if held.report_id == revised and held.agent_id == rep.agent_id]:
+                    del pool[cid]
             for c in rep.claims:
                 held = pool.get(c.claim_id)
                 if held is not None and held.agent_id == rep.agent_id and held.report_id != rep.report_id:

@@ -48,6 +48,13 @@ Observation and the Overseer (optional; ``docs/OVERSEER_DESIGN.md`` sections 4, 
     per-instance quota or with repeated faults, never past its maximum), every repeated-fault dossier goes to two
     independent instances, and each task is reviewed through ``review`` by the instances its plan assigns, the plan
     recorded in the signed verdicts audit. Instances are overseer agents: they never certify anything or change a status;
+  - ``request_revision(task_key, answer_message_id)``, ``revision_outcome(task_key, revised_message_id)`` and
+    ``revisions(task_key)``: specialist feedback and revision (``channel/feedback.py``, ``epinoic_overseer.feedback``).
+    The infrastructure, never an agent, sends the author of an answer the allowlisted flaws its checks found, as a signed
+    ``revision_request/1.0`` block on a re-issued copy of the original request (``task_request/1.1``, in reply to the
+    answer); the router names the answer and supplies no text. The revision is a new answer checked in full; its outcome
+    (fixed, removed, evaded, persisted, not re-checked) and any escalation are signed records of the hub's revision ledger,
+    bounded by the plan's ``budgets['revision_rounds']``. Feedback changes no receipt, result, status or clearance;
   - ``close_task(task_key)``: the channel leaves ``channels`` for ``closed_channels``, its FINAL task audit is issued
     and its journal sealed (a later transfer on it is reported, CUST-003);
   - ``close()``: stops the auditor's replay worker (process mode) when the last hub using that auditor closes.
@@ -154,6 +161,27 @@ class PoolReview:
     task_keys: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RevisionIssue:
+    """What one ``RouterHub.request_revision`` did. ``allowed`` says whether a revision request went to the answer's author
+    (``reason`` ``issued``), else why not: ``no_actionable_flaw``, ``disabled`` (the plan's budget is 0), ``escalated``
+    (the chain was escalated earlier), ``budget_exhausted``, ``repeated_after_feedback`` or ``revision_not_delivered``
+    (each with the signed ``escalation`` it recorded), ``refused_by_channel`` (the channel's INT-REV-001: ``receipt``
+    says why), ``not_an_answer``, ``task_closed``. ``rendered`` is the exact text the router sends to that specialist as
+    its next turn and nothing else: the full answer is never pasted. Nothing here changes a receipt, a result, a status
+    or a clearance."""
+    allowed: bool
+    reason: str
+    round: int = 0
+    max_rounds: int = 0
+    message: Optional[AgentMessage] = None
+    request: Optional[TaskRequest] = None
+    receipt: Optional[TransmissionReceipt] = None
+    revision: Optional[Any] = None
+    rendered: Optional[str] = None
+    escalation: Optional[Any] = None
+
+
 def _same_subkeys(a: Any, b: Any) -> bool:
     return a is b or all(hmac.compare_digest(a.subkey(label), b.subkey(label)) for label in ("audit", "intake", "runs", "journal"))
 
@@ -179,6 +207,10 @@ class RouterHub:
         self.auditor: Optional[Any] = None
         self.intake: Optional[Any] = None
         self._consolidations: dict[str, list[Any]] = {}
+        #: channel uid -> the signed records of specialist feedback (issued revision requests, outcomes, escalations), in order
+        self._revisions: dict[str, list[tuple[str, Any]]] = {}
+        #: channel uid -> every signed verdicts-scope audit a review of it issued (the advisory items of feedback read them)
+        self._verdicts_audits: dict[str, list[Any]] = {}
         if auditor is not None:
             missing = [m for m in _AUDITOR_METHODS if not hasattr(auditor, m)]
             if missing:
@@ -471,6 +503,56 @@ class RouterHub:
     def review(self, task_key: Any, runners: Sequence[Any], *, mode: str = "informed", pool_plan: Optional[Any] = None) -> HubReview:
         """Overseer agents review the task's transfers (see the module docstring). Agents never gate clearance."""
         return self._operations().review(self, task_key, runners, mode=mode, pool_plan=pool_plan)
+
+    def record_verdicts(self, channel_uid: str, audit: Any) -> None:
+        """Keep a deep copy of a signed verdicts-scope audit a review of the channel issued (a hook of the overseer's
+        operations: the advisory items of specialist feedback read only these copies, never an agent's text)."""
+        with self._lock:
+            self._verdicts_audits.setdefault(channel_uid, []).append(audit.model_copy(deep=True))
+
+    def verdicts_audits(self, channel_uid: str) -> list[Any]:
+        """Every signed verdicts-scope audit a review of the channel issued, in order (copies)."""
+        with self._lock:
+            return [a.model_copy(deep=True) for a in self._verdicts_audits.get(channel_uid, [])]
+
+    # ------------------------------------------------------------------ specialist feedback and revision
+    def request_revision(self, task_key: Any, answer_message_id: str, *, from_agent_id: str = "router") -> RevisionIssue:
+        """Send the infrastructure's feedback on the answer ``answer_message_id`` to the specialist that wrote it, carried
+        out by the auditor's ``hub_operations`` (``epinoic_overseer.feedback``): the router names an answer and supplies no
+        text. The flaws are the allowlisted findings of its receipt, of the reference task audit and, marked advisory, the
+        unresolved accusations a review validated (``channel/feedback.py``); the block is signed under the overseer
+        feedback key and the original request is re-issued with it to the author (``task_request/1.1``, in reply to the
+        answer), byte-identical otherwise. The router sends the specialist exactly ``RevisionIssue.rendered`` and delivers
+        the reply through ``receive`` in reply to ``RevisionIssue.message`` under a new report id. Bounded by the plan's
+        ``budgets['revision_rounds']`` (default 2, at most 3; 0 disables); a repeated fault or a spent budget escalates
+        the chain (signed, for human review). Raises :class:`AuditorNotAttached` without an auditor and
+        :class:`HubClosed` on a closed hub."""
+        ops = self._operations()
+        self._check_open()
+        return ops.request_revision(self, task_key, answer_message_id, from_agent_id=from_agent_id)
+
+    def revision_outcome(self, task_key: Any, revised_message_id: str) -> Any:
+        """The signed outcome of a revision (``epinoic_overseer.feedback.RevisionOutcome``): each flaw fed back fixed,
+        removed, evaded, persisted or not re-checked, the flaws introduced, the preservation findings, the claims lost and
+        the next step (done, revise_again or escalated), decided from the revision's receipt and a fresh task audit, never
+        from the specialist's words. Recorded in the hub's revision ledger."""
+        return self._operations().revision_outcome(self, task_key, revised_message_id)
+
+    def revisions(self, task_key: Any) -> dict[str, list[Any]]:
+        """The revision ledger of the channel ``task_key`` names: issued revision requests, outcomes and escalations
+        (signed records, deep copies), each list in order."""
+        return self._operations().revisions(self, task_key)
+
+    def record_revision(self, channel_uid: str, kind: str, record: Any) -> None:
+        """Append a signed feedback record (``issued``, ``outcome`` or ``escalation``) to the channel's revision ledger (a
+        deep copy, under the hub's lock; a hook of the overseer's operations)."""
+        with self._lock:
+            self._revisions.setdefault(channel_uid, []).append((kind, record.model_copy(deep=True)))
+
+    def revision_records(self, channel_uid: str) -> list[tuple[str, Any]]:
+        """The channel's revision ledger, in order (copies; a hook of the overseer's operations)."""
+        with self._lock:
+            return [(k, r.model_copy(deep=True)) for k, r in self._revisions.get(channel_uid, [])]
 
     # ------------------------------------------------------------------ lifecycle
     @property

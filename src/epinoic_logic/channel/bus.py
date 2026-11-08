@@ -137,9 +137,11 @@ from ..translate.diag_core import report_diagnostics
 from ..translate.grounding import check_claim_sources, locate_excerpt, locate_long_elision, locate_quotation, locate_quotation_inexact
 from ..version import ARG_RULES_VERSION
 from .citations import citation_evidence
-from .contracts import Constraint, ConstraintResult, CoverageRecord, SUMMARY_MAX_CHARS, TaskRequest, TransmissionReceipt, TransmissionStatus
+from .contracts import (Constraint, ConstraintResult, CoverageRecord, REVISION_REQUEST_CONTRACT, RevisionRequest, SUMMARY_MAX_CHARS, TaskRequest,
+                        TransmissionReceipt, TransmissionStatus)
 from .cues import VERDICT_CUES, verdict_cue_regex
 from .events import ChannelEvent, ObservationState, observe_call
+from .feedback import _parsed_report as _revised_answer_report, check_revision_block, preservation_findings, revision_report_reuse
 from .request_parser import (LEVEL3_VERDICT_TERMS, about_band, blank_quotations, bound_word_measure, count_answer_words, count_paragraphs, extract_constraints,
                              extract_items, measure_answer_words, measured_of, part_label, per_part_bound, question_label, word_bound_severity)
 
@@ -1519,6 +1521,10 @@ class TranslatorChannel:
         self.syntheses: dict[str, Synthesis] = {}            # synthesis_id -> the FIRST synthesis delivered under that id; never overwritten
         self.synthesis_recipients: dict[str, set[str]] = {}  # synthesis_id -> recipients (role|agent) it was delivered to
         self.router_ids: set[str] = set()                    # agent ids that sent this channel's accepted requests: the router's identity
+        # Revision requests (channel/feedback.py): the block each accepted revision request carries, and the revision request
+        # that revises each answer (one open revision request per answer).
+        self.revisions: dict[str, RevisionRequest] = {}      # request message id -> its revision block
+        self.revision_for_answer: dict[str, str] = {}        # revised answer's message id -> the revision request revising it
 
     def _branch_for(self, agent_id: Optional[str]):
         """(branch, profile) serving ``agent_id``: its own subject's branch when the plan assigns one, else the task's."""
@@ -1554,11 +1560,24 @@ class TranslatorChannel:
     # ------------------------------------------------------------------ requests
     @_observed
     def request(self, from_agent_id: str, to_agent_id: str, user_input: str, supplied_texts: list[SuppliedText] = (),
-                *, items=None, constraints=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
+                *, items=None, constraints=None, revision=None) -> tuple[Optional[AgentMessage], TaskRequest, TransmissionReceipt]:
         # Nothing a caller hands over makes this raise: a malformed request (an agent id or a text that is not a string,
         # an empty request, one over the contract's limits) is built for the record from what can be kept and REJECTED
         # with INT-REQ-009 naming every problem.
+        #
+        # ``revision`` (a ``revision_request/1.0`` block, channel/feedback.py) re-issues the original request to the author of
+        # an answer with the infrastructure's feedback: the envelope is ``task_request/1.1`` in reply to that answer, and a
+        # block that does not bind to the answer or carries text it may not is INT-REV-001 (error: REJECTED, never shown to
+        # the specialist). Without it the request is built exactly as before.
         problems: list[str] = []
+        block: Optional[RevisionRequest] = None
+        block_problem: Optional[str] = None
+        if revision is not None:
+            try:
+                block = revision if isinstance(revision, RevisionRequest) else RevisionRequest.model_validate(dict(revision))
+                block = RevisionRequest.model_validate(block.model_dump(mode="json", exclude_none=True))  # the block as the specialist's request carries it
+            except (ValidationError, TypeError, ValueError) as exc:
+                block, block_problem = None, _shape_reason(exc, "revision request")
         from_agent_id = _request_agent_id(from_agent_id, "sender", problems)
         to_agent_id = _request_agent_id(to_agent_id, "addressee", problems)
         bad_input: list[int] = []
@@ -1603,7 +1622,7 @@ class TranslatorChannel:
                       course_level=self.plan.course_level, task_type=self._task_type_for(to_agent_id), created_at=_now())
         try:
             req = TaskRequest(**fields, from_agent_id=from_agent_id, to_agent_id=to_agent_id, user_input=user_input, user_input_sha256=sha256_hex(user_input),
-                              items=items_list, constraints=constraints_list, supplied_texts=texts)
+                              items=items_list, constraints=constraints_list, supplied_texts=texts, **({"revision": block} if block is not None else {}))
         except (ValidationError, TypeError, ValueError) as exc:
             problems.append(f"the request does not validate against the task_request contract: {_shape_reason(exc)}")
             req = TaskRequest(**fields, from_agent_id=from_agent_id, to_agent_id=to_agent_id, user_input=user_input, user_input_sha256=sha256_hex(user_input))
@@ -1636,15 +1655,36 @@ class TranslatorChannel:
             outside = sorted({t.document_id for t in supplied_texts if t.document_id not in set(self.plan.allowed_document_ids)})
             if outside:
                 findings.append(IntegrityFinding(code="INT-HANDOFF-004", severity="error", message=f"request carries documents outside the retrieval scope: {outside}", document_ids=outside))
+        reply_to: Optional[str] = None
+        if revision is not None:
+            reasons = [f"the block does not validate against revision_request/1.0 ({block_problem})"] if block is None else []
+            if block is not None:
+                answer_held = self.log.get(block.revises_message_id) is not None
+                reply_to = block.revises_message_id if answer_held else None
+                try:
+                    reasons = check_revision_block(self, block, from_agent_id=from_agent_id, to_agent_id=to_agent_id, user_input=req.user_input,
+                                                   supplied_texts=req.supplied_texts, items=req.items, constraints=req.constraints)
+                except Exception as exc:  # fail closed: a binding check that cannot run never lets a block through
+                    reasons = [f"the binding check failed internally ({type(exc).__name__})"]
+            if reasons:
+                findings.append(IntegrityFinding(code="INT-REV-001", severity="error",
+                                                 message="revision request REJECTED: " + "; ".join(reasons[:_MAX_NAMED])
+                                                         + (f"; and {len(reasons) - _MAX_NAMED} more" if len(reasons) > _MAX_NAMED else "")
+                                                         + "; it is not sent to the specialist",
+                                                 agent_ids=[to_agent_id], message_ids=[reply_to] if reply_to else []))
         payload = req.model_dump(mode="json", exclude_none=True)
         msg = AgentMessage(message_id=uuid.uuid4().hex, request_id=req.request_id, task_id=req.task_id, sender_agent_id=from_agent_id,
                            sender_role=AgentRole.ROUTER, recipient_role=AgentRole.SPECIALIST, recipient_agent_id=to_agent_id,
-                           contract="task_request/1.0", payload=payload, payload_sha256=payload_hash(payload), created_at=req.created_at)
+                           contract=REVISION_REQUEST_CONTRACT if req.revision is not None else "task_request/1.0", payload=payload,
+                           payload_sha256=payload_hash(payload), in_reply_to=reply_to, created_at=req.created_at)
         findings += self.log.accept(msg)
         status = TransmissionStatus.REJECTED if any(f.severity == "error" for f in findings) else TransmissionStatus.ACCEPTED
         if status is not TransmissionStatus.REJECTED:
             self.requests[msg.message_id] = req
             self.router_ids.add(from_agent_id)
+            if req.revision is not None:
+                self.revisions[msg.message_id] = req.revision
+                self.revision_for_answer[req.revision.revises_message_id] = msg.message_id
         receipt = self._receipt(msg.message_id, "router_to_specialist", status, findings, summary=self._summary_request(req, findings, status))
         return (msg if status is not TransmissionStatus.REJECTED else None), req, receipt
 
@@ -2123,6 +2163,11 @@ class TranslatorChannel:
             findings.append(IntegrityFinding(code="INT-REQ-001", severity="error", message=f"response came from {sender} but the request was addressed to {req.to_agent_id}", agent_ids=sorted({sender, req.to_agent_id}), message_ids=[msg.message_id]))
         findings += check_report_against_plan(self.plan, report)
         findings += self._report_id_reuse(report, msg, findings)
+        if req.revision is not None:  # a revision (channel/feedback.py): a report id of its chain is never reused, stored or not
+            reused = revision_report_reuse(self, report, req, request_message_id)
+            if reused is not None:
+                findings.append(IntegrityFinding(code="INT-HANDOFF-018", severity="error", message=reused + "; the revision is not delivered",
+                                                 report_ids=[report.report_id], agent_ids=[report.agent_id], message_ids=[msg.message_id]))
         # Quotations are checked against the texts the router sent, never against texts the specialist supplies: a report
         # text that is not byte-identical to a request text under its document id (a document the router never sent, or a
         # sent one replaced) is INT-REQ-002, whether or not the request carried texts.
@@ -2188,7 +2233,12 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-REQ-005", severity=word_bound_severity(bound, measured_of(cr.detail)),
                                                  message=f"constraint {cr.constraint_id} not satisfied: {cr.detail}" + (" (blank-line blocks; a paragraph set out in blocks counts as several)" if layout else ""),
                                                  formal_result_id=cr.formal_result_id, deterministic=cr.method != "formal"))
-        self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(report, findings), None, **rid)
+        explicit: frozenset[str] = frozenset()
+        if req.revision is not None:  # a revision: checked for what it may not change, then it supersedes the answer it revises
+            findings += self._guarded("revision preservation (INT-REV-002)", findings, lambda: self._revision_preservation(report, req, request_message_id), [], **rid)
+            explicit = self._guarded("revision supersession (INT-HANDOFF-009)", findings,
+                                     lambda: self._revision_supersession(report, req, request_message_id, findings), frozenset(), **rid)
+        self._guarded("supersession (INT-HANDOFF-009)", findings, lambda: self._supersession(report, findings, explicit=explicit), None, **rid)
         # An echo of the request answers nothing: its outcomes are delivered for the record but never pooled, so its
         # formalizations cannot displace the agent's genuine claims under the same ids.
         outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None, task=self._task_record(req)), [], **rid)
@@ -3151,7 +3201,53 @@ class TranslatorChannel:
         })
         return verify(problem, self.config, signing_key=self.key, key_id=self.key_id, diagnose=False)  # a code-built check
 
-    def _supersession(self, report: SpecialistReport, findings: list[IntegrityFinding]) -> None:
+    def _revision_preservation(self, report: SpecialistReport, req: TaskRequest, request_message_id: str) -> list[IntegrityFinding]:
+        """INT-REV-002 (warning), one finding per reason (``feedback.preservation_findings``): what the revision changed that
+        its revision request did not ask it to change, each naming its claims (the revised answer's and the revision's)."""
+        block = req.revision
+        answer = self.log.get(block.revises_message_id)
+        original = _revised_answer_report(answer.payload) if answer is not None else None
+        if original is None:
+            return []
+        first = self.requests.get(block.original_request_message_id) or req
+        stem = self._branch_for(report.agent_id)[0].key in ("sciences", "mathematics", "computer_science")
+        out: list[IntegrityFinding] = []
+        for reason, claim_ids in preservation_findings(original, report, block, first, stem=stem):
+            out.append(IntegrityFinding(code="INT-REV-002", severity="warning",
+                                        message=f"the revision does not preserve answer {block.revises_message_id} (revision {block.round} of {block.max_rounds}): {reason}",
+                                        claim_ids=_dedupe_ids(claim_ids), report_ids=[report.report_id, original.report_id], agent_ids=[report.agent_id],
+                                        message_ids=[request_message_id]))
+        return out
+
+    def _revision_supersession(self, report: SpecialistReport, req: TaskRequest, request_message_id: str, findings: list[IntegrityFinding]) -> frozenset[str]:
+        """A delivered revision supersedes the answer its revision request revises, whatever their claims share: the router is
+        told (INT-HANDOFF-009 naming the revision request and the answer), the revised report is recorded as superseded,
+        every formalization of it leaves the cross-agent pool, and its copies still in circulation are named
+        (INT-HANDOFF-014). A revision that restates the request or carries no material claim answers nothing and supersedes
+        nothing, as for any report; so does one whose revised answer was never delivered (a REJECTED answer is not held).
+        Returns the report ids it superseded (``_supersession`` leaves them alone)."""
+        block = req.revision
+        if any(f.code in ("INT-REQ-011", "INT-REQ-012") for f in findings) or not _material_claims(report):
+            return frozenset()
+        old = self.transmitted_reports.get(block.revises_report_id)
+        if old is None or old.agent_id != report.agent_id or old.report_id == report.report_id:
+            return frozenset()
+        findings.append(IntegrityFinding(code="INT-HANDOFF-009", severity="warning",
+                                         message=(f"agent {report.agent_id} delivered report {report.report_id!r} in reply to revision request {request_message_id} "
+                                                  f"(revision {block.round} of {block.max_rounds}), which revises its answer {block.revises_message_id} (report "
+                                                  f"{old.report_id!r}): the revision supersedes that report, and every formalization of it leaves the cross-agent pool"),
+                                         agent_ids=[report.agent_id], report_ids=[report.report_id, old.report_id],
+                                         message_ids=[request_message_id, block.revises_message_id]))
+        self.superseded[old.report_id] = report.report_id
+        findings.extend(self._in_circulation(old, report))
+        for cid, (_agent, rid) in list(self.formalized_by.items()):
+            if rid == old.report_id:
+                self.formalized.pop(cid, None)
+                self.formalized_by.pop(cid, None)
+                self.ambiguous_pooled.discard(cid)
+        return frozenset({old.report_id})
+
+    def _supersession(self, report: SpecialistReport, findings: list[IntegrityFinding], *, explicit: frozenset[str] = frozenset()) -> None:
         """An agent that re-states claims it already transmitted on this task supersedes its
         earlier statements: the router is told (INT-HANDOFF-009), the earlier formalizations of
         those claims leave the cross-agent pool, so a later report is cross-checked only on what
@@ -3162,7 +3258,8 @@ class TranslatorChannel:
         Overlap is decided on content, not on positional ids alone: a claim is re-stated when its
         text equals an earlier claim's (under the same or another id) and revised when it keeps an
         earlier id with another text. A response that restates the request (INT-REQ-011) or
-        carries no material claim (INT-REQ-012) answers nothing and never supersedes a report."""
+        carries no material claim (INT-REQ-012) answers nothing and never supersedes a report.
+        ``explicit``: the reports a revision already superseded explicitly (``_revision_supersession``), left alone here."""
         if any(f.code in ("INT-REQ-011", "INT-REQ-012") for f in findings) or not _material_claims(report):
             return
         incoming = {c.claim_id: _norm_text(c.claim_text) for c in report.claims}
@@ -3170,7 +3267,7 @@ class TranslatorChannel:
         revised: set[str] = set()
         earlier: list[str] = []
         for r in self.transmitted_reports.values():
-            if r.agent_id != report.agent_id or r.report_id == report.report_id:
+            if r.agent_id != report.agent_id or r.report_id == report.report_id or r.report_id in explicit:
                 continue
             old = {c.claim_id: _norm_text(c.claim_text) for c in r.claims}
             old_texts = set(old.values())
@@ -3555,8 +3652,13 @@ class TranslatorChannel:
 
     @staticmethod
     def _summary_request(req: TaskRequest, findings, status) -> str:
-        return (f"Request {status.value}: {len(req.items)} item(s) extracted, {len(req.constraints)} constraint(s) ({', '.join(c.kind for c in req.constraints) or 'none'}), "
+        text = (f"Request {status.value}: {len(req.items)} item(s) extracted, {len(req.constraints)} constraint(s) ({', '.join(c.kind for c in req.constraints) or 'none'}), "
                 f"{len(req.supplied_texts)} supplied text(s); findings: {', '.join(sorted({f.code for f in findings})) or 'none'}.")
+        rev = req.revision
+        if rev is not None:  # a revision request (channel/feedback.py); every other request's summary is unchanged
+            text += (f" Revision request {rev.round} of {rev.max_rounds} for answer {rev.revises_message_id}: {len(rev.flaws)} flaw(s) "
+                     f"({', '.join(sorted({f.code for f in rev.flaws}))}), {sum(f.basis == 'advisory' for f in rev.flaws)} advisory.")
+        return text
 
     @staticmethod
     def _argument_summary(named, named_info: Optional[dict]) -> str:

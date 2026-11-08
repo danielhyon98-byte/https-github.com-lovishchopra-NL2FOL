@@ -813,8 +813,14 @@ def pack_completeness(d=None) -> list[str]:
 def test_the_installed_pack_lists_every_code_status_rule_and_policy_the_translator_emits():
     """The completeness test: pack 1.4 knows every code of the overseer's tables, with its severity and label."""
     # round-8 clearance c1: 1.5 (1.4's D32 corrected), the same tables; architecture step 3: 2.0 (the twofold review of a
-    # combined answer), the same tables again, and 1.5 stays complete too
-    assert PACK_VERSION == "2.0" and pack_completeness() == [] and pack_completeness(installed_pack_dir("1.5")) == []
+    # combined answer), the same tables again. Integration step 2 (specialist feedback) added three receipt codes
+    # (INT-HANDOFF-018, INT-REV-001, INT-REV-002): the installed 2.1 lists them, and the pinned 2.0 and 1.5, which never
+    # change, lack exactly those three and nothing else (rewritten to that exact rule from "1.5 is complete too")
+    new = {f"§8 does not list the receipt code {c}" for c in ("INT-HANDOFF-018", "INT-REV-001", "INT-REV-002")}
+    assert PACK_VERSION == "2.1" and pack_completeness() == []
+    for older in ("2.0", "1.5"):
+        gaps = pack_completeness(installed_pack_dir(older))
+        assert len(gaps) == len(new) and set(gaps) == new, (older, gaps)
 
 
 @pytest.mark.parametrize("cut", ["| INT-ARG-001 | error, warning |", "| ST-REF-001 | warning |", "`stem_symbol_conflict`:", "argdiag-2"])

@@ -8,8 +8,10 @@
   ``journal`` (journal entry MACs), ``audit`` (signed audits), ``runs`` (the auditor's own engine runs,
   key id ``overseer-run``), ``sampling`` (keyed replay sampling), ``intake`` (verdict envelopes) and
   ``consolidation`` (signed consolidated responses, key id ``overseer-consolidation``; added by the consolidation
-  stage, design section 19) and ``delivery`` (signed delivery receipts of the delivery policy, key id
-  ``overseer-delivery``; ``docs/DELIVERY.md``). One secret to provision, with domain separation between every use.
+  stage, design section 19), ``delivery`` (signed delivery receipts of the delivery policy, key id
+  ``overseer-delivery``; ``docs/DELIVERY.md``) and ``feedback`` (signed revision requests to a specialist and the
+  records of their outcomes and escalations, key id ``overseer-feedback``; design section 53). One secret to provision,
+  with domain separation between every use.
 
 No key ever appears in a repr, a dossier, a verdict, a report or a log message.
 """
@@ -24,15 +26,18 @@ from epinoic_logic.api.engine import signature_matches, verify_signature
 from epinoic_logic.api.engine import VerificationResult
 
 __all__ = ["EngineKey", "KeyRing", "KeyStatus", "SUBKEY_LABELS", "RUN_KEY_ID", "AUDIT_KEY_ID", "INTAKE_KEY_ID", "CONSOLIDATION_KEY_ID", "DELIVERY_KEY_ID",
-           "MIN_SECRET_BYTES", "AUDITOR_KEY_IDS"]
+           "FEEDBACK_KEY_ID", "MIN_SECRET_BYTES", "AUDITOR_KEY_IDS"]
 
-SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake", "consolidation", "delivery")
+SUBKEY_LABELS = ("journal", "audit", "runs", "sampling", "intake", "consolidation", "delivery", "feedback")
 RUN_KEY_ID = "overseer-run"
 AUDIT_KEY_ID = "overseer-audit"
 INTAKE_KEY_ID = "overseer-intake"
 CONSOLIDATION_KEY_ID = "overseer-consolidation"
 DELIVERY_KEY_ID = "overseer-delivery"
-AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID, CONSOLIDATION_KEY_ID, DELIVERY_KEY_ID})
+#: The key id of the feedback subkey (revision requests, their outcomes and escalations); the channel names it
+#: ``channel.contracts.FEEDBACK_KEY_ID`` and requires it on every revision block.
+FEEDBACK_KEY_ID = "overseer-feedback"
+AUDITOR_KEY_IDS = frozenset({RUN_KEY_ID, AUDIT_KEY_ID, INTAKE_KEY_ID, CONSOLIDATION_KEY_ID, DELIVERY_KEY_ID, FEEDBACK_KEY_ID})
 MIN_SECRET_BYTES = 32
 KeyStatus = Literal["local", "external", "auditor", "unknown"]
 

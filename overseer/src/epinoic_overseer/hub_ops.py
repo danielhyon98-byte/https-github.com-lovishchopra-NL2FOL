@@ -1,5 +1,6 @@
 """The overseer's operations on the translator's router hub: ``RouterHub.clearance``, ``repeats``, ``consolidate``,
-``review_pool`` and ``review``.
+``review_pool``, ``review`` and, since design section 53 (specialist feedback and revision), ``request_revision``,
+``revision_outcome`` and ``revisions``.
 
 The translator's ``RouterHub`` never imports this package. A hub built with ``auditor=TransferAuditor(...)`` reaches
 these operations through the auditor it was given (:attr:`TransferAuditor.hub_operations
@@ -12,6 +13,13 @@ intake) and gives these operations its public hooks: ``channel_for``, ``journale
 
 The result types the hub returns, :class:`~epinoic_logic.branches.hub.HubReview` and ``PoolReview``, are the
 translator's; this module builds them through the translator's public API (``epinoic_logic.api.branches``).
+
+Specialist feedback and revision (design section 53; ``feedback.py``): ``request_revision`` builds the signed revision
+request for an answer from the journal, the reference task audit and the hub's copies of the signed verdicts audits
+(``review`` gives the hub a copy of every verdicts audit it issues, ``RouterHub.record_verdicts``), and re-issues the
+original request with it to the answer's author through the channel; ``revision_outcome`` classifies the revision; both
+record signed entries in the hub's revision ledger (``RouterHub.record_revision``), escalations included, and an escalated
+chain counts as a repeated fault for the pool's plan (at least two instances).
 
 Architecture step 3 (the twofold mode): ``review_pool`` reads each task's size and, for a combined answer, its sources
 and merged part (``twofold.pool_item``), so the plan reviews a combined answer N_FOLD; ``review`` under a pool plan that
@@ -129,6 +137,85 @@ class HubOperations:
         hub.record_consolidation(ch.channel_uid, resp)  # the hub keeps its own copy: an edit of the returned object never reaches the record
         return resp
 
+    # ------------------------------------------------------------------ specialist feedback and revision (design section 53)
+    @staticmethod
+    def _escalations(hub: Any, uid: str) -> list[Any]:
+        from .feedback import RevisionEscalation, verify_record
+        records = hub.revision_records(uid) if callable(getattr(hub, "revision_records", None)) else []
+        return [r for k, r in records if k == "escalation" and isinstance(r, RevisionEscalation) and verify_record(r, hub.auditor.keyring)]
+
+    def request_revision(self, hub: Any, task_key: Any, answer_message_id: str, *, from_agent_id: str = "router") -> Any:
+        """``RouterHub.request_revision``: build, sign and send the revision request for the answer ``answer_message_id``
+        (``feedback.build_revision_request``) through the task's channel, or say why not; an escalation is signed and
+        recorded in the hub's revision ledger. The router names an answer and supplies no text."""
+        from epinoic_logic.api.branches import RevisionIssue
+        from epinoic_logic.api.channel import render_revision_message
+        from .feedback import build_revision_request, escalation_for, issue_record
+        auditor = hub.auditor
+        ch = hub.channel_for(task_key)
+        if not any(c is ch for c in list(hub.channels.values())):
+            return RevisionIssue(allowed=False, reason="task_closed")
+        uid = hub.journaled_uid(auditor, ch)
+        view = auditor.view(uid)
+        task_audit = self._reference_audit(auditor, uid, view)
+        escalated = sorted({m for e in self._escalations(hub, uid) for m in e.chain_message_ids})
+        res = build_revision_request(view, answer_message_id, task_audit=task_audit, keyring=auditor.keyring, verdicts_audits=hub.verdicts_audits(uid),
+                                     escalated=escalated)
+        if res.escalation_reason:
+            answer = view.by_message.get(answer_message_id)
+            esc = escalation_for(task_id=view.task_id, channel_uid=uid, agent_id=(answer.sender_agent_id if answer is not None else None) or "unknown",
+                                 chain_message_ids=res.chain_message_ids, rounds_used=max(0, res.round - 1), max_rounds=res.max_rounds,
+                                 remaining_signatures=res.remaining_signatures, remaining_codes=res.remaining_codes, reason=res.escalation_reason,
+                                 keyring=auditor.keyring)
+            hub.record_revision(uid, "escalation", esc)
+            return RevisionIssue(allowed=False, reason=res.escalation_reason, round=res.round, max_rounds=res.max_rounds, escalation=esc)
+        if res.block is None:
+            return RevisionIssue(allowed=False, reason=res.reason, round=res.round, max_rounds=res.max_rounds)
+        block = res.block
+        original = view.by_message[block.original_request_message_id].request
+        msg, req, rc = ch.request(from_agent_id, block.to_agent_id, original.user_input, list(original.supplied_texts), items=list(original.items),
+                                  constraints=list(original.constraints), revision=block)
+        if msg is None:
+            return RevisionIssue(allowed=False, reason="refused_by_channel", round=block.round, max_rounds=block.max_rounds, request=req, receipt=rc, revision=block)
+        hub.record_revision(uid, "issued", issue_record(block, channel_uid=uid, request_message_id=msg.message_id, receipt_status=rc.status.value,
+                                                        keyring=auditor.keyring))
+        return RevisionIssue(allowed=True, reason="issued", round=block.round, max_rounds=block.max_rounds, message=msg, request=req, receipt=rc,
+                             revision=block, rendered=render_revision_message(block))
+
+    def revision_outcome(self, hub: Any, task_key: Any, revised_message_id: str) -> Any:
+        """``RouterHub.revision_outcome``: the signed outcome of a revision (``feedback.revision_outcome``) over a fresh
+        reference task audit and the task's repeat report, recorded in the hub's revision ledger; an outcome that escalates
+        records the chain's signed escalation once."""
+        from .feedback import escalation_for, revision_chain
+        from .feedback import revision_outcome as _outcome
+        from .repeats import detect_repeats
+        auditor = hub.auditor
+        ch = hub.channel_for(task_key)
+        prior_views, audits, view, task_audit = self._repeat_inputs(hub, ch)
+        report = detect_repeats([*prior_views, view], audits, keyring=auditor.keyring)
+        out = _outcome(view, revised_message_id, task_audit=task_audit, keyring=auditor.keyring, repeats=report)
+        uid = view.channel_uid
+        hub.record_revision(uid, "outcome", out)
+        if out.next == "escalated":
+            revised = view.by_message[revised_message_id]
+            chain = revision_chain(view, revised)
+            ids = [x for req, b in chain for x in (b.revises_message_id, req.message_id) if x] + [revised_message_id]
+            if not set(ids) & {m for e in self._escalations(hub, uid) for m in e.chain_message_ids}:
+                left = [f for f in out.flaws if f.bucket in ("persisted", "not_rechecked")]
+                esc = escalation_for(task_id=view.task_id, channel_uid=uid, agent_id=out.agent_id, chain_message_ids=ids, rounds_used=out.round,
+                                     max_rounds=out.max_rounds, remaining_signatures=[f.signature for f in left] + [i.signature for i in out.introduced],
+                                     remaining_codes=[f.code for f in left] + [i.code for i in out.introduced], reason=out.escalation_reason or "budget_exhausted",
+                                     keyring=auditor.keyring)
+                hub.record_revision(uid, "escalation", esc)
+        return out
+
+    def revisions(self, hub: Any, task_key: Any) -> dict[str, list[Any]]:
+        """``RouterHub.revisions``: the channel's revision ledger by kind (copies)."""
+        ch = hub.channel_for(task_key)
+        records = hub.revision_records(ch.channel_uid)
+        return {"issued": [r for k, r in records if k == "issued"], "outcomes": [r for k, r in records if k == "outcome"],
+                "escalations": [r for k, r in records if k == "escalation"]}
+
     # ------------------------------------------------------------------ the pool and the review
     def review_pool(self, hub: Any, task_keys: Sequence[Any], pool: Any, *, mode: Optional[str] = None) -> Any:
         """A self-duplicating review of a batch of tasks (``RouterHub.review_pool``; ``pool.py``): one dossier per task,
@@ -156,7 +243,13 @@ class HubOperations:
             by_message: dict[str, int] = {}
             for r in repeats:
                 by_message[r.message_id] = by_message.get(r.message_id, 0) + 1
-            item, _layout = pool_item(auditor.view(hub.journaled_uid(auditor, ch)), uid, len(repeats), by_message)
+            # an escalated revision chain (design section 53) is reviewed like a repeated fault: by at least two instances
+            escalations = self._escalations(hub, uid)
+            for e in escalations:
+                last = e.chain_message_ids[-1] if e.chain_message_ids else None
+                if last:
+                    by_message[last] = by_message.get(last, 0) + 1
+            item, _layout = pool_item(auditor.view(hub.journaled_uid(auditor, ch)), uid, len(repeats) + len(escalations), by_message)
             items.append(item)
         plan = pool.plan(items)
         reviews: dict[str, Any] = {}
@@ -268,8 +361,16 @@ class HubOperations:
         notes.append("OVS-AGENT-* findings never change a transfer's clearance; an agent's verdict is advisory and decides nothing")
         audit = build_verdicts_audit(reference=reference, channel_uid=uid, task_id=reference.task_id, request_id=reference.request_id, findings=findings,
                                      keyring=auditor.keyring, message_ids=list(reference.message_ids), notes=notes)
+        _keep_verdicts(hub, uid, audit)
         return HubReview(audit=audit, task_audit=task_audit, mode=mode, runs=tuple(runs), assessments=tuple(assessments), combined=combined,
                          refused=tuple(refused), runner_errors=tuple(errors), superseding_audit_ids=superseding)
+
+
+def _keep_verdicts(hub: Any, uid: str, audit: Any) -> None:
+    """Give the hub its copy of a signed verdicts audit (the advisory items of specialist feedback read only these)."""
+    keep = getattr(hub, "record_verdicts", None)
+    if callable(keep):
+        keep(uid, audit)
 
 
 def _pool_notes(pool_plan: Any, uid: str) -> list[str]:
@@ -368,6 +469,7 @@ def _review_twofold(self: HubOperations, hub: Any, ch: Any, uid: str, runners: S
     notes.append("OVS-AGENT-* findings never change a transfer's clearance; an agent's verdict is advisory and decides nothing")
     audit = build_verdicts_audit(reference=reference, channel_uid=uid, task_id=reference.task_id, request_id=reference.request_id, findings=findings,
                                  keyring=auditor.keyring, message_ids=list(reference.message_ids), notes=notes)
+    _keep_verdicts(hub, uid, audit)
     return HubReview(audit=audit, task_audit=task_audit, mode=mode, runs=runs, assessments=assessments, combined=combined, refused=refused,
                      runner_errors=errors, superseding_audit_ids=superseding, twofold=tw)
 

@@ -34,6 +34,8 @@
     the receipt at its severity;
   - a delivered report (response, raw text or relay) whose report id an earlier journaled delivery carries with other
     content (compared without ``created_at``) needs INT-HANDOFF-015 (error, blocking);
+  - (design section 53) a revision, an answer to a request carrying a revision block, whose report id an answer of its
+    chain carries (delivered or REJECTED) needs INT-HANDOFF-018 (error, blocking);
   - a request needs INT-HANDOFF-002 when the journaled plan did not select its addressee, and INT-HANDOFF-004 when it
     supplies a document outside the plan's retrieval scope (both errors, so the request is REJECTED);
   - (review round 3) the plan is always the FIRST journaled plan (``view.plan_at``); a delivered response's coverage
@@ -100,6 +102,8 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-LEDGER-002", "INT-LEDGER-003", "INT-LEDGER-004", "INT-LEDGER-005", "INT-LEDGER-006", "INT-LEDGER-008", "INT-LEDGER-009",
         "INT-LEDGER-012", "INT-LEDGER-013", "INT-LEDGER-014", "INT-LEDGER-015", "INT-LEDGER-023", "INT-LEDGER-025", "INT-LEDGER-030", "INT-LEDGER-031", "INT-LEDGER-032",
         "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-003", "INT-REQ-009", "INT-REQ-011", "INT-REQ-012", "INT-REQ-015",
+        # specialist feedback (design section 53): a revision request that does not bind, a revision reusing its chain's report id
+        "INT-REV-001", "INT-HANDOFF-018",
         "INT-STALE-001", "INT-STALE-002", "INT-STALE-003", "INT-STALE-004", "INT-STALE-005", "INT-STALE-006", "INT-STALE-007", "INT-STALE-008",
         "INT-STALE-009", "INT-STALE-010", "INT-STALE-011", "INT-SUBJ-001", "INT-SUBJ-003", "INT-SYNTH-001", "INT-SYNTH-006", "INT-SYNTH-010",
         "INT-SYNTH-014")},
@@ -111,7 +115,9 @@ FIXED_SEVERITY: dict[str, str] = {
         "INT-REQ-010", "INT-REQ-013", "INT-REQ-014", "INT-REQ-016", "INT-SUBJ-002", "INT-SUBJ-004", "INT-SYNTH-003", "INT-SYNTH-004", "INT-SYNTH-005", "INT-SYNTH-007", "INT-SYNTH-008", "INT-SYNTH-009",
         "INT-SYNTH-012", "INT-SYNTH-013",
         # the argument-diagnosis port: two encodings of one claim reach opposite definitive answers (channel._encoding_disagreements)
-        "INT-XENC-001")},
+        "INT-XENC-001",
+        # specialist feedback (design section 53): a revision that does not preserve the answer it revises
+        "INT-REV-002")},
     **{c: "info" for c in ("INT-CONFLICT-006", "INT-GLOSSARY-002", "INT-HANDOFF-006", "INT-LEDGER-011", "INT-LEDGER-022", "INT-SYNTH-002", "INT-SYNTH-011")},
 }
 #: Codes raised at a severity that depends on the case (INT-REQ-004: required item or not; INT-REQ-005: word or
@@ -465,6 +471,7 @@ def implied_findings(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str
         out.extend(_identity_implied(ctx, t, req))
         out.extend(_coverage_implied(ctx, t, req))
     out.extend(_reuse_implied(ctx, t))
+    out.extend(_revision_reuse_implied(ctx, t))
     if t.kind == "request":
         out.extend(_request_scope_implied(ctx, t))
         out.extend(_request_constraints_implied(ctx, t))
@@ -782,6 +789,27 @@ def _reuse_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]
     changed = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
     return [("INT-HANDOFF-015", how, f"report id {rep.report_id!r} was delivered at event {held.seq} ({held.message_id}) with other content ({changed[:8]} differ): "
              "a reused report id with a different payload is blocking and is not delivered")]
+
+
+def _revision_reuse_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:
+    """INT-HANDOFF-018 (error, blocking): a revision (an answer to a request carrying a revision block) whose report id an
+    answer of its chain carries, re-derived from the journaled chain (``feedback.revision_chain``), whether that answer was
+    delivered or REJECTED: a channel that omits the finding is caught live (design section 53)."""
+    rc = t.receipt
+    rep = t.report
+    if rc is None or rep is None or t.kind not in ("response", "response_text"):
+        return []
+    req = ctx.view.by_message.get(t.in_reply_to or "")
+    if req is None or req.request is None or req.request.revision is None or {f.code for f in rc.findings} & _REUSE_SKIPPED:
+        return []
+    from ..feedback import revision_chain
+    used = [b.revises_report_id for _r, b in revision_chain(ctx.view, t)]
+    if rep.report_id not in used:
+        return []
+    how = _present(rc.findings, "INT-HANDOFF-018", "error")
+    if not how:
+        return []
+    return [("INT-HANDOFF-018", how, f"the revision reuses report id {rep.report_id!r} of its chain: a revision needs a new report id, and the reuse is blocking")]
 
 
 def _request_scope_implied(ctx: CheckContext, t: Transfer) -> list[tuple[str, str, str]]:

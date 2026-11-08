@@ -56,6 +56,14 @@ Steps, every output under ``--out`` (never inside a recorded round):
    reviewed, the temporary context complete, scoped, bounded, recorded and discarded, the audit verifying, no clearance
    changed, every call's system text the pack's; gate ``twofold_combined_answers`` (a round set that holds no combined
    answer, such as a one-task copy, says so in the gate).
+2e. **Specialist feedback and revision** (``revision_probes.py``; integration step 2, design section 53): every genuine answer of
+   the rounds found (copies), replayed through the arena's feedback replay with the harness's auditor; every revision request
+   the infrastructure issues, answered by an identity revision (the answer's own text again, under a new report id), audited
+   with the shadow, its outcome decided and the original consolidated with it; and three controls on a synthetic Physics
+   answer (a corrected revision fixed, an unsigned block refused by the channel, a fabricated audit flaw caught by the
+   audit); gates ``revision_requests_bind`` (no INT-REV-001 and no OVS-FB-001 on an infrastructure-built request, every
+   issued request with an allowlisted flaw that is not advisory, every delivered revision superseding its original, every
+   persisting error withheld and escalated, the controls as expected) and ``shadow_agrees_on_revision_transfers``.
 4. **Tampering suite** (``tamper.py``, unless ``--no-tamper``): every case, its agents built from the same exported pack, on
    the synthetic task and the recorded r5 and r7 targets (the STEM receipt cases T23a to T23z, T23aa to T23az and T23ba to T23bt on r7's STEM tasks).
 5. **Overseer agents** (scripted probe providers, no network, no model): ``hub.review`` runs probes whose replies
@@ -1590,6 +1598,16 @@ def run_contained(out: Path, *, rounds_root: Optional[Path] = None, rounds: Iter
                                        "context": x.get("context"), "failed_checks": sorted(k for k, ok in (x.get("checks") or {}).items() if not ok),
                                        **({"error": x["error"]} if x.get("error") else {})}
                                       for r in tw["recorded"] for x in r["combined_answers"]]}
+    # integration step 2 (specialist feedback, design section 53): the infrastructure's revision requests on every genuine
+    # answer of the rounds found (identity revisions, whose outcome is known in advance) and three controls
+    import revision_probes as RP
+    rv = RP.run(out / "revisions", [(n, found[n]) for n in rounds if n in found])
+    H.write_json(out / "revisions" / "revisions.json", rv)
+    (out / "revisions" / "revisions.md").write_text(RP.summary_md(rv), encoding="utf-8")
+    result["revisions"] = {"gates": rv["gates"], "file": str(out / "revisions" / "revisions.json"), "wall_s": rv["wall_s"],
+                           "controls": {k: v["ok"] for k, v in rv["controls"].items()},
+                           "recorded": [{"round": x["round"], "ok": x["ok"], "answers": x["answers"], "issued": x["issued"],
+                                         "failed": sorted(t["task_id"] for t in x["tasks"] if not t.get("ok")), "errors": x["errors"]} for x in rv["recorded"]]}
     if tamper:
         import tamper as T
         m = T.run_suite(out / "tamper", rounds_root=rounds_root, pack_dir=Path(pack_info.get("exported_dir") or pack_info.get("given")))
@@ -1686,6 +1704,11 @@ def gates(r: dict) -> dict:
         tg = r["twofold"]["gate"]
         g["twofold_combined_answers"] = {"ok": bool(tg.get("ok")), **{k: v for k, v in tg.items() if k != "ok"},
                                          **({"state": "no combined answer in the requested rounds"} if not tg.get("recorded_combined_answers") else {})}
+    if "revisions" in r:
+        # integration step 2: no INT-REV-001 and no OVS-FB-001 on a request the infrastructure built, and the shadow agrees on
+        # every revision transfer (the controls show both checks catch what they must)
+        for name, gv in r["revisions"]["gates"].items():
+            g[name] = dict(gv)
     if "stem_probes" in r:
         sp = r["stem_probes"]
         gate = sp.get("gate") or {}
@@ -1761,6 +1784,12 @@ def summary_md(r: dict) -> str:
         L += [f"- {x['round']}/{x['channel']}: {'PASS' if x['ok'] else 'FAIL'}; {x.get('sources')} sources; instances {json.dumps(x.get('agents'))}; "
               f"context {json.dumps(x.get('context'))}" + (f"; failed {x['failed_checks']}" if x.get("failed_checks") else "")
               + (f"; error {x['error']}" if x.get("error") else "") for x in tw["recorded"]]
+    if "revisions" in r:
+        rv = r["revisions"]
+        L += ["", "## Specialist feedback and revision", ""] + [f"- gate {k}: {'PASS' if v['ok'] else 'FAIL'} {json.dumps({a: b for a, b in v.items() if a != 'ok'})}"
+                                                                for k, v in rv["gates"].items()]
+        L += [f"- {x['round']}: {'PASS' if x['ok'] else 'FAIL'}; answers {x['answers']}, requests issued {x['issued']}"
+              + (f"; failed {x['failed']}" if x["failed"] else "") + (f"; errors {x['errors']}" if x["errors"] else "") for x in rv["recorded"]]
     if "tamper" in r:
         L += ["", "## Tampering suite", "", json.dumps(r["tamper"]["counts"]), json.dumps(r["tamper"]["gates"])]
     if "replies" in r:

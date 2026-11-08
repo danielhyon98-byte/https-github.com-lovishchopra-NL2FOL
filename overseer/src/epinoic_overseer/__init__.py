@@ -58,13 +58,21 @@ package data (``knowledge/overseer-knowledge-docs-<version>/``). The names expor
   ``overseer_selected``), ``not_checked`` (only when an operator configures it) and ``withheld``, and records why in a
   signed :class:`DeliveryReceipt` (``delivery_receipt/1.0``, key id ``overseer-delivery``).
 
+* specialist feedback and revision (design section 53; :mod:`~epinoic_overseer.feedback`): the infrastructure, never an
+  agent, sends the author of an answer the allowlisted flaws its checks found, as a signed ``revision_request/1.0`` block
+  (:func:`build_revision_request`, :func:`sign_revision`, :func:`verify_revision`, key id ``overseer-feedback``) on a
+  re-issued request; the revision is checked in full, its :class:`RevisionOutcome` and any :class:`RevisionEscalation`
+  (OVS-FB-002) are signed records of the hub's revision ledger, and the audit's ``feedback`` stage verifies every block
+  (:func:`check_revision_request`, OVS-FB-001). The hub's entry points are ``RouterHub.request_revision``,
+  ``revision_outcome`` and ``revisions``.
+
 A verdict is advisory and decides nothing: only a deterministic check's ``OVS-*`` finding reaches the router, and
 ``OVS-AGENT-*`` findings never change a clearance.
 """
 from __future__ import annotations
 
 #: This release of the overseer sub-project (``pyproject.toml``; the hello's ``auditor_version``).
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from .audit import (  # noqa: F401
     ALWAYS_REPLAY_CODES, AUDIT_CONTRACT, AUDITOR_AGENT_ID, AuditResult, TransferAuditor, audit_envelope, audit_signable_text, run_overseer_checks,
@@ -129,6 +137,12 @@ from .delivery_policy import (  # noqa: F401,E402
     verify_delivered_answer, verify_delivery_receipt,
 )
 from .keys import DELIVERY_KEY_ID  # noqa: F401,E402
+# ---------------------------------------------------------------------------------------- specialist feedback and revision
+from .feedback import (  # noqa: F401,E402
+    ESCALATION_CONTRACT, ESCALATION_REASONS, ISSUE_CONTRACT, OUTCOME_CONTRACT, FlawOutcome, IntroducedFlaw, RevisionEscalation, RevisionIssueRecord,
+    RevisionOutcome, build_revision_request, check_revision_request, revision_chain, sign_revision, verify_record, verify_revision,
+)
+from .keys import FEEDBACK_KEY_ID  # noqa: F401,E402
 
 _EXPORTER_NAMES = frozenset({"export_pack", "verify_export", "ExportError", "ExportResult"})
 

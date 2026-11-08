@@ -11,8 +11,10 @@ specialists), the infrastructure, never an agent, consolidates their answers int
 2. **Exclusion.** An answer is excluded, never grouped, when it was not delivered (REJECTED, withheld, content not
    retained), when its receipt or the task audit carries an error-level finding naming it (``INT-*`` on the receipt,
    ``OVS-*`` in the audit), when its transfer's clearance in the audit is not passed (failed, pending, or not covered),
-   or when it repeats a fault (``OVS-REP-001``, :mod:`~epinoic_overseer.repeats`). Each exclusion names the codes
-   and the signed results the findings cite (``OVS-CONS-001``).
+   or when it repeats a fault (``OVS-REP-001``, :mod:`~epinoic_overseer.repeats`), or (design section 53, rule
+   ``superseded-by-revision``) when a delivered revision of it superseded it ("superseded by its revision <message id>":
+   the revision stands alone instead of reading as a conflicting answer). Each exclusion names the codes and the signed
+   results the findings cite (``OVS-CONS-001``).
 3. **Grouping, deterministic.** First by identical normalised text: ``original_response`` under the fidelity
    normalisation (``checks.normalise``; no case folding). Then level-1 groups whose MATERIAL claims (materiality
    ``material``, role not ``other``) have equal keys are merged only when the engine confirms them: the key of a claim
@@ -723,6 +725,22 @@ def _only_duplicate_collisions(t: Transfer, answer_report_ids: set[str]) -> bool
     return True
 
 
+def _superseded_by_revision(view: OverseerView, answers: Sequence[Transfer]) -> dict[str, str]:
+    """Rule ``superseded-by-revision`` (design section 53): answer message id -> the delivered revision that superseded it.
+    A revision supersedes the answer its revision request revises when the channel recorded the supersession on its
+    delivery (the event's ``superseded_added``): a REJECTED revision, or one that answers nothing, leaves the answer as it
+    was. The superseded answer is excluded, so the revision stands alone instead of reading as a conflicting answer."""
+    out: dict[str, str] = {}
+    for t in answers:
+        req = view.by_message.get(t.in_reply_to or "")
+        block = req.request.revision if req is not None and req.request is not None else None
+        if block is None or not t.delivered or t.status == "REJECTED" or not t.report_id:
+            continue
+        if (block.revises_report_id, t.report_id) in set(t.event.superseded_added):
+            out[block.revises_message_id] = t.message_id or ""
+    return out
+
+
 def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, audit: OverseerAudit, request_message_ids: Optional[Sequence[str]] = None,
                 user_input_sha256: Optional[str] = None, prior_views: Sequence[OverseerView] = (), prior_audits: Optional[Mapping[str, OverseerAudit]] = None,
                 repeats: Optional[RepeatReport] = None) -> ConsolidatedResponse:
@@ -749,6 +767,7 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
         raise ValueError("the repeat report does not cover this channel")
     last_seq = view.transfers[-1].seq if view.transfers else 0
     answer_report_ids = {t.report_id for t in answers if t.report_id}
+    superseded_by = _superseded_by_revision(view, answers)
     run_ids: list[str] = []
     findings: list[IntegrityFinding] = []
     excluded: list[ExcludedOutput] = []
@@ -774,6 +793,8 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
             reasons.append(f"its clearance is {state or 'not covered by the task audit'}: not passed")
         if reps:
             reasons.append(f"it repeats {len(reps)} fault(s) of earlier answers (OVS-REP-001)")
+        if t.message_id in superseded_by:
+            reasons.append(f"superseded by its revision {superseded_by[t.message_id]}")
         agent = t.sender_agent_id
         if reasons:
             codes = sorted({f.code for f in receipt_errors} | {f.code for f in audit_errors} | ({"OVS-REP-001"} if reps else set()))

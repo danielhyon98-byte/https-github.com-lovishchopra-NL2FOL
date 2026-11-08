@@ -315,9 +315,10 @@ def test_i97_the_master_prompt_and_the_mistakes_rows_name_the_new_rules():
 def test_the_common_mistakes_rows_say_what_the_code_decides():
     """The dossier guide's three rows and the inspection guide's one for the readings of this repair, each quote executed."""
     # §16 and §14 since pack 1.4 (§15 of the dossier guide is the argument diagnosis); §17 and §15 since pack 2.0 (architecture step
-    # 3 added the combined answers' section before each), the same rows required in them
-    dossier = _section(_pack_text("02-dossier.md"), "## 17. Common mistakes", "\nPack version")
-    inspection = _section(_pack_text("03-inspection.md"), "## 15. Common mistakes", "\nPack version")
+    # 3 added the combined answers' section before each); §18 and §16 since pack 2.1 (integration step 2 added the revision
+    # requests' section before each), the same rows required in them
+    dossier = _section(_pack_text("02-dossier.md"), "## 18. Common mistakes", "\nPack version")
+    inspection = _section(_pack_text("03-inspection.md"), "## 16. Common mistakes", "\nPack version")
     for row in ('| Expecting a value at a supplied table\'s row to be checked only when the line names the row first ("At site C, dissolved oxygen = '
                 '3.9 mg dm⁻³.") | A value its own clause states at exactly one row and one column, in any order',
                 '| Reading a value restated from a decimal written with its digits cut ("= 4787.58…", then "= 4788 euros, to the nearest euro") as '

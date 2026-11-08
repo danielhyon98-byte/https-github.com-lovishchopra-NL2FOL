@@ -59,20 +59,42 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `verify` | `epinoic_logic.engine.runner` | `verify` |
 | `verify_signature` | `epinoic_logic.engine.provenance` | `verify_signature` |
 
-## `epinoic_logic.api.channel` (38 names)
+## `epinoic_logic.api.channel` (82 names)
 
 | public name | internal module | internal name |
 |---|---|---|
 | `BLOCKING_PREFIXES` | `epinoic_logic.channel.bus` | `_BLOCKING_PREFIXES` |
 | `CLAIM_OUT_OF_SCOPE` | `epinoic_logic.channel.bus` | `CLAIM_OUT_OF_SCOPE` |
+| `CODE_RULES` | `epinoic_logic.channel.feedback` | `CODE_RULES` |
 | `ChannelBefore` | `epinoic_logic.channel.events` | `ChannelBefore` |
 | `ChannelEvent` | `epinoic_logic.channel.events` | `ChannelEvent` |
 | `Constraint` | `epinoic_logic.channel.contracts` | `Constraint` |
 | `DECLINED_BOUND_PREFIX` | `epinoic_logic.channel.bus` | `DECLINED_BOUND_PREFIX` |
+| `DEFAULT_REVISION_ROUNDS` | `epinoic_logic.channel.contracts` | `DEFAULT_REVISION_ROUNDS` |
 | `DETAIL_MAX` | `epinoic_logic.channel.bus` | `_DETAIL_MAX` |
+| `FEEDBACK_KEY_ID` | `epinoic_logic.channel.contracts` | `FEEDBACK_KEY_ID` |
+| `FEEDBACK_RULES` | `epinoic_logic.channel.feedback` | `FEEDBACK_RULES` |
+| `FEEDBACK_RULES_VERSION` | `epinoic_logic.channel.contracts` | `FEEDBACK_RULES_VERSION` |
 | `FOLDED_TAIL_RE` | `epinoic_logic.channel.bus` | `_FOLDED_TAIL_RE` |
+| `FlawCandidate` | `epinoic_logic.channel.feedback` | `FlawCandidate` |
+| `HARD_MAX_REVISION_ROUNDS` | `epinoic_logic.channel.contracts` | `HARD_MAX_REVISION_ROUNDS` |
+| `MAX_ADVISORY` | `epinoic_logic.channel.contracts` | `MAX_ADVISORY` |
+| `MAX_FLAWS` | `epinoic_logic.channel.contracts` | `MAX_FLAWS` |
+| `MAX_FLAW_CLAIMS` | `epinoic_logic.channel.contracts` | `MAX_FLAW_CLAIMS` |
+| `MAX_MESSAGE_CHARS` | `epinoic_logic.channel.feedback` | `MAX_MESSAGE_CHARS` |
+| `MAX_QUOTED_TOTAL` | `epinoic_logic.channel.feedback` | `MAX_QUOTED_TOTAL` |
+| `MAX_QUOTE_CHARS` | `epinoic_logic.channel.feedback` | `MAX_QUOTE_CHARS` |
 | `PoolEntry` | `epinoic_logic.channel.events` | `PoolEntry` |
+| `REVISION_CONTRACT` | `epinoic_logic.channel.contracts` | `REVISION_CONTRACT` |
+| `REVISION_REQUEST_CONTRACT` | `epinoic_logic.channel.contracts` | `REVISION_REQUEST_CONTRACT` |
+| `REVISION_RULES` | `epinoic_logic.channel.feedback` | `REVISION_RULES` |
+| `REVISION_SCOPE` | `epinoic_logic.channel.feedback` | `REVISION_SCOPE` |
 | `RequestItem` | `epinoic_logic.channel.contracts` | `RequestItem` |
+| `RevisionClaim` | `epinoic_logic.channel.contracts` | `RevisionClaim` |
+| `RevisionEvidence` | `epinoic_logic.channel.contracts` | `RevisionEvidence` |
+| `RevisionFlaw` | `epinoic_logic.channel.contracts` | `RevisionFlaw` |
+| `RevisionKeep` | `epinoic_logic.channel.contracts` | `RevisionKeep` |
+| `RevisionRequest` | `epinoic_logic.channel.contracts` | `RevisionRequest` |
 | `SCOPE_TAIL` | `epinoic_logic.channel.bus` | `_SCOPE_TAIL` |
 | `STEM_CHECK_BUDGET_S` | `epinoic_logic.channel.bus` | `STEM_CHECK_BUDGET_S` |
 | `TaskRequest` | `epinoic_logic.channel.contracts` | `TaskRequest` |
@@ -80,25 +102,47 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `TransmissionReceipt` | `epinoic_logic.channel.contracts` | `TransmissionReceipt` |
 | `TransmissionStatus` | `epinoic_logic.channel.contracts` | `TransmissionStatus` |
 | `about_band` | `epinoic_logic.channel.request_parser` | `about_band` |
+| `advisory_candidate` | `epinoic_logic.channel.feedback` | `advisory_candidate` |
 | `bidi_control_message` | `epinoic_logic.channel.bus` | `bidi_control_message` |
 | `bound_word_measure` | `epinoic_logic.channel.request_parser` | `bound_word_measure` |
+| `carries_quotation` | `epinoic_logic.channel.feedback` | `carries_quotation` |
+| `chain_of` | `epinoic_logic.channel.feedback` | `chain_of` |
 | `channel_pool` | `epinoic_logic.channel.events` | `_pool` |
 | `check_result_statement` | `epinoic_logic.channel.bus` | `check_result_statement` |
+| `check_revision_block` | `epinoic_logic.channel.feedback` | `check_revision_block` |
+| `claim_tokens` | `epinoic_logic.channel.feedback` | `claim_tokens` |
 | `coerce_payload` | `epinoic_logic.channel.bus` | `_coerce_payload` |
 | `count_paragraphs` | `epinoic_logic.channel.request_parser` | `count_paragraphs` |
+| `eligible_flaws` | `epinoic_logic.channel.feedback` | `eligible_flaws` |
 | `extract_constraints` | `epinoic_logic.channel.request_parser` | `extract_constraints` |
+| `finding_digest` | `epinoic_logic.channel.feedback` | `finding_digest` |
 | `fit_summary` | `epinoic_logic.channel.bus` | `_fit_summary` |
 | `header_digest` | `epinoic_logic.channel.events` | `header_digest` |
 | `ids_held_by_other_agents` | `epinoic_logic.channel.bus` | `ids_held_by_other_agents` |
+| `is_cut_of` | `epinoic_logic.channel.feedback` | `is_cut_of` |
+| `keep_list` | `epinoic_logic.channel.feedback` | `keep_list` |
 | `located` | `epinoic_logic.channel.bus` | `_located` |
+| `match_claims` | `epinoic_logic.channel.feedback` | `match_claims` |
 | `material_claims` | `epinoic_logic.channel.bus` | `_material_claims` |
 | `measure_answer_words` | `epinoic_logic.channel.request_parser` | `measure_answer_words` |
 | `model_json` | `epinoic_logic.channel.events` | `model_json` |
+| `named_claim_ids` | `epinoic_logic.channel.feedback` | `named_claim_ids` |
 | `needs_qualified_ids` | `epinoic_logic.channel.bus` | `needs_qualified_ids` |
 | `observation_state` | `epinoic_logic.channel.events` | `observation_state` |
+| `parsed_report` | `epinoic_logic.channel.feedback` | `_parsed_report` |
 | `per_part_bound` | `epinoic_logic.channel.request_parser` | `per_part_bound` |
+| `preservation_findings` | `epinoic_logic.channel.feedback` | `preservation_findings` |
+| `quote_text` | `epinoic_logic.channel.feedback` | `quote_text` |
+| `render_instruction` | `epinoic_logic.channel.feedback` | `render_instruction` |
+| `render_revision_message` | `epinoic_logic.channel.feedback` | `render_revision_message` |
+| `rendered_digest` | `epinoic_logic.channel.feedback` | `rendered_digest` |
 | `report_bidi_findings` | `epinoic_logic.channel.bus` | `report_bidi_findings` |
+| `revision_budget` | `epinoic_logic.channel.feedback` | `revision_budget` |
+| `revision_id_of` | `epinoic_logic.channel.feedback` | `revision_id_of` |
+| `revision_signable_text` | `epinoic_logic.channel.feedback` | `signable_text` |
+| `sanitise` | `epinoic_logic.channel.feedback` | `sanitise` |
 | `snapshot_event` | `epinoic_logic.channel.events` | `snapshot_event` |
+| `weakened` | `epinoic_logic.channel.feedback` | `weakened` |
 | `withheld_deliverable` | `epinoic_logic.channel.bus` | `withheld_deliverable` |
 | `word_bound_severity` | `epinoic_logic.channel.request_parser` | `word_bound_severity` |
 
@@ -195,7 +239,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `split_sentences` | `epinoic_logic.adapters.english_specialist.parser` | `split_sentences` |
 | `verification_label` | `epinoic_logic.adapters.markdown` | `verification_label` |
 
-## `epinoic_logic.api.branches` (11 names)
+## `epinoic_logic.api.branches` (12 names)
 
 | public name | internal module | internal name |
 |---|---|---|
@@ -206,6 +250,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `HubClosed` | `epinoic_logic.branches.hub` | `HubClosed` |
 | `HubReview` | `epinoic_logic.branches.hub` | `HubReview` |
 | `PoolReview` | `epinoic_logic.branches.hub` | `PoolReview` |
+| `RevisionIssue` | `epinoic_logic.branches.hub` | `RevisionIssue` |
 | `RouterHub` | `epinoic_logic.branches.hub` | `RouterHub` |
 | `absent_mentions` | `epinoic_logic.branches.packs` | `_absent_mentions` |
 | `default_registry` | `epinoic_logic.branches` | `default_registry` |

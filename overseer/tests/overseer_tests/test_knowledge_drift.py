@@ -335,7 +335,11 @@ def _known_names() -> set[str]:
               # a combined answer's N_FOLD review (pack 2.0, architecture step 3): the part a dossier is issued for and the merged
               # review's temporary context, which Dossier guide D38 and D39 teach
               dossier_mod.DossierReview, dossier_mod.DossierTemporaryContext, dossier_mod.DossierContextScope, dossier_mod.DossierContextSource,
-              dossier_mod.DossierContextFault]
+              dossier_mod.DossierContextFault,
+              # a revision request (pack 2.1, integration step 2: specialist feedback): the block a request carries, which
+              # Dossier guide D41 teaches field by field
+              channel_contracts.RevisionRequest, channel_contracts.RevisionFlaw, channel_contracts.RevisionClaim, channel_contracts.RevisionEvidence,
+              channel_contracts.RevisionKeep]
     names: set[str] = set()
     for m in models:
         names |= set(m.model_fields)
@@ -354,6 +358,9 @@ def _known_names() -> set[str]:
     values |= set(typing.get_args(channel_contracts.ConstraintKind))
     # the closed values of a combined answer's review (pack 2.0): its method, its roles and the context's discard rule
     for model, field in ((dossier_mod.DossierReview, "method"), (dossier_mod.DossierReview, "role"), (dossier_mod.DossierTemporaryContext, "discard")):
+        values |= set(typing.get_args(model.model_fields[field].annotation))
+    # the closed values of a revision request's flaws and keep list (pack 2.1): a flaw's class and basis, a keep entry's kind
+    for model, field in ((channel_contracts.RevisionFlaw, "flaw_class"), (channel_contracts.RevisionFlaw, "basis"), (channel_contracts.RevisionKeep, "kind")):
         values |= set(typing.get_args(model.model_fields[field].annotation))
     for model, field in ((integrity_contracts.SynthesizedClaim, "transformation"), (integrity_contracts.SynthesizedClaim, "certainty"),
                          (integrity_contracts.SynthesizedClaim, "materiality"), (translate_contracts.ClaimRecord, "claim_role"),
@@ -451,15 +458,17 @@ def test_every_rule_code_is_defined_once():
     # simulation) added D29-D31 and I90-I97, the STEM answers; the STEM completion (design section 31) added D32, the ST
     # codes, and I98, a STEM receipt. The integration step (pack 1.4) added D33-D37 (the argument diagnosis, release, the
     # codes, statuses, rejections and policies), I99 (reading a diagnosis), K8 and N14. Pack 2.0 (architecture step 3, the
-    # twofold review of a combined answer) added T15, D38-D40, I100-I104, K9, N15 and U12.
-    for prefix, last in {"T": 15, "D": 40, "E": 15, "V": 20, "K": 9, "X": 3, "N": 15, "U": 12}.items():
+    # twofold review of a combined answer) added T15, D38-D40, I100-I104, K9, N15 and U12. Pack 2.1 (integration step 2,
+    # specialist feedback) added T16, D41, I105-I109 and N16.
+    for prefix, last in {"T": 16, "D": 41, "E": 15, "V": 20, "K": 9, "X": 3, "N": 16, "U": 12}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
-    assert nums["I"][0] == 1 and nums["I"][-1] == 104
+    assert nums["I"][0] == 1 and nums["I"][-1] == 109
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
     assert [n for n in nums["I"] if 82 <= n < 90] == list(range(82, 90))  # the consolidation and repeated-fault checks, I82 to I89
     assert [n for n in nums["I"] if 90 <= n < 99] == list(range(90, 99))  # the STEM answers, I90 to I98
     assert [n for n in nums["I"] if 99 <= n < 100] == [99]  # the argument diagnosis, I99
-    assert [n for n in nums["I"] if n >= 100] == list(range(100, 105))  # a combined answer's parts, I100 to I104 (three-digit ids)
+    assert [n for n in nums["I"] if 100 <= n < 105] == list(range(100, 105))  # a combined answer's parts, I100 to I104 (three-digit ids)
+    assert [n for n in nums["I"] if n >= 105] == list(range(105, 110))  # a revision request and the revised answer, I105 to I109
 
 
 def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
@@ -472,11 +481,11 @@ def test_every_document_defines_its_rules_in_ascending_order(tmp_path):
     text = read(d, "02-dossier.md")
     facts = text.split("## 10. Facts you can rely on", 1)[1].split("\n## ", 1)[0]
     # (pack 1.2: Common mistakes is §15, after the STEM answers' D29-D31; pack 1.4: §16, after the argument diagnosis's D33-D37;
-    # pack 2.0: §17, after the combined answers' D38-D40)
-    assert "## 17. Common mistakes" in text
-    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 17. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 17. Common mistakes")
+    # pack 2.0: §17, after the combined answers' D38-D40; pack 2.1: §18, after the revision requests' D41)
+    assert "## 18. Common mistakes" in text
+    moved = text.replace("## 10. Facts you can rely on" + facts, "").replace("## 18. Common mistakes", "## 10. Facts you can rely on" + facts + "\n## 18. Common mistakes")
     (d / "02-dossier.md").write_text(moved, encoding="utf-8")
-    assert any("D14 is defined after D40" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D40 (pack 2.0) is now the last rule before
+    assert any("D14 is defined after D41" in p for p in rule_order_faults({"02-dossier.md": moved}))  # D41 (pack 2.1) is now the last rule before
     with pytest.raises(ExportError) as ei:
         refresh_source(d)
     assert ei.value.reason == "source_invalid" and "out of ascending order" in ei.value.detail
@@ -518,8 +527,8 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    # the footer names another version than the pack's own (the pack is 2.0 since architecture step 3)
-    "titles_and_footers": ("08-never.md", "Pack version 2.0 · overseer-knowledge-docs", "Pack version 2.1 · overseer-knowledge-docs"),
+    # the footer names another version than the pack's own (the pack is 2.1 since integration step 2, specialist feedback)
+    "titles_and_footers": ("08-never.md", "Pack version 2.1 · overseer-knowledge-docs", "Pack version 2.2 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

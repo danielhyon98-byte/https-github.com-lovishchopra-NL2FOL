@@ -24,7 +24,7 @@ statement: results prove properties of the encoding only, never that a claim is 
 ## The sub-project
 
 `overseer/` is a project of its own inside the translator's repository: the package `epinoic_overseer` (version in
-`pyproject.toml` and `epinoic_overseer.__version__`, 1.1.0 since architecture step 3, 1.0.0 before), this README, `LICENSE`, `docs/` (design, results, the
+`pyproject.toml` and `epinoic_overseer.__version__`, 1.2.0 since integration step 2 (specialist feedback), 1.1.0 since architecture step 3, 1.0.0 before), this README, `LICENSE`, `docs/` (design, results, the
 agent brief, the delivery rules), `tests/` (the package `overseer_tests`), `scripts/` (the contained run, the tampering
 suite, the harness; never installed) and the knowledge pack as package data, written out by its own exporter. It is
 usable as a sub-agent of any system that speaks the integration protocol `epinoic.integration.v1`.
@@ -69,8 +69,8 @@ keeps equal to the originals): inside the repository they use it; a standalone c
 
 ### The knowledge pack and its exporter
 
-`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.0 since
-architecture step 3; 1.0 to 1.5 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
+`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.1 since
+integration step 2, specialist feedback; 2.0 since architecture step 3; 1.0 to 2.0 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
 pack: every pinned digest and the exported zip are the ones recorded before the move
 (`tests/overseer_tests/test_subproject_layout.py`). The packs' own text predates the move: where it names the module
 path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that text changes only with a new pack version
@@ -81,7 +81,8 @@ path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that te
 From `overseer/`: `python scripts/run_contained.py --out DIR --rounds <recorded rounds>` (the contained run and its
 gates), `python scripts/tamper.py`, `scripts/stem_probes.py`, `scripts/export_dossier.py`, `scripts/score_verdicts.py`
 and `scripts/mutate_auditor.py` (the harness; `scripts/ovs_harness.py` is what they share); they find the translator's
-repository as above. `scripts/twofold_probes.py` (architecture step 3) is the contained run's stage of combined answers. `scripts/README.md`
+repository as above. `scripts/twofold_probes.py` (architecture step 3) is the contained run's stage of combined answers, and
+`scripts/revision_probes.py` (integration step 2) its stage of specialist feedback and revision. `scripts/README.md`
 has the commands and what each writes.
 
 ### Splitting it into a repository of its own
@@ -651,7 +652,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | --- | --- | --- |
 | Codes | `codes.py` | every `OVS-*` code with one severity and one stage (`OVS-AGENT-*` included) |
 | Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`, `TranslationAudit`; the audit scope sentence |
-| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation, delivery) |
+| Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation, delivery, feedback) |
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
@@ -664,7 +665,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-2.0/` | the agent's whole configuration (below); 1.0 to 1.5 stay beside it, pinned |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-2.1/` | the agent's whole configuration (below); 1.0 to 2.0 stay beside it, pinned |
 | Emitted codes | `emitted.py` | everything the translator and the channel emit, as the overseer knows it: every receipt code with its severities and labels, every named diagnostic, the 28 labels, every status and engine code, every release refusal (rules 1 to 9, `release-v1`), the named policies and rejections; `risk_reading` (the risk signals and records a task carries) |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
@@ -675,17 +676,19 @@ The overseer knows everything the merged translator and its channel can put on a
 | Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack; the plan is the flash router's, attached through the router port by capability (`router=`), admitted at or above the floor, and records its admission |
 | Pool floor | `floor.py` | the minimum-oversight floor of the pool (`minimum-oversight-floor/pool-2`): every dossier reviewed, two independent instances for a repeated fault or a risk signal, every combined answer N_FOLD with its context bounded at 65,536 bytes, the floor plan, the words of a plan's reasons, the decision record of every dossier and the audit note naming who planned it |
 | Twofold review | `twofold.py` | a combined answer's N_FOLD review: `combined_layout` (its sources and merged part from the journal), the part views and the pool's reading of each part, `TemporaryContext` (the source reviews' validated outcomes, scoped, bounded, recorded, discarded), `run_twofold` (the source reviews in parallel waves, the merged review with the context) |
+| Specialist feedback | `feedback.py` | the revision request to the specialist that wrote an answer (design section 53): `build_revision_request` (the allowlisted flaws of the answer's receipt, a signed task audit and, as advisory items, validated unresolved accusations of three kinds; fixed text, signed under the `feedback` subkey, key id `overseer-feedback`), `revision_outcome` (each fed-back flaw fixed, removed, evaded, persisted or not re-checked; introduced flaws, preservation findings, claims lost; the next step), the escalation (`OVS-FB-002`) and the audit's `feedback` stage (`check_revision_request`, `OVS-FB-001`) |
 | Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget (withheld for every answer in this release: rule `formal-label-withheld`, `docs/DELIVERY.md` 6d), else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
 
 The observer hook itself lives outside this package, which the channel never imports: `channel/events.py`
 (`ChannelEvent`, `snapshot_event`, `observe_call`), the private decorator on the four entry points of
 `channel/bus.py` (`observers=`, `add_observer`, `channel_uid`, `observer_errors`), the result sink `engine/sink.py`, and
 the hub integration in `branches/hub.py` (`observers=`, `auditor=`, `closed_channels`, `close_task`, `clearance`,
-`audit`, `view`, `review`, and for consolidation `consolidate`, `consolidations`, `repeats`, `review_pool`).
+`audit`, `view`, `review`, for consolidation `consolidate`, `consolidations`, `repeats`, `review_pool`, and for specialist
+feedback `request_revision`, `revision_outcome`, `revisions`, `record_verdicts`).
 
 ## The knowledge pack
 
-`src/epinoic_overseer/knowledge/overseer-knowledge-docs-2.0/` is the overseer agent's whole configuration, laid out like the specialists'
+`src/epinoic_overseer/knowledge/overseer-knowledge-docs-2.1/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
 evidence rule, the verdict format, the kinds and codes, 41 worked examples, what never to do, what to do when unsure,
@@ -701,7 +704,10 @@ the kinds-and-codes §8 table and N14; since pack 1.5, the round-8 clearance's r
 an expression, which the STEM pack now decides: D32, and the §8 row of CORE-SRC-008, the core pack's warning on a near miss
 of a name the supplied case states; since pack 2.0, a MAJOR version, the review of a combined answer in parts: the dossier's
 `review` and `temporary_context`, a source review and a merged review, and the kind `synthesis_carries_fault`: the master
-prompt's COMBINED ANSWERS section, T15, D38 to D40, I100 to I104, K9, N15, U12 and Example 41; 1.0 to 1.5 stay pinned),
+prompt's COMBINED ANSWERS section, T15, D38 to D40, I100 to I104, K9, N15, U12 and Example 41; since pack 2.1, the review
+of a revision request and of the revised answer that replies to it: the master prompt's REVISION REQUESTS section, T16, D41,
+I105 to I109, N16 and the code table's INT-HANDOFF-018, INT-REV-001 and INT-REV-002, and I102's report condition; 1.0 to 2.0
+stay pinned),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -712,7 +718,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-2.0/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-2.1/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text
@@ -743,7 +749,10 @@ controls, the fault-class probes, and the pack's STEM statements beside the code
 answer's N_FOLD review: the layout, the four cases of a source fault kept, dropped and added and a faithful control, a
 fault of a report its specialist revised under the same claim ids (never confirmed through the revision's citation), the
 temporary context's bound, scope and discard, three specialists, the waves, the router's N_FOLD plan admitted and a
-weakened one refused, determinism).
+weakened one refused, determinism), and `test_feedback_*` (specialist feedback, design section 53: the builder's allowlist,
+advisory items, bounds and signatures; the audit's `feedback` stage, OVS-FB-001 on every block that does not verify or bind
+and none on a genuine one, the shadow agreeing on revision transfers, on every recorded round when present; each outcome
+bucket, the budget, suppression, escalation and consolidation of a superseded original).
 
 ## Consolidation, repeated faults and self-duplication
 
