@@ -2120,3 +2120,12 @@ Work in progress after it is labelled as such.
   (suite 22,783 passed, 0 skipped; harness unchanged, c1 203 of 203). f3d338a adds the specialist feedback and revision
   function (suite 22,967 passed, 0 failed, 0 skipped; harness unchanged). The architecture review runs now; arena rounds
   9 and 10 follow.
+
+### Progress, 04:00 UTC (9 November)
+- The architecture review after round 8 found 4 major and 13 minor problems. Commit c4f276c fixes them across the
+  translator, the overseer, the integration kit and the flash router; the items it leaves open are listed in its commit
+  message (among them a strict expected-failure test that marks the open service-floor finding). With the recorded rounds
+  supplied, the full suite gave 23,051 passed, 1 expected failure, 0 failed and 0 skipped; the harness is unchanged on
+  every recorded round (c1 203 of 203). The contained run was not repeated in this step.
+- Arena round 9 has started with 22 tasks: 16 single-subject tasks and three cross-subject pairs. Nothing from round 8 or
+  later is uploaded yet; round 8's upload waits for the owner's decision on the publisher gate.
