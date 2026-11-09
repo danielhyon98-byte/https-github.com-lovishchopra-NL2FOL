@@ -1,10 +1,30 @@
-# Resume after the weekly limit of 9 Nov 2026 (weekly 84% at 13:59 UTC Mon 9 Nov, ~2 points/h: FINAL checkpoint made at the 14:00 run; plan: stop phase 2 at ~93-95%, about 18:30-19:30 UTC; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
+# Resume after the weekly limit of 9 Nov 2026 (phase 2 STOPPED at 19:30 UTC Mon 9 Nov at weekly 95%, at a clean point; the weekly window resets Fri 13 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 9 Nov 19:30 UTC: PHASE 2 STOPPED FOR THE WEEKLY LIMIT (round 9 fix stage: all six owner fixers done; the handoff fixer is next)
+- Stop: TaskStop on task wxij9jbhz at 19:30 UTC (weekly 95%), recorded in S/runs.json phase2-cont.stopped7 (labels done
+  260, null results 0; killed in flight: fix:handoffs:clearance-c2, started 19:28:31, no edits made). R holds the six fixers' UNCOMMITTED edits
+  (91 paths; the checkpoint's wip carries them as patches + untracked files). Never commit them by hand: the
+  resumed workflow's handoff fixer, verify and commit own them (hourly step A stays skipped while R is dirty).
+- Round 9 (c2) fix stage: 196 findings (142 from the five lenses + 54 carried): overseer 26 fixed/12 left, parsers 14/10,
+  stem 20/9, core 19/23, harness 6/10, combinator 1 fixed/5 left (its hub half handed to core); every fixer wrote cross-owner handoffs
+  (S/wf/phase2/clearance-c2/handoff-*.md; handoff-pushcheck.md holds the 6 items of the c4f276c push check).
+  Failures the fixers saw on the shared working tree, for the handoff fixer and verify to settle: 40 overseer push-check
+  tests (the parsers fixer's note-reader change), test_clearance_c2_overseer[note by negation], test_stem_completion[maa-t13]
+  (14 checks vs a pinned 16), scripts/arena/test_arena_rules.py::test_a_mutation_of_the_second_stem_report_... (STEM change).
+- RESUME after Fri 13 Nov 16:00 UTC: if the container is fresh, restore first (section 1 below and KNOWLEDGE/04-PROCEDURES).
+  Then Workflow with scriptPath S/wf-scripts/phase2-cont.js (sha256 a7db87ad82f4edc5...), resumeFromRunId wf_eee12853-0ae,
+  args = the contents of S/wf/phase2-cont-args.json (continueAfterRound8 true; NOT the r8only file). Every finished agent
+  replays from the journal; the first live call is fix:handoffs:clearance-c2, then verify, commit "Fix the c2 clearance
+  findings", push-check:c2, push:c2 (the installed gate uploads after its simulation), readme:c2, then round 10 (c3).
+  Re-arm the watchdog Monitor (bash S/watchdog_monitor.sh; milestones in S/watch-milestones.txt). Mark stopped7 resumed in runs.json.
+- Also after the reset: task #238 (rewrite and fact-check the handoff documents for c4f276c / pin 1c2fb5c, publish, read
+  back; release_prototype.sh needs a deliberate tag-name change: ask Daniel).
 
 ## 9 Nov 00:2x UTC: ROUND 8 DONE AND VERIFIED (upload waits for #208); PHASE 2 IN THE ARCHITECTURE FIX ROUND, THEN ROUND 9
 - UPLOADS (9 Nov): Daniel approved pushes at 14:2x (#208 done). The gate change is INSTALLED (publish_final.sh =
