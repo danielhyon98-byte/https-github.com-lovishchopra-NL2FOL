@@ -2129,3 +2129,9 @@ Work in progress after it is labelled as such.
   every recorded round (c1 203 of 203). The contained run was not repeated in this step.
 - Arena round 9 has started with 22 tasks: 16 single-subject tasks and three cross-subject pairs. Nothing from round 8 or
   later is uploaded yet; round 8's upload waits for the owner's decision on the publisher gate.
+
+### Progress, 05:00 UTC (9 November)
+- Arena round 9 ran on c4f276c: 188 transmissions, 180 handled correctly (95.7%). All 44 genuine transmissions were
+  delivered and decided (22 replies, 3 peer relays, 19 combined answers), and 136 of 144 injected faults were named.
+  The 8 misses are all STEM faults: arithmetic slips 7 of 10, wrong units 4 of 5, substitutions 5 of 9. They go to
+  round 9's fix stage with the round's other findings. The overseer review of the round runs now.
