@@ -7,15 +7,17 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 (20 issues found and corrected here).
 
 ## 9 Nov 00:2x UTC: ROUND 8 DONE AND VERIFIED (upload waits for #208); PHASE 2 IN THE ARCHITECTURE FIX ROUND, THEN ROUND 9
-- Uploads: the hourly notes continue on verified-updates (00:00 = aaced29); its code is still 7a939fd = 16d5a4a. Round 8 is dev
-  5060a52: push check hold=false (supersedes f2329df), presim SIMULATION OK (suite 22721 passed, 0 failed, 0 skipped; harness =
-  recorded; contained 355/355). The live S/publish_final.sh holds on f2329df; S/publish_final.sh.new (diff
-  S/gate-decision/publish_final.diff, sent to Daniel) gives FINAL 5060a52. The permission check refused installing it, so it is
-  Daniel's decision #208: NEVER install it without his explicit go. After the go: back up and install the gate, run event_push.sh
-  (outside hh:56-hh:03), read back (Source-Commit 5060a52...), release_prototype.sh --dry-run then for real, then publish the
-  handoff refresh: refresh the moving verified-updates head sentence (it cites bfc600e), fill.py --src handoff/refresh-8nov
-  --out handoff/filled-8nov --vu <sha> --upload-status ... --sim-line ... --port-status '-', push_handoff.sh (round-8 message in
-  S/handoff/push_handoff.sh.round8), read back docs/final-z3-handoff.
+- UPLOADS (9 Nov): Daniel approved pushes at 14:2x (#208 done). The gate change is INSTALLED (publish_final.sh =
+  publish_final.sh.new; backup publish_final.sh.before-208). verified-updates 1c2fb5c (17:37) carries c4f276c = round 8
+  (f2329df, 32a5c0e, 5060a52) + the architecture step (ab44c8a, b570339, f3d338a, c4f276c); read back: Source-Commit c4f276c,
+  tree identical outside the import docs and update notes. Gates passed: independent push check push-check/c4f276c...json
+  (hold=false; its 6 non-blocking items are in wf/phase2/clearance-c2/handoff-pushcheck.md for round 9's handoff fixer) and
+  the upload simulation (suite evidence sim-evidence/c4f276c-suite.txt; harness = recorded; contained 355/355).
+  Daniel also accepted that FORMALLY CHECKED stays off for every answer, and said "dont budget, go full throttle" on round 9.
+  STILL TO DO after the reset (task: refresh handoff + release): the handoff documents in S/handoff/refresh-8nov describe
+  pin 5060a52 and say step 3/feedback/lens fixes are NOT included, so they must be rewritten and fact-checked for c4f276c
+  before publishing (fill.py --vu 1c2fb5c..., push_handoff.sh, read back); release_prototype.sh only tags an upload whose
+  Source-Commit is a 'Prototype:' commit, so it prints NOTHING for c4f276c and needs a deliberate change (tag name).
 - Overseer publisher: HOLD every hour (502fcff misses a development test; 6adbd64 and 87eaf86 fail the contained run 235/254).
   Unchanged since before 8 Nov; nothing newer than cda154c passes. Not a regression of today's work.
 - Phase 2 = wf_eee12853-0ae, task wxij9jbhz, script S/wf-scripts/phase2-cont.js (sha256 a7db87ad82f4edc5, LAYOUT2 + 2b + 2c +
