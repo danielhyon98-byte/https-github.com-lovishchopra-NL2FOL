@@ -13,7 +13,12 @@ pool never runs less than it, whatever the router says (:data:`POOL_FLOOR_RULES`
    the effective severity: an error-level finding, a rejection, a contradiction between results or with a signed result,
    an encoding conflict, a withheld verdict, a named defect at warning or error, an unchecked source or a STEM method
    error at that severity, an argument diagnosis that did not finish; or when the overseer's escalation advisor (off by
-   default) escalated it;
+   default) escalated it. Any other warning-level receipt finding is no risk signal: it is on the receipt the instance
+   reads, and it escalates nothing. In particular a hedge the translator names as dropped only by its lexical reading
+   (INT-LEDGER-026, and INT-LEDGER-027 for a from-memory label dropped, both warnings) does not send the merged review of
+   a combined answer to two instances, while the same claim with its certainty field inflated (INT-LEDGER-003, an error)
+   does (decided and recorded after arena round 8's architecture review; making them signals would be a new floor
+   version);
 3. **a combined answer's floor is N_FOLD** (architecture step 3; ``pool-1`` stated it for later): a dossier whose
    synthesis combines N >= 2 specialists' delivered answers is reviewed in N + 1 parts, each specialist's own transfers
    by at least one instance of their own (two when that source's transfers carry a repeated fault or a risk signal, or

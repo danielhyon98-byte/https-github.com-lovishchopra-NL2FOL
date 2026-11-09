@@ -23,6 +23,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'TABLE_SEPARATOR_RE': ('epinoic_logic.stem.layout', 'TABLE_SEPARATOR_RE'),
     'annotation_ranges': ('epinoic_logic.stem.layout', 'annotation_ranges'),
     'build_document': ('epinoic_logic.stem', 'build_document'),
+    'clear_document_cache': ('epinoic_logic.stem.document', 'clear_document_cache'),
     'parse_data_tables': ('epinoic_logic.stem.datatables', 'parse_data_tables'),
     'unit_dimension': ('epinoic_logic.stem.units', 'unit_dimension'),
 }

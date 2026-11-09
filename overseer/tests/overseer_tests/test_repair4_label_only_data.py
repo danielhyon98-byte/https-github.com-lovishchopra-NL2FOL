@@ -26,9 +26,9 @@ from typing import Optional
 
 import pytest
 
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer.checks import translation as T
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .conftest import DOC, english_report, make_auditor, withheld_as_circular_by_the_translator, without_the_translators_semantic_gate
 from .test_protocol_validate import review
@@ -204,7 +204,7 @@ def test_rule_data_standing_content_only_a_label_presents_as_data_is_uncheckable
     assert why in reason and "the kind label is then the only evidence" in reason, (case, reason)
     # rule engine-shown: the result rests on it, so the grade is OVS-TRN-006 (the third repair: OVS-TRN-011)
     obj = json.loads(problem.model_dump_json(exclude_none=True))
-    from epinoic_logic.engine import SolverConfig, verify
+    from epinoic_logic.api.engine import SolverConfig, verify
     follows = lambda pids: verify(json.dumps(T.without_premises(obj, pids)), SolverConfig()).status.value == "ENTAILED"  # noqa: E731
     assert T.engine_shown_codes(rs, False, follows) == ["OVS-TRN-006"], case
 
@@ -247,7 +247,7 @@ def test_control_a_premise_whose_figures_the_source_states_for_its_quantity_stay
     reason = dict(rs.why_own)["P"]
     assert "a number match is no evidence" in reason and "a quantity the premise's own statement names" in reason, (case, reason)
     obj = json.loads(problem.model_dump_json(exclude_none=True))
-    from epinoic_logic.engine import SolverConfig, verify
+    from epinoic_logic.api.engine import SolverConfig, verify
     follows = lambda pids: verify(json.dumps(T.without_premises(obj, pids)), SolverConfig()).status.value == "ENTAILED"  # noqa: E731
     assert T.engine_shown_codes(rs, False, follows) == ["OVS-TRN-011"], case
 

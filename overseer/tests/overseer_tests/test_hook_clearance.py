@@ -14,9 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from epinoic_logic.channel import TransmissionStatus
-from epinoic_logic.integrity import AgentRole
-from epinoic_logic.integrity.contracts import AgentMessage, payload_hash
+from epinoic_logic.api.channel import TransmissionStatus
+from epinoic_logic.api.integrity import AgentRole, AgentMessage, payload_hash
 from epinoic_overseer import (
     MAX_PENDING_WAIT_MS, TransferClearance, act_decision, bounded_wait_ms, check_before_acting, may_act, may_release, receipt_digest,
     release_decision, sign_audit,
@@ -241,7 +240,7 @@ def test_a_real_pending_transfer_clears_within_the_wait():
 
 
 def test_check_before_acting_refuses_when_no_clearance_can_be_had():
-    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.api.branches import RouterHub
     from .conftest import CFG, KEY
     plain = RouterHub(signing_key=KEY, config=CFG)
     task = hub_task(plain, synthesis=False)

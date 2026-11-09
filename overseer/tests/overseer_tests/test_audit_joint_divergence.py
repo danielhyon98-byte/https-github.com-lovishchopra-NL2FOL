@@ -2,9 +2,10 @@
 classification and exclusions (DIV-001, DIV-002, T18)."""
 from __future__ import annotations
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.integrity import SynthesizedClaim
-from epinoic_logic.ir.schema import Assertion, Problem
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.api.integrity import SynthesizedClaim
+from epinoic_logic.api.ir import Assertion
+from epinoic_logic.api.ir import Problem
 
 from .conftest import (
     DOC, EN_INPUT, HI_TEXT, default_synthesis, english_report, findings, int_problem, make_plan, new_channel, ovs_errors, problems_fn, run_task,

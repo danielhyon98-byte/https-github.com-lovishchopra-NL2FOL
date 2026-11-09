@@ -23,13 +23,13 @@ if str(SCRIPTS) not in sys.path:
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.engine import SolverConfig  # noqa: E402
-from epinoic_logic.integrity import WorkPlan  # noqa: E402
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig  # noqa: E402
+from epinoic_logic.api.integrity import WorkPlan  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
-from epinoic_logic.stem.datatables import parse_data_tables  # noqa: E402
-from epinoic_logic.translate.contracts import SuppliedText  # noqa: E402
+from epinoic_logic.api.stem import parse_data_tables  # noqa: E402
+from epinoic_logic.api.translate import SuppliedText  # noqa: E402
 
 R7 = json.loads((Path(__file__).resolve().parent / "data" / "r7_material.json").read_text(encoding="utf-8"))["specialists"]
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)
@@ -110,9 +110,10 @@ def test_the_repair_3_tamper_cases_are_registered_on_their_targets():
 
 # ============================================================================================ the pack beside the code
 def _decided(text: str, profile: str, request: str = None, data: tuple = ()):
-    from epinoic_logic.engine.policies import policy_config, policy_limits
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.stem import build_document, clear_document_cache
+    from epinoic_logic.engine.policies import policy_limits
+    from epinoic_logic.api.engine import policy_config, verify
+    from epinoic_logic.api.stem import clear_document_cache
+    from epinoic_logic.api.stem import build_document
     from epinoic_logic.stem.checks import build_checks
     clear_document_cache()
     doc = build_document(text, request, profile, **({"data": data} if data else {}))

@@ -27,12 +27,12 @@ from epinoic_logic.branches import RouterHub
 from epinoic_logic.branches import generic_parser as gp
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
-from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import build_document, clear_document_cache, layout
 from epinoic_logic.stem import spans as stem_spans
 from epinoic_logic.stem.lexer import Token, lex
 
 from ..growth import growth
+from ..overseer_attach import overseer
 from ..timing import empty_caches
 
 LINEAR = 8.0  # a 4x input: about 4 for a linear reader, about 16 for a quadratic one
@@ -48,8 +48,9 @@ def _random_texts(alphabet, seed: int, n: int, longest: int = 24):
 
 
 def _audited_physics_hub():
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
+    ov = overseer()  # the overseer's public package API: skips the test where it is not installed
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=ov.TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
     hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="Physics", task_type="short_answer",
                            selected_agent_ids=["physics-specialist"]))
     m, _req, _rq = hub.dispatch("t", "physics-specialist", "Answer the question.")

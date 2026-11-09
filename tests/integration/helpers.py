@@ -8,7 +8,8 @@ of the package and nothing outside the tests can import it.
 ``RealPort`` is the REAL embedded adapter (the overseer sub-project's ``epinoic_overseer.port``, connected with the test
 keys) behind the same recording interface (``calls``, ``replies``, ``reviewed``, ``fail_on``), so the TurnChecker tests
 run against both (``PORT_KINDS``; overseer-port CONFORMANCE). Only the double can be shaped; the real adapter answers
-what the rebuilt overseer decides.
+what the rebuilt overseer decides. Where the overseer is not installed (the translator's suite runs without it, as after
+its split), every ``[real]`` parameter is skipped with ``tests/overseer_attach.py``'s reason and the double's still run.
 """
 from __future__ import annotations
 
@@ -171,7 +172,13 @@ def real_port(agents: str = "off") -> Any:
     port = _REAL_PORTS.get(agents)
     if port is None:
         import atexit
-        from epinoic_overseer.port import connect
+
+        import pytest
+
+        from tests.overseer_attach import REASON
+        # the overseer sub-project's port adapter: a [real] parameter is skipped, with the reason, where the overseer is not
+        # installed (the translator's suite runs without it; the test-double parameters still run)
+        connect = pytest.importorskip("epinoic_overseer.port", reason=REASON).connect
         config = {"engine_key": bytes.fromhex(ENGINE_KEY_HEX), "engine_key_id": "default", "overseer_secret": bytes.fromhex(OVERSEER_SECRET_HEX),
                   "replay_mode": "process", "agents": agents}
         if agents == "async":

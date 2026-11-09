@@ -22,10 +22,9 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
+from epinoic_logic.api.channel import TranslatorChannel, CLAIM_OUT_OF_SCOPE
 from epinoic_overseer.delivery_policy import DeadlineVerifier, DeliveryPolicy, TranslationStage
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .conftest import EN_TEXT, HI_INPUT, HI_TEXT, findings, make_auditor, new_channel
 from .delivery_support import FakeClock, Verifier, physics_report, run_task

@@ -17,14 +17,14 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
-from epinoic_logic.engine import SolverConfig
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.translate.contracts import ClaimRecord, ProviderInfo, SpecialistReport, sha256_text
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.channel import CLAIM_OUT_OF_SCOPE
+from epinoic_logic.api.engine import SolverConfig
+from epinoic_logic.api.integrity import WorkPlan
+from epinoic_logic.api.translate import ProviderInfo
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, sha256_text, ProviderResponse
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
-from epinoic_logic.translate.providers import ProviderResponse
 from epinoic_logic.translate.providers.fixture import FixtureReviewProvider, FixtureTranslationProvider
 from epinoic_logic.translate.review import SemanticReviewer
 

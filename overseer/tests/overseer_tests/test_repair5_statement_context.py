@@ -25,9 +25,9 @@ from fractions import Fraction
 
 import pytest
 
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer.checks import translation as T
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .conftest import DOC, EN_TEXT, english_report, withheld_as_circular_by_the_translator, without_the_translators_semantic_gate
 from .test_protocol_validate import review

@@ -32,10 +32,10 @@ from epinoic_logic.channel.gate import assess_response
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import Synthesis, SynthesizedClaim, WorkPlan
 from epinoic_logic.integrity.ledger import check_synthesis_ledger
-from epinoic_overseer.delivery_policy import SELF_REPORT_CODES, _receipt_findings_of
 from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
 
 from ..growth import growth
+from ..overseer_attach import REASON
 from ..timing import empty_caches
 from .hostile_inputs import HOSTILE, all_inputs, bounded
 
@@ -43,6 +43,25 @@ LINEAR = 8.0  # a 4x input: about 4 for a linear reader, about 16 for a quadrati
 KEY = b"integration-gate-3-parsers-key-0123456789"
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)
 CALL_BOUND = 3.0
+
+#: The delivery policy's self-report codes (its rule self-report-disclosed, ``epinoic_overseer.delivery_policy``), restated
+#: so that the parsers' tests need no overseer (architecture review after arena round 8: the translator's suite runs where
+#: the overseer is not installed); ``test_the_restated_self_report_codes_are_the_delivery_policys`` holds them equal to the
+#: policy's own public constant where the overseer is installed.
+SELF_REPORT_CODES = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
+
+
+def _receipt_findings_of(receipt, codes) -> list:
+    """Every finding of ``receipt`` (findings and structural findings, any severity) whose code is in ``codes``: the
+    findings the delivery policy's rule self-report-disclosed reads (the overseer's own helper is private; this restates
+    it on the receipt's public fields)."""
+    return [f for f in list(receipt.findings or []) + list(receipt.structural_findings or []) if f.code in codes]
+
+
+def test_the_restated_self_report_codes_are_the_delivery_policys():
+    dp = pytest.importorskip("epinoic_overseer.delivery_policy", reason=REASON)
+    assert "SELF_REPORT_CODES" in dp.__all__  # a public constant of the policy, never a private name
+    assert dp.SELF_REPORT_CODES == SELF_REPORT_CODES
 
 
 def _receive(subject: str, agent: str, answer: str, request: str = "Answer the question."):

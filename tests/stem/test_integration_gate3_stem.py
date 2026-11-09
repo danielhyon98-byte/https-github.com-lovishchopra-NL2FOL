@@ -25,7 +25,6 @@ from epinoic_logic.channel.gate import assess_response
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.ir.schema import Problem
-from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import build_document
 from epinoic_logic.stem.checks import build_checks
 from epinoic_logic.stem.document import ambiguous_dots, clear_document_cache
@@ -33,6 +32,8 @@ from epinoic_logic.stem.hub_hooks import STEM_HOOKS
 from epinoic_logic.stem.lexer import is_sign_error, lex, sign_outside_grammar
 from epinoic_logic.stem.normalize import SIGN_FORMS, reading_view
 from epinoic_logic.stem.spans import find_spans
+
+from ..overseer_attach import overseer
 from epinoic_logic.stem.limits import profile_for
 
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)
@@ -377,8 +378,9 @@ SECRET = b"integration-gate-3-stem-secret-0123456789"
 def test_the_transfer_audit_rederives_the_new_readings(profile, request_, answer):
     """The overseer re-runs the branch packs on the journaled report: every new check (the '…d' companion of a joined middle-dot problem
     included) and every new finding is re-derived as delivered, so the audit passes."""
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
+    ov = overseer()  # the overseer's public package API: skips the test where it is not installed
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=ov.TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
     try:
         hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject=SUBJECTS[profile], task_type="short_answer",
                                selected_agent_ids=["stem-specialist"]))

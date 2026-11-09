@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import dataclasses
 
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.channel.contracts import ConstraintResult
-from epinoic_logic.engine import verify
-from epinoic_logic.engine.provenance import sign_result
-from epinoic_logic.engine.statuses import VerificationStatus as S
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus
+from epinoic_logic.api.channel import ConstraintResult
+from epinoic_logic.api.engine import verify, sign_result, VerificationStatus as S
 from epinoic_overseer import EngineKey, KeyRing, ResultStore
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.translate import compose_outcome
 
 from .conftest import (
     CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, HI_TEXT, KEY, OTHER_KEY, SECRET, english_report, findings, int_problem, make_auditor, make_keyring,
@@ -108,7 +106,7 @@ def test_t3c_an_old_result_reused_for_a_changed_claim_text(auditor, monkeypatch)
     assert f5 and f5[0].claim_ids == ["en-point"] and "another text" in f5[0].message
     # (b) the translation carries the OLD text's digest and the channel's stale check is patched out: RES-010
     monkeypatch.setattr(TranslatorChannel, "_stale_translation", staticmethod(lambda *a, **k: None))
-    from epinoic_logic.translate.contracts import sha256_text
+    from epinoic_logic.api.translate import sha256_text
     cache.clear()
     old_digest = sha256_text("The writer presents work as endless")
     ch2, _rc = _exchange(auditor, problems_fn({"en-point": P_POINT}, transform=lambda o, c, r: stale(o, c, r, digest=old_digest)))

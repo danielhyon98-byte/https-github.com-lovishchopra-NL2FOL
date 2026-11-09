@@ -25,14 +25,15 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.channel import TranslatorChannel  # noqa: E402
-from epinoic_logic.integrity import AgentRole, LedgerEntry, SynthesizedClaim, WorkPlan  # noqa: E402
-from epinoic_logic.integrity.ledger import check_synthesis_ledger, figure_pairing_differences, text_outside_claims  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.channel import TranslatorChannel  # noqa: E402
+from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim  # noqa: E402
+from epinoic_logic.api.integrity import AgentRole, WorkPlan, check_synthesis_ledger  # noqa: E402
+from epinoic_logic.integrity.ledger import figure_pairing_differences, text_outside_claims  # noqa: E402
 from epinoic_overseer.checks.fidelity import claim_occurs  # noqa: E402
 from epinoic_overseer.checks import normalise, plain_form  # noqa: E402
 from epinoic_overseer.policy import release_decision  # noqa: E402
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text  # noqa: E402
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText, sha256_text  # noqa: E402
 
 from .conftest import CFG, KEY, make_auditor  # noqa: E402
 
@@ -336,7 +337,7 @@ def test_a_claim_absent_from_the_response_is_still_fid_001():
 
 # ============================================================================================ quoted self-certification
 def test_a_quoted_claim_of_accuracy_is_analysis_not_a_self_certification():
-    from epinoic_logic.adapters.markdown import is_self_certification, mask_quotations
+    from epinoic_logic.api.adapters import is_self_certification, mask_quotations
     sentence = 'The brochure builds trust through an appeal to authority: "Every figure in this brochure has been independently verified."'
     assert is_self_certification(sentence) and not is_self_certification(mask_quotations(sentence))
     doc = SuppliedText(document_id="doc-mill", title="Brochure", author="Mill owners",

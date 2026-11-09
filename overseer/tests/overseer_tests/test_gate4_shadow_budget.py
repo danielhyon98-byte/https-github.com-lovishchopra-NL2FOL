@@ -30,10 +30,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.channel import TranslatorChannel, bus, events
-from epinoic_logic.channel.contracts import ConstraintResult, TransmissionStatus
-from epinoic_logic.integrity import IntegrityFinding, WorkPlan
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.channel import bus, events
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus
+from epinoic_logic.api.channel import ConstraintResult
+from epinoic_logic.api.integrity import IntegrityFinding, WorkPlan
 from epinoic_overseer.checks import shadow as SH
 
 from .timing import measure
@@ -188,8 +189,8 @@ def test_a_relay_whose_checks_the_budget_cut_is_replayed_too():
     router's forward does not): a relay made while the channel's budget is 0 states every STEM check not run, and the
     shadow replays that cut on the relay as on a response (OVS-RES-008 for the reduced budget, no accusation), while the
     delivery before it, decided, is compared check by check."""
-    from epinoic_logic.integrity import AgentRole
-    from epinoic_logic.translate.contracts import SpecialistReport
+    from epinoic_logic.api.integrity import AgentRole
+    from epinoic_logic.api.translate import SpecialistReport
     hub = RouterHub(signing_key=KEY, config=CFG, auditor=make_auditor())
     try:
         hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="Physics", task_type="short_answer",

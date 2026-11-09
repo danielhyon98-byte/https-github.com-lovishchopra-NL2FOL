@@ -47,15 +47,15 @@ import export_dossier as ED  # noqa: E402
 import score_verdicts as SV  # noqa: E402
 
 import epinoic_logic.channel.bus as bus  # noqa: E402
-from epinoic_logic.branches.packs import EnglishPack  # noqa: E402
-from epinoic_logic.integrity.contracts import IntegrityFinding  # noqa: E402
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.branches import EnglishPack  # noqa: E402
+from epinoic_logic.api.integrity import IntegrityFinding  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer.checks.joint import POOLED_ONLY_RULE  # noqa: E402
 from epinoic_overseer.checks.translation import (  # noqa: E402
     DEFINITION_RULE, STATED_STEP_RULE, derived_numbers, restatement, text_numbers, translator_semantic_floor, untraced_content,
 )
 from epinoic_overseer.meta_notes import is_note_paragraph, meta_paragraph_of, note_paragraphs, self_report_findings  # noqa: E402
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text  # noqa: E402
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, sha256_text  # noqa: E402
 
 from .timing import measure  # noqa: E402
 from .conftest import findings, int_problem, make_auditor, run_task  # noqa: E402

@@ -16,11 +16,11 @@ from typing import Any, Callable
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.channel.events import OBSERVER_ERRORS_MAX, ChannelEvent
+from epinoic_logic.api.channel import TranslatorChannel, ChannelEvent
+from epinoic_logic.channel.events import OBSERVER_ERRORS_MAX
 from epinoic_logic.engine.sink import capture_active
-from epinoic_logic.integrity import AgentRole
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText
+from epinoic_logic.api.integrity import AgentRole
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText
 
 from .conftest import CFG, DOC, EN_INPUT, EN_TEXT, HI_INPUT, HI_TEXT, KEY, codes_of, default_synthesis, english_report, int_problem, make_auditor, make_plan, problems_fn
 

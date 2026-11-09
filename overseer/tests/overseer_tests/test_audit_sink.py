@@ -6,10 +6,9 @@ import asyncio
 import json
 import threading
 
-from epinoic_logic.engine import verify
-from epinoic_logic.engine.provenance import verify_signature
-from epinoic_logic.engine.sink import capture_active, capture_results, emit
-from epinoic_logic.ir.canonical import canonical_json, sha256_hex
+from epinoic_logic.api.engine import verify, verify_signature, capture_results
+from epinoic_logic.engine.sink import capture_active, emit
+from epinoic_logic.api.ir import canonical_json, sha256_hex
 
 from .conftest import CFG, KEY, int_problem
 
@@ -137,8 +136,8 @@ import re as _re
 
 import pytest as _pytest
 
-from epinoic_logic.channel import TranslatorChannel as _Channel
-from epinoic_logic.channel.events import ObservationState, observe_call, snapshot_event, take_before
+from epinoic_logic.api.channel import TranslatorChannel as _Channel, snapshot_event
+from epinoic_logic.channel.events import ObservationState, observe_call, take_before
 
 from .conftest import DOC, EN_INPUT, english_report, make_auditor, make_plan, problems_fn, run_task
 

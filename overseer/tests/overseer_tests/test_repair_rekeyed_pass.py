@@ -113,7 +113,7 @@ def test_the_re_keyed_pass_serves_the_recorded_fixture_to_the_merged_claim_and_a
 def _entry(rnd: Path) -> dict:
     """An adjudication of the circular fixture of the mini round, measured in its re-keyed pass (as the shipped record's
     r7 entry is), with the digests of the round's recorded answer and fixture."""
-    from epinoic_logic.ir.canonical import sha256_hex
+    from epinoic_logic.api.ir import sha256_hex
     answer = {k: ITEM[k] for k in ("task_id", "agent_id", "subject", "task_type", "question", "response_text", "supplied_texts")}
     fx = json.loads((rnd / "translations" / "ph-x.json").read_text())["claims"][RECORDED_ID]
     return {"id": f"rx/ph-x/{MERGED_ID}/OVS-TRN-006", "round": "rx", "pass": "rekeyed", "channel": "ph-x", "task_id": "ph-x", "agent_id": "physics-specialist",

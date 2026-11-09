@@ -81,7 +81,7 @@ def _attach(channel: Any) -> None:
 
 def pytest_configure(config: Any) -> None:
     global _original_init
-    from epinoic_logic.channel.bus import TranslatorChannel
+    from epinoic_logic.api.channel import TranslatorChannel
     if _original_init is not None:
         return
     _original_init = TranslatorChannel.__init__
@@ -97,7 +97,7 @@ def pytest_unconfigure(config: Any) -> None:
     global _original_init
     if _original_init is None:
         return
-    from epinoic_logic.channel.bus import TranslatorChannel
+    from epinoic_logic.api.channel import TranslatorChannel
     TranslatorChannel.__init__ = _original_init
     _original_init = None
 

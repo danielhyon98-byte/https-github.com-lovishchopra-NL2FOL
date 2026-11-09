@@ -11,10 +11,8 @@ from typing import Any, Optional
 import pytest
 
 import epinoic_logic.channel.bus as bus
-from epinoic_logic.engine import verify
-from epinoic_logic.engine.provenance import sign_result
-from epinoic_logic.engine.statuses import VerificationStatus as S
-from epinoic_logic.integrity.contracts import AgentMessage, AgentRole, sign_message
+from epinoic_logic.api.engine import verify, sign_result, VerificationStatus as S
+from epinoic_logic.api.integrity import AgentMessage, AgentRole, sign_message
 from epinoic_overseer import EngineKey, KeyRing, verify_audit
 from epinoic_overseer.audit import transfer_states
 from epinoic_overseer.contracts import OverseerAudit
@@ -23,9 +21,8 @@ from epinoic_overseer.validate import (
     OUTCOME_CODES, VerdictAssessment, assessment_digest, finding_matches, validate_overseer_verdict,
 )
 from epinoic_overseer.verdicts import PackIdentity
-from epinoic_logic.integrity.contracts import IntegrityFinding
-from epinoic_logic.translate.contracts import SuppliedText, TranslationStatus
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.integrity import IntegrityFinding
+from epinoic_logic.api.translate import SuppliedText, TranslationStatus, compose_outcome
 
 from .conftest import (
     CFG, DOC, EN_CLAIMS, EN_INPUT, HI_INPUT, KEY, OTHER_KEY, SECRET, english_report, int_problem, make_auditor, new_channel,
@@ -139,7 +136,7 @@ def test_confirmed_at_lookup_by_the_task_audit(auditor):
 
 def test_confirmed_peer_document_altered(auditor):
     task = run_task(auditor, synthesis=False)
-    from epinoic_logic.translate.contracts import SpecialistReport
+    from epinoic_logic.api.translate import SpecialistReport
     report = SpecialistReport.model_validate(task.messages["rep_en"].payload)
     doc = SuppliedText(document_id="peer:en", title="English specialist report", author="english-specialist",
                        text=report.original_response.replace("endless", "endlessly"))

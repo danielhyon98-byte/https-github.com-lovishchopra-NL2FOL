@@ -31,11 +31,10 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import stem_probes as SP  # noqa: E402
 
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer.checks import translation as T  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text  # noqa: E402
-from epinoic_logic.translate.grounding import check_problem_grounding  # noqa: E402
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, sha256_text, check_problem_grounding  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402
 

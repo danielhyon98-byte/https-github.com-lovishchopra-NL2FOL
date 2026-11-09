@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 
 import epinoic_logic.channel.bus as bus
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.translate.contracts import sha256_text
+from epinoic_logic.api.integrity import WorkPlan
+from epinoic_logic.api.translate import sha256_text
 
 from .conftest import findings, make_auditor, new_channel, ovs_errors
 

@@ -26,10 +26,10 @@ import ovs_harness as H  # noqa: E402
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.engine import SolverConfig  # noqa: E402
-from epinoic_logic.integrity import WorkPlan  # noqa: E402
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig  # noqa: E402
+from epinoic_logic.api.integrity import WorkPlan  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402
@@ -218,9 +218,10 @@ def test_the_i98_agent_accuses_a_given_with_neither_its_check_nor_its_st_code():
 
 # ============================================================================================ the pack beside the code
 def _decided(text: str, profile: str, request: str = None, data: tuple = ()):
-    from epinoic_logic.engine.policies import policy_config, policy_limits
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.stem import build_document, clear_document_cache
+    from epinoic_logic.engine.policies import policy_limits
+    from epinoic_logic.api.engine import policy_config, verify
+    from epinoic_logic.api.stem import clear_document_cache
+    from epinoic_logic.api.stem import build_document
     from epinoic_logic.stem.checks import build_checks
     clear_document_cache()
     doc = build_document(text, request, profile, **({"data": data} if data else {}))

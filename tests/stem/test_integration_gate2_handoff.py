@@ -37,11 +37,11 @@ from epinoic_logic.branches import RouterHub
 from epinoic_logic.branches import generic_parser as gp
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
-from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import layout
 from epinoic_logic.stem.document import build_document, clear_document_cache
 
 from ..growth import growth
+from ..overseer_attach import overseer
 from ..timing import empty_caches
 
 segment_module = importlib.import_module("epinoic_logic.stem.segment")
@@ -63,8 +63,9 @@ def _random_texts(alphabet, seed: int, n: int, longest: int = 12):
 
 def _cross(text: str) -> tuple[float, float, object, object]:
     """Receive ``text`` on an audited Physics hub and audit the task: (receive CPU s, audit CPU s, receipt, audit)."""
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
+    ov = overseer()  # the overseer's public package API: skips the test where it is not installed
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=ov.TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
     hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="Physics", task_type="short_answer", selected_agent_ids=["physics-specialist"]))
     m, _req, _rq = hub.dispatch("t", "physics-specialist", "Answer the question.")
     empty_caches()

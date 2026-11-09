@@ -22,7 +22,7 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.translate.contracts import TranslationStatus  # noqa: E402
+from epinoic_logic.api.translate import TranslationStatus  # noqa: E402
 
 
 def _auditor(**kw):

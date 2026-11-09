@@ -26,6 +26,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'segment': ('epinoic_logic.adapters.english_specialist.parser', 'segment'),
     'self_cert_vocabulary': ('epinoic_logic.adapters.markdown', 'self_cert_vocabulary'),
     'split_sentences': ('epinoic_logic.adapters.english_specialist.parser', 'split_sentences'),
+    'truncate_claim_text': ('epinoic_logic.adapters.markdown', 'truncate_claim_text'),
     'verification_label': ('epinoic_logic.adapters.markdown', 'verification_label'),
 }
 

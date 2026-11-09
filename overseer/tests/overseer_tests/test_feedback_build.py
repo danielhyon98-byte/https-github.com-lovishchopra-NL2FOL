@@ -10,7 +10,7 @@ import json
 import pytest
 
 from epinoic_logic.api.channel import MAX_MESSAGE_CHARS, MAX_QUOTED_TOTAL, eligible_flaws, render_revision_message
-from epinoic_logic.integrity import IntegrityFinding
+from epinoic_logic.api.integrity import IntegrityFinding
 from epinoic_overseer import feedback as F
 from epinoic_overseer.codes import ovs_finding
 from epinoic_overseer.keys import SUBKEY_LABELS
@@ -132,7 +132,7 @@ def test_a_confirmed_fault_enters_only_through_the_auditors_own_fidelity_finding
 def test_nothing_of_another_agent_reaches_the_block_or_the_message():
     """A peer pair whose claims contradict each other (INT-CONFLICT-001 on the English receipt): the cross-agent conflict is
     never fed back, and the English specialist's block and message hold no text, id or report of the History agent."""
-    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.api.branches import RouterHub
     from .conftest import CFG, DOC, EN_INPUT, english_report, make_auditor, make_plan
     probs = {"h1.1": int_problem("h1.1", "act_year", 1833, op="eq", bound=1833), "en-point": int_problem("en-point", "act_year", 1832, op="eq", bound=1832)}
     aud = make_auditor()

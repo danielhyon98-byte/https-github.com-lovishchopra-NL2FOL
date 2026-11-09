@@ -31,9 +31,9 @@ if str(SCRIPTS) not in sys.path:
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.engine import SolverConfig  # noqa: E402
-from epinoic_logic.integrity import WorkPlan  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig  # noqa: E402
+from epinoic_logic.api.integrity import WorkPlan  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402
@@ -313,7 +313,8 @@ def test_d31_states_rule_law_values_as_the_code_decides_it(d31):
         assert not [c for c in got if "rule law-values" in c[2]] and not _failing(got), (new, got)
     # the failed substitution of 'P = V/R' names the law's statement among the statements it relies on: its claims in the probe
     # (formulas-law-power) are the law's, the line's and V's
-    from epinoic_logic.stem import build_document, clear_document_cache
+    from epinoic_logic.api.stem import clear_document_cache
+    from epinoic_logic.api.stem import build_document
     from epinoic_logic.stem.checks import build_checks
     clear_document_cache()
     doc = build_document(_with("ph-t13", PH_D, "P = V/R\nP = (9.93 V)²"), R7["ph-t13"]["question"], "physics")

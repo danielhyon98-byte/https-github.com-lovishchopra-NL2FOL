@@ -20,7 +20,10 @@ live objects) into the dossier of design section 9.2:
   does not leak a check's outcome.
 * **Index**: every identifier with a ready pointer (a claim entry also names its ``report_id``).
 * **Auditor** (informed mode only): the task audit's ``OVS-*`` findings. Blind mode carries no auditor finding and no
-  signature-verification outcome; the receipts' own ``INT-*`` findings are part of each transfer in both modes.
+  signature-verification outcome; the receipts' own ``INT-*`` findings are part of each transfer in both modes. (A blind
+  merged review's ``temporary_context`` says which source faults a deterministic check confirmed, as kinds and
+  identifiers, never a finding's code or text, and never a fault only a signature, replay or custody check decides:
+  ``twofold.BLIND_HIDDEN_KINDS``.)
 * **Limits**: string fields over :data:`TRUNCATE_AT` characters are cut and end with :data:`TRUNCATION_MARKER`; each
   is listed with the digest and length of the full field, so a pointer stays valid and a quote must come from the
   visible part (:func:`visible_text`).
@@ -73,8 +76,10 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.2, listed as each stage re
   inside it); in informed mode its ``auditor`` section shows only the findings about the part's transfers (and those
   naming no transfer). The merged review's dossier also carries ``temporary_context``: the bounded, request-scoped record
   of the source reviews' validated outcomes (``twofold.TemporaryContextRecord``; closed vocabularies and identifiers, no
-  agent text, no finding code), in both modes, scoped to the dossier's own task and request. A dossier issued without
-  them has neither member, so its digest is what it was before the twofold mode existed.
+  agent text, no finding code), in both modes, scoped to the dossier's own task and request; in blind mode without the
+  faults only a signature, replay or custody check decides (``twofold.BLIND_HIDDEN_KINDS``; architecture review after
+  arena round 8). A dossier issued without them has neither member, so its digest is what it was before the twofold mode
+  existed.
 """
 from __future__ import annotations
 

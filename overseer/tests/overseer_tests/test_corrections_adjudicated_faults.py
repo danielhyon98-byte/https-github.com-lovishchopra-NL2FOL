@@ -105,8 +105,8 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import run_contained as RC  # noqa: E402
 
-from epinoic_logic.engine import SolverConfig, verify  # noqa: E402
-from epinoic_logic.ir.canonical import canonical_json  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig, verify  # noqa: E402
+from epinoic_logic.api.ir import canonical_json  # noqa: E402
 from epinoic_overseer.codes import ovs_finding  # noqa: E402
 
 from .conftest import without_the_translators_semantic_gate  # noqa: E402
@@ -292,8 +292,7 @@ def test_version_2_a_retirement_the_translator_no_longer_supports_refuses_the_re
     deliver" it; the retirement still fails, because the rule as written that it states (every restating premise the
     writer's own) no longer holds, and the record is still refused. That the gate would deliver it is asserted, as before,
     on the translator as it was before the clearance (its semantic rule off)."""
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     from epinoic_logic.translate.pipeline import Translator, _Rejected
     doc = copy.deepcopy(V2)
     e = doc["retired"][0]
@@ -368,8 +367,7 @@ def test_an_entry_adjudicating_a_redundant_restatement_is_refused(tmp_path):
     doc = copy.deepcopy(V1)
     e = doc["entries"][0]
     p = bm_problem()
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     e.update(id="r7/bm-t13/g2.1/OVS-TRN-006", channel="bm-t13", task_id="bm-t13", claim_id="g2.1", agent_id="business-management-specialist")
     e["translation"] = {"source": "translations/bm-t13.json", "problem_sha256": problem_digest(Problem.model_validate(p)), "problem": p}
     e["evidence"] = {"restating_premises": ["d_contrib_val"], "as_recorded": {"status": "ENTAILED"}, "without_restating_premises": {"status": "ENTAILED"},
@@ -720,7 +718,7 @@ def _v3_damaged(tmp_path, damage) -> Path:
 
 
 def _rehash(src: dict, field: str) -> None:
-    from epinoic_logic.ir.canonical import sha256_hex
+    from epinoic_logic.api.ir import sha256_hex
     src[field + "_sha256"] = sha256_hex(RC.canonical_json_of(src[field]))
 
 
@@ -783,8 +781,7 @@ def test_version_4_an_entry_whose_proof_does_not_rest_on_the_restatement_is_refu
     """Rule engine-shown: an entry whose proof as recorded rests on a premise that restates nothing (here the genuine
     link of the synthetic point beside the writer's restatement) is no fault the engine shows, even when removing the
     restating premise breaks the proof."""
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     doc = copy.deepcopy(V1)
     e = doc["entries"][0]
     prob = e["translation"]["problem"]

@@ -30,8 +30,9 @@ from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integration import combinator_port as CB
 from epinoic_logic.integrity import AgentRole, WorkPlan
-from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.translate.contracts import sha256_text
+
+from ..overseer_attach import overseer  # the overseer's public package API; skips the test where it is not installed
 
 KEY = b"integration-gate-1-handoff-adapters-key-01"
 SECRET = b"integration-gate-1-handoff-secret-0123456789"
@@ -47,13 +48,15 @@ def stem_report(text: str, agent: str, subject: str, rid: str, **kw):
                                            agent_id=agent, **kw)
 
 
-def _keyring() -> KeyRing:
-    return KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
+def _keyring():
+    ov = overseer()
+    return ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
 
 
 def _group_hub():
     """A hub task with two STEM specialists of one branch (both read by the sciences branch) and a combinator, audited."""
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(_keyring(), replay_mode="inline", eager=True, shadow="always"))
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG,
+                    auditor=overseer().TransferAuditor(_keyring(), replay_mode="inline", eager=True, shadow="always"))
     hub.open_task(WorkPlan(plan_id="p", request_id="req-g", task_id="task-g", subject="Chemistry", task_type="short_answer",
                            selected_agent_ids=["chemistry-specialist", "ess-specialist", "combinator"],
                            agent_subjects={"ess-specialist": "Environmental Systems and Societies"}))
@@ -156,8 +159,9 @@ def test_an_over_long_claim_has_its_blank_runs_collapsed_before_the_cut(fill):
 
 @pytest.mark.parametrize("fill", [" ", "\t"])
 def test_a_history_answer_with_a_long_blank_run_passes_its_audit(fill):
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, b"integration-gate-1-handoff-secret-0123456789")
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
+    ov = overseer()
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, b"integration-gate-1-handoff-secret-0123456789")
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=ov.TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
     try:
         hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="History", task_type="short_answer",
                                selected_agent_ids=["history-specialist"]))

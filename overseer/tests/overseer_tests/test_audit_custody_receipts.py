@@ -7,12 +7,11 @@ import dataclasses
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.channel.bus import _SCOPE_TAIL
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus, SCOPE_TAIL as _SCOPE_TAIL
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import OverseerView, ResultStore, run_overseer_checks, verify_audit
-from epinoic_logic.translate.contracts import SpecialistReport, sha256_text
+from epinoic_logic.api.translate import SpecialistReport, sha256_text
 
 from .conftest import (
     DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, HI_TEXT, KEY, CFG, codes_of, english_report, findings, make_auditor, make_keyring, make_plan, new_channel,

@@ -44,8 +44,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import ovs_harness as H  # noqa: E402
 import run_contained as RC  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.translate.contracts import SpecialistReport  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.translate import SpecialistReport  # noqa: E402
 
 from .r7_support import STEM_BRANCHES, recorded_ids  # noqa: E402
 from .conftest import withheld_as_circular_by_the_translator, without_the_translators_semantic_gate  # noqa: E402

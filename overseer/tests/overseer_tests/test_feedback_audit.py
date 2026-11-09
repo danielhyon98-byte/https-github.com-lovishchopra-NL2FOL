@@ -15,6 +15,7 @@ from epinoic_overseer import feedback as F
 
 from .conftest import EN_CLAIMS, EN_TEXT, english_report
 from .feedback_support import english_case
+from .translator_checkout import require_translator_root
 
 ROUNDS = Path(os.environ["EPINOIC_ARENA_ROUNDS"]) if os.environ.get("EPINOIC_ARENA_ROUNDS") else None
 SHADOW_CODES = {"OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008"}
@@ -136,9 +137,15 @@ def test_genuine_blocks_on_a_recorded_round_raise_no_false_alarm_and_the_shadow_
     request is refused by the channel, no block is OVS-FB-001 and the shadow raises nothing on any revision transfer."""
     if ROUNDS is None or not (ROUNDS / rd / "specialists").is_dir():
         pytest.skip(f"the recorded round {rd} is not present (set EPINOIC_ARENA_ROUNDS to the directory holding it)")
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts" / "arena"))
-    import run_arena as RA
-    from epinoic_logic.branches import RouterHub
+    # the translator's arena tools, reached through the translator checkout (EPINOIC_TRANSLATOR_ROOT in a standalone copy of
+    # the sub-project), never by climbing above the sub-project: a standalone copy has no translator above it
+    arena = str(require_translator_root() / "scripts" / "arena")
+    sys.path.insert(0, arena)
+    try:
+        import run_arena as RA
+    finally:
+        sys.path.remove(arena)
+    from epinoic_logic.api.branches import RouterHub
     from .conftest import CFG, KEY, make_auditor
     items = [i for i in RA.load_items(ROUNDS / rd / "specialists") if not i.get("peer_of")]
     issued = 0

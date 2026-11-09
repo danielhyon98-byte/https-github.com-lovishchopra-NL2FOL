@@ -122,8 +122,8 @@ def run_recorded_round(name: str, src: Path, out: Path) -> dict:
 
 
 def _physics_hub():
-    from epinoic_logic.branches.hub import RouterHub
-    from epinoic_logic.integrity import WorkPlan
+    from epinoic_logic.api.branches import RouterHub
+    from epinoic_logic.api.integrity import WorkPlan
     RA = H.arena()
     aud = H.new_auditor(H.keyring_for("arena"))
     hub = RouterHub(signing_key=RA.KEY, key_id="hub", config=RA.CFG, auditor=aud)

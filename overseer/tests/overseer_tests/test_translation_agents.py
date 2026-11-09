@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
+from epinoic_logic.api.branches import RouterHub
 from epinoic_overseer import Dossier, OverseerAgentRunner, verify_audit
 from epinoic_overseer.dossier import _translation_links, resolve_pointer
-from epinoic_logic.translate.contracts import TranslationStatus
+from epinoic_logic.api.translate import TranslationStatus
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider

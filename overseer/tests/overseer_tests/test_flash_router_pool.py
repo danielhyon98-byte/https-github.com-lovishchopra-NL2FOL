@@ -392,3 +392,26 @@ def test_a_plan_record_round_trips_with_its_admission(router):
     data["admission"] = {**data["admission"], "refusal": "not a code"}
     with pytest.raises(ValueError):
         PoolPlan.model_validate(data)
+
+
+# ----------------------------------------------------------------------------------------------- the router's cost data
+def test_the_flash_router_s_cost_data_prices_the_system_text_of_the_pack_the_overseer_sends():
+    """The flash router's current cost data (read as data: the overseer never imports the router) records the system text
+    of every composition of the pack the overseer sends, and names that pack. A pack release that changes the system text
+    needs a cost-data release of the router (architecture lenses after arena round 8: cost data 3 kept pack 2.0's sizes
+    after pack 2.1 was installed, so a dossier between the two fit limits, 525,000 characters, was recorded as fitting,
+    198,174 tokens of 200,000, when one instance could not read it whole, 201,514: over_budget). Added by the handoff fixer
+    of that review from the router fixer's handoff (A1); it passes with the router's 0.4.0 data and fails with 0.3.0's."""
+    from epinoic_overseer import PACK_NAME, PACK_VERSION, load_pack
+    src = flash_router_src()
+    if src is None:
+        pytest.skip("needs the flash router's data: the translator's repository (flash-router/) or the epinoic-flash-router package")
+    data = src / "epinoic_flash_router" / "data"
+    manifest = json.loads((data / "MANIFEST.json").read_text(encoding="utf-8"))
+    cost = json.loads((data / manifest["current"]["cost_data"]).read_text(encoding="utf-8"))
+    pack = load_pack()
+    compositions = {"core": (), "core+stem": ("stem",), "core+translations": ("translations",),
+                    "core+stem+translations": ("stem", "translations")}
+    assert cost["recorded"]["system_text_pack"] == f"{PACK_NAME} {PACK_VERSION}", "release the router's cost data with this pack's sizes"
+    assert cost["system_text_chars"] == {k: len(pack.system_text(m)) for k, m in compositions.items()}, \
+        "the router prices every call with another pack's system text: release a new cost-data file (flash-router/README.md)"

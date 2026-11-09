@@ -31,13 +31,34 @@ usable as a sub-agent of any system that speaks the integration protocol `epinoi
 
 - **Its one dependency is the translator, through two doors only:** the translator's documented public API
   (`epinoic_logic.api`; the list is the translator's `docs/PUBLIC_API.md`, generated from the package) and the
-  integration protocol (`epinoic_logic.integration`: the overseer port contract `epinoic.integration.overseer-port.v1`,
-  its codes and validators). No module of the package imports another translator module
-  (`tests/overseer_tests/test_subproject_layout.py`). The overseer re-derives the translator's decisions with the
-  translator's own code (engine, channel rules, parsers, STEM front end), so it needs the translator installed. The rule
-  holds for the package; this sub-project's tests and harness scripts still import translator modules directly where
-  they check the overseer against the translator's own code or patch it for a tampering case (87 test files and the
-  harness scripts); moving them onto the public API is still to do.
+  integration protocol's modules: `overseer_port` (the overseer port contract `epinoic.integration.overseer-port.v1`, its
+  codes and validators), `protocol`, `errors`, `canonical` and `router_pool` (`epinoic_logic.integration.<module>`; never
+  the service's implementation modules, such as its turn, routes or start-up self-test: the port adapter's self-check
+  replays a problem of its own, `port.SELF_CHECK_PROBLEM`). No module of the package imports another translator module,
+  statically or dynamically (`tests/overseer_tests/test_subproject_layout.py`). The overseer re-derives the translator's
+  decisions with the translator's own code (engine, channel rules, parsers, STEM front end), so it needs the translator
+  installed.
+- **It checks the translator it is given when it is imported** (`compat.py`): every public-API and protocol name the
+  package imports (`compat.REQUIRED_API`, `REQUIRED_PROTOCOL`, held by a test to what the modules import) must be offered,
+  and a public API that states its version (`epinoic_logic.api.API_VERSION`) must be of MAJOR `compat.API_MAJOR` (1). An
+  incompatible translator is refused with one `TranslatorIncompatible` (an `ImportError`) naming every missing name,
+  never a bare `ImportError` from deep inside the package. The distribution pin (`epinoic-logic>=0.1.0`) cannot tell
+  translator builds apart while the translator's version has stayed 0.1.0; it is narrowed once the translator releases a
+  new version. The translator's public API states its version since arena round 8's architecture review
+  (`API_VERSION` 1.1, which exports the names this sub-project's tests had to import from its internal modules); the new
+  distribution version comes with the translator's next release.
+- **Its tests and harness scripts use the same two doors**, except for the imports one documented allowlist names file by
+  file (`tests/overseer_tests/internal_imports.py`: modules a tampering case or a non-interference test patches, the
+  translator's own sources a drift test compares with, names the public API does not export yet, the translator's test
+  fixtures, and the service's modules a test compares the adapter with). The layout test fails on any import it does not
+  list and on any entry no file still makes, under a ceiling that may only be lowered, so the debt only goes down. After
+  arena round 8's architecture review moved every import the API already offered (518 imported names in 92 files), it
+  listed 255 imports in 67 test files and 4 scripts (the review had counted 91 test files and 6 scripts); once the
+  translator's public API 1.1 exported the 26 names the API had lacked and their 78 imports moved onto it, it lists 177
+  imports in 57 test files and 3 scripts, under a ceiling lowered to 177; the copies of the
+  translator's test material this suite keeps byte for byte equal to the originals are not scanned. No path in them climbs
+  above the sub-project (a standalone copy has no translator above it); they reach the translator's files only through
+  `translator_checkout` (below).
 - **The translator never imports it.** It is attached in two ways: in process, `RouterHub(auditor=TransferAuditor(...))`
   (the hub carries out its overseer operations through `auditor.hub_operations`, `hub_ops.py`), and as a port: the
   checks service loads `EPINOIC_OVERSEER_PORT` (default `epinoic_overseer.port`) by name and talks to it only through
@@ -57,6 +78,12 @@ usable as a sub-agent of any system that speaks the integration protocol `epinoi
 pip install -e "<translator checkout>[dev,service,providers]"   # the translator first (epinoic-logic)
 pip install -e "<translator checkout>/overseer[dev]"             # then this sub-project (epinoic-overseer)
 ```
+
+`import epinoic_overseer` first checks that the installed translator offers every public-API and protocol name this
+release imports (`compat.py`); a translator that does not is refused with one `TranslatorIncompatible` naming them all.
+The tests that read the sub-project's source tree read it from the sub-project, never from the installed package: arena
+round 8's architecture review ran the suite under a normal (non-editable) install and only those two failed there
+(`.gitattributes` and the source-checkout root); both pass now against a site-packages copy of the package.
 
 ### Tests
 
@@ -88,20 +115,43 @@ has the commands and what each writes.
 ### Splitting it into a repository of its own
 
 The sub-project is split-ready: every path it uses is inside `overseer/` or reached through the translator checkout
-above. To split it (no repository is created by this tree):
+above (a test rejects any path in the tests or scripts that climbs above the sub-project). To split it (no repository is
+created by this tree):
 
 ```
-git subtree split --prefix overseer -b overseer-split    # a branch whose root is this directory, with its history
+git subtree split --prefix overseer -b overseer-split    # a branch whose root is this directory, with the commits since the move
 git init <new repository> && git -C <new repository> pull <translator checkout> overseer-split
 pip install -e "<translator checkout>[dev,service,providers]" && pip install -e "<new repository>[dev]"
 EPINOIC_TRANSLATOR_ROOT=<translator checkout> python -m pytest -q   # from <new repository>
 ```
 
+**History.** `git subtree split --prefix overseer` carries only the commits made since the overseer moved into
+`overseer/` (four when arena round 8's architecture review counted them, from `ab44c8a` on). The commits that built the
+overseer before the move, under `src/epinoic_logic/overseer`, `tests/overseer` and `scripts/overseer` (26 of them; their
+blame and design rationale), stay in the translator repository's history: read them there with `git log ab44c8a^ --
+src/epinoic_logic/overseer tests/overseer scripts/overseer`. A split that must keep them rewrites those three prefixes into
+`overseer/`'s layout first (`git filter-repo` with one `--path-rename` per prefix, on a disposable clone), then splits.
+
 Then the translator keeps its pin (`PINNED_PACK_DIGESTS`) and its `EPINOIC_OVERSEER_PORT` default, and installs the
-overseer as a package instead of the sub-directory. Checked when the sub-project was made, on a disposable clone (no
-repository was created or pushed): the split branch's tree is exactly this directory's tree, and this suite run from the
-split copy against a translator checkout gave 7,055 passed and 12 skipped; without `EPINOIC_TRANSLATOR_ROOT` the nine
-tests that compare copied material with the translator's are skipped with that reason.
+overseer as a package instead of the sub-directory. Checked when the sub-project was made (architecture step 2), on a
+disposable clone (no repository was created or pushed): the split branch's tree was exactly this directory's tree, and the
+suite run from the split copy against a translator checkout gave 7,055 passed and 12 skipped; without
+`EPINOIC_TRANSLATOR_ROOT` the nine tests that compare copied material with the translator's are skipped with that reason.
+Those figures are dated: arena round 8's architecture review found the split suite at 7,183 collected tests, and that a
+test added after the move (the recorded rounds' revision blocks) reached the translator's arena tools by a path above the
+sub-project and failed in the split whenever the recorded rounds were supplied; it now reaches them through
+`EPINOIC_TRANSLATOR_ROOT`. The split run after that review's fixes is recorded in `docs/OVERSEER_RESULTS.md` section 40.
+
+**The translator's half.** After the split, remove `overseer/src` from the translator's `pyproject.toml` `pythonpath` and
+`overseer/tests` from its `testpaths`. The translator's suite then runs without the overseer: a test that attaches it
+reaches only its public package API (through `tests/overseer_attach.py`, or `pytest.importorskip` of a public module with
+the same reason) and is skipped with that reason where it is not installed, and the arena harness records its delivery
+and revision passes as not run; with the overseer installed as a package (`pip install -e <overseer repository>`) those
+tests run. `tests/channel/test_without_the_overseer.py` checks both states on this tree: the overseer unimportable, and
+the overseer installed without its tests (architecture review after arena round 8). Not checked there: the integration
+kit's tests that start the checks service in a process of its own (the simulation's, for one) use the service's default
+overseer port, `epinoic_overseer.port`, which the kit requires (`KIT-HS-007` otherwise), so in a translator checkout
+without this sub-project they need the overseer installed.
 
 ### Findings recorded, not fixed
 
@@ -650,6 +700,7 @@ The overseer knows everything the merged translator and its channel can put on a
 
 | Part | Module | What it does |
 | --- | --- | --- |
+| Translator compatibility | `compat.py` | what this release needs of the translator (`REQUIRED_API`, `REQUIRED_PROTOCOL`, `API_MAJOR`), checked when the package is imported: `TranslatorIncompatible` names every missing name |
 | Codes | `codes.py` | every `OVS-*` code with one severity and one stage (`OVS-AGENT-*` included) |
 | Contracts | `contracts.py` | `JournalEntry`, `StoredResult`, `TransferClearance`, `OverseerAudit`, `AuditCoverage`, `Divergence`, `TranslationAudit`; the audit scope sentence |
 | Keys | `keys.py` | `KeyRing`: engine keys for verification only (local or external), one overseer secret and its derived subkeys (journal, audit, runs, sampling, intake, consolidation, delivery, feedback) |
@@ -675,7 +726,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Consolidation | `consolidate.py` | `consolidate`: ONE signed `consolidated_response/1.0` for answers several agents gave to one input (groups, representative, exclusions, conflicts disclosed); `delivery_decision`, `check_consolidation` (`OVS-CONS-*`) |
 | Overseer pool | `pool.py` | `plan_pool` / `OverseerPool`: how many overseer-agent instances review a batch (one by default, two or more on repeated faults or over the quota, never past the maximum), all from one loaded pack; the plan is the flash router's, attached through the router port by capability (`router=`), admitted at or above the floor, and records its admission |
 | Pool floor | `floor.py` | the minimum-oversight floor of the pool (`minimum-oversight-floor/pool-2`): every dossier reviewed, two independent instances for a repeated fault or a risk signal, every combined answer N_FOLD with its context bounded at 65,536 bytes, the floor plan, the words of a plan's reasons, the decision record of every dossier and the audit note naming who planned it |
-| Twofold review | `twofold.py` | a combined answer's N_FOLD review: `combined_layout` (its sources and merged part from the journal), the part views and the pool's reading of each part, `TemporaryContext` (the source reviews' validated outcomes, scoped, bounded, recorded, discarded), `run_twofold` (the source reviews in parallel waves, the merged review with the context) |
+| Twofold review | `twofold.py` | a combined answer's N_FOLD review: `combined_layout` (its sources and merged part from the journal), the part views and the pool's reading of each part, `TemporaryContext` (the source reviews' validated outcomes, scoped, bounded, recorded, discarded; in blind mode without `BLIND_HIDDEN_KINDS`), `run_twofold` (the source reviews in parallel waves, the merged review with the context) |
 | Specialist feedback | `feedback.py` | the revision request to the specialist that wrote an answer (design section 53): `build_revision_request` (the allowlisted flaws of the answer's receipt, a signed task audit and, as advisory items, validated unresolved accusations of three kinds; fixed text, signed under the `feedback` subkey, key id `overseer-feedback`), `revision_outcome` (each fed-back flaw fixed, removed, evaded, persisted or not re-checked; introduced flaws, preservation findings, claims lost; the next step), the escalation (`OVS-FB-002`) and the audit's `feedback` stage (`check_revision_request`, `OVS-FB-001`) |
 | Delivery policy | `delivery_policy.py` | `DeliveryPolicy`: for one deliverable, FORMALLY CHECKED within the 240 s translation budget (withheld for every answer in this release: rule `formal-label-withheld`, `docs/DELIVERY.md` 6d), else the overseer-selected fallback (validated accuracy above 0.90), NOT CHECKED only when configured, else withheld; the signed `delivery_receipt/1.0` (key id `overseer-delivery`) and `delivered_answer/1.0` (`docs/DELIVERY.md`) |
 
@@ -749,7 +800,12 @@ controls, the fault-class probes, and the pack's STEM statements beside the code
 answer's N_FOLD review: the layout, the four cases of a source fault kept, dropped and added and a faithful control, a
 fault of a report its specialist revised under the same claim ids (never confirmed through the revision's citation), the
 temporary context's bound, scope and discard, three specialists, the waves, the router's N_FOLD plan admitted and a
-weakened one refused, determinism), and `test_feedback_*` (specialist feedback, design section 53: the builder's allowlist,
+weakened one refused, determinism), `test_r8_architecture_review.py` (arena round 8's architecture review: a claim the
+synthesis adds and a fault its receipt names are never refuted, with controls refuted and confirmed; a blind context
+without signature, replay and custody outcomes; a source part with no assessed verdict noted NOT reviewed; the escalation
+decision on a dropped hedge), `test_subproject_layout.py` (the two doors for the package, the documented allowlist of the
+tests' and scripts' direct imports under its ceiling, no path climbing above the sub-project, the compatibility check at
+import), and `test_feedback_*` (specialist feedback, design section 53: the builder's allowlist,
 advisory items, bounds and signatures; the audit's `feedback` stage, OVS-FB-001 on every block that does not verify or bind
 and none on a genuine one, the shadow agreeing on revision transfers, on every recorded round when present; each outcome
 bucket, the budget, suppression, escalation and consolidation of a superseded original).
@@ -798,8 +854,8 @@ The tests that attach the router find it beside this sub-project in the translat
 standalone copy without it skips them with that reason.
 
 **The flash decision maker and the twofold mode (architecture step 3, design section 52).** The router's first decision
-for every dossier is now explicit: its flash decision maker (rules D1 to D7 of `rules-3.json`, priced from
-`cost-data-3.json`; deterministic and instant, code, never a model; the optional escalation advisor only adds
+for every dossier is now explicit: its flash decision maker (rules D1 to D7 of `rules-4.json`, priced from
+`cost-data-4.json`, flash router 0.4.0; deterministic and instant, code, never a model; the optional escalation advisor only adds
 escalations) chooses between the in-depth examination method (one instance examines the whole dossier, `IN_DEPTH`) and the
 duplication method (the work split across instances in parallel, with independent duplicates where risk calls for
 agreement: `DUPLICATE`, and `N_FOLD` for a combined answer), the cheapest that keeps accuracy. At pool port 1.2 every
@@ -815,11 +871,19 @@ combined answer:
    task), each verdict validated against the full journal and the signed results;
 2. what validation accepted of them becomes the **temporary context**: per source its specialist, its delivered reports
    and messages, how many verdicts were assessed, and each fault a deterministic check confirmed, as its kind and the
-   identifiers the confirming finding covers, each claim with the one report that finding names. Never an agent's prose, an `OVS` code, an auditor finding or anything a
-   blind dossier hides. It is scoped to the request (the intake refuses it to any other channel, task or request, edited
-   or discarded), bounded (at most 65,536 bytes, the floor's bound; records past it are cut and counted, `complete:
-   false`), recorded in the signed verdicts audit (its digest, size, scope and every record) and discarded after the
-   request, also when the merged review fails;
+   identifiers the confirming finding covers, each claim with the one report that finding names. Never an agent's prose,
+   an `OVS` code or a finding's text. What it does disclose, in both modes, is that a check confirmed each listed fault (its
+   kind and identifiers): the merged review exists to see whether the synthesis carries it. A blind review's context leaves
+   out every fault whose kind only a signature verification, a replay or a custody comparison decides
+   (`twofold.BLIND_HIDDEN_KINDS`: `result_unsigned_or_forged`, `replay_differs`, `result_from_other_problem`,
+   `result_out_of_task`, `payload_altered`, `receipt_altered`), since a blind dossier never shows such an outcome (arena
+   round 8's architecture review: before, it listed them with their result ids). It is scoped to the request (the intake
+   refuses it to any other channel, task or request, edited or discarded), bounded (at most 65,536 bytes, the floor's
+   bound; records past it are cut and counted, `complete: false`), recorded in the signed verdicts audit (its digest, size,
+   scope and every record) and discarded after the request, also when the merged review fails. A source part on which no
+   verdict was assessed (every instance failed, answered something that is not a verdict or was refused a dossier) is
+   noted in the signed audit as NOT reviewed, with what each instance did, and its `reviewed` 0 in the context shows
+   nothing; it is never worded as reviewed;
 3. the **merged review** of the combinator's output (`role: merged`, the synthesis and the answers it cites) with the
    context asks whether the synthesis carries each source faithfully, carries on a fault a source review found, adds what
    no source states, or is more certain than its weakest source. A synthesized claim that cites a source claim the
@@ -829,6 +893,25 @@ combined answer:
    revision keeps its claims' ids, so a citation of the revised claim is not the recorded fault), refuted when the named
    synthesized claims cite none of the named source claims, unresolved otherwise;
 4. the verdicts of every part are combined by the existing rule (no voting on facts); agents never gate clearance.
+
+An accusation of kind `synthesis_ledger_fault` (Kinds and codes K5, which a merged review uses for a claim no source
+states, I101 question 3, and for certainty the synthesis changed, K9) is refuted only for what its checks decide (arena
+round 8's architecture review; `validate._synthesis_ledger_gap`). OVS-SYN-001 and OVS-SYN-002 decide a synthesis's
+accounting, its certainty field and its figures, quotations, names and comparison directions, and OVS-SYN-002 names only a
+ledger fault the receipt lacks. So an accusation naming a synthesized claim whose content the ledger does not hold to its
+one cited source's text (rule `ledger-content`: any claim but a `carried` one with one source and its text unchanged; the
+review's case was a claim the synthesis added while citing an unrelated source) or a claim an INT-LEDGER finding of the
+synthesis receipt already names (rule `receipt-named`: the accusation agrees with the channel's own finding; the review's
+case was inflated certainty, INT-LEDGER-003) is unresolved and goes to human review, never recorded against the agent
+(OVS-AGENT-001) by checks that cannot decide it. The receipt-named rule settles the conflict between K9 (a certainty the
+synthesis changed is a fault of its own, whatever the receipt says) and I61 and I64 (accuse only with no finding naming
+it) without a new pack.
+
+The merged review's escalation reads the synthesis's own transfers like any other part (floor rule 2): a dropped hedge
+the translator names only by its lexical reading (INT-LEDGER-026, or INT-LEDGER-027 for a from-memory label, both
+warnings) is no risk signal and does not send the merged review to two instances; the same claim with its certainty field
+inflated (INT-LEDGER-003, an error) does. Decided and recorded after arena round 8's architecture review: making those
+warnings signals would be a new floor version and would change the plans the flash router reproduces.
 
 A part dossier is issued only under a pack that teaches it (2.0 and later). A router that plans a combined answer any
 other way, or bounds its context below 65,536 bytes, is refused (`KIT-RT-020`, or `KIT-RT-007` out of contract), and a

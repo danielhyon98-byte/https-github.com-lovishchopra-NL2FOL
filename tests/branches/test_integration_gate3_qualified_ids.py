@@ -28,8 +28,9 @@ from epinoic_logic.integrity import AgentRole, Synthesis, WorkPlan
 from epinoic_logic.translate.contracts import SuppliedText, sha256_text
 
 from ..core_hostile import HOSTILE, sweep
-from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
-from overseer_tests.conftest import KEY, make_auditor  # the hub signs with the key the overseer test auditor holds
+# the hub signs with the key the overseer's test auditor holds (overseer_attach's KEY is byte for byte the overseer suite's);
+# make_auditor reaches the overseer through its public package API only and skips the test where it is not installed
+from ..overseer_attach import KEY, make_auditor
 
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)
 

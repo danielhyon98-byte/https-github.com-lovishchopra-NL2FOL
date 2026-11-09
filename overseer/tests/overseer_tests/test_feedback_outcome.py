@@ -4,7 +4,7 @@ specialist's words; the flaws introduced and the claims lost; the bounded loop w
 escalations; and consolidation, where a superseded original gives way to its revision."""
 from __future__ import annotations
 
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import feedback as F
 
 from .conftest import EN_CLAIMS, EN_TEXT, english_report

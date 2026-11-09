@@ -19,8 +19,7 @@ from __future__ import annotations
 import pytest
 
 from epinoic_logic.engine.policies import NONLINEAR_LIMITS
-from epinoic_logic.engine.provenance import binding_inconsistencies
-from epinoic_logic.engine.runner import verify
+from epinoic_logic.api.engine import binding_inconsistencies, verify
 from epinoic_overseer.checks.receipts import FIXED_SEVERITY
 from epinoic_overseer.checks.results import binding_problems
 from epinoic_overseer.checks.translation import summary_matches
@@ -39,7 +38,7 @@ def test_a_result_binds_to_its_problem_under_the_limits_it_was_decided_under(lim
 
 @pytest.mark.parametrize("forged", [None, "default"])
 def test_a_limits_record_stripped_or_swapped_is_still_an_inconsistent_binding(forged):
-    from epinoic_logic.ir.schema import DEFAULT_LIMITS
+    from epinoic_logic.api.ir import DEFAULT_LIMITS
     p = int_problem("h1.1", "min_age", 9, op="ge", bound=9)
     res = verify(p, CFG, NONLINEAR_LIMITS, signing_key=KEY, key_id="t")
     edited = res.model_copy(update={"limits": None if forged is None else DEFAULT_LIMITS})
@@ -97,7 +96,7 @@ def test_the_self_report_and_the_name_substitution_keep_their_own_codes_and_seve
 
 # ============================================================================================ task-authority validation (decision 73)
 def _hours(kind: str, excerpt=None) -> "object":
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     g: dict = {"kind": kind}
     if excerpt is not None:
         g["source_refs"] = [{"document_id": "doc-hours", "excerpt": excerpt}]
@@ -111,7 +110,7 @@ def _hours(kind: str, excerpt=None) -> "object":
 
 def _hours_report():
     """A report that states the figure itself, with a supplied text that states it too."""
-    from epinoic_logic.translate.contracts import SuppliedText
+    from epinoic_logic.api.translate import SuppliedText
     from .conftest import EN_TEXT
     doc = SuppliedText(document_id="doc-hours", title="Mill hours", author="Anonymous", text="In 1830 the children worked 12 hours a day in the mill.")
     return english_report(EN_TEXT + " The children worked 12 hours a day.", docs=(doc,))
@@ -120,7 +119,7 @@ def _hours_report():
 @pytest.mark.parametrize("kind", ["task_setting", "arithmetic_fact", "rubric_rule"])
 def test_a_task_authority_premise_the_translator_validates_with_no_excerpt_is_no_transcription_for_the_overseer(kind):
     from epinoic_overseer.checks.translation import TRANSCRIPTION, _regrounded, restatement
-    from epinoic_logic.translate.grounding import check_problem_grounding
+    from epinoic_logic.api.translate import check_problem_grounding
     rep = _hours_report()
     prob = _hours(kind)
     translator, checks = check_problem_grounding(prob, list(rep.supplied_texts))

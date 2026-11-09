@@ -9,7 +9,7 @@ import threading
 import pytest
 
 import epinoic_overseer.intake as intake_mod
-from epinoic_logic.integrity.contracts import AgentMessage, AgentRole, payload_hash, sign_message, verify_message
+from epinoic_logic.api.integrity import AgentMessage, AgentRole, payload_hash, sign_message, verify_message
 from epinoic_overseer import EngineKey, KeyRing
 from epinoic_overseer.intake import INTAKE_REASONS, IntakeRefused, VerdictIntake
 from epinoic_overseer.verdicts import VERDICT_CONTRACT, AgentVerdict, PackIdentity

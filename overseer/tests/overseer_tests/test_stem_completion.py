@@ -455,11 +455,11 @@ def test_the_pack_lists_every_st_code_with_the_severity_the_stem_package_gives_i
 
 def _decided(text: str, request: str = None, profile: str = "physics", data: tuple = ()) -> list[tuple[str, str, str]]:
     """Every STEM check the front end plans for ``text``, decided by the engine: (kind, status, description)."""
-    from epinoic_logic.engine import SolverConfig
-    from epinoic_logic.engine.policies import policy_config, policy_limits
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.ir.schema import Problem
-    from epinoic_logic.stem import build_document, clear_document_cache
+    from epinoic_logic.api.engine import SolverConfig, policy_config, verify
+    from epinoic_logic.engine.policies import policy_limits
+    from epinoic_logic.api.ir import Problem
+    from epinoic_logic.api.stem import clear_document_cache
+    from epinoic_logic.api.stem import build_document
     from epinoic_logic.stem.checks import build_checks
     clear_document_cache()
     cfg = SolverConfig(timeout_ms=8000, memory_max_mb=None)

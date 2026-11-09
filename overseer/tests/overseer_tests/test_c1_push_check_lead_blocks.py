@@ -60,15 +60,14 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.adapters.english_specialist.parser import segment, split_sentences
-from epinoic_logic.adapters.markdown import mask_quotations
+from epinoic_logic.api.adapters import segment, split_sentences, mask_quotations
 from epinoic_overseer.checks.selfcert import flags_self_certification
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, DeliveryPolicy
 from epinoic_overseer.meta_notes import (
     _LIST_DENY, _SOURCE_TITLE_WORDS, _SOURCE_WORDS, LEAD_BLOCKS_RULE, MAX_LEAD_BLOCKS, SOURCE_LIST_RULE, lead_blocks, read_meta_paragraph,
     read_source_list, source_list_grounding, unread_lead_blocks,
 )
-from epinoic_logic.translate.contracts import sha256_text
+from epinoic_logic.api.translate import sha256_text
 
 from .c1_texts import BI_P8D, BM_T14, EC_P8A, EN_T14, ESS_T14, GE_T14, HI_T14, LIT_T14, LL_T14, PS_T14
 from .growth import growth

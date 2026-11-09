@@ -27,9 +27,9 @@ if str(SCRIPTS) not in sys.path:
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.engine import SolverConfig  # noqa: E402
-from epinoic_logic.integrity import WorkPlan  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig  # noqa: E402
+from epinoic_logic.api.integrity import WorkPlan  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
 
 from .test_stem_completion import material_round  # noqa: E402

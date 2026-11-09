@@ -35,17 +35,16 @@ from typing import Optional
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.engine.policies import PACK_POLICIES, policy_config
-from epinoic_logic.engine.results import SolverConfig
-from epinoic_logic.integrity import AgentRole, IntegrityFinding, WorkPlan
-from epinoic_logic.ir.schema import DEFAULT_LIMITS
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus
+from epinoic_logic.api.engine import PACK_POLICIES, policy_config, SolverConfig
+from epinoic_logic.api.integrity import AgentRole, IntegrityFinding, WorkPlan
+from epinoic_logic.api.ir import DEFAULT_LIMITS
 from epinoic_overseer.checks import receipts as RC
 from epinoic_overseer.checks.fidelity import _claim_figures, _strip_carried_numbers, no_quotation_to_verify, strip_mark_annotations
 from epinoic_overseer.checks.results import _allowed_configs, replay_config
 from epinoic_overseer.checks.selfcert import flags_self_certification
 from epinoic_overseer.replay import recorded_policy, replay_problem
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText, sha256_text
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
@@ -134,8 +133,8 @@ def test_control_a_figure_no_claim_carries_is_still_fid_006(aud):
 
 # ============================================================================================ fidelity: no-quotation-to-verify
 def test_rule_no_quotation_to_verify_reads_the_request_and_mentions_as_the_core_pack_does():
-    from epinoic_logic.adapters.markdown import find_quotation_spans
-    from epinoic_logic.branches.packs import _absent_mentions, _quote_key
+    from epinoic_logic.api.adapters import find_quotation_spans
+    from epinoic_logic.api.branches import absent_mentions as _absent_mentions, quote_key as _quote_key
     response = 'The comparison has no "like" or "as", so it is a metaphor; her "returning home" is rehearsed, and she says "never at rest".'
     mentions = {_quote_key(q) for q in _absent_mentions(response, find_quotation_spans(response))}
     assert mentions == {"like", "as"}
@@ -311,7 +310,7 @@ def test_a_relay_delivered_past_the_router_identity_rule_is_rcpt_004(aud, monkey
 
 # ============================================================================================ receipts: merged-coverage
 def test_rule_merged_coverage_reruns_the_coverage_rule_with_the_branch_s_hub_hooks(aud):
-    from epinoic_logic.branches import default_registry
+    from epinoic_logic.api.branches import default_registry
 
     from .test_corrections_stem_ready import physics_task
     ch, rcs = physics_task(aud)
@@ -411,8 +410,9 @@ def _physics_bound(auditor=None):
 
 
 def test_rule_merged_measure_recounts_a_stem_word_bound_as_the_merged_channel_measures_it():
-    from epinoic_logic.branches import default_registry
-    from epinoic_logic.channel.request_parser import count_answer_words, measure_answer_words
+    from epinoic_logic.api.branches import default_registry
+    from epinoic_logic.api.channel import count_answer_words
+    from epinoic_logic.api.channel import measure_answer_words
     hub, rc = _physics_bound()
     try:
         (cr,) = [c for c in rc.constraint_results if c.method == "formal"]
@@ -429,7 +429,7 @@ def test_rule_merged_measure_recounts_a_stem_word_bound_as_the_merged_channel_me
 
 
 def test_rule_merged_measure_the_pre_merge_recount_would_be_a_false_form_003(monkeypatch):
-    from epinoic_logic.channel.request_parser import count_answer_words
+    from epinoic_logic.api.channel import count_answer_words
     from epinoic_overseer.checks import formal as FORMAL
     monkeypatch.setattr(FORMAL, "measure_answer_words", lambda text, excludes=(), view=None: (*count_answer_words(text), 0))
     hub, rc = _physics_bound()
@@ -442,7 +442,7 @@ def test_rule_merged_measure_the_pre_merge_recount_would_be_a_false_form_003(mon
 
 def test_control_a_word_bound_measured_without_the_requests_exclusion_is_form_003(monkeypatch):
     import epinoic_logic.channel.bus as bus
-    from epinoic_logic.channel.request_parser import measure_answer_words
+    from epinoic_logic.api.channel import measure_answer_words
     monkeypatch.setattr(bus, "measure_answer_words", lambda text, excludes=(), view=None: measure_answer_words(text, excludes=(), view=view))
     hub, rc = _physics_bound()
     try:
@@ -466,7 +466,7 @@ def _about_task(aud):
 
 
 def test_rule_range_bound_one_range_problem_for_about_n_words_is_no_form_003(aud):
-    from epinoic_logic.channel.request_parser import count_answer_words
+    from epinoic_logic.api.channel import count_answer_words
     assert 36 <= count_answer_words(REQ_QUOTE_TEXT)[0] <= 44  # within "about 40 words" (36 to 44)
     ch, rc = _about_task(aud)
     words = [c for c in rc.constraint_results if c.method == "formal"]
@@ -554,10 +554,10 @@ def test_control_without_the_policy_configs_the_nonlinear_check_would_be_res_004
 
 
 def test_rule_policy_limits_replays_a_nonlinear_result_under_its_policy_and_only_a_named_policys_limits():
-    from epinoic_logic.engine import verify
+    from epinoic_logic.api.engine import verify
     from epinoic_logic.engine.policies import NONLINEAR_LIMITS
-    from epinoic_logic.ir.canonical import canonical_json
-    from epinoic_logic.ir.schema import Limits, Problem
+    from epinoic_logic.api.ir import canonical_json, Problem
+    from epinoic_logic.api.ir import Limits
     p = Problem.model_validate({
         "problem_id": "p-nl", "request_id": "req-nl", "claim_id": "m1.1", "query": "entailment",
         "symbols": [{"name": "x", "sort": "Real"}, {"name": "y", "sort": "Real"}],
@@ -669,9 +669,9 @@ def test_rule_circularity_agreement_the_overseer_is_never_looser_than_the_transl
     is pinned with its controls. The third repair (decision 55) makes a ``task_setting`` with no excerpt the writer's own
     too (it had asserted a transcription: rule figure-transcription, withdrawn), and pins every case's standing (rule
     ``data-standing``)."""
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks.translation import restatement
-    from epinoic_logic.translate.grounding import check_problem_grounding
+    from epinoic_logic.api.translate import check_problem_grounding
     from epinoic_logic.translate.pipeline import Translator, _Rejected
     text = "The children worked 12 hours a day."
     rep = english_report(EN_TEXT + " " + text, [*[dict(c) for c in EN_CLAIMS], dict(claim_id="en-hours", claim_text=text[:-1], claim_role="point", materiality="material")],
@@ -710,7 +710,7 @@ def test_rule_circularity_agreement_the_overseer_is_never_looser_than_the_transl
 def test_control_a_located_excerpt_that_does_not_state_the_figure_is_no_evidence():
     """A ``supplied_text`` excerpt located in the document but not stating the restated figure is refuted by the grounding
     check (``figures_in_excerpt``), so the restatement is the writer's own for the translator and the overseer alike."""
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks.translation import restatement
     text = "The children worked 12 hours a day."
     rep = english_report(EN_TEXT + " " + text, docs=(DOC, HOURS_DOC))
@@ -816,7 +816,7 @@ def test_control_a_conclusion_restated_only_in_part_is_its_evidence_not_a_restat
     """A conjunctive conclusion one of whose conjuncts the other premises derive is not restated as a whole: the premises
     stating its other conjuncts are its evidence (a verified quotation, or the writer's own premise alike). Neither the
     translator's rule (every conjunct) nor the verbatim reading holds, so there is no finding and no transcription note."""
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks.translation import restatement
     p = genuine_problem()
     p["conclusion"] = {"id": "C", "expr": {"op": "and", "args": [V("bell"), V("endless")]}, "label": "the bell line, and work endless"}
@@ -842,7 +842,7 @@ def test_rule_grounded_transcription_number_trace_is_kept_on_top_of_the_translat
     it is not data (rule ``same-quantity``: the figure is stated nowhere in the request). Control: when the request states
     15 hours, the premise (no excerpt) is still the writer's own, since a number match is no evidence (the third repair,
     decision 55; it had asserted a transcription), but no check refutes it: undecided, not shown."""
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks.translation import restatement
     rep = english_report()
     prob = Problem.model_validate(_restating("task_setting", value="15"))
@@ -855,7 +855,7 @@ def test_rule_grounded_transcription_number_trace_is_kept_on_top_of_the_translat
 
 
 # ============================================================================================ translation: the second repair (decision 51)
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer.checks.translation import RESTATEMENT_WAYS, restatement  # noqa: E402
 
 #: A text supplied with the request (not quoted by the report) that states the restated figure.
@@ -1008,7 +1008,7 @@ def test_rule_semantic_restatement_reads_a_restatement_in_another_form(premise, 
     ``b and (b implies e)``, a link packed with its antecedent, moved to the controls below (rule packed-link): it argues for
     the conclusion, as the translator's own semantic rule and the argument rules read it, so the overseer read a packed
     modus ponens the translator delivers as OVS-TRN-006 (receipt and audit disagreed); ``true implies e`` is still read here."""
-    from epinoic_logic.engine.runner import circular_premises as translator_circular_premises
+    from epinoic_logic.api.engine import circular_premises as translator_circular_premises
     prob = _form(premise, conclusion, symbols)
     assert translator_circular_premises(prob) == (["P"] if premise in ENGINE_READS else [])
     rs = restatement(prob, english_report(), [])
@@ -1094,8 +1094,7 @@ def test_rule_receipt_disclosure_grades_a_premise_restating_part_of_the_conclusi
     not restated as a whole; the writer's-own premise restating the rest is graded by the necessity run when the receipt
     presents it as given with the task (a task setting, rubric rule or arithmetic fact no check verified: neither the
     result's ungrounded nor its unverified dependencies list it), and is disclosed (no finding) otherwise."""
-    from epinoic_logic.engine import verify
-    from epinoic_logic.engine.results import SolverConfig as _SC
+    from epinoic_logic.api.engine import verify, SolverConfig as _SC
     obj = _partially_assumed(grounding)
     prob = Problem.model_validate(obj)
     rs = restatement(prob, english_report(), [])
@@ -1218,8 +1217,8 @@ def test_rule_genuine_only_switches_off_the_merged_arenas_stem_mutations(tmp_pat
 def _ledger_codes_for_the_synthesis_rules() -> tuple[str, str]:
     """``(code, code)`` the merged ledger raises for a student-facing text that is not composed of its claims (rule
     text-composition) and for a paraphrase that negates its one source's own content (rule negated-source-content)."""
-    from epinoic_logic.integrity.ledger import check_synthesis_ledger
-    from epinoic_logic.integrity import SynthesizedClaim, Synthesis
+    from epinoic_logic.api.integrity import check_synthesis_ledger, Synthesis
+    from epinoic_logic.api.integrity import SynthesizedClaim
 
     from .test_review1_content_checks import _hi_report
     src = "The Factory Act of 1833 banned the employment of children under nine in textile mills."

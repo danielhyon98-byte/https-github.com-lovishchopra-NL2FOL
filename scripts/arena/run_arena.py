@@ -220,10 +220,18 @@ Specialist revisions (design section 53 of ``overseer/docs/OVERSEER_DESIGN.md``)
 re-issues every revision request and compares it with the recorded feedback, delivers each recorded revision
 (``revisions/<task>.json``) and reports each outcome in ``revisions`` (results.json) and "Specialist revisions" (summary.md),
 apart from every other measure: it adds no record and moves no transport count, so the headline rate excludes it.
+
+The overseer sub-project. The delivery pass and the revision pass are the overseer's (its transfer auditor and delivery
+policy); every other pass and measure is the translator's own. Where the overseer is not installed (the translator runs
+without it, as after its split: architecture review after arena round 8) the round still runs and both passes are
+recorded as not run, with the reason (``OVERSEER_NOT_INSTALLED``; ``deliveries.skipped`` and ``revisions.skipped`` in
+results.json, "(not run: ...)" in summary.md and on the command line), exactly as a pass switched off is: a pass not run is
+never shown as run, and no transport count depends on either pass.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import inspect
 import json
 import math
@@ -268,6 +276,20 @@ DELIVERY_PASS = True
 #: The specialist revisions of a round (``revision_pass``; design section 53): a measure of its own, run only when the round
 #: holds ``feedback/`` (and ``revisions/``). A harness may switch it off as it does the delivery pass.
 REVISION_PASS = True
+#: Why the delivery pass and the revision pass are not run where the overseer sub-project is not installed (module
+#: docstring, "The overseer sub-project"): they are the overseer's, and the translator runs without it.
+OVERSEER_NOT_INSTALLED = ("the overseer sub-project (package epinoic_overseer) is not installed: this pass is the overseer's (its transfer "
+                          "auditor and delivery policy), so it was not run; the translator's passes and measures do not depend on it")
+
+
+def overseer_installed() -> bool:
+    """Whether the overseer package is found where this harness runs: located, never imported (an overseer that is
+    installed but fails to import still fails its pass, loudly). A finder that refuses the name, or an entry for it
+    without a spec, is an overseer that is not installed."""
+    try:
+        return importlib.util.find_spec("epinoic_overseer") is not None
+    except (ImportError, ValueError):
+        return False
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
@@ -2103,7 +2125,10 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     with the time to decision, the candidates and the one chosen. ``overseer`` (``{"pack": ..., "provider_factory": ...,
     "pool_config": ...}``) configures the fallback's overseer agents; without it (the command line: the harness calls no
     model) the fallback establishes no accuracy, so an answer the formal path does not complete is withheld. The pass
-    changes no record of the round and no transport count: its records are ``deliveries``, a measure of its own."""
+    changes no record of the round and no transport count: its records are ``deliveries``, a measure of its own. Where
+    the overseer is not installed the pass is not run and says so (:data:`OVERSEER_NOT_INSTALLED`)."""
+    if not overseer_installed():
+        return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "by_mode": {}, "errors": []}
     from epinoic_overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
     t_pass = time.perf_counter()
     cfg = DeliveryConfig()
@@ -2347,10 +2372,13 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
     delivered in reply to it under the report id ``rep-<task>-rev1``, the task audit runs with the shadow, and each
     revision's outcome (fixed, removed, evaded, persisted, not re-checked; introduced flaws, preservation findings, claims
     lost; the next step) and its consolidation before and after are recorded with the times. The pass adds no record to
-    the round and moves no transport count: the headline rate excludes it."""
+    the round and moves no transport count: the headline rate excludes it. Where the overseer is not installed the pass
+    is not run and says so (:data:`OVERSEER_NOT_INSTALLED`)."""
     fb_dir, rev_dir = round_dir / FEEDBACK_DIR, round_dir / REVISIONS_DIR
     if not fb_dir.is_dir():
         return {"skipped": "the round has no feedback/ directory (scripts/arena/revision_feedback.py was not run)", "tasks": [], "checks": [], "errors": []}
+    if not overseer_installed():
+        return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "checks": [], "errors": []}
     t_pass = time.perf_counter()
     recorded = {p.stem: json.loads(p.read_text()) for p in sorted(fb_dir.glob("*.json"))}
     revisions = {p.stem: json.loads(p.read_text()) for p in sorted(rev_dir.glob("*.json"))} if rev_dir.is_dir() else {}
@@ -2874,9 +2902,12 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
     dl = res.get("deliveries") or {}
-    print("delivery decisions (a separate measure):", ", ".join(f"{k} {v}" for k, v in (dl.get("by_mode") or {}).items()),
-          f"| receipts identical to the genuine records': {dl.get('receipts_matching_genuine_records', 0)} of {dl.get('decided', 0)}",
-          f"| delivery pass errors: {len(dl.get('errors') or [])}")
+    if dl.get("skipped"):  # a pass not run is said so, never printed as a pass that decided nothing
+        print(f"delivery decisions (a separate measure): not run ({dl['skipped']})")
+    else:
+        print("delivery decisions (a separate measure):", ", ".join(f"{k} {v}" for k, v in (dl.get("by_mode") or {}).items()),
+              f"| receipts identical to the genuine records': {dl.get('receipts_matching_genuine_records', 0)} of {dl.get('decided', 0)}",
+              f"| delivery pass errors: {len(dl.get('errors') or [])}")
     ge = res["genuine_receipts_with_errors"]
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",

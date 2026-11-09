@@ -32,21 +32,19 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.channel import TranslatorChannel  # noqa: E402
+from epinoic_logic.api.channel import TranslatorChannel, extract_constraints  # noqa: E402
 from epinoic_logic.channel import bus as busmod  # noqa: E402
-from epinoic_logic.channel.contracts import CoverageRecord  # noqa: E402
-from epinoic_logic.channel.request_parser import extract_constraints  # noqa: E402
-from epinoic_logic.engine.provenance import sign_result  # noqa: E402
-from epinoic_logic.engine.statuses import VerificationStatus as S  # noqa: E402
-from epinoic_logic.integrity import AgentRole, cross_check  # noqa: E402
-from epinoic_logic.integrity.contracts import IntegrityFinding, payload_hash  # noqa: E402
+from epinoic_logic.api.channel import CoverageRecord  # noqa: E402
+from epinoic_logic.api.engine import sign_result, VerificationStatus as S  # noqa: E402
+from epinoic_logic.integrity import cross_check  # noqa: E402
+from epinoic_logic.api.integrity import AgentRole, IntegrityFinding, payload_hash  # noqa: E402
 from epinoic_overseer import may_act  # noqa: E402
 from epinoic_overseer.checks.shadow import _tuples  # noqa: E402
 from epinoic_overseer.contracts import TransferClearance  # noqa: E402
 from epinoic_overseer.journal import MAX_BYTES, JournalSet, bound_for_plan  # noqa: E402
 from epinoic_overseer.policy import receipt_digest  # noqa: E402
 from epinoic_overseer.store import ResultStore  # noqa: E402
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText  # noqa: E402
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText  # noqa: E402
 
 
 def _auditor(**kw):

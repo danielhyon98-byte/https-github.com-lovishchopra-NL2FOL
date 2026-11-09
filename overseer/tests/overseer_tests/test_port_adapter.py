@@ -189,7 +189,7 @@ def test_every_rule_is_a_closed_label():
 def _call(port):
     """One single-mode call through the adapter's hub, as the checks port drives it: (hub, task id, dispatch receipt, reply,
     response receipt)."""
-    from epinoic_logic.integrity import WorkPlan
+    from epinoic_logic.api.integrity import WorkPlan
     agent = hub_agent_id("english-a-literature")
     hub = port.new_hub(signing_key=ENGINE_KEY, key_id="default", verify_claim_fn=None, config=CFG)
     plan = WorkPlan(plan_id="plan-port", request_id="req-port", task_id="task-port", subject="English A: Literature", task_type="analytical_paragraph",

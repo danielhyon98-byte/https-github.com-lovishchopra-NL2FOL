@@ -24,10 +24,10 @@ from typing import Optional
 
 import pytest
 
-from epinoic_logic.channel import TransmissionStatus
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.channel import TransmissionStatus
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer.checks import translation as T
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
@@ -443,7 +443,7 @@ def test_a_grade_message_gives_its_signed_run_and_rule_before_the_premises_reaso
     signed run and the rule, so the finding cap (2000 characters, cut at the end) cut the evidence away. The message now
     gives its evidence first (what is restated, the signed run, the rules), then as many whole reasons as fit, saying how
     many are left out; the finding's audit note gives every premise's reason in full."""
-    from epinoic_logic.integrity.contracts import MESSAGE_MAX_CHARS
+    from epinoic_logic.api.integrity import MESSAGE_MAX_CHARS
     aud, ch, rc = _run_on(user_input, _five_problem())
     try:
         a = aud.audit(ch.uid)

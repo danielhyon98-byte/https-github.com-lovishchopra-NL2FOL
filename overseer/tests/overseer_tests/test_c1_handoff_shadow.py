@@ -15,10 +15,10 @@ import json
 from pathlib import Path
 
 import epinoic_overseer.checks.shadow as shadow
-from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.translate.contracts import SuppliedText
-from epinoic_logic.translate.outcome import compose_outcome, verify_claim
+from epinoic_logic.api.channel import CLAIM_OUT_OF_SCOPE
+from epinoic_logic.api.integrity import WorkPlan
+from epinoic_logic.api.translate import SuppliedText, compose_outcome
+from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 
@@ -76,7 +76,7 @@ def test_control_the_shadow_that_composes_without_the_report_fails_the_genuine_c
 def test_control_a_dropped_diagnosis_is_still_named():
     """A channel that drops the INT-ARG-001 its outcome's diagnosis gives is still named (RCPT-004): the shadow serves a composition
     whose diagnosis is the journaled outcome's, and derives the finding from it."""
-    from epinoic_logic.channel.bus import TranslatorChannel
+    from epinoic_logic.api.channel import TranslatorChannel
     auditor = make_auditor()
     real = TranslatorChannel._argument_diagnosis
 

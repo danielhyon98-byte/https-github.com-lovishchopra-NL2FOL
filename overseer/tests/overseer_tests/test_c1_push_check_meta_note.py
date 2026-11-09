@@ -58,11 +58,10 @@ from types import SimpleNamespace
 import pytest
 
 import epinoic_overseer.delivery_policy as delivery_policy
-from epinoic_logic.adapters.english_specialist.parser import split_sentences
-from epinoic_logic.adapters.markdown import mask_quotations, opens_note_paragraph
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.branches.packs import EnglishPack
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.adapters import split_sentences, mask_quotations, opens_note_paragraph
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.branches import EnglishPack
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.checks.selfcert import flags_self_certification
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, SELF_REPORT_CODES, ClaimFormal, DeliveryPolicy
 from epinoic_overseer.meta_notes import (
@@ -70,7 +69,7 @@ from epinoic_overseer.meta_notes import (
     NOTE_FORM_RULE, SUGGESTION_RULE, assurance_words, evaluation_words, is_note_paragraph, meta_paragraph_of, note_paragraphs, note_reading,
     read_meta_paragraph, self_report_findings,
 )
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText, sha256_text
 
 from .c1_texts import EN_T14, EN_T14_Q
 from .growth import growth

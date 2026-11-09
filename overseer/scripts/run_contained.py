@@ -108,7 +108,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ovs_harness as H  # noqa: E402
 
 from epinoic_overseer import KIND_CHECKS, OVS_CODES, PackError, PackIdentity, verify_audit  # noqa: E402
-from epinoic_logic.translate.providers import ProviderError  # noqa: E402
+from epinoic_logic.api.translate import ProviderError  # noqa: E402
 
 RESULTS_FORMAT = "overseer-contained/1.0"
 #: Codes that are rule findings, listed apart for mutated transfers. On GENUINE transfers every error-level finding counts
@@ -386,9 +386,8 @@ def _plain_follows(problem: Any) -> Callable[[list[str]], bool]:
     (``engine.runner.verify`` on the IR as untrusted JSON, default limits and configuration) on ``problem`` (JSON) without
     those premises gives ENTAILED with no diagnostic that withholds the verdict (the audit asks the same of its own signed
     run, rule restatement-necessity)."""
-    from epinoic_logic.engine.results import SolverConfig
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.ir.canonical import canonical_json
+    from epinoic_logic.api.engine import SolverConfig, verify
+    from epinoic_logic.api.ir import canonical_json
     from epinoic_overseer.checks.translation import NECESSITY_BENIGN_DIAGNOSTICS, without_premises
     memo: dict[tuple[str, ...], bool] = {}
 
@@ -403,9 +402,8 @@ def _plain_follows(problem: Any) -> Callable[[list[str]], bool]:
 
 def _engine_run(problem: Any, pids: list[str]) -> dict:
     """The plain engine run on ``problem`` (JSON) without ``pids``, as a record states it."""
-    from epinoic_logic.engine.results import SolverConfig
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.ir.canonical import canonical_json
+    from epinoic_logic.api.engine import SolverConfig, verify
+    from epinoic_logic.api.ir import canonical_json
     from epinoic_overseer.checks.translation import without_premises
     res = verify(canonical_json(without_premises(problem, list(pids))), SolverConfig())
     return {"without": list(pids), "status": res.status.value, "premises_relied_on": list(res.premises_relied_on),
@@ -498,8 +496,8 @@ def _unsourced_shown(prob: dict) -> tuple[list[str], list[str], list[str]]:
     restating premises, those whose grounding alone shows they are not data (no grounding, a writer's-own kind, a source
     no check reads, an arithmetic fact or quotation no check verified: rule data-standing needs no request for these), and
     those whose standing needs the request (a task_setting or supplied_text with no excerpt)."""
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks.translation import HELD_SOURCE_KINDS, UNREAD_SOURCE_KINDS, WRITER_OWN_KINDS, circular_premises
     problem = Problem.model_validate(prob)
     by_id = {pr.id: pr for pr in problem.premises}
@@ -543,10 +541,8 @@ def _evidence_faults(entry: dict, *, rules_superseded: bool = False, pipeline_su
     kept, :func:`_without_the_semantic_rule`) and the overseer's own rules (their reading before the translator's floor,
     ``translator_floor=False``), so the only difference the record states is the rule the retirement names; the IR, the
     merged parse, the served proposal and the engine evidence on the IR must reproduce as they always did."""
-    from epinoic_logic.engine.results import SolverConfig
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.ir.canonical import canonical_json, problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import SolverConfig, verify
+    from epinoic_logic.api.ir import canonical_json, problem_digest, Problem
     from epinoic_overseer.checks.translation import circular_premises, without_premises
     out: list[str] = []
     tr, ev = entry.get("translation") or {}, entry.get("evidence") or {}
@@ -615,7 +611,7 @@ def _same_sources_faults(entry: dict) -> list[str]:
 def _source_faults(src: dict) -> list[str]:
     """Why an entry's embedded sources (``recorded_answer``, ``recorded_plan``, ``recorded_proposal`` with their SHA-256)
     are not what the record says they are (empty when they are)."""
-    from epinoic_logic.ir.canonical import sha256_hex
+    from epinoic_logic.api.ir import sha256_hex
     out = []
     for f in _SOURCE_FIELDS:
         if not isinstance(src.get(f), (dict, str)) or not src.get(f):
@@ -627,7 +623,7 @@ def _source_faults(src: dict) -> list[str]:
 
 def canonical_json_of(value: Any) -> str:
     """Canonical JSON of an embedded source (a fixture recorded as JSON text is read as the object it holds)."""
-    from epinoic_logic.ir.canonical import canonical_json
+    from epinoic_logic.api.ir import canonical_json
     return canonical_json(json.loads(value) if isinstance(value, str) else value)
 
 
@@ -669,8 +665,7 @@ def _sourced_evidence_faults(entry: dict, *, rules_superseded: bool = False, pip
     texts and supplied documents) name exactly the restating premises the record names as the writer's own, with the
     record's reasons, and exactly its ``transcriptions``, and the translator's own rule decides as ``translator_rule``
     states."""
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     from epinoic_overseer.checks.translation import restatement
     ev = entry.get("evidence") or {}
     out = _source_faults(ev)
@@ -782,10 +777,9 @@ def semantic_rule_on(entry: dict, sources: dict) -> dict:
     entry's embedded IR as the pipeline grounds it for the recorded answer (its supplied texts; the arena's verifier
     passes no task record) with the merged claim's text: ``{"kind", "premises"}``, or ``{}`` when it names nothing. The
     rule's own guards hold too (no inconsistent premises, no conclusion valid alone), as in the pipeline."""
-    from epinoic_logic.engine.runner import conclusion_valid_alone, premises_inconsistent
-    from epinoic_logic.ir.schema import Problem
-    from epinoic_logic.translate.grounding import check_problem_grounding
-    from epinoic_logic.translate.restatement import semantic_restatement
+    from epinoic_logic.api.engine import conclusion_valid_alone, premises_inconsistent
+    from epinoic_logic.api.ir import Problem
+    from epinoic_logic.api.translate import check_problem_grounding, semantic_restatement
     prob = Problem.model_validate((entry.get("translation") or {}).get("problem"))
     recorded_id = entry.get("recorded_claim_id") or entry["claim_id"]
     d = _delivery(sources, recorded_id)
@@ -831,10 +825,8 @@ def _withheld_retirement_faults(entry: dict) -> list[str]:
     premises and every one is the writer's own, ``assumed_grounding``), the pipeline's gate
     (``translate.pipeline.Translator._circularity``) rejects it with E112, and the engine withholds the ENTAILED proof (E112
     on the result). A translator that would deliver the encoding again makes the retirement fail."""
-    from epinoic_logic.engine.results import SolverConfig
-    from epinoic_logic.engine.runner import assumed_grounding, circular_premises, verify
-    from epinoic_logic.ir.canonical import canonical_json
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import SolverConfig, assumed_grounding, circular_premises, verify
+    from epinoic_logic.api.ir import canonical_json, Problem
     from epinoic_logic.translate.pipeline import Translator, _Rejected
     out: list[str] = []
     ev = entry.get("retirement_evidence") or {}
@@ -931,8 +923,7 @@ def _rules_retirement_faults(entry: dict) -> list[str]:
     premise are the retirement's ``overseer_rules.why_own``, exactly (as an entry's evidence states them). A rule that
     would read the encoding as circular again refuses the record: the entry must be restored (record version 6 restored
     three entries so, :func:`_restoration_faults`)."""
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     from epinoic_overseer.checks.translation import restatement
     ev = entry.get("retirement_evidence") or {}
     out = _merged_retirement_faults(entry, delivered=True)
@@ -1251,8 +1242,7 @@ def recorded_self_reports(src: Path, recorded_results: Optional[dict]) -> list[d
 
 def recorded_translation_matches(src: Path, entry: dict) -> Optional[str]:
     """None when the round's recorded translation of the entry's claim is the adjudicated IR (by digest); else why not."""
-    from epinoic_logic.ir.canonical import problem_digest
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import problem_digest, Problem
     path = Path(src) / "translations" / f"{entry['task_id']}.json"
     try:
         prob = json.loads(path.read_text(encoding="utf-8"))["claims"][entry["claim_id"]]["problem"]
@@ -1265,7 +1255,7 @@ def recorded_translation_matches(src: Path, entry: dict) -> Optional[str]:
 def recorded_sources_match(src: Path, task_id: str, recorded_claim_id: str, evidence: dict) -> Optional[str]:
     """None when the round's recorded answer of ``task_id`` and its recorded fixture of ``recorded_claim_id`` are the ones
     an entry's evidence embeds (by SHA-256); else why not."""
-    from epinoic_logic.ir.canonical import sha256_hex
+    from epinoic_logic.api.ir import sha256_hex
     try:
         item = json.loads((Path(src) / "specialists" / f"{task_id}.json").read_text(encoding="utf-8"))
         fixture = json.loads((Path(src) / "translations" / f"{task_id}.json").read_text(encoding="utf-8"))["claims"][recorded_claim_id]

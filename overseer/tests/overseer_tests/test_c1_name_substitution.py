@@ -27,7 +27,7 @@ import ovs_harness as H  # noqa: E402
 import tamper as T  # noqa: E402
 
 from epinoic_logic.channel import bus as channel_bus  # noqa: E402
-from epinoic_logic.integrity import SynthesizedClaim  # noqa: E402
+from epinoic_logic.api.integrity import SynthesizedClaim  # noqa: E402
 from epinoic_logic.integrity.ledger import substituted_names  # noqa: E402
 from epinoic_overseer.checks.receipts import FIXED_SEVERITY  # noqa: E402
 from epinoic_overseer.policy import release_decision  # noqa: E402

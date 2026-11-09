@@ -252,7 +252,7 @@ def test_all_forty_one_examples_parse(examples):
 
 def test_example_verdicts_pass_the_intake_header_and_schema_rules(examples):
     """Each example verdict, as text, is one strict JSON object the intake's parser and the contract accept."""
-    from epinoic_logic.translate.parsing import parse_json_object
+    from epinoic_logic.api.translate import parse_json_object
     for e in examples:
         obj = parse_json_object(json.dumps(e.verdict, ensure_ascii=False))
         verdict = AgentVerdict.model_validate(obj)
@@ -270,7 +270,7 @@ def test_the_c1_examples_teach_that_a_missing_link_and_a_parser_constraint_are_n
     e21 = next(e for e in examples if e.number == 21)
     # pack 1.3 (the translator merge): "about 250 words" is written as both bounds, min_words 225 and max_words 275, each
     # keeping the student's words, exactly as the merged request parser writes them
-    from epinoic_logic.channel.request_parser import extract_constraints
+    from epinoic_logic.api.channel import extract_constraints
     shown = [(e21.excerpt[f"/transfers/0/payload/constraints/{i}/kind"], e21.excerpt[f"/transfers/0/payload/constraints/{i}/value"],
               e21.excerpt[f"/transfers/0/payload/constraints/{i}/text"]) for i in (0, 1)]
     assert shown == [("min_words", "225", "about 250 words"), ("max_words", "275", "about 250 words")]
@@ -315,11 +315,10 @@ def test_the_repair_example_agrees_with_the_check_it_teaches(examples):
     the overseer's rule ``grounded-transcription`` reads it as the writer's own (OVS-TRN-006 when, as here, nothing else
     gives the conclusion): the example accuses exactly that, translation_circular at error. Since the third repair the
     example shows its symbols, and the check is pinned under rule data-standing too (shown not to be data)."""
-    from epinoic_logic.engine import SolverConfig, verify
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import SolverConfig, verify, assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks import translation as T
-    from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
+    from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
     e = next(x for x in examples if x.number == 26)
     tr = "/transfers/0/receipt/outcomes/0/translation"
     premise, concl = e.excerpt[tr + "/problem/premises/0"], e.excerpt[tr + "/problem/conclusion"]
@@ -354,7 +353,7 @@ def test_the_repair_example_agrees_with_the_check_it_teaches(examples):
 
 
 def _example_report(cid: str, claim: str, task: str, *, docs=()):
-    from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
+    from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, sha256_text
     return SpecialistReport(report_id=f"rep-{task}-0", request_id="req", task_id=task, agent_id="mathematics-specialist", subject="Mathematics",
                             task_type="structured_question", original_response=claim, response_sha256=sha256_text(claim), supplied_texts=list(docs),
                             created_at="2026-10-16T00:00:00Z",
@@ -363,7 +362,7 @@ def _example_report(cid: str, claim: str, task: str, *, docs=()):
 
 
 def _plain_follows(obj: dict):
-    from epinoic_logic.engine import SolverConfig, verify
+    from epinoic_logic.api.engine import SolverConfig, verify
     from epinoic_overseer.checks import translation as T
     return lambda pids: verify(json.dumps(T.without_premises(obj, pids)), SolverConfig()).status.value == "ENTAILED"
 
@@ -381,9 +380,8 @@ def test_the_second_repair_example_agrees_with_the_check_it_teaches(examples):
     asserted OVS-TRN-011 for both), and the example accuses exactly that. Controls, kept: a request that does not state 5
     refutes t_years (OVS-TRN-006); the conclusion without the Bool conjunct rests on t_years alone, undecided
     (OVS-TRN-011)."""
-    from epinoic_logic.engine import SolverConfig, verify
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import SolverConfig, verify, assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks import translation as T
     e = next(x for x in examples if x.number == 27)
     tr = "/transfers/1/receipt/outcomes/0/translation/problem"
@@ -430,8 +428,8 @@ def test_the_fourth_repair_example_agrees_with_the_check_it_teaches(examples):
     premise: OVS-TRN-011. The example accuses nothing. Controls: a request that states 3.6 only bare refutes nothing but
     reads nothing either (t_rate uncheckable: OVS-TRN-006); a premise stating a Bool symbol beside them is uncheckable
     (Example 27)."""
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks import translation as T
     e = next(x for x in examples if x.number == 29)
     tr = "/transfers/1/receipt/outcomes/0/translation/problem"
@@ -463,8 +461,8 @@ def test_the_third_repair_example_agrees_with_the_check_it_teaches(examples):
     engine-shown. The example accuses exactly that, translation_circular at error. Under the withdrawn rule
     figure-transcription the 8 in the request verified it. Control: the request stating 8 m as data gives no refutation
     (undecided: OVS-TRN-011)."""
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks import translation as T
     e = next(x for x in examples if x.number == 28)
     tr = "/transfers/1/receipt/outcomes/0/translation/problem"
@@ -541,8 +539,8 @@ def test_the_fifth_repair_example_agrees_with_the_check_it_teaches(examples):
     that. Controls: the request stating the length ("The paragraph is 80 words long.") leaves t_len undecided
     (OVS-TRN-011); a premise naming the requirement reads it (undecided); the question and the negation the example names
     are shown not to be data too."""
-    from epinoic_logic.engine.runner import assumed_grounding
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.engine import assumed_grounding
+    from epinoic_logic.api.ir import Problem
     from epinoic_overseer.checks import translation as T
     e = next(x for x in examples if x.number == 30)
     tr = "/transfers/1/receipt/outcomes/0/translation/problem"

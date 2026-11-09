@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.checks import fidelity as F
 from epinoic_overseer.checks import normalise, plain_form, strip_list_markers
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .core_hostile import INPUTS, N, one, sweep
 from .growth import growth

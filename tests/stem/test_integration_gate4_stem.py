@@ -30,7 +30,6 @@ import pytest
 from epinoic_logic.branches import RouterHub
 from epinoic_logic.engine import SolverConfig
 from epinoic_logic.integrity import WorkPlan
-from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
 from epinoic_logic.stem import build_document
 from epinoic_logic.stem.checks import build_checks
 from epinoic_logic.stem.document import _relation_sign, clear_document_cache
@@ -38,6 +37,8 @@ from epinoic_logic.stem.lexer import RELATION_LOOKALIKES, is_sign_error, lex, si
 from epinoic_logic.stem.limits import profile_for
 from epinoic_logic.stem.normalize import SIGN_FORMS, reading_view
 from epinoic_logic.stem.spans import find_spans
+
+from ..overseer_attach import overseer
 
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)
 KEY = b"integration-gate-4-stem-key-0123456789"
@@ -71,8 +72,9 @@ def receive(profile: str, answer: str, request: str = "Answer the question."):
 
 def audited(profile: str, answer: str, request: str):
     """The receipt and the transfer audit's state on a hub with the overseer's auditor attached, as the lens reproduced the finding."""
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
-    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
+    ov = overseer()  # the overseer's public package API: skips the test where it is not installed
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, SECRET)
+    hub = RouterHub(signing_key=KEY, key_id="hub", config=CFG, auditor=ov.TransferAuditor(keyring, replay_mode="inline", eager=True, shadow="always"))
     try:
         hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject=SUBJECTS[profile], task_type="short_answer",
                                selected_agent_ids=["stem-specialist"]))

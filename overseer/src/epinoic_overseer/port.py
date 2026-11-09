@@ -4,7 +4,8 @@
 The service reaches the overseer ONLY through this port (``integration/PROTOCOL.md`` section 6; the translator's
 ``integration/overseer_port.py`` validates every message it returns as untrusted data). It never imports this package
 otherwise, and this package reaches the translator only through its public API (``epinoic_logic.api``) and the
-integration protocol (``epinoic_logic.integration``).
+integration protocol's modules (``epinoic_logic.integration``: the overseer port contract, the protocol, its errors, its
+canonical JSON and the router port's pool operation; never the service's implementation modules).
 
 Operations (embedded mode, v1), each over the overseer's own calls:
 
@@ -82,7 +83,8 @@ from .policy import ACTABLE_STATES, MAX_PENDING_WAIT_MS, act_decision, receipt_d
 from .replay import Replayer, ReplayJob
 
 __all__ = [
-    "PROFILES", "HUB_ENGINE_KEY_IDS", "REFUSAL_RULES", "UnmappedReason", "refusal_label", "ReviewRecord", "EmbeddedOverseerPort", "connect",
+    "PROFILES", "HUB_ENGINE_KEY_IDS", "SELF_CHECK_PROBLEM", "REFUSAL_RULES", "UnmappedReason", "refusal_label", "ReviewRecord", "EmbeddedOverseerPort",
+    "connect",
 ]
 
 #: The overseer-agent profiles this release offers (decision D30: ``standard`` only; ``fast`` is not offered).
@@ -94,6 +96,20 @@ _KEY_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _MIN_KEY_BYTES = 32
 #: How long ``connect`` gives the replay worker to start and decide its self-check.
 SELF_CHECK_S = 60.0
+#: The self-check's problem (IR 1.0, data only): a linear entailment (x > 2 and y = x + 1 give y > 3) that the engine
+#: decides ENTAILED, run in process and replayed in the worker. It is the adapter's own: the service's start-up self-test
+#: set (``epinoic_logic.integration.selftest``) is the service's implementation, not the integration protocol, so the
+#: overseer never imports it (architecture review after arena round 8).
+SELF_CHECK_PROBLEM: Mapping[str, Any] = {
+    "ir_version": "1.0", "problem_id": "overseer-port-self-check", "request_id": "overseer-port-self-check", "claim_id": "overseer-port-self-check",
+    "query": "entailment",
+    "symbols": [{"name": "x", "sort": "Int"}, {"name": "y", "sort": "Int"}],
+    "premises": [
+        {"id": "P1", "expr": {"op": "gt", "left": {"op": "var", "name": "x"}, "right": {"op": "int", "value": "2"}}},
+        {"id": "P2", "expr": {"op": "eq", "left": {"op": "var", "name": "y"}, "right": {"op": "add", "args": [{"op": "var", "name": "x"}, {"op": "int", "value": "1"}]}}},
+    ],
+    "conclusion": {"id": "C", "expr": {"op": "gt", "left": {"op": "var", "name": "y"}, "right": {"op": "int", "value": "3"}}},
+}
 #: Reviews waiting for the review worker; one more is dropped (its ticket says so), never queued without bound.
 REVIEW_QUEUE_BOUND = 64
 #: Review outcomes kept as metadata (decision D22), newest last.
@@ -269,11 +285,10 @@ class EmbeddedOverseerPort:
 
     # ------------------------------------------------------------------------------------------------- lifecycle
     def self_check(self) -> Optional[str]:
-        """Start the replay worker and replay the integration self-test's linear entailment in it: ``None`` when the
-        replay answers ENTAILED (the worker is then warm for every call)."""
+        """Start the replay worker and replay the adapter's own linear entailment (:data:`SELF_CHECK_PROBLEM`) in it:
+        ``None`` when the replay answers ENTAILED (the worker is then warm for every call)."""
         try:
-            from epinoic_logic.integration.selftest import PROBLEMS
-            problem = Problem.model_validate(PROBLEMS["linear-entailment"][1])
+            problem = Problem.model_validate(SELF_CHECK_PROBLEM)
             cfg = SolverConfig()
             result = verify(problem, cfg)
             if result.status.value != "ENTAILED":

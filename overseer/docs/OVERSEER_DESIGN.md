@@ -5785,3 +5785,83 @@ evaded or persisted. Everything new in the pack is in its core (13,360 character
 composition): a module sent only with a dossier that carries a revision request would spare the others; the flash router's
 cost data still holds pack 2.0's composition sizes (planning estimates, a released data file that never changes). Neither
 changes a receipt, a finding or a status, so both are recorded for the optimisation checks, not done (the founder's order).
+
+## 54. The architecture review after arena round 8 on the overseer: what changed and why
+
+The architecture lenses after arena round 8 read the overseer sub-project, the twofold review and the feedback function.
+What they found in `overseer/**`, and what changed for it; what needs the translator is handed to its owner (an API
+version, the names its public API does not export yet, the translator-side isolation guard).
+
+**Decision 131 (`synthesis_ledger_fault` is refuted only for what its checks decide).** A merged review's pack-following
+accusation of a claim the synthesis adds while citing an unrelated source (I101 question 3, K5: `synthesis_ledger_fault`)
+was refuted by OVS-SYN-001 and OVS-SYN-002 and recorded against the agent, although neither decides added content: they
+read a synthesis's accounting, its certainty field and its figures, quotations, names and comparison directions, and
+OVS-SYN-002 names only a ledger fault the receipt lacks. `validate._synthesis_ledger_gap` now leaves such an accusation
+unresolved (OVS-AGENT-004, human review) when it names a synthesized claim whose content the ledger does not hold to its
+one cited source's text (rule `ledger-content`: every claim but a `carried` one with one source and no INT-LEDGER-010, as
+the ledger itself reads it on the journaled reports) or a claim an INT-LEDGER finding of the synthesis receipt already names
+(rule `receipt-named`). The second rule also settles K9 against I61 and I64: K9 sends a merged reviewer to a certainty the
+synthesis changed whatever the receipt says, while validation refuted such an accusation whenever the receipt named the
+fault (INT-LEDGER-003); now the accusation agrees with the channel's own finding and is not refuted, without a new pack
+(a pack's text changes only with a new version, which the service pins). A dedicated kind with no deciding check
+(`synthesis_content_unsupported`) was the other route; it needs a new pack and verdict contract value, and the rule above
+gives the same outcome on the existing contract. Accusations naming no such claim (a dropped claim, an undelivered report,
+inflated certainty the receipt does not name) are refuted as before when the checks find nothing, and confirmed through
+OVS-SYN-002 when the receipt lacks the fault (`tests/overseer_tests/test_r8_architecture_review.py`).
+
+**Decision 132 (a blind context carries no signature, replay or custody outcome).** `TemporaryContext.build` kept every
+confirmed kind, so a blind merged dossier could be told `result_unsigned_or_forged` on `res-42`, which only OVS-RES-003 or
+OVS-RES-009 confirm and a blind dossier never shows. The context is now built in the review's mode: in blind mode it
+leaves out every fault of `twofold.BLIND_HIDDEN_KINDS` (`result_unsigned_or_forged`, `replay_differs`,
+`result_from_other_problem`, `result_out_of_task`, `payload_altered`, `receipt_altered`: the kinds only a signature, replay
+or custody check decides), and those faults decide nothing through it. The guarantee is stated as it holds: in both modes
+the context discloses that a check confirmed each listed fault (its kind and identifiers, never a code or a finding's
+text), since the merged review exists to see whether the synthesis carries it. Counting the left-out faults without
+identifiers was the other route; it needs a field the pinned dossier schema does not have.
+
+**Decision 133 (a source part with no assessed verdict is NOT reviewed).** When every instance of a source review failed or
+answered something that is not a verdict, the signed audit still said "reviewed before combination, in parallel" and only
+"0 verdict(s) assessed" told otherwise. The note is now worded from the outcome: "NOT reviewed before combination: no verdict
+was assessed on it", with what each planned instance did (its run status, a refused dossier, a failed runner), and the
+context's note names the sources it holds nothing of (`hub_ops._review_twofold`). A non-success is never worded as a success.
+
+**Decision 134 (a hedge named only at warning level does not escalate).** INT-LEDGER-026 (a dropped hedge, by the ledger's
+lexical reading) and INT-LEDGER-027 (a from-memory label dropped) are warnings outside the named families, so
+`emitted.risk_of` reads them as no risk signal and the merged review of the synthesis is not escalated for them; inflated
+certainty (INT-LEDGER-003, an error) is. Decided to stay so and recorded in floor rule 2 (`floor.py`'s docstring), the
+README and here: the floor's signals are what blocks release or names a fault at error level, the named families,
+contradictions and rejections; a lexical reading that "may" find a change is shown to the instance on the receipt, and an
+accusation of it is no longer refuted (decision 131). Making those warnings signals would be a new floor version and change
+the plans the flash router reproduces for the recorded rounds. The rules text (`POOL_FLOOR_RULES`, whose digest every plan
+records) is unchanged.
+
+**Decision 135 (the two doors, explicitly).** The package's isolation guard admitted every module of
+`epinoic_logic.integration` as "the protocol", the service's own self-test set (`selftest.PROBLEMS`, imported by the port
+adapter's self-check) among them. The doors are now the public API's modules and the protocol's modules `canonical`,
+`errors`, `overseer_port`, `protocol` and `router_pool` (`tests/overseer_tests/internal_imports.PROTOCOL_MODULES`); a dynamic
+import counts too; the port's self-check replays a problem of its own (`port.SELF_CHECK_PROBLEM`, the same linear
+entailment, data only). `import epinoic_overseer` first checks the translator it is given (`compat.py`): every public-API and
+protocol name the package imports (held to the modules' imports by a test) must be offered, and a public API that states
+its version must be of MAJOR 1; otherwise `TranslatorIncompatible` names every missing name. The distribution pin stays
+`epinoic-logic>=0.1.0` until the translator releases a new version (handed to the translator's owner; its public API states
+`API_VERSION` 1.1 since the review's handoff fixer, and the new distribution version comes with its next release).
+
+**Decision 136 (the tests and scripts: the same doors, a documented allowlist that only shrinks).** The sub-project's tests
+and harness scripts imported translator internals in 94 test files and 6 scripts (by this scan; the review counted 91 test
+files). Every import the public API already offered was moved onto it (518 imported names in 92 files); what remains is
+listed file by file in
+`tests/overseer_tests/internal_imports.py` with its reason (`patch`, `drift`, `missing`, `fixture`, `service`), 255 imports
+in 67 test files and 4 scripts, under a ceiling that may only be lowered. The layout test fails on any import it does not
+list and on any entry no file still makes. The byte-equal copies of the translator's test material are not scanned. The
+`missing` names are handed to the translator's owner; once exported, their imports move and their entries go. (Done by the
+review's handoff fixer: the translator's public API 1.1 exports the 26 `missing` names, their 78 imports moved onto it,
+and the allowlist lists 177 imports in 57 test files and 3 scripts under a ceiling lowered to 177; the category is empty.)
+
+**Decision 137 (no path climbs above the sub-project).** A test added after the move reached the translator's arena tools
+with `Path(__file__).resolve().parents[3]`, outside a standalone copy, so the split failed it whenever the recorded rounds
+were supplied. It now reaches them through `translator_checkout.require_translator_root()` and restores `sys.path`; the layout
+test rejects any `Path(__file__)` climb past the sub-project, any `.parent` of a name for the sub-project root, a computed
+`parents[...]` and a `..` path segment, outside the two checkout resolvers. Two tests that read the source tree from the
+installed package (`.gitattributes`, the source-checkout root) now read it from the sub-project, so the suite passes under a
+normal install as under an editable one. The README states that `git subtree split` carries only the commits since the
+move, where the 26 earlier ones live, and how a split that keeps them is made.

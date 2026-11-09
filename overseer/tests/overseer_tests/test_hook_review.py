@@ -17,13 +17,13 @@ from typing import Any, Callable
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
+from epinoic_logic.api.branches import RouterHub
 from epinoic_overseer import (
     OverseerAgentRunner, PackIdentity, VerdictIntake, load_pack, render_dossier_block, verify_audit,
 )
 from epinoic_overseer.export import export_pack
-from epinoic_logic.translate.contracts import ProviderInfo
-from epinoic_logic.translate.providers import ProviderError, ProviderResponse
+from epinoic_logic.api.translate import ProviderInfo
+from epinoic_logic.api.translate import ProviderError, ProviderResponse
 
 from .conftest import CFG, EN_CLAIMS, EN_TEXT, KEY, english_report, make_auditor, make_keyring
 from .test_hook_hub import HubTask, audited_hub, hub_task

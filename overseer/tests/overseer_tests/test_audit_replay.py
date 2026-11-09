@@ -6,15 +6,13 @@ import json
 
 import pytest
 
-from epinoic_logic.engine import SolverConfig, verify
-from epinoic_logic.engine.provenance import sign_result
-from epinoic_logic.engine.sink import capture_results, emit
-from epinoic_logic.engine.statuses import VerificationStatus as S
-from epinoic_logic.ir.canonical import canonical_json
+from epinoic_logic.api.engine import SolverConfig, verify, sign_result, capture_results, VerificationStatus as S
+from epinoic_logic.engine.sink import emit
+from epinoic_logic.api.ir import canonical_json
 from epinoic_overseer import EngineKey, KeyRing, Replayer, ReplayJob
 from epinoic_overseer.checks import Replay
 from epinoic_overseer.replay import classify, compare, replay_problem
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.translate import compose_outcome
 
 from .conftest import CFG, KEY, OTHER_KEY, SECRET, findings, int_problem, make_auditor, make_keyring, run_task, translation_for
 
@@ -73,7 +71,7 @@ def test_inline_replayer_signs_replays_under_the_run_key():
     data = json.loads(o.result_json)
     assert data["signature_key_id"] == "overseer-run"
     from epinoic_overseer.faithful import faithful
-    from epinoic_logic.engine.results import VerificationResult
+    from epinoic_logic.api.engine import VerificationResult
     assert kr.verify_result(faithful(VerificationResult, data)) == (True, "ok")
     r = compare(o.job, faithful(VerificationResult, data))
     assert classify(r) is None and r.replay_status == "ENTAILED"
@@ -276,7 +274,7 @@ import sys
 import threading
 import time
 
-from epinoic_logic.engine.results import VerificationResult
+from epinoic_logic.api.engine import VerificationResult
 from epinoic_overseer.faithful import faithful
 
 _posix = pytest.mark.skipif(not hasattr(signal, "SIGSTOP"), reason="holds the worker with SIGSTOP (POSIX)")

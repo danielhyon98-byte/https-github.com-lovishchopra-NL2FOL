@@ -5,22 +5,38 @@ candidates with their accuracy and the one chosen, in ``results.json`` and in ``
 The delivery pass runs on a hub of its own, after the round's records are complete: it adds no record and moves no
 transport count. On the command line no overseer agent is configured (the harness calls no model), so an answer whose
 formal path does not complete is withheld; a test configures scripted overseer agents (no model, no network) to show the
-fallback's candidates and choice."""
+fallback's candidates and choice.
+
+Every test here drives the delivery pass, which is the overseer's delivery policy: each needs the overseer installed and
+is skipped with ``overseer_attach.REASON`` where it is not (architecture review after arena round 8: the translator's
+suite runs without the overseer; where it is not installed the harness records the pass as not run, which
+``test_arena_without_the_overseer.py`` holds). The overseer is reached through its public package API only, never its
+test package: the scripted overseer agents are written here on the translator's provider types."""
 from __future__ import annotations
 
 import json
 import socket
 import sys
 from pathlib import Path
+from typing import Any, Callable
 
 import pytest
 
-from epinoic_overseer import load_pack
-from epinoic_overseer.export import export_pack
+from epinoic_logic.translate.contracts import ProviderInfo
+from epinoic_logic.translate.providers.base import ProviderResponse
 
-from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
-from overseer_tests.delivery_support import ScriptedOverseer, silent
+from ..overseer_attach import overseer
 from .test_arena_measures import _GK, TASK, _fixture, _round, ra
+
+#: The overseer's harness scripts in this repository (the contained harness, ``ovs_harness.py``); absent where the overseer
+#: is installed as a package of its own after the split.
+OVERSEER_SCRIPTS = Path(__file__).resolve().parents[2] / "overseer" / "scripts"
+
+
+@pytest.fixture(autouse=True)
+def needs_the_overseer():
+    """Every test here drives the overseer's delivery policy: skipped, with the reason, where it is not installed."""
+    overseer()
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +49,40 @@ def no_network(monkeypatch):
 
 @pytest.fixture(scope="module")
 def pack(tmp_path_factory):
-    return load_pack(export_pack(tmp_path_factory.mktemp("export"), zip_archive=True).zip_path)
+    ov = overseer()
+    return ov.load_pack(ov.export_pack(tmp_path_factory.mktemp("export"), zip_archive=True).zip_path)
+
+
+class ScriptedOverseer:
+    """An overseer completion provider whose reply is computed from the dossier it receives (test code reading data,
+    never a model): the overseer suite's scripted agent (``delivery_support.ScriptedOverseer`` without its fake clock),
+    written here so that this module needs the overseer's public package only, never its test package."""
+
+    name = "scripted"
+
+    def __init__(self, reply: Callable[[dict], Any]) -> None:
+        self.reply = reply
+        self.calls: list[str] = []
+
+    def complete(self, system: str, user: str, *, prompt_version: str) -> ProviderResponse:
+        lines = user.split("\n")
+        assert lines[0] == "<<<DATA dossier>>>" and lines[-1] == "<<<END dossier>>>"
+        d = json.loads("\n".join(lines[1:-1]))
+        self.calls.append(d["agent_id"])
+        out = self.reply(d)
+        if isinstance(out, Exception):
+            raise out
+        text = out if isinstance(out, str) else json.dumps(out)
+        return ProviderResponse(raw_text=text, info=ProviderInfo(provider_name=self.name, prompt_version=prompt_version, temperature=0.0))
+
+
+def silent(d: dict) -> dict:
+    """A well-formed verdict on the dossier ``d`` that reviews every transfer and accuses nothing (the overseer suite's
+    ``delivery_support.silent``)."""
+    return {"contract": d["verdict_contract"], "pack": dict(d["pack"]), "verdict_id": f"v-{d['agent_id']}", "agent_id": d["agent_id"],
+            "task_id": d["task"]["task_id"], "dossier_sha256": d["dossier_sha256"], "lens": d["lens"],
+            "transfers_reviewed": [t["message_id"] for t in d["transfers"] if t["message_id"]], "accusations": [], "engine_statements": [],
+            "notes": ""}
 
 
 def _untranslatable(claim_id: str) -> dict:
@@ -141,7 +190,9 @@ def test_a_switched_off_pass_says_so_and_moves_nothing(tmp_path, monkeypatch):
 
 
 def test_the_contained_harness_switches_the_pass_off_and_restores_it():
-    scripts = Path(__file__).resolve().parents[2] / "overseer" / "scripts"
+    if not OVERSEER_SCRIPTS.is_dir():  # an overseer installed as a package of its own (after the split) ships no harness here
+        pytest.skip("the overseer's harness scripts (overseer/scripts/) are not in this checkout: the overseer sub-project was split off")
+    scripts = OVERSEER_SCRIPTS
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
     import ovs_harness as H

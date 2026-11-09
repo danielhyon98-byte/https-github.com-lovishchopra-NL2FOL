@@ -208,6 +208,11 @@
 - **Do,** in `<kit>`: `python3 integration/readiness/check.py --g1 .`
   (contract version line of `docs/integration-contract.md`, the overseer package, the STEM branches, the named policies,
   the protocol in `COMPATIBILITY.json`, and the flash router and the combinator sub-projects, reported but not required).
+  The overseer package is looked for where the service imports it: `epinoic_overseer` and its port adapter on the import
+  path of a process run from the kit with the interpreter that runs the check, the sub-project `overseer/` or an
+  overseer installed as a package (as after its split, `overseer/README.md`). A kit without `overseer/` therefore runs
+  this step with the interpreter the overseer is installed in (`<workdir>/venv/bin/python integration/readiness/check.py
+  --g1 .`, once the overseer is installed there).
 - **Expect:** contract 0.5, the overseer package, the STEM branches, the named policies, `epinoic.integration.v1`.
 - **Stop if:** any required part is missing: the service would refuse with `KIT-HS-006`, `KIT-HS-007` or `KIT-HS-005`.
   Only Daniel can publish a corrected kit, under a new tag. **(Contract 0.5, which follows the contract 0.3 merge and 0.4, the
@@ -215,7 +220,9 @@
   the contract 0.3 merge these three rows are BLOCKERs whose detail says "(connected in phase 2: ...)"; on one after it
   (the pre-build branch since 17 October 2026) only the overseer package row is. A published kit stops here; a
   rehearsal of a pre-build commit records them as "blocked by G1" and continues.
-  A BLOCKER row without that mark stops both. On a commit that carries the rebuilt overseer (merged in phase 2) every
+  A BLOCKER row without that mark stops both. Only a commit whose contract line predates 0.5 is given the mark: on a
+  kit whose line is 0.5 a missing part (the overseer included) is a BLOCKER that names a defect of the commit, and the
+  service start-up's `KIT-HS-007` is unmarked there too. On a commit that carries the rebuilt overseer (merged in phase 2) every
   G1 row is PASS: contract 0.5, the overseer package, the STEM branches, the named policies and the protocol, with the
   flash router and the combinator sub-projects REPORTED.)**
 

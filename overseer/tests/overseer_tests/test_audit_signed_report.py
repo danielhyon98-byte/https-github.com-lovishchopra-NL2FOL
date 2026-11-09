@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.engine.statuses import SCOPE_STATEMENT
-from epinoic_logic.integrity import AgentMessage, AgentRole, MessageLog, ROLE_CONTRACTS, payload_hash, verify_message
-from epinoic_logic.integrity.contracts import verify_report_digest
+from epinoic_logic.api.engine import SCOPE_STATEMENT
+from epinoic_logic.api.integrity import ROLE_CONTRACTS
+from epinoic_logic.api.integrity import AgentMessage, AgentRole, MessageLog, payload_hash, verify_message, verify_report_digest
 from epinoic_overseer import (
     AUDIT_SCOPE_SENTENCE, OVS_CODES, EngineKey, KeyRing, OverseerView, audit_envelope, ovs_finding, run_overseer_checks, sign_audit, transfer_states,
     verify_audit,

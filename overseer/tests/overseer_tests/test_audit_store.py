@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import json
 
-from epinoic_logic.engine import SolverConfig, verify
-from epinoic_logic.engine.provenance import sign_result
-from epinoic_logic.engine.sink import CapturedResult, capture_results
-from epinoic_logic.ir.canonical import canonical_json, sha256_hex
+from epinoic_logic.api.engine import SolverConfig, verify, sign_result, CapturedResult, capture_results
+from epinoic_logic.api.ir import canonical_json, sha256_hex
 from epinoic_overseer import EngineKey, KeyRing, ResultStore
 from epinoic_overseer.contracts import Citation, ResultTombstone, StoredResult
 from epinoic_overseer.faithful import faithful
-from epinoic_logic.engine.results import VerificationResult
-from epinoic_logic.translate.contracts import SpecialistReport
+from epinoic_logic.api.engine import VerificationResult
+from epinoic_logic.api.translate import SpecialistReport
 
 from .conftest import CFG, KEY, OTHER_KEY, SECRET, english_report, int_problem, make_keyring
 

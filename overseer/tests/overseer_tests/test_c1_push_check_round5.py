@@ -48,7 +48,7 @@ from epinoic_overseer.meta_notes import (
     read_meta_paragraph, read_source_list, source_list_grounding, strict_lead_end, unread_lead_blocks,
 )
 from epinoic_overseer.non_material import claim_key, english_units, read_layout, unread_non_material_blocks
-from epinoic_logic.translate.contracts import sha256_text
+from epinoic_logic.api.translate import sha256_text
 
 from .c1_texts import EN_T14, EN_T14_Q
 from .growth import growth
@@ -699,7 +699,7 @@ def test_the_round_5_readers_grow_linearly(name, make):
 def test_rule_unverified_claims_grows_linearly_with_the_answer():
     """The rule reads the answer once more through its branch's parser and compares each claim's whole text with a set of the
     journaled claims' texts: linear in the answer (the parser's own cost)."""
-    from epinoic_logic.branches.registry import default_registry
+    from epinoic_logic.api.branches import default_registry
     parser = default_registry().for_subject("Physics")[0].parser()
     kw = dict(request_id="r", task_id="t", report_id="rep", subject="Physics", task_type="calculation", supplied_texts=[],
               request_text="A car travels 120 km in 8 hours. Use speed = d / 8. Find its average speed in km/h.")

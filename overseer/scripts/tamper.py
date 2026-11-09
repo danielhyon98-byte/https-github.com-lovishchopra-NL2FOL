@@ -104,26 +104,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ovs_harness as H  # noqa: E402
 
-from epinoic_logic.branches import RouterHub  # noqa: E402
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus  # noqa: E402
-from epinoic_logic.engine import SolverConfig, verify  # noqa: E402
-from epinoic_logic.engine.provenance import sign_result  # noqa: E402
+from epinoic_logic.api.branches import RouterHub  # noqa: E402
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus  # noqa: E402
+from epinoic_logic.api.engine import SolverConfig, verify, sign_result, VerificationStatus as S  # noqa: E402
 from epinoic_logic.engine.sink import emit  # noqa: E402
-from epinoic_logic.engine.statuses import VerificationStatus as S  # noqa: E402
-from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan  # noqa: E402
-from epinoic_logic.integrity.contracts import AgentMessage, ConflictRecord, IntegrityFinding, payload_hash, sign_message  # noqa: E402
-from epinoic_logic.ir.canonical import canonical_json  # noqa: E402
-from epinoic_logic.ir.schema import Problem, SourceRef  # noqa: E402
+from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim  # noqa: E402
+from epinoic_logic.api.integrity import AgentRole, Synthesis, WorkPlan, AgentMessage, IntegrityFinding, payload_hash, sign_message  # noqa: E402
+from epinoic_logic.api.integrity import ConflictRecord  # noqa: E402
+from epinoic_logic.api.ir import canonical_json, Problem  # noqa: E402
+from epinoic_logic.api.ir import SourceRef  # noqa: E402
 from epinoic_overseer import (  # noqa: E402
     KIND_CHECKS, PACK_VERSION, EngineKey, KeyRing, PackError, PackIdentity, TransferAuditor, VerdictIntake, validate_overseer_verdict, verify_audit,
 )
-from epinoic_logic.translate.contracts import (  # noqa: E402
-    ClaimRecord, EligibilityClass, EligibilityDecision, ProviderInfo, SpecialistReport, SuppliedText, TranslationResult, TranslationStatus, sha256_text,
-)
-from epinoic_logic.translate.outcome import compose_outcome, verify_claim  # noqa: E402
+from epinoic_logic.api.translate import EligibilityClass, EligibilityDecision, ProviderInfo
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, TranslationResult, TranslationStatus, sha256_text
+from epinoic_logic.translate.outcome import verify_claim  # noqa: E402
+from epinoic_logic.api.translate import compose_outcome  # noqa: E402
 from epinoic_logic.translate.pipeline import Translator  # noqa: E402
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider  # noqa: E402
-from epinoic_logic.version import POLICY_VERSION  # noqa: E402
+from epinoic_logic.api.engine import POLICY_VERSION  # noqa: E402
 
 SUITE_FORMAT = "overseer-tamper/1.0"
 CFG = SolverConfig(timeout_ms=3000, memory_max_mb=None)
@@ -449,7 +448,7 @@ def run_synthetic(auditor: TransferAuditor, *, en_report: Optional[SpecialistRep
         if (translator is None or claim.claim_id not in translator_responses) and claim.claim_id not in problems:
             # the synthetic task serves its fixture claims only: any other claim is outside this verifier's scope, so the
             # channel names nothing for it (``None`` would be read NOT_ATTEMPTED, INT-REQ-006)
-            from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
+            from epinoic_logic.api.channel import CLAIM_OUT_OF_SCOPE
             return CLAIM_OUT_OF_SCOPE
         if hook is None:
             return genuine_of(claim, report)
@@ -1062,7 +1061,7 @@ def t2b(suite: Suite, target: str) -> list[Fault]:
 
 @case("T2c", "receipt_altered", "a receipt summary edited by the router; the scope sentence dropped by the channel", module=("receipts",))
 def t2c(suite: Suite, target: str) -> list[Fault]:
-    from epinoic_logic.channel.bus import _SCOPE_TAIL
+    from epinoic_logic.api.channel import SCOPE_TAIL as _SCOPE_TAIL
     out: list[Fault] = []
 
     def edited(aud):
@@ -2353,7 +2352,7 @@ def _t22_arena(suite: Suite, target: str) -> list[Fault]:
         p["premises"] = kept + [{"id": "P_assumed", "expr": p["conclusion"]["expr"], "grounding": {"kind": "task_setting"}}]
         # the translator's own grounding checks re-run on the regrounded problem, as its pipeline records them (only the
         # circle is planted: no check is left claiming a quotation the problem no longer carries)
-        from epinoic_logic.translate.grounding import check_problem_grounding
+        from epinoic_logic.api.translate import check_problem_grounding
         _grounded, checks = check_problem_grounding(Problem.model_validate(p), list(call.report.supplied_texts))
         return recompose(call, o, problem=p, grounding_checks=checks)
 
@@ -2838,7 +2837,7 @@ def t23k(suite: Suite, target: str) -> list[Fault]:
 @case("T23l", "infrastructure", "an ST finding the STEM packs do not derive added to a STEM receipt", targets=STEM_TARGETS, module=("formal", "receipts"),
       skip_reason=_STEM_SKIP)
 def t23l(suite: Suite, target: str) -> list[Fault]:
-    from epinoic_logic.translate.contracts import StructuralFinding
+    from epinoic_logic.api.translate import StructuralFinding
 
     def change_for(_probe):
         def change(report, structural, results, findings):
@@ -3424,7 +3423,7 @@ def t23ak(suite: Suite, target: str) -> list[Fault]:
     """STEM repair 6 (rule fraction-unit): 'The rate is 1/40 s⁻¹ = 0.025 s⁻¹.' is read with the unit as the fraction's own and holds, no
     ST-DIM-001 (before, rule bare-factor raised one on this correct working). A receipt that carries the dimension finding anyway states
     what the packs do not derive; the infrastructure re-derives every ST code (OVS-RCPT-005)."""
-    from epinoic_logic.translate.contracts import StructuralFinding
+    from epinoic_logic.api.translate import StructuralFinding
 
     def change_for(probe):
         def change(report, structural, results, findings):
@@ -3602,7 +3601,7 @@ def t23ar(suite: Suite, target: str) -> list[Fault]:
     value under its condition and holds, no ST-DIM-001 (before, '30.0 °C = (…) ÷ 3' was read as a relation, failed, and raised one on this
     correct working). A receipt that carries the dimension finding anyway states what the packs do not derive; the infrastructure
     re-derives every ST code (OVS-RCPT-005)."""
-    from epinoic_logic.translate.contracts import StructuralFinding
+    from epinoic_logic.api.translate import StructuralFinding
 
     def change_for(probe):
         def change(report, structural, results, findings):

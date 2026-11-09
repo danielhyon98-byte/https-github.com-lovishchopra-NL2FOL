@@ -18,11 +18,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import verify_audit, verify_consolidated
 from epinoic_overseer.checks.formal import request_quoted_claims
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .conftest import DOC, EN_TEXT, HI_INPUT, HI_TEXT, english_report, findings, make_auditor, make_keyring, new_channel, run_task
 from .test_consolidation_consolidate import Dup

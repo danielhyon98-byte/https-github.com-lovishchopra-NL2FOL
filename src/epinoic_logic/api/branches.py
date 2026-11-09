@@ -11,7 +11,10 @@ from ._lazy import exports
 #: public name -> (internal module, attribute; None: the module itself)
 EXPORTS: dict[str, tuple[str, str | None]] = {
     'AuditorNotAttached': ('epinoic_logic.branches.hub', 'AuditorNotAttached'),
+    'BranchRegistry': ('epinoic_logic.branches.base', 'BranchRegistry'),
+    'EnglishPack': ('epinoic_logic.branches.packs', 'EnglishPack'),
     'EnglishParserWrapper': ('epinoic_logic.branches.registry', '_EnglishParserWrapper'),
+    'FormalCheck': ('epinoic_logic.branches.base', 'FormalCheck'),
     'GENERIC_MARK_ALLOC': ('epinoic_logic.branches.generic_parser', '_MARK_ALLOC'),
     'GENERIC_MARK_CODE': ('epinoic_logic.branches.generic_parser', '_MARK_CODE'),
     'HubClosed': ('epinoic_logic.branches.hub', 'HubClosed'),
@@ -19,6 +22,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'PoolReview': ('epinoic_logic.branches.hub', 'PoolReview'),
     'RevisionIssue': ('epinoic_logic.branches.hub', 'RevisionIssue'),
     'RouterHub': ('epinoic_logic.branches.hub', 'RouterHub'),
+    'SubjectBranch': ('epinoic_logic.branches.base', 'SubjectBranch'),
     'absent_mentions': ('epinoic_logic.branches.packs', '_absent_mentions'),
     'default_registry': ('epinoic_logic.branches', 'default_registry'),
     'quote_key': ('epinoic_logic.branches.packs', '_quote_key'),
