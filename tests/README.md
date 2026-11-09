@@ -2154,3 +2154,8 @@ Work in progress after it is labelled as such.
   rules the flaws fell from 30 to 8 (errors from 11 to 3): 24 were fixed, 6 persisted and 2 were introduced. No answer
   was weakened to pass and the feedback changed no status. The 3 errors left are false findings by one subject rule on
   correct statements, which the specialists rightly kept; they go to the fix stage. The review lenses run now.
+
+### Progress, 09:00 UTC (9 November)
+- Four of round 9's five review lenses have reported: 78 major and 40 minor findings, 54 of them marked critical,
+  counted per lens before duplicates across lenses are merged. Together with the 54 records carried from round 8 they
+  form round 9's fix stage, which starts after the last lens and the re-score.
