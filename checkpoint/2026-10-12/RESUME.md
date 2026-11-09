@@ -1,4 +1,4 @@
-# Resume after the weekly limit of 9 Nov 2026 (weekly 78% at 10:57 UTC Mon 9 Nov, ~3 points/h while the c2 fixers run: 85% ~13:00-13:30, 100% ~18:00; plan: stop phase 2 at ~93-95%; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
+# Resume after the weekly limit of 9 Nov 2026 (weekly 84% at 13:59 UTC Mon 9 Nov, ~2 points/h: FINAL checkpoint made at the 14:00 run; plan: stop phase 2 at ~93-95%, about 18:30-19:30 UTC; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
@@ -29,8 +29,9 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   merged + 2 duplicates; reviewers named 5 of 49 faults; 18 green-lit, 15 of them confirmed inaccurate by two judges);
   feedback exercise live (15 revisions, flaws 30 -> 8, 0 weakened, 3 false INT-SUBJ-001 findings left); 5 lenses: 88 major +
   54 minor per lens, 61 critical-flagged; rescore done. FIX ROUND clearance-c2 RUNNING: fix:overseer DONE (26 fixed, 12 handed
-  off; it notes 40 overseer push-check tests failing because of the parsers fixer's in-progress note-reader change, for the
-  handoff fixer/verify to settle); fix:parsers (since ~10:00) and fix:stem (since 12:45) running; other owners queued; then
+  off; fix:parsers DONE 13:1x (14 fixed, 10 left incl. majors: Language B requests, nested part labels, table-cell
+  comparison, chronology durations; c2 variant set 96/153 -> 119/153); the overseer fixer noted 40 overseer push-check tests failing because of the
+  parsers fixer's in-progress note-reader change, for the handoff fixer/verify to settle; fix:stem (since 12:45) and fix:core (since 13:15) running at 14:00; other owners queued; then
   fix:handoffs:clearance-c2, verify, commit "Fix the c2 clearance findings", push-check:c2, push:c2 (held by the live gate
   until #208), readme:c2; then round 10 (c3).
 - WEEKLY LIMIT PROCEDURE (as on 2 Nov): at ~85% make the final checkpoint (D) before anything else. Then stop phase 2 (TaskStop on
