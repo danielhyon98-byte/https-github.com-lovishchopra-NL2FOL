@@ -2142,3 +2142,9 @@ Work in progress after it is labelled as such.
   oversight floor. The first wave gave 67 review units to 7 reviewer instances, including the twofold source reviews
   of the combined answers (2 instances each); the second wave runs the 3 merged reviews and the independent duplicates
   of contested transfers.
+
+### Progress, 07:00 UTC (9 November)
+- Round 9's overseer review finished: 80 dossiers, 80 valid verdicts, 12 reviewer instances (7 in the first wave; in the
+  second, 3 merged reviews of combined answers and 2 independent duplicates). The deployed reviewers named 5 of the 49 faults present (round 8: 1 of 30) and approved 18 transfers.
+  Independent judges found real errors in 15 of those 18, and a second judge confirmed all 15 (round 8: 11 of 17).
+  These approvals of faulty answers are findings for round 9's fix stage. The specialist feedback exercise runs now.
