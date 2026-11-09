@@ -2159,3 +2159,8 @@ Work in progress after it is labelled as such.
 - Four of round 9's five review lenses have reported: 78 major and 40 minor findings, 54 of them marked critical,
   counted per lens before duplicates across lenses are merged. Together with the 54 records carried from round 8 they
   form round 9's fix stage, which starts after the last lens and the re-score.
+
+### Progress, 10:00 UTC (9 November)
+- All five of round 9's review lenses have reported: 88 major and 54 minor findings counted per lens, 61 of them marked
+  critical, before duplicates across lenses are merged. The overseer reviewers are being re-scored against the
+  translation-fidelity reference; round 9's fix stage follows.
