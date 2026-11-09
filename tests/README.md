@@ -2148,3 +2148,9 @@ Work in progress after it is labelled as such.
   second, 3 merged reviews of combined answers and 2 independent duplicates). The deployed reviewers named 5 of the 49 faults present (round 8: 1 of 30) and approved 18 transfers.
   Independent judges found real errors in 15 of those 18, and a second judge confirmed all 15 (round 8: 11 of 17).
   These approvals of faulty answers are findings for round 9's fix stage. The specialist feedback exercise runs now.
+
+### Progress, 08:00 UTC (9 November)
+- Round 9 exercised the specialist feedback function live: 15 answers were revised from the feedback. Under the same
+  rules the flaws fell from 30 to 8 (errors from 11 to 3): 24 were fixed, 6 persisted and 2 were introduced. No answer
+  was weakened to pass and the feedback changed no status. The 3 errors left are false findings by one subject rule on
+  correct statements, which the specialists rightly kept; they go to the fix stage. The review lenses run now.
