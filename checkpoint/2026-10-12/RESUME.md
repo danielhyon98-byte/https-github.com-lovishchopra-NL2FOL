@@ -1,10 +1,47 @@
-# Resume after the weekly limit of 2 Nov 2026 (limit expected ~17:00-18:00 UTC Mon 2 Nov; it resets Fri 6 Nov 16:00 UTC)
+# Resume after the weekly limit of 9 Nov 2026 (85% expected ~09:30 UTC Mon 9 Nov, 100% ~17:00 at ~2 points/h; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 9 Nov 00:2x UTC: ROUND 8 DONE AND VERIFIED (upload waits for #208); PHASE 2 IN THE ARCHITECTURE FIX ROUND, THEN ROUND 9
+- Uploads: the hourly notes continue on verified-updates (00:00 = aaced29); its code is still 7a939fd = 16d5a4a. Round 8 is dev
+  5060a52: push check hold=false (supersedes f2329df), presim SIMULATION OK (suite 22721 passed, 0 failed, 0 skipped; harness =
+  recorded; contained 355/355). The live S/publish_final.sh holds on f2329df; S/publish_final.sh.new (diff
+  S/gate-decision/publish_final.diff, sent to Daniel) gives FINAL 5060a52. The permission check refused installing it, so it is
+  Daniel's decision #208: NEVER install it without his explicit go. After the go: back up and install the gate, run event_push.sh
+  (outside hh:56-hh:03), read back (Source-Commit 5060a52...), release_prototype.sh --dry-run then for real, then publish the
+  handoff refresh: refresh the moving verified-updates head sentence (it cites bfc600e), fill.py --src handoff/refresh-8nov
+  --out handoff/filled-8nov --vu <sha> --upload-status ... --sim-line ... --port-status '-', push_handoff.sh (round-8 message in
+  S/handoff/push_handoff.sh.round8), read back docs/final-z3-handoff.
+- Overseer publisher: HOLD every hour (502fcff misses a development test; 6adbd64 and 87eaf86 fail the contained run 235/254).
+  Unchanged since before 8 Nov; nothing newer than cda154c passes. Not a regression of today's work.
+- Phase 2 = wf_eee12853-0ae, task wxij9jbhz, script S/wf-scripts/phase2-cont.js (sha256 a7db87ad82f4edc5, LAYOUT2 + 2b + 2c +
+  CARRY.c2, installed 8 Nov 10:38), args = the contents of S/wf/phase2-cont-args.json (continueAfterRound8 true; checked against
+  the transcript 9 Nov). NOT the r8only args file (that one stops after round 8).
+  Done since 8 Nov: arch:twofold -> dev b570339 "Integration: twofold review of combined answers through the flash router";
+  integrate:feedback -> dev f3d338a "Integration: specialist feedback and revision function"; architecture lenses: 4 major + 13
+  minor; post-r8-arch fix round: fix:core, fix:overseer, fix:integration, fix:router DONE (every suite green; router: r7 177/177,
+  c1 203/203); fix:handoffs RUNNING at 00:00 (cross-owner items H1-H11, overseer items 1-4, router A4/B1). One item is "for a
+  decision": the merged review's temporary context (up to 65,536 bytes) is not priced by the pool or the port.
+  Next: verify:post-r8-arch, commit:post-r8-arch, then round 9 (c2): design, deploy, bind, harness, overseer agents (N_FOLD,
+  pool sizing, gold), feedback exercise (FEEDBACK_LIVE), lenses, overseer-rescore, fix round with the 54 carried records,
+  verify, commit, push-check:c2, push:c2 (held by the live gate until #208), readme; then round 10 (c3).
+- WEEKLY LIMIT PROCEDURE (as on 2 Nov): at ~85% make the final checkpoint (D) before anything else. Then stop phase 2 (TaskStop on
+  its task) BEFORE 100% at a clean point (between agents if possible: agents that die at the limit return null and the script
+  may treat null as a result). Record the stop in runs.json (stoppedN: time, labels done, agents killed in flight), update this
+  section, checkpoint again. After the reset: restore if the container is fresh (section 1 below), then resume with Workflow
+  scriptPath S/wf-scripts/phase2-cont.js, resumeFromRunId wf_eee12853-0ae, args = contents of S/wf/phase2-cont-args.json; re-arm
+  the watchdog Monitor (bash S/watchdog_monitor.sh, milestones in S/watch-milestones.txt).
+- Open decisions for Daniel (asked every hour, unanswered): (1) #208 the gate; (2) accept the FORMALLY CHECKED label off for every
+  answer; (3) budget 1/2/3 (default 1; 2 or 3 -> S/wf/phase2/DECISION.json, nearly moot now the architecture step is almost done);
+  (4) trims so that rounds 9 and 10 fit this week.
+- Lessons: hourly_push.sh writes its own log (never redirect into hourly-push-*.log); the watchdog's LOOP alert also fires on a
+  fixer's legitimate 9-minute suite polls (read its last tool results before acting); `cd` changes the primary directory (use
+  absolute paths).
+- Possibly later: CARRY.c3 (round 9 leftovers into round 10's fix stage), which needs a stop/resume before c3's fix round.
 
 ## 8 Nov 04:1x UTC: THE ROUND-8 REGRESSION FIX IS LANDED (5060a52); its push check and presim are running; the upload still waits for Daniel's gate decision
 - The presim of 32a5c0e (7 Nov) FAILED. It found three f2329df regressions that the landing verification missed because it ran without
