@@ -2135,3 +2135,10 @@ Work in progress after it is labelled as such.
   delivered and decided (22 replies, 3 peer relays, 19 combined answers), and 136 of 144 injected faults were named.
   The 8 misses are all STEM faults: arithmetic slips 7 of 10, wrong units 4 of 5, substitutions 5 of 9. They go to
   round 9's fix stage with the round's other findings. The overseer review of the round runs now.
+
+### Progress, 06:00 UTC (9 November)
+- The overseer review of round 9 runs on the new layout. The flash router planned 30 transfers for review (8 clean, 5
+  with an injected fault the receipts did not name, 3 combined answers) and the plan was admitted at or above the
+  oversight floor. The first wave gave 67 review units to 7 reviewer instances, including the twofold source reviews
+  of the combined answers (2 instances each); the second wave runs the 3 merged reviews and the independent duplicates
+  of contested transfers.
