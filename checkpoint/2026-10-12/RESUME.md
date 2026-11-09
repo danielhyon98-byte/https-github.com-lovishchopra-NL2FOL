@@ -1,4 +1,4 @@
-# Resume after the weekly limit of 9 Nov 2026 (85% expected ~09:30 UTC Mon 9 Nov, 100% ~17:00 at ~2 points/h; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
+# Resume after the weekly limit of 9 Nov 2026 (weekly 73% at 07:41 UTC Mon 9 Nov, ~1.4 points/h: 85% expected ~14:00-16:00 UTC, 100% overnight; it resets Fri 13 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
