@@ -12,11 +12,11 @@ import json
 
 import pytest
 
-from epinoic_logic.integrity.contracts import IntegrityFinding
+from epinoic_logic.api.integrity import IntegrityFinding
 from epinoic_overseer.combine import _typed_ids
 from epinoic_overseer.repeats import content_form
 from epinoic_overseer.validate import finding_matches
-from epinoic_logic.translate.parsing import ProviderOutputError, parse_json_object
+from epinoic_logic.api.translate import ProviderOutputError, parse_json_object
 
 from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, english_report
 from .test_protocol_validate import acc, fid001_task, ptr, review

@@ -22,13 +22,15 @@ from pathlib import Path
 import pytest
 
 import epinoic_logic.channel.bus as bus
-from epinoic_logic.channel.bus import DECLINED_BOUND_PREFIX, TranslatorChannel, withheld_deliverable
-from epinoic_logic.channel.contracts import Constraint, ConstraintResult
-from epinoic_logic.channel.request_parser import (about_band, answer_parts, bound_word_measure, extract_constraints, measure_answer_words,
-                                                  per_part_bound, word_bound_severity)
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.channel import (
+    DECLINED_BOUND_PREFIX, Constraint, TranslatorChannel, about_band, bound_word_measure, extract_constraints, measure_answer_words, per_part_bound,
+    withheld_deliverable, word_bound_severity,
+)
+from epinoic_logic.api.channel import ConstraintResult
+from epinoic_logic.api.channel import answer_parts
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.checks.formal import declined_bound
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .core_hostile import SHAPES, one, sweep
 from .timing import measure

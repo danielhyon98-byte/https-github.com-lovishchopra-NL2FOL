@@ -172,6 +172,18 @@ entry points; the method bodies are not edited.
 The channel never imports the overseer package. The Overseer's transfer auditor is one such observer, attached by
 `RouterHub(auditor=...)` (see `branches/README.md` and `overseer/README.md`).
 
+Nor do the channel's tests depend on the overseer's layout: the translator's suite runs with at most the overseer installed
+as a package (the documented split). A channel test that attaches the overseer (an audit, the delivery policy, the
+overseer's table of codes) reaches it only through `tests/overseer_attach.py` (shared by the whole translator suite),
+which imports it with `pytest.importorskip` and names only its public package API (never its test package
+`overseer_tests` or a private name), so where the overseer is not installed such a test is skipped with the reason, and
+the channel's own facts it asserts are asserted again with no overseer attached. `tests/channel/test_without_the_overseer.py`
+holds this: with `epinoic_overseer` and `overseer_tests` unimportable and `overseer/` off the path, the translator's tests
+collect (no module fails to collect; a module of the core packages' tests, channel, integrity, translate, engine and
+service, loses no test), every core test that attaches the overseer is skipped, with the overseer installed without its
+tests those tests pass, and the tests of the other packages that failed without the overseer before the handoff fixer's
+pass now pass or are skipped with the reason (architecture lenses after arena round 8).
+
 ## Codes raised by the channel
 
 Hub integrity codes (INT-ENV, INT-HANDOFF, INT-LEDGER, INT-STALE, INT-CONFLICT, INT-GLOSSARY, INT-SYNTH) are

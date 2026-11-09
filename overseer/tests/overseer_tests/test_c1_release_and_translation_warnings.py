@@ -129,7 +129,7 @@ def test_a_definitive_display_resting_on_unsuccessful_sibling_claims_is_trn008()
 def test_trn008_and_trn009_reach_the_audit_as_warnings_on_the_synthetic_task():
     """The thesis-and-points shape on the synthetic task: en-point (displayed ENTAILED) asserts en-an through a premise
     naming it, while en-an's own check leaves its fact unsupported (COUNTEREXAMPLE)."""
-    from epinoic_logic.ir.schema import Problem
+    from epinoic_logic.api.ir import Problem
     point = T.point_problem()
     point["premises"].append({"id": "pr_sub_en_an", "expr": _var("paid_in_fuel"), "label": "time itself is paid in fuel (specialist claim en-an)"})
     point["symbols"].append({"name": "paid_in_fuel", "sort": "Bool", "meaning": "time itself is paid in fuel, the children's hours counted in coal"})

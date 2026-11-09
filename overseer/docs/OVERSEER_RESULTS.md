@@ -4745,8 +4745,14 @@ New: the 184 tests above in eight files, and the contained run's stage `revision
 
 Recorded for the optimisation checks, not done (it changes no receipt, finding or status): the revision instructions are in
 the pack's core, so every dossier is sent their 13,360 characters (about 3,340 tokens); a module sent only with a dossier
-that carries a revision request would spare the others. The flash router's cost data (`cost-data-3.json`, a released file)
-still prices pack 2.0's compositions, 13,360 characters short of 2.1's in each; how many plans that moves was not measured.
+that carries a revision request would spare the others. The flash router's cost data priced pack 2.0's compositions after
+pack 2.1 was installed; flash router 0.4.0 releases `cost-data-4.json` with pack 2.1's sizes (`recorded.system_text_pack`
+names the pack), so the dossier of 525,000 characters that cost data 3 recorded as fitting (198,174 tokens of 200,000) is now
+disclosed `over_budget` (201,514 tokens); on 6,000 generated routing requests the plans' token figures all change and 839
+plans divide an output into more parts (every plan still adopted by the service's admission). That stale cost data was a
+finding of the architecture review after arena round 8, not an optimisation item; the drift test that keeps it from
+recurring is `test_flash_router_pool.py::test_the_flash_router_s_cost_data_prices_the_system_text_of_the_pack_the_overseer_sends`
+(section 40).
 
 Not done here: named argument diagnostics (INT-ARG-001) are not fed back, by the design's rule that no claim outcome, nor
 what derives from one, reaches a specialist (decision 122); an escalated chain is a risk signal of the pool's floor only
@@ -4755,3 +4761,73 @@ warning) from the integrity package's report-set rule, as any resubmission did b
 relays made before a revision are not redone; the round-8 pipeline's steps (one cheapest-tier revision call per issued
 feedback file, the control arm, the second review) run outside the repository; adoption of the specialists' addendum is
 the agent-training project's decision.
+
+## 40. The architecture review after arena round 8 (design section 54)
+
+The architecture lenses after arena round 8 found eleven defects in the overseer sub-project, the twofold review and the
+feedback function (decisions 131 to 137). On the working tree, not committed; Python 3.13. Measured 2026-11-08, the recorded
+rounds always on fresh copies; no model ran (every overseer agent below is a scripted provider).
+
+| Measure | Result |
+| --- | --- |
+| the review's probes, before and after | a claim the synthesis adds citing an unrelated source (two and three subjects): REFUTED (OVS-AGENT-001, recorded against the agent) before, unresolved (OVS-AGENT-004, rule `ledger-content`) now; inflated certainty the receipt names (INT-LEDGER-003): refuted before, unresolved (rule `receipt-named`) now; a blind context: listed `result_unsigned_or_forged` with `res-42` before, leaves it out now (the content fault `quotation_absent` is kept); every source instance failing (provider error, or not a verdict): noted "reviewed before combination" before, "NOT reviewed before combination", with each instance's status, now; a hedge dropped in words only (INT-LEDGER-026, INT-SYNTH-012, warnings): one merged instance before and now (the decision recorded, floor rule 2) |
+| the recorded rounds' revision blocks from a standalone copy (`test_feedback_audit.py`, r2 to r7, `EPINOIC_TRANSLATOR_ROOT` and the rounds supplied) | 6 failed before (`ModuleNotFoundError: run_arena`, the path climbed above the sub-project), 6 passed now, on the same copy |
+| the sub-project's suite from a standalone copy of the working tree's `overseer/` (the tree `git subtree split --prefix overseer` carries once committed), against the translator checkout, the recorded rounds r1, r1-adv and r2 to r7 supplied | 7,212 passed, 0 skipped, 0 failed (52 min 26 s, beside other suites); it re-dates the 7,055 passed and 12 skipped of section 36 |
+| a normal (non-editable) install | the two tests that read the source tree from the installed package (`test_line_endings_are_pinned_for_checkouts`, `test_refresh_of_the_source_tree_needs_a_source_checkout`) pass against a site-packages copy of the package files a wheel ships (no `.gitattributes`); they failed there before |
+| the tests and scripts on the public API | 518 imported names in 92 files moved onto `epinoic_logic.api`; 255 direct imports remain in 67 test files and 4 scripts, each listed with its reason in `tests/overseer_tests/internal_imports.py` (the review counted 91 test files and 6 scripts, 49 and 26 modules) |
+| the documented test command `python -m pytest -q` at the repository root (the translator's, the overseer's and the flash router's suites in one session; the recorded rounds not supplied; four other suites and harnesses running on the machine) | 22,994 passed, 22 skipped, 45 deselected (the `stress` marker), 1 failed, in 1 h 32 min: `tests/integrity/test_integration_gate4_ledger_bounds.py::test_sweep_ledger_pair_readers_with_hostile_text_on_both_sides[dashed digits]`, a translator test's CPU bound per call (12.19 s against 12.0 s); run alone afterwards it passes (24 of 24, 3 min 24 s); its files and the ledger are outside this sub-project and unchanged here |
+| the arena harness on copies of r7 and c1 (`scripts/arena/run_arena.py`) | r7 177/177, c1 203/203, as recorded; c1's `results.json` equals the recorded one once message, receipt and result ids and timings are masked, r7's differs only in ids, timings and timestamps |
+| the harness scripts after the import moves | the tampering suite on the synthetic target (T1, T3b, T10, T16, T20, T21, T22): 48 of 48 tamperings detected, every gate true; the twofold probes' synthetic cases (keeps, drops, adds, faithful): each as expected |
+
+Tests changed (none weakened or deleted):
+
+- rewritten to a stricter rule: `test_subproject_layout.py::test_the_package_reaches_the_translator_only_through_its_public_api_and_the_integration_protocol`
+  (the integration protocol is its five explicit modules, no longer every module of `epinoic_logic.integration`; a dynamic
+  import counts too);
+- made independent of the install mode, the same assertion kept: `test_knowledge_drift.py::test_line_endings_are_pinned_for_checkouts`
+  (reads `.gitattributes` from the sub-project's source tree); `test_knowledge_export.py::test_refresh_of_the_source_tree_needs_a_source_checkout`
+  (under an installed copy it asserts the refusal unpatched, a stricter check than the patched one it keeps for a source
+  checkout);
+- `test_feedback_audit.py::test_genuine_blocks_on_a_recorded_round_raise_no_false_alarm_and_the_shadow_agrees` reaches the
+  arena tools through `translator_checkout.require_translator_root()` and restores `sys.path`;
+- the imports of 92 test and script files moved onto `epinoic_logic.api` (the same objects: every moved name was matched by
+  identity with the public name it resolves to); no assertion changed.
+
+New: `test_r8_architecture_review.py` (13 tests) and 16 tests in `test_subproject_layout.py` (the allowlist ratchet and its
+reader, the climbing rule and its 11 controls, the compatibility lists, an incompatible translator refused at import).
+
+Recorded for the optimisation checks: none (no performance finding).
+
+Not done here, handed to the translator's owner: the names the public API does not export yet (the allowlist's `missing`
+category), `API_VERSION` and a new `epinoic-logic` version (then the overseer's pin `epinoic-logic>=0.2,<0.3`), and the
+translator-side isolation guard narrowed to the same five protocol modules; optionally a receipt signal for a synthesized
+claim that shares no content word with its sole cited source.
+
+**The handoff fixer's pass** (the changes the fixers of this review handed to other owners, applied on the same working
+tree):
+
+- the translator's public API 1.1 (`epinoic_logic.api.API_VERSION = "1.1"`, stated in `docs/PUBLIC_API.md`) exports the 26
+  names of the allowlist's `missing` category; their 78 imports in 42 test files and 3 scripts moved onto
+  `epinoic_logic.api` (each matched by identity with the public name it resolves to; no assertion changed), so the category
+  is empty and the allowlist lists 177 imports in 57 test files and 3 scripts, under a ceiling lowered from 255 to 177 (a
+  stricter rule); the two whole-module imports of `epinoic_logic.integrity` the category also held (`contracts`, which a
+  drift test reads, and `cross_check`, whose `verify` a test patches) are listed as `patch`;
+- `compat.missing_translator_names()` is empty against the translator as it is (API 1.1, MAJOR 1, every required name
+  offered); the translator-side isolation guard (`tests/integration/test_overseer_subproject.py`) admits exactly the
+  public API and the same five protocol modules, with controls;
+- new: `test_flash_router_pool.py::test_the_flash_router_s_cost_data_prices_the_system_text_of_the_pack_the_overseer_sends`
+  (the router fixer's handoff A1), which reads the router's data as data: it passes with flash router 0.4.0's
+  `cost-data-4.json`, and both of its assertions fail on 0.3.0's `cost-data-3.json` (pack 2.0's sizes, named nowhere);
+- `README.md` names the flash decision maker's current data, `rules-4.json` and `cost-data-4.json` (flash router 0.4.0);
+- measured after the import moves: the sub-project's suite collects 7,212 tests with no error and its layout tests pass (32);
+  the tampering suite on the synthetic target (T1, T3b, T10, T16, T20, T21, T22) detects 48 of 48 tamperings with every
+  gate true, and the twofold probes' synthetic cases (keeps, drops, adds, faithful) are each as expected, as before the
+  moves; the arena harness on copies of r7 and c1 gives 177/177 and 203/203, its results equal to the run before the pass
+  once ids, digests, timestamps and timings are masked; the documented test command at the repository root (the
+  recorded rounds not supplied) gives 23,029 passed, 22 skipped, 45 deselected (the `stress` marker), 1 xfailed (the
+  router port's open floor finding, strict) and 0 failed, in 1 h 30 min.
+
+Still open after that pass: a new `epinoic-logic` distribution version comes with the translator's next release (0.1.0
+throughout, so a resolver cannot tell builds apart), and only then the overseer's pin `epinoic-logic>=0.2,<0.3`; the
+optional receipt signal above is not added (an improvement of the translator's own reading, which would add findings to
+receipts).

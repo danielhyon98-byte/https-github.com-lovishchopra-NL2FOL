@@ -24,11 +24,11 @@ import epinoic_logic
 import epinoic_logic.channel.bus as bus
 import epinoic_logic.named as named_mod
 from epinoic_logic.channel import contracts as channel_contracts
-from epinoic_logic.engine.results import VerificationResult
-from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
+from epinoic_logic.api.engine import VerificationResult, VerificationStatus
+from epinoic_logic.engine.statuses import DEFINITIVE
 from epinoic_logic.integrity import contracts as integrity_contracts
 from epinoic_logic.ir import schema as ir_schema
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import consolidate as consolidate_mod
 from epinoic_overseer import dossier as dossier_mod
 from epinoic_overseer.codes import OVS_CODES
@@ -505,7 +505,9 @@ def test_package_data_ships_every_pack_file():
 
 
 def test_line_endings_are_pinned_for_checkouts():
-    attrs = Path(SRC_PACK_DIR).parent / ".gitattributes"
+    # the sub-project's source tree, never the installed package directory: ``.gitattributes`` is a checkout's file, not
+    # package data, so a normal (non-editable) install does not ship it (architecture review after arena round 8)
+    attrs = SUBPROJECT / "src" / "epinoic_overseer" / "knowledge" / ".gitattributes"
     assert attrs.read_text() == "* -text\n"
 
 

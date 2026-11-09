@@ -6,11 +6,11 @@ equal to the translator's while both live in one repository.
 """
 from __future__ import annotations
 
-from epinoic_logic.engine import SolverConfig
-from epinoic_logic.engine.policies import policy_config, policy_limits
-from epinoic_logic.engine.runner import verify
-from epinoic_logic.ir.schema import Problem
-from epinoic_logic.stem import build_document, clear_document_cache
+from epinoic_logic.api.engine import SolverConfig, policy_config, verify
+from epinoic_logic.engine.policies import policy_limits
+from epinoic_logic.api.ir import Problem
+from epinoic_logic.api.stem import clear_document_cache
+from epinoic_logic.api.stem import build_document
 from epinoic_logic.stem.checks import build_checks
 
 CFG = SolverConfig(timeout_ms=8000, memory_max_mb=None)

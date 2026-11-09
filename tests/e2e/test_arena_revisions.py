@@ -16,6 +16,7 @@ import socket
 
 import pytest
 
+from ..overseer_attach import overseer
 from .test_arena_measures import HISTORY_ITEM, ra
 
 PH_TASK = "ph-x1"
@@ -26,6 +27,14 @@ PHYSICS_ITEM = {
 }
 PH_CORRECTED = ("The trolley starts from rest, so u = 0. Using a = Δv/Δt, a = (20 - 0)/4.0 = 5.0 m s⁻². "
                 "The acceleration is therefore 5.0 m s⁻².")
+
+
+@pytest.fixture(autouse=True)
+def needs_the_overseer():
+    """Every test here builds the infrastructure's feedback through the audited hub (the overseer's transfer auditor) or
+    runs the revision pass, which is the overseer's: skipped, with the reason, where the overseer is not installed (the
+    harness then records the pass as not run: ``test_arena_without_the_overseer.py``)."""
+    overseer()
 
 
 @pytest.fixture(autouse=True)

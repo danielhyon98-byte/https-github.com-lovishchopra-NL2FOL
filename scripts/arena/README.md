@@ -365,7 +365,11 @@ After the round's records are complete, `run_arena.py` runs the delivery policy 
 answer, on a hub of its own carrying a transfer auditor. The pass replays each group's genuine traffic in order and opens
 a delivery session per answer. It adds no record and moves no transport count. Its hub and claim verifier are bound at
 import, so a harness that replaces `RouterHub` or `verify_claim` never reaches it. The contained harness switches it off
-(`DELIVERY_PASS = False`) while it replaces them; `deliveries` then says it was not run. The auditor's key ring holds the
+(`DELIVERY_PASS = False`) while it replaces them; `deliveries` then says it was not run. Where the overseer sub-project is
+not installed (the translator runs without it, as after its split) the round still runs and the delivery pass and the
+revision pass are recorded as not run with the reason (`OVERSEER_NOT_INSTALLED`: in `deliveries` and `revisions`, in
+summary.md and on the command line), never shown as passes that decided nothing; the harness locates the overseer with
+`importlib.util.find_spec` and never imports it otherwise (`tests/e2e/test_arena_without_the_overseer.py`). The auditor's key ring holds the
 arena's engine key under every key id the hub's own components sign under (`DELIVERY_ENGINE_KEY_IDS`: `hub`, `channel`,
 `default` and `integrity`, the cross-agent checks'), as the contained harness's does. Until the integration gate's first
 round it declared `hub` and `default` only, so every result the cross-agent checks sign was audited as untrusted
@@ -413,6 +417,7 @@ python -I -m pytest -q tests/e2e/test_arena_revisions.py   # the specialist revi
 python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), and the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
+python -m pytest -q tests/e2e/test_arena_without_the_overseer.py   # a round where the overseer is not installed: both of its passes recorded as not run (default suite)
 python -m pytest -q tests/stem/test_arena_stem_mutations.py # the STEM injections (default suite)
 python -m pytest -q tests/stem/test_c1_handoff_mutation_sites.py # no STEM site in code or marks; the code a quotation or a bracketed sum is named by (default suite)
 python -m pytest -q tests/stem/test_e2e_run1_detection.py   # the e2e run1 injections: all six named, each as the harness injects it

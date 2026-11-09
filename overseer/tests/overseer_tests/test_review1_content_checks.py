@@ -11,17 +11,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.engine import sink, verify
-from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim
-from epinoic_logic.integrity.ledger import check_synthesis_ledger, figure_pairing_differences, figure_spellings
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.engine import sink
+from epinoic_logic.api.engine import verify
+from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim
+from epinoic_logic.api.integrity import AgentRole, Synthesis, check_synthesis_ledger, figure_spellings
+from epinoic_logic.integrity.ledger import figure_pairing_differences
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer import EngineKey, may_release
 from epinoic_overseer.checks import CheckContext, normalise
 from epinoic_overseer.checks.fidelity import claim_occurs, uncut_text
 from epinoic_overseer.policy import release_decision
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText, sha256_text, compose_outcome
 
 from .conftest import (
     CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, HI_INPUT, HI_TEXT, KEY, default_synthesis, english_report, findings, int_problem, make_auditor, make_keyring,
@@ -240,7 +241,8 @@ def test_a_genuine_answer_with_bulleted_and_numbered_lists_gives_no_fidelity_err
 
 
 def test_rule_contract_cut_reads_no_partial_figure():
-    from epinoic_logic.adapters.markdown import MAX_CLAIM_TEXT_CHARS, truncate_claim_text
+    from epinoic_logic.api.adapters import truncate_claim_text
+    from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS
     sentence = "The district totals were " + ", ".join(str(100000 + i) for i in range(700)) + "."
     cut = truncate_claim_text(sentence)
     assert len(cut) >= MAX_CLAIM_TEXT_CHARS - 3 and cut.endswith("...")
@@ -297,7 +299,7 @@ EXT = b"overseer-test-external-engine-key-0123456789"
 
 
 def _external_task(*, issued_before: bool):
-    from epinoic_logic.engine.provenance import sign_result
+    from epinoic_logic.api.engine import sign_result
     kr = make_keyring(remote=EngineKey(EXT, scope="external"))
     auditor = make_auditor(keyring=kr)
     problem = int_problem("en-point", "work_hours", 12, op="gt", bound=8)
@@ -417,7 +419,7 @@ def test_number_words_exchanged_between_provisions_are_re_paired_figures():
 
 
 def _hi_report(text: str) -> SpecialistReport:
-    from epinoic_logic.translate.contracts import ClaimRecord
+    from epinoic_logic.api.translate import ClaimRecord
     sents = [s.strip() for s in text.split(". ") if s.strip()]
     claims = [ClaimRecord(request_id="req-ovs", task_id="task-ovs", report_id="rep-hi-1", agent_id="history-specialist", subject="History", task_type="short_answer",
                           claim_id=f"h1.{i + 1}", claim_text=s.rstrip(".") + ".", claim_role="point", materiality="material") for i, s in enumerate(sents)]
@@ -442,7 +444,7 @@ def test_a_student_facing_text_that_re_pairs_the_claims_figures_is_int_ledger_02
 # ============================================================================================ the release gate
 def test_release_is_refused_when_the_synthesis_receipt_carries_an_error(auditor, monkeypatch):
     import epinoic_logic.channel.bus as bus
-    from epinoic_logic.integrity.contracts import IntegrityFinding
+    from epinoic_logic.api.integrity import IntegrityFinding
     orig = bus.check_synthesis_ledger
 
     def with_error(scope, synthesis, **kw):

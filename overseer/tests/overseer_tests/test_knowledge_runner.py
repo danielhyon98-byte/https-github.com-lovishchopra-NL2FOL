@@ -25,11 +25,9 @@ from epinoic_overseer.runner import (
 )
 from epinoic_overseer.validate import validate_overseer_verdict
 from epinoic_overseer.verdicts import PackIdentity
-from epinoic_logic.translate.contracts import ProviderInfo
-from epinoic_logic.translate.providers import (
-    AnthropicTranslationProvider, CompletionProvider, FixtureCompletionProvider, OpenAICompatibleTranslationProvider, ProviderError,
-    ProviderResponse, data_block,
-)
+from epinoic_logic.api.translate import ProviderInfo
+from epinoic_logic.translate.providers import AnthropicTranslationProvider, CompletionProvider, FixtureCompletionProvider, OpenAICompatibleTranslationProvider, data_block
+from epinoic_logic.api.translate import ProviderError, ProviderResponse
 from epinoic_logic.translate.providers.fixture import dossier_digest_of
 
 from .conftest import run_task

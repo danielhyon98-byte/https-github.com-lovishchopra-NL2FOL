@@ -7,7 +7,7 @@ import pickle
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
+from epinoic_logic.api.channel import TranslatorChannel
 from epinoic_logic.channel.events import observe_call, ObservationState
 from epinoic_overseer import ChannelJournal, EngineKey, JournalSealed, JournalSet, KeyRing
 from epinoic_overseer.contracts import JournalEntry

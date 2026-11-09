@@ -13,7 +13,11 @@ Paths: since architecture step 2 of phase 2 the Overseer is the sub-project `ove
 the overseer's tests named below as `tests/overseer/...` are `overseer/tests/overseer_tests/...`, `scripts/overseer/` is
 `overseer/scripts/` and `src/epinoic_logic/overseer/` is `overseer/src/epinoic_overseer/`. `python -m pytest -q` at the
 repository root runs the translator's suite (`tests/`), the overseer's (`overseer/tests/`) and, since architecture step
-2c, the flash router's (`flash-router/tests/`).
+2c, the flash router's (`flash-router/tests/`). The translator's suite also runs where the overseer is not installed: a
+test that attaches it imports only its public package API with `pytest.importorskip` (through `tests/overseer_attach.py`)
+and is skipped there with the reason, and the arena harness then records its delivery and revision passes as not run
+(`tests/channel/test_without_the_overseer.py`, whose list of modules still to be fixed is empty since the architecture
+review after arena round 8).
 
 ## Which model runs which role
 
@@ -723,6 +727,69 @@ harness rates of the second layer have not dropped.
      `test_delivery_policy.py`, `::test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean` is
      `::test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_when_every_one_is_clean` (the passages
      above use the new names).
+
+   The architecture review after arena round 8 (its fixers, then a handoff fixer that applied what each fixer handed to
+   the other owners) weakened or deleted no test; the overseer's own changes are listed in
+   `overseer/docs/OVERSEER_RESULTS.md` section 40. Rewritten to a stricter rule (each docstring says so):
+   `tests/integration/test_readiness.py`'s marks test (the "(connected in phase 2: ...)" mark only on a kit whose contract
+   line predates 0.5, none on a 0.5 tree; its helpers find the overseer as the service does);
+   `tests/integration/test_overseer_subproject.py::test_the_overseer_reaches_the_translator_only_through_the_public_api_and_the_protocol`
+   (the overseer imports of the integration protocol only its five explicit modules, `canonical`, `errors`, `overseer_port`,
+   `protocol` and `router_pool`, never the service's implementation; before, any module of `epinoic_logic.integration`
+   passed; the overseer fixer's handoff, item 3); the overseer's allowlist of direct imports of translator modules
+   (`overseer/tests/overseer_tests/internal_imports.py`) has its ceiling lowered from 255 to 177 once the 78 imports of the
+   names public API 1.1 added moved onto it. Made to hold where the overseer is not installed, or not in the checkout,
+   with every assertion kept where it is (the core fixer's handoff, H1 to H10): the module-level imports of the overseer in
+   `tests/adapters/test_integration_gate1_handoff.py` and `tests/stem/test_integration_gate{1_handoff,2_handoff,3_stem,4_stem}.py`
+   and the unguarded ones inside `tests/branches/test_hub_revisions.py`, `tests/integration/helpers.py` (`real_port`: every
+   `[real]` parameter of the turn tests), `test_preflight_handshake.py`, `test_protocol_constants.py` and
+   `test_overseer_subproject.py` now import it with `pytest.importorskip` and a reason, through `tests/overseer_attach.py`
+   (moved there from `tests/channel/`); `tests/adapters/test_integration_gate3_parsers.py` restates the delivery policy's
+   `SELF_REPORT_CODES` and the receipt reading of its private `_receipt_findings_of` (a new test holds the codes equal to
+   the policy's public constant); `tests/branches/test_integration_gate3_qualified_ids.py` and
+   `tests/e2e/test_arena_deliveries.py` no longer import the overseer's test package (`tests/overseer_support.py` is
+   deleted; the scripted overseer agents are written in the module on the translator's provider types); the contained
+   harness test there skips where `overseer/scripts/` is not in the checkout; `test_overseer_subproject.py` asserts what
+   only the translator states before it skips for the overseer's half; `test_readiness.py`'s expected import path lacks
+   the overseer's `src/` only where the checkout has none; `tests/e2e/test_arena_revisions.py` needs the overseer (its
+   feedback is built through the overseer's auditor) and is skipped with the reason without it. Regression tests:
+
+   - Readiness kit (`integration/readiness/check.py`): G1 finds the overseer where the service imports it
+     (`epinoic_overseer` and `epinoic_overseer.port` located, never imported, on the import path of a process run from
+     the kit, with `-P`), so an overseer installed as a package after the split passes G1; the "(connected in phase 2:
+     ...)" mark is given only to a kit whose contract line predates 0.5 (a 0.5 kit's missing part is named a defect of the
+     commit, in G1 and at `KIT-HS-007`). New `tests/integration/test_readiness_split.py` (7 tests: fresh interpreters in
+     virtual environments of their own, an overseer "installed" by a `.pth` file).
+   - Router port: `tests/integration/test_router_port.py::test_floor_1_is_never_changed_in_place` (floor/1's rules digest
+     pinned, decision D29) and one strict xfail, the open finding that floor/1 adopts an N_FOLD context bound below 65,536
+     bytes which the pool's floor (pool-2) refuses (`integration/PROTOCOL.md` section 7a.4): holding the bound exactly is a
+     new floor version, which needs the founder's decision (D29) and a re-tested website patch set.
+   - Flash router 0.4.0 (`flash-router/tests/flash_router_tests/`, 94 tests, 79 before): `test_data.py` pins `rules-4.json`
+     and `cost-data-4.json` and holds the current cost data to pack 2.1's system text exactly (the 0.3.0 assertions kept on
+     0.3.0's files, which never change), and plans the finding's dossier of 525,000 characters `over_budget` (201,514
+     tokens; `in_depth_cheapest` at 198,174 under the 0.3.0 data); `test_decision.py` decides the service's combined answer
+     by the fit rule (three 150,000-character sources: the merged review recorded `over_budget`, the plan's numbers the
+     record's, a property test over generated combined requests), refuses a repeated transfer key at once and decides
+     16,000 sources in one pass (time bounds with wide margins); `test_runner.py`: exit 3 never a traceback for a request
+     nested 200,000 deep (array and object), a zero quota, an out-of-range number and a repeated key, exit 2 for a data
+     file nested too deep. The overseer's suite holds the router's current cost data to the pack it sends, reading the
+     router's data as data (`test_flash_router_pool.py::test_the_flash_router_s_cost_data_prices_the_system_text_of_the_pack_the_overseer_sends`;
+     both its assertions fail on 0.3.0's data).
+   - The translator without the overseer: `tests/channel/test_without_the_overseer.py` (with the overseer off the path no
+     module of `tests/` fails to collect, eight did before; every test that failed or erred there before the handoff
+     fixer's pass, 73 and 6 over `tests/e2e`, `tests/integration`, `tests/branches/test_hub_revisions.py` and the STEM round
+     tests, now passes or is skipped with the reason, and the arena rounds among them pass; the tests that imported the
+     overseer's test package pass with the overseer installed without its tests; no test imports the overseer unguarded,
+     its test package or a private name, with controls of each reader) and `tests/e2e/test_arena_without_the_overseer.py`
+     (the arena harness where the overseer is not installed: the round runs, its transport counts are those of the round
+     with the overseer, and the delivery and revision passes are recorded as not run with the reason in results.json,
+     summary.md and on the command line, never as passes that decided nothing; the harness locates the overseer without
+     importing it).
+   - The public API (`docs/PUBLIC_API.md`): `tests/integration/test_overseer_subproject.py::test_the_public_api_states_its_version_and_exports_the_names_the_overseer_imported_directly`
+     (`API_VERSION` 1.1, MAJOR 1 as the overseer's `compat.API_MAJOR`, stated in the generated document; the 26 names the
+     overseer's tests had to import from internal modules resolve through the API to the same objects; the overseer's
+     compatibility check finds nothing missing) and `::test_the_isolation_guard_admits_only_the_public_api_and_the_protocols_modules`
+     (controls of the stricter guard).
 
    The third verification found finding 6 closed only for the claim and its supporting claims,
    and a regression of finding 1/9. `tests/translate/test_record_coverage_and_rounded_givens.py`

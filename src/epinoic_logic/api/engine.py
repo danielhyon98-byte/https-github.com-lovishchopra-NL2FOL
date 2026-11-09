@@ -11,6 +11,7 @@ from ._lazy import exports
 #: public name -> (internal module, attribute; None: the module itself)
 EXPORTS: dict[str, tuple[str, str | None]] = {
     'CapturedResult': ('epinoic_logic.engine.sink', 'CapturedResult'),
+    'DEFINITIVE': ('epinoic_logic.engine.statuses', 'DEFINITIVE'),
     'PACK_POLICIES': ('epinoic_logic.engine.policies', 'PACK_POLICIES'),
     'POLICY_VERSION': ('epinoic_logic.version', 'POLICY_VERSION'),
     'POSITIVE_STATUS': ('epinoic_logic.engine.release', 'POSITIVE_STATUS'),

@@ -11,7 +11,12 @@ names): how a re-tuned copy of the rules or the cost data is tried before it is 
 that data's digests.
 
 Exit status: 0 with the answer; 2 when the data cannot be loaded; 3 when the input is not a request this router reads
-(the reason on standard error, never on standard output).
+(the reason on standard error, never on standard output). Never a traceback: whatever loading the data raises is exit 2,
+and whatever reading or planning the request raises is exit 3 (a nested request too deep to decode, a number out of
+range, a zero quota, a transfer key named twice, input that is not text), each named on standard error by its exception
+type only. The planners
+are pure functions of the request and the loaded data, so once the data are loaded what a plan raises comes from the
+request it was given. ``SystemExit`` and ``KeyboardInterrupt`` are not caught.
 """
 from __future__ import annotations
 
@@ -36,11 +41,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"epinoic-flash-router: the data cannot be loaded ({type(exc).__name__}: {exc})", file=sys.stderr)
         return 2
+    except Exception as exc:  # noqa: BLE001 - a data file nested too deep to decode, say: named, never a traceback
+        print(f"epinoic-flash-router: the data cannot be loaded ({type(exc).__name__})", file=sys.stderr)
+        return 2
     if args.operation in ("plan", "pool-plan"):
-        text = sys.stdin.read()
         try:
+            text = sys.stdin.read()
             answer = router.plan(text) if args.operation == "plan" else router.pool_plan(text)
-        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+        except Exception as exc:  # noqa: BLE001 - whatever the request makes the pure planner raise: exit 3, never a traceback
             print(f"epinoic-flash-router: the input is not a request this router reads ({type(exc).__name__})", file=sys.stderr)
             return 3
     elif args.operation == "hello":

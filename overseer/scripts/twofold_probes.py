@@ -46,8 +46,8 @@ EXPECTED = {
 
 def _synthetic_inputs(case: str):
     import tamper as T
-    from epinoic_logic.integrity import LedgerEntry, SynthesizedClaim
-    from epinoic_logic.ir.schema import SourceRef
+    from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim
+    from epinoic_logic.api.ir import SourceRef
     inserted = dict(claim_id="en-ev2", claim_text="the town grew rich on their silence", claim_role="evidence", materiality="supporting",
                     source_refs=[SourceRef(document_id="doc-mill", excerpt="the town grew rich on their silence")])
     claims = T.claims_with(replace={"en-ev2": inserted}) if case in ("keeps", "drops") else None

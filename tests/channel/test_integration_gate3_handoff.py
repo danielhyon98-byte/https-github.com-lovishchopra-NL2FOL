@@ -39,9 +39,9 @@ from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha
 
 from ..core_hostile import INPUTS, SHAPES, one, sweep
 from ..growth import growth
-from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
-from overseer_tests.conftest import CFG, KEY, make_auditor
 from ..timing import empty_caches
+# the overseer only through its public package API; a test that attaches it is skipped where it is not installed
+from ..overseer_attach import CFG, KEY, make_auditor
 
 #: The ledger's folded-tail pattern as it was written before integration gate 3 (the reference its linear form is held to).
 _LEDGER_FOLDED_TAIL_BEFORE = re.compile(r"\d+ (?:claims|sentences) beyond the report's claim limit \(\d+\) were merged into claim (?P<tail>\S+)")
@@ -98,6 +98,23 @@ def test_a_structured_report_with_a_long_unresolved_issue_crosses_the_hub_and_it
     assert "INT-REQ-013" not in {f.code for f in rc.findings}  # a run of digits is no fold message
     assert getattr(audit.state, "value", audit.state) in ("AUDIT_PASSED", "AUDIT_PASSED_WITH_FINDINGS")
     assert spent < 4.0, spent  # quadratic before the gate: about 40 s each for the receive and the audit at 64,000 digits
+
+
+def test_a_structured_report_with_a_long_unresolved_issue_crosses_the_hub_in_linear_time_with_no_overseer_attached():
+    """The channel's half of the test above, which needs no overseer: it runs where the overseer is not installed."""
+    hub = RouterHub(signing_key=KEY, config=CFG)
+    try:
+        hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="History", task_type="short_answer", selected_agent_ids=["history-specialist"]))
+        m = hub.dispatch("t", "history-specialist", "Explain the significance of the Factory Act of 1833.")[0]
+        empty_caches()
+        c0 = time.process_time()
+        reply, rc = hub.receive("t", m.message_id, _structured("1" * 64000 + " x"), agent_id="history-specialist", report_id="r1")
+        spent = time.process_time() - c0
+    finally:
+        hub.close()
+    assert reply is not None and rc.status.value.startswith("ACCEPTED"), rc.summary
+    assert "INT-REQ-013" not in {f.code for f in rc.findings}  # a run of digits is no fold message
+    assert spent < 4.0, spent  # quadratic before the gate: about 40 s for the receive at 64,000 digits
 
 
 def test_the_ledger_reads_a_report_with_a_long_unresolved_issue_in_linear_time():
@@ -217,15 +234,22 @@ def test_sweep_the_channel_readers_the_handoff_changed(shape):
 # --------------------------------------------------------------------------- the counterexample note of a joined STEM problem
 
 
-def _physics(answer: str):
-    hub = RouterHub(signing_key=KEY, config=CFG, auditor=make_auditor())
+def _physics_hub(answer: str, auditor=None):
+    """The answer through a hub with ``auditor`` attached (none: no overseer); the receipt and the task's audit (None
+    without an auditor)."""
+    hub = RouterHub(signing_key=KEY, config=CFG, auditor=auditor)
     try:
         hub.open_task(WorkPlan(plan_id="p", request_id="q", task_id="t", subject="Physics", task_type="short_answer", selected_agent_ids=["physics-specialist"]))
         m = hub.dispatch("t", "physics-specialist", "A trolley accelerates uniformly from rest to 20 m s⁻¹ in 4.0 s. Calculate its acceleration.")[0]
         _reply, rc = hub.receive("t", m.message_id, answer, agent_id="physics-specialist", report_id="r1")
-        return rc, hub.audit("t")
+        return rc, (hub.audit("t") if auditor is not None else None)
     finally:
         hub.close()
+
+
+def _physics(answer: str):
+    """The answer through a hub the overseer audits (skipped where the overseer is not installed)."""
+    return _physics_hub(answer, make_auditor())
 
 
 def test_a_failed_middle_dot_check_gives_the_engines_values_per_reading():
@@ -244,3 +268,17 @@ def test_control_a_check_of_one_reading_keeps_its_note():
     err = next(f for f in rc.findings if f.code == "INT-SUBJ-001")
     assert "(engine counterexample: c = 5, r = 6; c is the value computed from the written expression, r the stated value)" in err.message
     assert getattr(audit.state, "value", audit.state) in ("AUDIT_PASSED", "AUDIT_PASSED_WITH_FINDINGS")
+
+
+def test_a_failed_middle_dot_check_gives_the_engines_values_per_reading_with_no_overseer_attached():
+    """The receipt's half of the two tests above, which needs no overseer: it runs where the overseer is not installed."""
+    rc, audit = _physics_hub("a = 20/4 = 6·0 m s⁻².")
+    assert audit is None
+    err = [f for f in rc.findings if f.code == "INT-SUBJ-001"]
+    assert len(err) == 1, [(f.code, f.message[:120]) for f in rc.findings]
+    assert "(engine counterexample: decimal-point reading: c = 5, r = 6; product reading: c = 5, r = 0; under each reading of the middle dot" in err[0].message
+    warn = [f for f in rc.findings if f.code == "INT-SUBJ-004"]
+    assert warn and "decimal-point reading: c = 5, r = 6" in warn[0].message
+    rc, _audit = _physics_hub("a = (20 - 0)/4.0 = 6.0 m s⁻².")
+    err = next(f for f in rc.findings if f.code == "INT-SUBJ-001")
+    assert "(engine counterexample: c = 5, r = 6; c is the value computed from the written expression, r the stated value)" in err.message

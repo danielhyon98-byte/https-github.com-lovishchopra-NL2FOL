@@ -31,17 +31,17 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.branches.base import BranchRegistry, FormalCheck, SubjectBranch
+from epinoic_logic.api.branches import BranchRegistry, FormalCheck, SubjectBranch
 from epinoic_logic.branches.generic_parser import GenericTextParser
 from epinoic_logic.branches.registry import BRANCHES, CORE
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.integrity import IntegrityFinding
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus
+from epinoic_logic.api.integrity import IntegrityFinding
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer.checks import formal as F
 from epinoic_overseer.checks import translation as T
 from epinoic_overseer.checks.fidelity import _folded_tail_ids
 from epinoic_overseer.consolidate import material_claims
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, sha256_text
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider

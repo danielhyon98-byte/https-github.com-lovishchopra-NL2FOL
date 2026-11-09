@@ -74,7 +74,14 @@ from __future__ import annotations
 #: This release of the overseer sub-project (``pyproject.toml``; the hello's ``auditor_version``).
 __version__ = "1.2.0"
 
-from .audit import (  # noqa: F401
+# The translator this release needs, checked before any module of the package imports it (``compat.py``): a translator
+# whose public API or integration protocol lacks a name this release imports is refused with one error naming them all,
+# never a bare ImportError from deep inside the package.
+from .compat import check_translator_api as _check_translator_api  # noqa: E402
+
+_check_translator_api()
+
+from .audit import (  # noqa: F401,E402
     ALWAYS_REPLAY_CODES, AUDIT_CONTRACT, AUDITOR_AGENT_ID, AuditResult, TransferAuditor, audit_envelope, audit_signable_text, run_overseer_checks,
     sign_audit, transfer_states, verify_audit,
 )

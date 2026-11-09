@@ -13,10 +13,10 @@ clean controls. Before the fixes no reviewed answer could ever be delivered FORM
 """
 from __future__ import annotations
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.checks.translation import grounding_faults, summary_matches
-from epinoic_logic.translate.contracts import TaskRecord
+from epinoic_logic.api.translate import TaskRecord
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureReviewProvider, FixtureTranslationProvider

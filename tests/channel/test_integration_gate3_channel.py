@@ -252,17 +252,18 @@ def test_an_answer_using_a_check_name_as_content_is_no_relayed_check_result_and_
 
 def test_the_overseer_fidelity_check_reads_the_same_sentences_as_content():
     """OVS-FID-009 calls the channel's rule (``bus.check_result_statement``): no accusation of a relayed check result on the
-    finding's answers either."""
-    from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
-    from overseer_tests.conftest import findings, make_auditor, make_plan, new_channel
+    finding's answers either. The overseer is reached through its public package API only (``overseer_attach``); the test
+    is skipped where it is not installed."""
+    from ..overseer_attach import findings, make_auditor, observed_channel
     for subject, agent, question, answer in FRAMED_ANSWERS:
         a = make_auditor()
         try:
-            plan = make_plan(subject=subject, task_type="short_answer", selected_agent_ids=[agent], allowed_document_ids=[], agent_subjects={}, agent_task_types={})
-            ch = new_channel(a, plan)
+            plan = WorkPlan(plan_id="plan-ovs", request_id="req-ovs", task_id="task-ovs", subject=subject, task_type="short_answer",
+                            selected_agent_ids=[agent], allowed_document_ids=[], agent_subjects={}, agent_task_types={})
+            ch = observed_channel(a, plan)
             m, _r, _q = ch.request("router", agent, question, [PEER])
             _msg, rc = ch.respond_text(m.message_id, answer, agent_id=agent, report_id="rep-x")
-            audit = a.audit(ch.uid)
+            audit = a.audit(ch.channel_uid)
             assert not [f for f in findings(audit, "OVS-FID-009") if "check result" in f.message], (subject, [f.message[:160] for f in findings(audit, "OVS-FID-009")])
         finally:
             a.close()

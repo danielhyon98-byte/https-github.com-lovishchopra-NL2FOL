@@ -15,7 +15,7 @@ from epinoic_overseer import OVS_CODES, OverseerView, detect_repeats, may_delive
 from epinoic_overseer.repeats import (
     SIGNATURE_RULE, content_form, fault_occurrences, fault_signature, figures_of, quotations_of,
 )
-from epinoic_logic.translate.contracts import ClaimRecord, SuppliedText
+from epinoic_logic.api.translate import ClaimRecord, SuppliedText
 
 from .conftest import DOC, EN_CLAIMS, EN_TEXT, english_report
 from .test_consolidation_consolidate import BAD_CLAIM, DUP, INVENTED, Dup

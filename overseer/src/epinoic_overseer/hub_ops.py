@@ -433,17 +433,31 @@ def _review_twofold(self: HubOperations, hub: Any, ch: Any, uid: str, runners: S
     notes = [f"references task audit {reference.audit_id}" + (f" (the review started from task audit {task_audit.audit_id})" if reference is not task_audit else ""),
              f"review mode {mode}; N_FOLD review of a combined answer of {layout.n} sources (the twofold mode): {len(by_id)} agent(s); {issued} dossier(s) "
              f"issued; {len(assessments)} verdict(s) assessed"]
+    unreviewed: list[int] = []
     for p, src in zip(tw.sources, layout.sources):
         confirmed = sum(1 for a in p.assessments for x in a.accusations if x.outcome == "confirmed")
-        notes.append(f"source {src.index} of {layout.n} ({src.agent_id}, reports {', '.join(src.report_ids)}): reviewed before combination, in parallel, by "
-                     f"{list(p.agent_ids)}; dossiers {', '.join(d[:16] for d in p.dossier_sha256) or 'none'}; {len(p.assessments)} verdict(s) assessed, "
-                     f"{confirmed} accusation(s) confirmed")
+        valid = sum(1 for a in p.assessments if getattr(a, "valid", False))
+        head = f"source {src.index} of {layout.n} ({src.agent_id}, reports {', '.join(src.report_ids)}): "
+        dossiers = f"dossiers {', '.join(d[:16] for d in p.dossier_sha256) or 'none'}"
+        if valid:
+            notes.append(head + f"reviewed before combination, in parallel, by {list(p.agent_ids)}; {dossiers}; {len(p.assessments)} verdict(s) assessed, "
+                         f"{confirmed} accusation(s) confirmed")
+            continue
+        # architecture review after arena round 8: a source part no verdict was assessed on is NOT reviewed, and its note
+        # says so with what each planned instance did, never "reviewed" (a non-success is never worded as a success)
+        unreviewed.append(src.index)
+        what = [f"{r.agent_id}: {r.status}" for r in p.runs] + [f"{a}: no dossier issued ({why})" for a, why in p.refused] \
+            + [f"{a}: the runner failed ({err})" for a, err in p.runner_errors]
+        notes.append(head + f"NOT reviewed before combination: no verdict was assessed on it ({'; '.join(what) or 'no instance ran'}); planned instances "
+                     f"{list(p.agent_ids)}; {dossiers}; {len(p.assessments)} verdict(s) assessed, none valid: its silence in the temporary context shows "
+                     "nothing, and no fault of it is known to the merged review")
     if rec:
         faults = sum(len(s["confirmed"]) for s in rec["sources"])
         notes.append(f"temporary context sha256 {tw.context_sha256}: request {rec['scope']['task_id']}/{rec['scope']['request_id']} only, {len(rec['sources'])} "
                      f"source(s), {faults} confirmed fault(s) of the source reviews ({rec['omitted']} omitted by the bound), {rec['bytes']} of at most "
                      f"{rec['max_bytes']} bytes, complete {str(rec['complete']).lower()}; validated outcomes only (no agent text, no finding code); "
-                     f"{'discarded after the request' if tw.context_discarded else 'NOT discarded'}")
+                     + (f"source(s) {', '.join(str(i) for i in unreviewed)} NOT reviewed (reviewed 0: the context holds nothing of them); " if unreviewed else "")
+                     + f"{'discarded after the request' if tw.context_discarded else 'NOT discarded'}")
         notes.append("temporary context as issued to the merged review: " + canonical_json(rec))
     confirmed_m = sum(1 for a in tw.merged.assessments for x in a.accusations if x.outcome == "confirmed")
     notes.append(f"merged review of the combinator's output (syntheses {', '.join(layout.synthesis_ids)}) with the temporary context, by "

@@ -32,8 +32,9 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.integrity import AgentRole, LedgerEntry, SynthesizedClaim
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim
+from epinoic_logic.api.integrity import AgentRole
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import OverseerPool, PoolConfig, load_pack, verify_audit
 from epinoic_overseer.export import export_pack
 from epinoic_overseer.floor import CONTEXT_MAX_BYTES, below_floor

@@ -28,18 +28,18 @@ import pytest
 
 import epinoic_logic
 from epinoic_logic import named as N
-from epinoic_logic.channel.bus import _BLOCKING_PREFIXES, TranslatorChannel
-from epinoic_logic.channel.contracts import TransmissionStatus
+from epinoic_logic.api.channel import BLOCKING_PREFIXES as _BLOCKING_PREFIXES, TranslatorChannel, TransmissionStatus
 from epinoic_logic.engine import errors as engine_errors
 from epinoic_logic.engine.policies import NAMED_POLICIES as ENGINE_POLICIES
-from epinoic_logic.engine.statuses import DEFINITIVE, VerificationStatus
+from epinoic_logic.engine.statuses import DEFINITIVE
+from epinoic_logic.api.engine import VerificationStatus
 from epinoic_overseer import emitted as E
 from epinoic_overseer.checks.receipts import FIXED_SEVERITY, VARIABLE_SEVERITY
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir
 from epinoic_overseer.pool import PoolConfig, PoolItem, plan_pool
 from epinoic_overseer.verdicts import PackIdentity
 from epinoic_logic.stem.relations import ST_SEVERITY
-from epinoic_logic.translate.contracts import TranslationStatus
+from epinoic_logic.api.translate import TranslationStatus
 
 from .conftest import (
     EN_INPUT, DOC, codes_of, english_report, findings, make_auditor, make_plan, new_channel, run_task,
@@ -261,7 +261,7 @@ def test_the_named_policies_blocking_prefixes_and_named_rejections_are_the_trans
             assert E.ENGINE_DIAGNOSTICS[code] in ("invalid", "limits", "service"), code
     assert E.risk_of("INT-SYNTH-014", "error") == "rejection" and E.risk_of("INT-REQ-009", "error") == "rejection"
     from epinoic_logic.engine.policies import UnknownPolicyError, named_policy
-    from epinoic_logic.engine import SolverConfig
+    from epinoic_logic.api.engine import SolverConfig
     with pytest.raises(UnknownPolicyError):
         named_policy("nonlinear ", SolverConfig())  # a name that is not exactly an allowlisted one is refused before anything runs
 
@@ -532,7 +532,7 @@ def _xenc_run(monkeypatch, drop: bool):
     """End-to-end B20 (two encodings of one claim, opposite answers) on an audited hub: s01's kinetic-energy check fails
     while a translation that drops the 1/2 entails 18 J."""
     from functools import partial
-    from epinoic_logic.branches import RouterHub
+    from epinoic_logic.api.branches import RouterHub
     from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
     import importlib
     import sys
@@ -576,7 +576,7 @@ def _bad_vocabulary_synthesis(auditor, *, as_mapping: bool = False):
     """The overseer fixture task, then the combinator's synthesis whose transformation is free text (the end-to-end
     simulation's bug 7): an object built around validation (``model_copy``), which the journal holds as the synthesis it
     claims to be, or (``as_mapping``) a mapping, which the channel journals as an unreadable payload by its digest only."""
-    from epinoic_logic.integrity import AgentRole
+    from epinoic_logic.api.integrity import AgentRole
     from .conftest import default_synthesis
     task = run_task(auditor, synthesis=False)
     good = default_synthesis()
@@ -733,7 +733,7 @@ def test_the_hub_reads_the_risk_signals_of_each_task_from_its_journal():
             def complete(self, request):
                 raise RuntimeError("no model in this test")
         pool = OverseerPool(installed_pack(), lambda agent_id: seen.setdefault(agent_id, Silent(agent_id)))
-        from epinoic_logic.branches import RouterHub  # noqa: F401
+        from epinoic_logic.api.branches import RouterHub  # noqa: F401
         signals, records = E.risk_reading(aud.view(task.uid))
         assert signals == ("unchecked_source",) and records == ("writer_assumption",)  # the capped EVD-SRC-001 still blocks release
         plan = pool.plan([PoolItem(key=task.uid, risk_signals=signals, risk_records=records)])

@@ -11,6 +11,7 @@ from epinoic_logic.branches import RouterHub
 from epinoic_logic.branches.hub import AuditorNotAttached, HubClosed, RevisionIssue
 
 from ..channel.revision_support import BAD_TEXT, CFG, DOC, GOOD_CLAIMS, INVENTED, KEY, QUESTION, plan, report
+from ..overseer_attach import overseer  # the overseer's public package API; skips the test where it is not installed
 
 
 def _hub(auditor=None) -> RouterHub:
@@ -18,9 +19,9 @@ def _hub(auditor=None) -> RouterHub:
 
 
 def _auditor():
-    from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
-    keyring = KeyRing({k: EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, b"hub-revision-test-overseer-secret-0123456789")
-    return TransferAuditor(keyring, replay_mode="inline", eager=True, inline_final_release=True)
+    ov = overseer()
+    keyring = ov.KeyRing({k: ov.EngineKey(KEY) for k in ("hub", "channel", "default", "integrity")}, b"hub-revision-test-overseer-secret-0123456789")
+    return ov.TransferAuditor(keyring, replay_mode="inline", eager=True, inline_final_release=True)
 
 
 def _answer(hub: RouterHub):

@@ -3,10 +3,10 @@
 never an accusation)."""
 from __future__ import annotations
 
-from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
-from epinoic_logic.engine import SolverConfig
-from epinoic_logic.integrity import AgentRole, IntegrityFinding
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.channel import TranslatorChannel, TransmissionStatus
+from epinoic_logic.api.engine import SolverConfig
+from epinoic_logic.api.integrity import AgentRole, IntegrityFinding
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer import JournalSet
 
 from .conftest import (

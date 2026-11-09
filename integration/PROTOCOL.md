@@ -454,6 +454,16 @@ add oversight; risk signals only escalate; the review never changes a clearance,
 may escalate on them, the floor does not. A floor that does is a new floor version (`minimum-oversight-floor/2`, its own
 rules digest), decided when the argument diagnostics are connected (decision D29).
 
+`minimum-oversight-floor/1` bounds an N_FOLD review's temporary context at **at most** 65,536 bytes (rule 3;
+`TemporaryContext.max_bytes` is 1 to 65,536): a router's plan with a smaller bound is in contract and not below this
+floor (the vector `combined-n-fold` adopts one bounded at 32,768). The overseer pool's floor
+(`minimum-oversight-floor/pool-2`, section 7b) keeps its bound at exactly 65,536 and refuses a smaller one with
+`KIT-RT-020`, since a smaller bound could cut confirmed source faults from the merged review; the two floors differ
+here (found by the architecture lenses after arena round 8). Holding this floor's bound exactly raises the floor, so it
+comes only with a new floor version, with its own digest and vectors (decision D29), and with the website's patch set,
+whose handshake checks the floor's name (`verification.js`). The service offers no combined mode until the combinator
+is connected (decision D33), so no review it plans today carries such a context.
+
 ### 7a.5 Refusals (`KIT-RT`), in the order `check_plan` applies them
 
 Each rule about transfers is applied to every transfer before the next rule, so a plan's code does not depend on the

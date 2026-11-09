@@ -10,7 +10,7 @@ import typing
 import pytest
 from pydantic import ValidationError
 
-from epinoic_logic.engine.statuses import VerificationStatus
+from epinoic_logic.api.engine import VerificationStatus
 from epinoic_overseer.codes import OVS_CODES
 from epinoic_overseer.verdicts import (
     ACCUSATION_KINDS, DOSSIER_VERSION, ID_FIELDS, KIND_CHECKS, KIND_CODE_QUALIFIERS, LENSES, MAX_ACCUSATIONS, MAX_EVIDENCE, MAX_IDS, MAX_QUOTE_CHARS,

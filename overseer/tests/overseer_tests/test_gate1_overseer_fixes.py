@@ -30,16 +30,16 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.integrity.ledger import figure_spellings
-from epinoic_logic.ir.schema import Problem, SourceRef
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan, figure_spellings
+from epinoic_logic.api.ir import SourceRef
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer.checks import fidelity as F
 from epinoic_overseer.checks import receipts as RCPT
 from epinoic_overseer.checks import translation as T
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, NOT_CHECKED_CODES, SELF_REPORT_CODES, DeliveryPolicy
 from epinoic_overseer import replay as R
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 from .timing import measure
 from .conftest import CFG, DOC, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, new_channel, problems_fn
@@ -328,8 +328,8 @@ def test_before_the_rules_the_same_transfer_was_two_audit_errors(monkeypatch):
     """The regression's own control: without rule ``stated-precision-conflict`` the absent conflict is OVS-RCPT-004, and a
     replay that ignores the recorded precision bounds cannot reproduce the signed CONSISTENT (now OVS-AUDIT-005, never the
     OVS-RES-007 accusation of another definitive status)."""
-    from epinoic_logic.engine.policies import PACK_POLICIES
-    from epinoic_logic.ir.schema import DEFAULT_LIMITS
+    from epinoic_logic.api.engine import PACK_POLICIES
+    from epinoic_logic.api.ir import DEFAULT_LIMITS
     monkeypatch.setattr(RCPT, "_rounding_only", lambda ctx, t: False)
     monkeypatch.setattr(R, "recorded_policy", lambda res: "" if res.limits is None else next(
         (n for n, lim in sorted(PACK_POLICIES.items()) if lim != DEFAULT_LIMITS and lim == res.limits), ""))
@@ -355,9 +355,9 @@ def test_a_channel_that_drops_a_real_conflict_behind_a_forged_precision_run_is_s
     'precision re-check' on a problem of its own choosing (one claim only): the auditor re-derives the channel's rule on the
     journaled pool itself, finds the conflict, and names the absence."""
     import epinoic_logic.channel.bus as bus
-    from epinoic_logic.engine.policies import policy_config
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.integrity.cross_check import PRECISION_LIMITS, at_stated_precision, joint_problem
+    from epinoic_logic.api.engine import policy_config, verify
+    from epinoic_logic.api.integrity import at_stated_precision
+    from epinoic_logic.api.integrity import PRECISION_LIMITS, joint_problem
     real = bus.check_cross_report_consistency
 
     def insider(problems, **kw):
@@ -379,10 +379,10 @@ def test_a_channel_that_drops_a_real_conflict_behind_a_forged_precision_run_is_s
 
 
 def test_rule_precision_limits_names_the_precision_bounds_only_on_a_joint_problem():
-    from epinoic_logic.engine.policies import policy_config
-    from epinoic_logic.engine.runner import verify
-    from epinoic_logic.integrity.cross_check import PRECISION_LIMITS, at_stated_precision, joint_problem
-    from epinoic_logic.ir.canonical import canonical_json
+    from epinoic_logic.api.engine import policy_config, verify
+    from epinoic_logic.api.integrity import at_stated_precision
+    from epinoic_logic.api.integrity import PRECISION_LIMITS, joint_problem
+    from epinoic_logic.api.ir import canonical_json
     relaxed = at_stated_precision([_by_current("a1.1"), _by_power("b1.1", 2200)])
     joint, _f, _m = joint_problem(relaxed, request_id="req-r", joint_id="cross-report-precision")
     cfg = policy_config("nonlinear", CFG.model_copy(update={"produce_unsat_core": True}))
@@ -579,7 +579,7 @@ def _long_sentence_answer() -> str:
 
 
 def test_an_unmarked_cut_at_the_contract_limit_is_read_without_its_partial_token():
-    from epinoic_logic.adapters.markdown import MAX_CLAIM_TEXT_CHARS
+    from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS
     response = "x " * 1999 + "1990 and more."
     cut = response[:MAX_CLAIM_TEXT_CHARS]                       # ends inside "1990"
     assert len(cut) == MAX_CLAIM_TEXT_CHARS and not cut.endswith("1990")

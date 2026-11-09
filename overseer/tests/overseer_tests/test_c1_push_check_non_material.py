@@ -49,10 +49,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from epinoic_logic.adapters.english_specialist.parser import FEEDBACK_LABEL_RE, split_sentences
-from epinoic_logic.adapters.markdown import mask_quotations
+from epinoic_logic.adapters.english_specialist.parser import FEEDBACK_LABEL_RE
+from epinoic_logic.api.adapters import split_sentences, mask_quotations
 from epinoic_logic.branches.generic_parser import _ASSUMPTION_LEAD_RE, _DIAGRAM_LINE_RE, _MEASURE_LEAD_RE, _RESULT_LEAD_RE, _WHY_LEAD_RE
-from epinoic_logic.branches.registry import default_registry
+from epinoic_logic.api.branches import default_registry
 from epinoic_overseer.checks.selfcert import flags_self_certification
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, DeliveryPolicy
 from epinoic_overseer.meta_notes import (
@@ -62,7 +62,7 @@ from epinoic_overseer.non_material import (
     LAYOUT_LABEL_RE, LAYOUT_RULE, MAX_BLOCKS, NON_MATERIAL_RULE, ParserUnit, covered_spans, english_units, held_claims, layout_marks_only,
     non_material_blocks, parser_units, read_layout, report_units, unread_non_material_blocks,
 )
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, sha256_text
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, sha256_text
 
 from . import c1_texts as C1T
 from .c1_texts import EN_T14, EN_T14_Q

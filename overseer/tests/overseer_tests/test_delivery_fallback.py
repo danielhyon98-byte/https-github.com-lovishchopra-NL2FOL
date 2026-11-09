@@ -18,11 +18,11 @@ from fractions import Fraction
 
 import pytest
 
-from epinoic_logic.integrity.contracts import payload_hash
+from epinoic_logic.api.integrity import payload_hash
 from epinoic_overseer import load_pack, verify_audit
 from epinoic_overseer.delivery_policy import DeliveryConfig, DeliveryPolicy, accuracy_above, verify_delivered_answer, verify_delivery_receipt
 from epinoic_overseer.export import export_pack
-from epinoic_logic.translate.contracts import SpecialistReport
+from epinoic_logic.api.translate import SpecialistReport
 
 from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, english_report, make_plan, point_problem, problems_fn
 from .delivery_support import (

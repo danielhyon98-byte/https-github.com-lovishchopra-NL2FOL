@@ -279,7 +279,7 @@ def test_an_unknown_case_is_refused(tmp_path):
 
 
 def test_patched_restores_every_attribute_including_static_methods():
-    from epinoic_logic.channel import TranslatorChannel
+    from epinoic_logic.api.channel import TranslatorChannel
     raw = TranslatorChannel.__dict__["_stale_translation"]
     with H.patched((TranslatorChannel, "_stale_translation", staticmethod(lambda *a, **k: None)), (H, "HARNESS_SECRET", b"x")):
         assert TranslatorChannel._stale_translation(None, None, None) is None
@@ -338,7 +338,7 @@ def test_every_check_module_has_a_mutant_and_tagged_cases():
 # ============================================================================================ the pytest plugin
 def test_the_attach_plugin_adds_an_auditor_to_every_new_channel_and_restores_the_class():
     import pytest_attach as P
-    from epinoic_logic.channel import TranslatorChannel
+    from epinoic_logic.api.channel import TranslatorChannel
     if P._original_init is not None:
         pytest.skip("the plugin is already active in this session")
     before = TranslatorChannel.__init__

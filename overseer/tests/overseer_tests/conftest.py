@@ -12,17 +12,16 @@ from typing import Any, Callable, Optional
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
-from epinoic_logic.channel.events import observation_state, observe_call
-from epinoic_logic.engine import SolverConfig, verify
-from epinoic_logic.integrity import AgentRole, LedgerEntry, Synthesis, SynthesizedClaim, WorkPlan
-from epinoic_logic.ir.schema import Problem, SourceRef
+from epinoic_logic.api.channel import TranslatorChannel, CLAIM_OUT_OF_SCOPE, observation_state
+from epinoic_logic.channel.events import observe_call
+from epinoic_logic.api.engine import SolverConfig, verify
+from epinoic_logic.api.integrity import LedgerEntry, SynthesizedClaim
+from epinoic_logic.api.integrity import AgentRole, Synthesis, WorkPlan
+from epinoic_logic.api.ir import SourceRef
+from epinoic_logic.api.ir import Problem
 from epinoic_overseer import EngineKey, KeyRing, TransferAuditor
-from epinoic_logic.translate.contracts import (
-    ClaimRecord, EligibilityClass, EligibilityDecision, SpecialistReport, SuppliedText, TranslationResult, TranslationStatus, sha256_text,
-)
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.translate import EligibilityClass, EligibilityDecision
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, TranslationResult, TranslationStatus, sha256_text, compose_outcome
 
 KEY = b"overseer-test-engine-key-0123456789abcdef"
 OTHER_KEY = b"some-other-engine-key-0123456789abcdef!"
@@ -265,7 +264,7 @@ def default_synthesis(*, conflicts: tuple = (), claims=None, ledger=None, text: 
                       source_report_ids=("rep-en-1", "rep-hi-1")) -> Synthesis:
     """The combinator's synthesis of the synthetic task: every material claim carried, the supporting ones dropped with
     reasons. ``created_at`` defaults to now, so it never precedes the reports it cites."""
-    from epinoic_logic.integrity.contracts import ConflictRecord
+    from epinoic_logic.api.integrity import ConflictRecord
     claims = claims if claims is not None else [
         SynthesizedClaim(claim_id="s1", text="The writer presents work as endless", source_claim_ids=["en-point"], transformation="carried"),
         SynthesizedClaim(claim_id="s2", text="The Factory Act of 1833 banned the employment of children under nine in textile mills.", source_claim_ids=["h1.1"], transformation="carried"),

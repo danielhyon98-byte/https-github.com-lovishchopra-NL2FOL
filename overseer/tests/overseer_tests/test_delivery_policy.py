@@ -18,12 +18,9 @@ import threading
 import pytest
 from pydantic import ValidationError
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.branches.hub import AuditorNotAttached
-from epinoic_logic.engine import SolverConfig
-from epinoic_logic.engine.statuses import SCOPE_STATEMENT
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.integrity.contracts import payload_hash
+from epinoic_logic.api.branches import RouterHub, AuditorNotAttached
+from epinoic_logic.api.engine import SolverConfig, SCOPE_STATEMENT
+from epinoic_logic.api.integrity import WorkPlan, payload_hash
 from epinoic_overseer import load_pack
 from epinoic_overseer.delivery_policy import (
     DELIVERY_SCOPE_STATEMENT, FORMAL_LABEL_REASON, FOUNDER_MIN_SELECTED_ACCURACY, FOUNDER_TRANSLATION_BUDGET_S, DeadlineVerifier, DeliveredAnswer, DeliveryConfig,
@@ -31,7 +28,7 @@ from epinoic_overseer.delivery_policy import (
 )
 from epinoic_overseer.export import export_pack
 from epinoic_overseer.keys import DELIVERY_KEY_ID
-from epinoic_logic.translate.contracts import SpecialistReport
+from epinoic_logic.api.translate import SpecialistReport
 
 from .conftest import CFG, KEY, make_keyring
 from .delivery_support import (

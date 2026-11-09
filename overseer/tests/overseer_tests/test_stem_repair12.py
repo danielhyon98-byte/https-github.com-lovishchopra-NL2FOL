@@ -30,13 +30,14 @@ import ovs_harness as H  # noqa: E402
 import stem_probes as SP  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.engine.runner import circular_premises as translator_circular_premises  # noqa: E402
-from epinoic_logic.ir.schema import Problem  # noqa: E402
+from epinoic_logic.api.engine import circular_premises as translator_circular_premises  # noqa: E402
+from epinoic_logic.api.ir import Problem  # noqa: E402
 from epinoic_overseer import KIND_CHECKS, OVS_CODES  # noqa: E402
 from epinoic_overseer.checks.formal import IDENTITY_RULE, identity_bindings, identity_variables  # noqa: E402
 from epinoic_overseer.checks.translation import RESTATEMENT_WAYS, SEMANTIC_WAYS, restatement  # noqa: E402
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir  # noqa: E402
-from epinoic_logic.stem import build_document, clear_document_cache  # noqa: E402
+from epinoic_logic.api.stem import clear_document_cache  # noqa: E402
+from epinoic_logic.api.stem import build_document  # noqa: E402
 from epinoic_logic.stem.checks import build_checks  # noqa: E402
 
 from .conftest import without_the_translators_semantic_gate  # noqa: E402

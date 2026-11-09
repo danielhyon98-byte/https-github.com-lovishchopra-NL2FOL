@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import pytest
 
-from epinoic_logic.integrity import AgentMessage, AgentRole, MessageLog, payload_hash
+from epinoic_logic.api.integrity import AgentMessage, AgentRole, MessageLog, payload_hash
 from epinoic_overseer import (
     CONSOLIDATION_KEY_ID, ConsolidatedResponse, OVS_CODES, RUN_KEY_ID, check_consolidation, consolidation_envelope, delivery_decision, may_deliver,
     sign_consolidated, verify_audit, verify_consolidated,
@@ -24,7 +24,7 @@ from epinoic_overseer import (
 from epinoic_overseer.consolidate import (
     CONSOLIDATED_CONTRACT, CONSOLIDATION_SCOPE_STATEMENT, claims_key, consolidate, envelope_verifies, select_requests,
 )
-from epinoic_logic.ir.canonical import sha256_hex
+from epinoic_logic.api.ir import sha256_hex
 from epinoic_overseer.repeats import content_form
 
 from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, int_problem, make_plan, outcome_for, point_problem, problems_fn

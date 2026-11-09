@@ -11,19 +11,27 @@
 """
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
+from epinoic_logic.branches import RouterHub
 from epinoic_logic.channel import TranslatorChannel, TransmissionStatus
 from epinoic_logic.channel import events as events_module
+from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
 from epinoic_logic.channel.gate import assess_response
 from epinoic_logic.engine.results import SolverConfig
+from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.ir.schema import SourceRef
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureReviewProvider, FixtureTranslationProvider
 from epinoic_logic.translate.review import SemanticReviewer
 
+# the overseer only through its public package API; a test that attaches it is skipped where it is not installed
+from ..overseer_attach import CFG as _DLV_CFG, KEY as _DLV_KEY, make_auditor, overseer
 from .test_channel import KEY, english_report, plan
 from .test_r7_core_handoff import TASK, history_hub
 
@@ -91,15 +99,96 @@ def test_the_call_record_of_a_non_text_input_names_its_type_and_hashes_nothing()
 # ============================================================================================ critical: a claim with no outcome
 THREE = (("p1.1", "The speed is 15 km/h."), ("p1.2", "Its average speed is 15 km/h."), ("p1.3", "The car moves at 15 km/h."))
 AGENT = "physics-specialist"
+# The Physics task of the delivery-policy tests, built here from the translator's API alone (the overseer's test package
+# is never imported): the task states the relation as a given, so the task record validates the distance and the relation.
+_DLV_QUESTION = "A car travels 120 km in 8 hours. Use speed = d / 8. Find its average speed in km/h."
+_DLV_IDS = dict(request_id="req-dlv", task_id="task-dlv", subject="Physics", task_type="calculation")
+_DLV_GIVEN = "A car travels 120 km in 8 hours."
+
+
+class _Clock:
+    """A monotonic clock the test moves by hand (the delivery policy's injectable clock)."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.t = float(start)
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += float(seconds)
+
+
+def _speed_translation(claim_id: str, request_id: str) -> str:
+    """The faithful fixture translation of "the speed is 15 km/h": the distance and ``speed = d / 8`` as given."""
+    v = lambda n: {"op": "var", "name": n}  # noqa: E731
+    r = lambda x: {"op": "real", "value": str(x)}  # noqa: E731
+    problem = {"ir_version": "1.0", "problem_id": f"p-{claim_id}", "request_id": request_id, "claim_id": claim_id, "query": "entailment",
+               "symbols": [{"name": "d", "sort": "Real"}, {"name": "speed", "sort": "Real"}],
+               "premises": [{"id": "D", "expr": {"op": "eq", "left": v("d"), "right": r(120)}, "label": "distance 120 km",
+                             "grounding": {"kind": "arithmetic_fact"}},
+                            {"id": "SPEED", "expr": {"op": "eq", "left": v("speed"), "right": {"op": "div", "left": v("d"), "right": r(8)}},
+                             "grounding": {"kind": "arithmetic_fact"}}],
+               "conclusion": {"id": "C", "expr": {"op": "eq", "left": v("speed"), "right": r(15)}, "label": "the speed is 15 km/h"}}
+    return json.dumps({"problem": problem, "interpretation": {"reading": "speed is distance over time", "glossary": [], "ambiguity_flags": []},
+                       "ambiguous": False, "unsupported_reason": None})
+
+
+def _physics_report(claims) -> SpecialistReport:
+    """The Physics answer: one supporting evidence claim (the task's figures) and the quantitative material claims."""
+    ids = dict(_DLV_IDS, report_id="rep-a", agent_id=AGENT)
+    text = " ".join([_DLV_GIVEN, *(t for _, t in claims)])
+    recs = [ClaimRecord(**ids, claim_id="p1.0", claim_text=_DLV_GIVEN, claim_role="evidence", materiality="supporting")]
+    recs += [ClaimRecord(**ids, claim_id=cid, claim_text=t, claim_role="quantitative", proposed_claim_kind="arithmetic", supporting_claim_ids=["p1.0"])
+             for cid, t in claims]
+    return SpecialistReport(**ids, original_response=text, response_sha256=sha256_text(text), claims=recs, created_at="2026-10-20T00:00:00Z")
+
+
+class _PhysicsVerifier:
+    """The channel's claim verifier for the Physics task: per quantitative claim, the fixture translation, the engine and a
+    faithful fixture review; ``none`` names claims for which no outcome is produced, ``delays`` moves the clock per claim."""
+
+    def __init__(self, clock=None, *, none=(), delays=None) -> None:
+        self.clock, self.none, self.delays = clock, set(none), dict(delays or {})
+
+    def __call__(self, claim, report, task=None):
+        delay = self.delays.get(claim.claim_id, 0.0)
+        if self.clock is not None and delay:
+            self.clock.advance(delay)
+        if claim.claim_id in self.none:
+            return None
+        if claim.claim_role != "quantitative":
+            return CLAIM_OUT_OF_SCOPE  # the fixture translates quantitative claims only
+        translator = Translator(FixtureTranslationProvider({claim.claim_id: _speed_translation(claim.claim_id, claim.request_id)}), config=_DLV_CFG)
+        reviewer = SemanticReviewer(FixtureReviewProvider({claim.claim_id: {"verdict": "faithful", "issues": []}}))
+        return verify_claim(claim, report, translator, reviewer=reviewer, config=_DLV_CFG, signing_key=_DLV_KEY, key_id="hub", task=task)
+
+
+def _physics_run(*, none=(), delays=None, claims=THREE, clock=None, auditor=None, policy=None):
+    """The Physics answer dispatched and received through a hub with ``auditor`` attached (none: no overseer), the verifier
+    installed; with ``policy`` (the overseer's delivery policy) a delivery session is opened when the answer arrives and
+    decides. Returns the run (its ``decision`` and delivery ``receipt``, None without a policy) and the answer's receipt."""
+    hub = RouterHub(signing_key=_DLV_KEY, config=_DLV_CFG, auditor=auditor)
+    plan = WorkPlan(plan_id=f"plan-{_DLV_IDS['task_id']}", selected_agent_ids=[AGENT], **_DLV_IDS)
+    ch = hub.open_task(plan)
+    ch.verify_claim_fn = _PhysicsVerifier(clock, none=none, delays=delays)
+    m, _req, rq = hub.dispatch(plan.task_id, AGENT, _DLV_QUESTION, [])
+    assert m is not None, rq.findings
+    session = None
+    if policy is not None:
+        session = policy.start(hub, plan.task_id)
+        session.install()
+    _msg, rc = hub.receive(plan.task_id, m.message_id, _physics_report(claims))
+    decision = session.decide(request_message_ids=[m.message_id], receipts={rc.message_id: rc}) if session is not None else None
+    return SimpleNamespace(hub=hub, decision=decision, receipt=decision.receipt if decision is not None else None), rc
 
 
 def _physics(none=(), delays=None, claims=THREE):
-    from epinoic_overseer.delivery_policy import DeliveryPolicy
-    from .. import overseer_support  # noqa: F401  (the overseer sub-project's test helpers on the import path)
-    from overseer_tests.delivery_support import FakeClock, Verifier, physics_report, run_task
-    clock = FakeClock()
-    run = run_task(DeliveryPolicy(clock=clock), [(AGENT, physics_report(AGENT, "rep-a", claims))], verify=Verifier(clock, none=none, delays=delays))
-    return run, list(run.receipts.values())[0]
+    """The Physics task through a hub the overseer audits, the overseer's delivery policy deciding (public package API
+    only, ``overseer_attach``; skipped where the overseer is not installed)."""
+    delivery_policy = overseer().DeliveryPolicy
+    clock = _Clock()
+    return _physics_run(none=none, delays=delays, claims=claims, clock=clock, auditor=make_auditor(), policy=delivery_policy(clock=clock))
 
 
 def test_a_material_eligible_claim_with_no_outcome_is_named_not_attempted_and_never_verified():
@@ -129,6 +218,28 @@ def test_every_claim_with_an_outcome_keeps_the_receipt_clean():
 def test_a_supporting_or_ineligible_claim_with_no_outcome_is_not_named():
     # p1.0 (supporting evidence) has no outcome in every run above and is never named; nor is an ineligible material claim
     run, rc = _physics(none=["p1.4"], claims=THREE + (("p1.4", "The journey felt long and dull."),))
+    assert not any("p1.4" in f.claim_ids or "p1.0" in f.claim_ids for f in rc.findings if f.code == "INT-REQ-006")
+
+
+# The channel's half of the tests above needs no overseer: the same task through a hub with none attached (no auditor, no
+# delivery policy), so these run where the overseer is not installed. The agreement with the delivery policy stays above.
+def test_a_material_eligible_claim_with_no_outcome_is_named_not_attempted_with_no_overseer_attached():
+    run, rc = _physics_run(none=["p1.3"])
+    assert run.decision is None and rc.status is TransmissionStatus.ACCEPTED_WITH_FINDINGS
+    named = [f for f in rc.findings if f.code == "INT-REQ-006"]
+    assert len(named) == 1 and named[0].severity == "warning" and named[0].claim_ids == ["p1.3"] and "NOT_ATTEMPTED" in named[0].message
+    gate = assess_response([rc], synthesis_required=False)
+    assert gate.display_status != "VERIFIED" and any("INT-REQ-006" in c.check for c in gate.checks if c.result == "unresolved")
+
+
+def test_every_claim_with_an_outcome_keeps_the_receipt_clean_with_no_overseer_attached():
+    _run, rc = _physics_run()
+    assert rc.status is TransmissionStatus.ACCEPTED and rc.findings == [], [(f.code, f.message[:200]) for f in rc.findings]
+    assert assess_response([rc], synthesis_required=False).display_status == "VERIFIED"
+
+
+def test_a_supporting_or_ineligible_claim_with_no_outcome_is_not_named_with_no_overseer_attached():
+    _run, rc = _physics_run(none=["p1.4"], claims=THREE + (("p1.4", "The journey felt long and dull."),))
     assert not any("p1.4" in f.claim_ids or "p1.0" in f.claim_ids for f in rc.findings if f.code == "INT-REQ-006")
 
 

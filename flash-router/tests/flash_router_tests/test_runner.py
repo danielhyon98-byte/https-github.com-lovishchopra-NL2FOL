@@ -66,6 +66,40 @@ def test_a_bad_data_directory_or_an_unreadable_request_is_a_named_exit_status_ne
     assert proc.returncode == status and proc.stdout == "" and proc.stderr.startswith("epinoic-flash-router:"), proc.stderr
 
 
+_DEEP = 200_000  # far deeper than the interpreter's recursion limit: json raises RecursionError while decoding
+_VECTOR = json.loads((PROJECT / "tests" / "vectors" / "router-port" / "risky-duplicate.json").read_text(encoding="utf-8"))["request"]
+_REPEATED_KEY = {**_VECTOR, "outputs": _VECTOR["outputs"] * 2}  # one transfer key twice: out of the router port's contract
+
+
+@pytest.mark.parametrize("op,stdin,named", [
+    ("plan", "[" * _DEEP, "RecursionError"),                                         # the finding's case: a nested JSON array
+    ("pool-plan", "[" * _DEEP, "RecursionError"),
+    ("plan", '{"a":' * _DEEP, "RecursionError"),                                    # a nested JSON object
+    ("pool-plan", json.dumps({**POOL_REQUEST, "limits": {**POOL_REQUEST["limits"], "per_instance_quota": 0}}), "ZeroDivisionError"),
+    ("pool-plan", json.dumps({**POOL_REQUEST, "port_version": "1.2",
+                              "items": [{**POOL_REQUEST["items"][0], "features": {"transfers": 1, "chars": 1, "stem": False, "translations": 0}}]})
+     .replace('"chars": 1,', '"chars": Infinity,'), "OverflowError"),           # a number out of range (JSON's Infinity)
+    ("plan", json.dumps(_REPEATED_KEY), "ValueError"),                               # one transfer key twice (port rule 1)
+])
+def test_an_input_the_runner_cannot_read_is_exit_3_with_its_reason_never_a_traceback(op, stdin, named):
+    """The documented statuses are 0, 2 and 3, with the reason on standard error and never a traceback: a request nested
+    too deep to decode (RecursionError, which the runner did not catch: exit 1 with a traceback), and every other exception
+    a request makes the pure planner raise, is exit 3 naming its type."""
+    proc = _run(op, stdin=stdin)
+    assert (proc.returncode, proc.stdout) == (3, ""), proc.stderr[-2000:]
+    assert proc.stderr == f"epinoic-flash-router: the input is not a request this router reads ({named})\n", proc.stderr[-2000:]
+
+
+def test_a_data_directory_nested_too_deep_to_decode_is_exit_2_never_a_traceback(tmp_path):
+    dest = tmp_path / "data"
+    shutil.copytree(rules.DATA_DIR, dest)
+    (dest / "MANIFEST.json").write_text("[" * _DEEP, encoding="utf-8")
+    for args, stdin in ((("hello", "--data", str(dest)), ""), (("pool-plan", "--data", str(dest)), json.dumps(POOL_REQUEST))):
+        proc = _run(*args, stdin=stdin)
+        assert (proc.returncode, proc.stdout) == (2, ""), proc.stderr[-2000:]
+        assert proc.stderr == "epinoic-flash-router: the data cannot be loaded (RecursionError)\n", proc.stderr[-2000:]
+
+
 def test_the_runner_package_imports_nothing_but_argparse_sys_typing_and_the_router():
     allowed = {"__future__", "argparse", "sys", "typing", "epinoic_flash_router"}
     for p in sorted((PROJECT / "src" / "epinoic_flash_router_cli").glob("*.py")):

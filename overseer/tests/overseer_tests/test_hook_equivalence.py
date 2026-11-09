@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.integrity import AgentRole
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.api.integrity import AgentRole
 
 from . import conftest as cf
 from .conftest import CFG, DOC, EN_INPUT, KEY, english_report, make_auditor, make_plan, run_task

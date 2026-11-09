@@ -3,9 +3,10 @@ delivered text, and a synthesis accounts for the reports as delivered and names 
 from __future__ import annotations
 
 import epinoic_logic.channel.bus as bus
-from epinoic_logic.channel import TransmissionStatus
-from epinoic_logic.integrity import AgentRole, IntegrityFinding, SynthesizedClaim
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText
+from epinoic_logic.api.channel import TransmissionStatus
+from epinoic_logic.api.integrity import SynthesizedClaim
+from epinoic_logic.api.integrity import AgentRole, IntegrityFinding
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText
 
 from .conftest import (
     DOC, HI_INPUT, HI_TEXT, default_synthesis, english_report, findings, int_problem, ovs_errors, run_task,

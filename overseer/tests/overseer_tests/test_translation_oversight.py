@@ -15,20 +15,20 @@ from fractions import Fraction
 
 import pytest
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.channel import TransmissionStatus
-from epinoic_logic.engine import verify
-from epinoic_logic.ir.canonical import canonical_json
-from epinoic_logic.ir.schema import Problem
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.channel import TransmissionStatus
+from epinoic_logic.api.engine import verify
+from epinoic_logic.api.ir import canonical_json, Problem
 from epinoic_overseer import TranslationAudit
 from epinoic_overseer.audit import verify_audit
 from epinoic_overseer.checks import translation as T
 from epinoic_overseer.policy import may_act
-from epinoic_logic.translate.contracts import EligibilityClass, EligibilityDecision, ProviderInfo, TranslationStatus, sha256_text
-from epinoic_logic.translate.outcome import compose_outcome, verify_claim
+from epinoic_logic.api.translate import EligibilityClass, EligibilityDecision, ProviderInfo
+from epinoic_logic.api.translate import TranslationStatus, sha256_text, compose_outcome
+from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
-from epinoic_logic.version import POLICY_VERSION
+from epinoic_logic.api.engine import POLICY_VERSION
 
 from .conftest import (CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, make_plan, new_channel, withheld_as_circular_by_the_translator,
                        without_the_translators_circularity_gate)

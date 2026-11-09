@@ -13,12 +13,11 @@ from typing import Any, Optional
 import pytest
 
 import epinoic_logic.branches.hub as hub_module
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.branches.hub import AuditorNotAttached, HubClosed
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.integrity import AgentRole
+from epinoic_logic.api.branches import RouterHub, AuditorNotAttached, HubClosed
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.api.integrity import AgentRole
 from epinoic_overseer import EngineKey, KeyRing, TransferAuditor, verify_audit
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText
 
 from .conftest import (
     CFG, DOC, EN_INPUT, EN_TEXT, HI_INPUT, HI_TEXT, KEY, OTHER_KEY, SECRET, codes_of, default_synthesis, english_report, int_problem, make_auditor,

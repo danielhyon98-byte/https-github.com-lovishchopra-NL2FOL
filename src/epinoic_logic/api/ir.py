@@ -10,9 +10,15 @@ from ._lazy import exports
 
 #: public name -> (internal module, attribute; None: the module itself)
 EXPORTS: dict[str, tuple[str, str | None]] = {
+    'ALLOWED_OPS': ('epinoic_logic.ir.schema', 'ALLOWED_OPS'),
+    'Assertion': ('epinoic_logic.ir.schema', 'Assertion'),
     'DEFAULT_LIMITS': ('epinoic_logic.ir.schema', 'DEFAULT_LIMITS'),
     'Expr': ('epinoic_logic.ir.schema', 'Expr'),
+    'IntConst': ('epinoic_logic.ir.schema', 'IntConst'),
+    'Limits': ('epinoic_logic.ir.schema', 'Limits'),
     'Problem': ('epinoic_logic.ir.schema', 'Problem'),
+    'RealConst': ('epinoic_logic.ir.schema', 'RealConst'),
+    'SourceRef': ('epinoic_logic.ir.schema', 'SourceRef'),
     'canonical_json': ('epinoic_logic.ir.canonical', 'canonical_json'),
     'problem_digest': ('epinoic_logic.ir.canonical', 'problem_digest'),
     'sha256_hex': ('epinoic_logic.ir.canonical', 'sha256_hex'),

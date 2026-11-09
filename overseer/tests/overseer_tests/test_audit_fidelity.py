@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from epinoic_logic.channel import TranslatorChannel
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.channel import TranslatorChannel
+from epinoic_logic.api.ir import SourceRef
 from epinoic_overseer.checks import normalise
 from epinoic_overseer.checks.fidelity import FIDELITY_RULES, claim_occurs, strip_enclosing_quotes, strip_trailing_punctuation
 from epinoic_overseer.checks.selfcert import flags_self_certification
-from epinoic_logic.translate.contracts import SuppliedText
+from epinoic_logic.api.translate import SuppliedText
 
 from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, english_report, findings, make_auditor, new_channel, ovs_errors
 
@@ -48,7 +48,7 @@ def test_named_rules_are_listed():
 
 
 def test_rule_contract_cut():
-    from epinoic_logic.adapters.markdown import truncate_claim_text
+    from epinoic_logic.api.adapters import truncate_claim_text
     long_sentence = "The mill " + "turned and " * 600 + "stopped."
     cut = truncate_claim_text(long_sentence)
     assert cut.endswith("...") and len(cut) <= 4000
@@ -176,7 +176,7 @@ def test_t8_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
     # Rewritten for the translator merge (every assertion kept): the recorded round-5 phrasings this test used are now
     # caught by the merged adapters' detector (next test), so FID-009, the auditor's heuristic for what the detector
     # misses, is asserted on phrasings the merged detector misses.
-    from epinoic_logic.adapters.markdown import is_self_certification
+    from epinoic_logic.api.adapters import is_self_certification
     assert not is_self_certification(sentence)  # the adapters' detector misses it
     claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
     _ch, rc, audit = _send(auditor, english_report(EN_TEXT + " " + sentence, _claims(claim)))
@@ -191,7 +191,7 @@ def test_t8_r5_phrasings_the_merged_detector_catches_are_fid_005(auditor, senten
     """The round-5 phrasings, delivered as content: the merged detector flags each, so the channel names the claim
     (ES-META-001 on the structured path) and the auditor reports the self-report delivered as content as FID-005, the
     error, exactly as for any phrasing the detector knows (test_t8b); FID-009 is not raised beside it."""
-    from epinoic_logic.adapters.markdown import is_self_certification
+    from epinoic_logic.api.adapters import is_self_certification
     assert is_self_certification(sentence)
     claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
     _ch, rc, audit = _send(auditor, english_report(EN_TEXT + " " + sentence, _claims(claim)))

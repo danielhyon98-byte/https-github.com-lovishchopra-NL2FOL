@@ -6,9 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.integrity import WorkPlan
-from epinoic_logic.ir.schema import SourceRef
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan
+from epinoic_logic.api.ir import SourceRef
 
 from .conftest import CFG, DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, make_auditor, make_plan
 

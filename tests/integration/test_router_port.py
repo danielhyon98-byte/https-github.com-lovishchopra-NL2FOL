@@ -223,6 +223,40 @@ def test_a_combined_answer_below_its_n_fold_floor_is_refused():
     assert _plan_code(raw_req, plan) == "KIT-RT-007"
 
 
+#: ``minimum-oversight-floor/1``'s rules digest, as released (the handshake and every floor plan report it).
+FLOOR_1_RULES_SHA256 = "78d4ce57d86e8f343eadfe00bda19e0383e18c4db9340425ac6b1aca4c454045"
+
+
+def test_floor_1_is_never_changed_in_place():
+    """Decision D29: a floor is only ever raised, and only by a new floor version with its own digest and vectors. So the
+    rules of ``minimum-oversight-floor/1`` are pinned by their released digest: a change of them (such as holding the
+    N_FOLD context bound at exactly 65,536 bytes, as the pool's floor pool-2 does: architecture lenses after arena round
+    8) cannot ship under floor/1's name, which the handshake reports and the website's patch set checks."""
+    if R.FLOOR_NAME == "minimum-oversight-floor/1" or R.FLOOR_IDENTITY.version == "1":
+        assert (R.FLOOR_NAME, R.FLOOR_IDENTITY.name, R.FLOOR_IDENTITY.version) == ("minimum-oversight-floor/1", "minimum-oversight-floor", "1")
+        assert R.FLOOR_RULES_SHA256 == FLOOR_1_RULES_SHA256 and R.FLOOR_REF.rules_sha256 == FLOOR_1_RULES_SHA256
+    else:  # a new floor version: its own digest, never floor/1's
+        assert R.FLOOR_RULES_SHA256 != FLOOR_1_RULES_SHA256 and R.FLOOR_RULES.startswith(R.FLOOR_NAME + "\n")
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "open (architecture lenses after arena round 8, minor): minimum-oversight-floor/1 bounds the N_FOLD context at most "
+    "65,536 bytes, so it adopts a plan bounded lower, which the pool's floor (pool-2) refuses with KIT-RT-020; holding "
+    "the bound exactly raises the floor, which only a new floor version may do (decision D29; the website's patch set "
+    "checks the floor's name at the handshake): integration/PROTOCOL.md section 7a.4"))
+def test_an_n_fold_context_bound_below_65536_bytes_is_refused_as_the_pool_s_floor_refuses_it():
+    """The finding's case ctx1 (a rules file with ``context_max_bytes`` 1), as the plan it produces: the merged review of
+    a combined answer with a temporary context bounded at 1 byte, and at 65,535 bytes. Once the floor holds the bound
+    exactly, both are refused with KIT-RT-020 and the floor plan runs with its 65,536 bytes."""
+    raw_req = combined_request()
+    for bound in (1, R.CONTEXT_MAX_BYTES - 1):
+        plan = plan_for(raw_req, [{"transfer_key": "m-h"}, {"transfer_key": "m-e"},
+                                  {"transfer_key": "m-s", "method": "N_FOLD", "sources": ["m-h", "m-e"], "context": {**NFOLD_CONTEXT, "max_bytes": bound}}])
+        adm = R.admit_plan(R.check_request(raw_req), plan, hello=HELLO)
+        assert (adm.origin, adm.refusal) == ("floor", "KIT-RT-020"), bound
+        assert adm.effective.transfers[2].context.max_bytes == R.CONTEXT_MAX_BYTES
+
+
 def test_above_floor_plans_are_adopted():
     raw_req = routing_request([output_features("m-1", chars=40000)])
     for entry in ({"transfer_key": "m-1", "method": "SPLIT", "parts": 4, "reasons": ["volume_split"]},

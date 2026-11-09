@@ -31,7 +31,8 @@ one the intake accepts. The assessment records the verdict's pack identity.
 5. **Unresolved** (AGENT-004, human review): a kind no check decides (``translation_unfaithful``, ``other``); or a
    check that could not decide (coverage lost, a result evicted or not decisively replayed, a degraded or digest-only
    journal, a peer link by text equality only, claims no engine check compares, no live channel for a custody check,
-   the shadow not run, a translation check that did not run on the named claim's translation).
+   the shadow not run, a translation check that did not run on the named claim's translation, a synthesized claim's
+   content the ledger does not hold to its source, a fault the synthesis receipt already names).
 
 Every **engine statement** is compared with the stored result: a different status, or an unknown result id asserted as
 existing, is AGENT-001 (``signed_result`` when the stored result's signature verifies); a pointer that does not
@@ -81,6 +82,15 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 9.5, listed as each stage re
   claim cites (whether the synthesis carries a fault no source review confirmed is for a human), when the citation is not
   shown to be the recorded report's claim (above), or when the context is not available (discarded, edited, or not the
   dossier's);
+* ``synthesis_ledger_fault`` is refuted only for what its checks decide (architecture review after arena round 8:
+  :func:`_synthesis_ledger_gap`). OVS-SYN-001 and OVS-SYN-002 decide a synthesis's accounting, its certainty field and
+  its figures, quotations, names and comparison directions, and OVS-SYN-002 names only what the receipt lacks. So an
+  accusation naming a synthesized claim whose content the ledger does not hold to its one cited source's text (rule
+  ``ledger-content``: every transformation but a ``carried`` claim with one source and its text unchanged; a claim the
+  synthesis adds while citing an unrelated source, a hedge dropped in words), or naming a claim an INT-LEDGER finding of
+  the synthesis receipt already names (rule ``receipt-named``: the accusation agrees with the channel's own finding), is
+  unresolved (human review), never refuted. An accusation naming no such claim (a dropped claim, an undelivered report,
+  inflated certainty the receipt does not name) is refuted as before when the checks find nothing;
 * the ``verdicts`` audit names the task audit (and the superseding one) and the assessment digest in its coverage notes
   (``OverseerAudit`` has no field for them); its ``supersedes`` is None (verdicts of different agents do not
   supersede each other);
@@ -607,7 +617,76 @@ def _coverage_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) 
         gap = _translation_gap(kind, ids, base, ctx)
         if gap is not None:
             return gap
+    if kind == "synthesis_ledger_fault":
+        gap = _synthesis_ledger_gap(ids, ctx)
+        if gap is not None:
+            return gap
     return None
+
+
+#: The transformations whose synthesized claim the ledger holds to its one cited source's text (INT-LEDGER-010 names any
+#: change): only such a claim's content is decided by the checks behind ``synthesis_ledger_fault`` (rule ``ledger-content``).
+VERBATIM_TRANSFORMATIONS = frozenset({"carried"})
+
+
+def _synthesis_ledger_gap(ids: dict[str, list[str]], ctx: "_Ctx") -> Optional[str]:
+    """Why OVS-SYN-001 and OVS-SYN-002, the checks behind ``synthesis_ledger_fault``, cannot decide an accusation naming
+    these claims, or None (architecture review after arena round 8, on the journaled syntheses that hold a named claim):
+
+    * rule ``ledger-content``: OVS-SYN-002 re-derives the ledger's error-level findings, which read a synthesis's
+      accounting (reports, citations, dropped claims, evidence references), its certainty field, and its figures,
+      quotations, names and a comparison's direction; never whether a synthesized claim states what its cited sources
+      state. So an accusation naming a synthesized claim whose content the ledger does not hold to its source (any claim
+      but a ``carried`` one with one cited source whose text is that source's, INT-LEDGER-010 naming no change) is about a
+      meaning no check decides: a claim the synthesis adds while citing an unrelated source, a hedge it drops in words;
+    * rule ``receipt-named``: OVS-SYN-002 names only a ledger fault the synthesis receipt LACKS, so an accusation of a
+      fault the receipt itself names (an INT-LEDGER finding, error or warning, on a claim the accusation names) is never
+      refuted by its silence: the accusation agrees with the channel's own finding, which the router already holds.
+
+    Either leaves the accusation unresolved (human review), never refuted; an agent's word still confirms nothing."""
+    named = set(ids.get("claim_ids", ()))
+    if not named:
+        return None
+    from types import SimpleNamespace
+    from epinoic_logic.api.integrity import check_synthesis_ledger
+    from .checks.synthesis import _request_texts, ledger_scope
+    content: list[str] = []
+    on_receipt: list[str] = []
+    for t in ctx.view.transfers:
+        syn = t.synthesis
+        if t.kind != "relay_synthesis" or syn is None or not t.delivered:
+            continue
+        rc = t.receipt
+        for f in (getattr(rc, "findings", None) or []) if rc is not None else []:
+            hit = sorted(named & set(f.claim_ids))
+            if str(f.code).startswith("INT-LEDGER") and f.severity in ("error", "warning") and hit:
+                on_receipt.append(f"{f.code} ({f.severity}) on {', '.join(hit)}")
+        mine = [c for c in syn.claims if c.claim_id in named]
+        if not mine:
+            continue
+        changed: Optional[set[str]] = None
+        for c in mine:
+            if c.transformation not in VERBATIM_TRANSFORMATIONS or len(c.source_claim_ids) != 1:
+                content.append(f"{c.claim_id} ('{c.transformation}' from {len(c.source_claim_ids)} source claim(s))")
+                continue
+            if changed is None:  # the ledger's own reading of a changed carry, once per synthesis, on the journaled reports
+                shim = SimpleNamespace(view=ctx.view)
+                try:
+                    found = check_synthesis_ledger(ledger_scope(shim, t), syn, extra_texts=_request_texts(shim, t.seq))
+                    changed = {cid for f in found if f.code == "INT-LEDGER-010" for cid in f.claim_ids}
+                except Exception:  # noqa: BLE001 - a re-check that cannot run decides nothing: the content stays undecided
+                    changed = {c2.claim_id for c2 in mine}
+            if c.claim_id in changed:
+                content.append(f"{c.claim_id} ('carried' with its text changed)")
+    reasons = []
+    if content:
+        reasons.append(f"rule ledger-content: whether synthesized claim(s) {'; '.join(sorted(set(content))[:8])} state what their cited sources state "
+                       "is a question of meaning: the checks of the kind (OVS-SYN-001, OVS-SYN-002) read a synthesis's accounting, certainty field, "
+                       "figures, quotations, names and comparison directions, never added or reworded content")
+    if on_receipt:
+        reasons.append(f"rule receipt-named: the synthesis receipt itself names {'; '.join(sorted(set(on_receipt))[:6])}, and OVS-SYN-002 names only a "
+                       "ledger fault a receipt lacks: the accusation agrees with the channel's own finding, so its silence refutes nothing")
+    return "; ".join(reasons) if reasons else None
 
 
 def _translation_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) -> Optional[str]:

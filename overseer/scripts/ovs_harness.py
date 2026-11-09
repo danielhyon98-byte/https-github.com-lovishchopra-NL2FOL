@@ -42,8 +42,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
 
-from epinoic_logic.channel.events import CapturedResult, ChannelEvent, PoolEntry
-from epinoic_logic.ir.canonical import canonical_json
+from epinoic_logic.api.channel import ChannelEvent, PoolEntry
+from epinoic_logic.api.engine import CapturedResult
+from epinoic_logic.api.ir import canonical_json
 from epinoic_overseer import EngineKey, KeyRing, OverseerAudit, TransferAuditor, verify_audit
 
 #: The overseer sub-project (this harness is its ``scripts/``).
@@ -476,7 +477,7 @@ def recorded_claim_ids(report: Any) -> dict[str, str]:
     a STEM-branch report's claim takes the generic parser's id of the claim at the same place, whose text must be the
     same (the merged STEM parsers deliver the generic parser's claims of such an answer, claim by claim, under their own
     letter). A STEM report whose claims are not the generic parser's is refused (``HarnessError``): no id is guessed."""
-    from epinoic_logic.branches import default_registry
+    from epinoic_logic.api.branches import default_registry
     from epinoic_logic.branches.generic_parser import GenericTextParser
     ids = [c.claim_id for c in report.claims]
     branch, _ = default_registry().for_subject(report.subject)
@@ -494,8 +495,8 @@ def recorded_claim_ids(report: Any) -> dict[str, str]:
 def deliver_recorded_answer(items: list[dict], item: dict) -> tuple[Any, Any]:
     """One recorded answer parsed as the arena's genuine pass delivers it (a hub task with the item's group plan, the
     item's own supplied texts, the arena's key and configuration, no translation): ``(delivered report, receipt)``."""
-    from epinoic_logic.branches import RouterHub
-    from epinoic_logic.translate.contracts import SpecialistReport
+    from epinoic_logic.api.branches import RouterHub
+    from epinoic_logic.api.translate import SpecialistReport
     A = arena()
     group = A.group_of(item)
     hub = RouterHub(signing_key=A.KEY, config=A.CFG)
@@ -540,9 +541,9 @@ def recorded_delivery(item: dict, plan: Any, fixtures: Optional[dict[str, Any]] 
     of ``plan`` (a ``WorkPlan`` or its JSON: the arena's group plan) with the arena's key and configuration, every recorded
     fixture of ``fixtures`` (recorded claim id -> the provider's JSON) served, through the translator's real pipeline and
     the engine, to the claim the merged parse delivers for it (:func:`recorded_claim_ids`, :func:`rekeyed_fixture`)."""
-    from epinoic_logic.branches import RouterHub
-    from epinoic_logic.integrity import WorkPlan
-    from epinoic_logic.translate.contracts import SpecialistReport
+    from epinoic_logic.api.branches import RouterHub
+    from epinoic_logic.api.integrity import WorkPlan
+    from epinoic_logic.api.translate import SpecialistReport
     from epinoic_logic.translate.outcome import verify_claim
     from epinoic_logic.translate.pipeline import Translator
     from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
@@ -550,7 +551,7 @@ def recorded_delivery(item: dict, plan: Any, fixtures: Optional[dict[str, Any]] 
     plan = plan if isinstance(plan, WorkPlan) else WorkPlan.model_validate(plan)
     fixtures = dict(fixtures or {})
 
-    from epinoic_logic.channel.bus import CLAIM_OUT_OF_SCOPE
+    from epinoic_logic.api.channel import CLAIM_OUT_OF_SCOPE
 
     def serve(claim, report):
         rid = recorded_claim_ids(report).get(claim.claim_id)
@@ -771,8 +772,8 @@ class ScriptedProvider:
 
     def complete(self, system: str, user: str, *, prompt_version: str):
         import time as _time
-        from epinoic_logic.translate.contracts import ProviderInfo
-        from epinoic_logic.translate.providers import ProviderResponse
+        from epinoic_logic.api.translate import ProviderInfo
+        from epinoic_logic.api.translate import ProviderResponse
         t0 = _time.perf_counter()
         self.calls.append((system, user, prompt_version))
         out = self.reply(dossier_of_user_text(user))

@@ -31,8 +31,8 @@ from epinoic_overseer.consolidate import answer_facts
 from epinoic_overseer.dossier import dossier_digest
 from epinoic_overseer.pool import HARD_MAX_INSTANCES, OverseerPool, PoolConfig, PoolItem, PoolPlan, plan_pool
 from epinoic_overseer.repeats import content_form
-from epinoic_logic.translate.contracts import ProviderInfo, TranslationStatus
-from epinoic_logic.translate.providers import ProviderResponse
+from epinoic_logic.api.translate import ProviderInfo
+from epinoic_logic.api.translate import TranslationStatus, ProviderResponse
 
 from .conftest import DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, HI_INPUT, HI_TEXT, english_report, int_problem, make_plan, problems_fn
 from .test_consolidation_consolidate import BAD_CLAIM, Dup, hours_fn
@@ -83,8 +83,8 @@ def ptr(d: dict, kind: str, ident: str, contains: str = "") -> str:
 
 def drive(hub, *, en_fn=None, hi_fn=None, en_report=None, synthesis: bool = False) -> HubTask:
     """The synthetic task through the hub, with the engine runs of each side chosen by the test."""
-    from epinoic_logic.integrity import AgentRole
-    from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText
+    from epinoic_logic.api.integrity import AgentRole
+    from epinoic_logic.api.translate import SpecialistReport, SuppliedText
     from .conftest import default_synthesis
     plan = make_plan()
     ch = hub.open_task(plan)

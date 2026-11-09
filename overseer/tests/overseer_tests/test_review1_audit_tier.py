@@ -17,13 +17,12 @@ import pathlib
 import uuid
 
 import epinoic_logic
-from epinoic_logic.channel import TranslatorChannel
+from epinoic_logic.api.channel import TranslatorChannel
 from epinoic_logic.engine import sink
-from epinoic_logic.engine.provenance import sign_result
-from epinoic_logic.engine.statuses import VerificationStatus as S
+from epinoic_logic.api.engine import sign_result, VerificationStatus as S
 from epinoic_overseer import JournalSet, may_act, may_release
 from epinoic_overseer.checks.receipts import FIXED_SEVERITY, VARIABLE_SEVERITY
-from epinoic_logic.translate.outcome import compose_outcome
+from epinoic_logic.api.translate import compose_outcome
 
 from .conftest import (
     DOC, EN_CLAIMS, EN_INPUT, EN_TEXT, KEY, english_report, findings, int_problem, make_auditor, make_keyring, new_channel, problems_fn, run_task,

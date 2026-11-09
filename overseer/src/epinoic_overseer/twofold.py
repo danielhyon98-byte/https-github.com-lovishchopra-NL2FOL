@@ -19,10 +19,15 @@ overseer reviews it in N + 1 parts instead of as one dossier:
    records: per source its specialist, its delivered report and message ids, how many verdicts were assessed, and each
    CONFIRMED fault as its accusation kind and the identifiers its confirming findings cover (the claims, reports,
    messages, documents and results it concerns), each claim pinned to the one report its confirming findings name (a
-   revision keeps its claims' ids, so the id alone does not say which report's claim was faulty). Never an agent's prose (statements and notes are never copied), never
-   an ``OVS`` code, an auditor finding, a consolidation result, a signature outcome or a fault label (nothing a blind
-   dossier hides), and no refuted, unverifiable or unresolved accusation. It is **scoped** to the request (its channel,
-   task and request; a dossier of any other channel, task or request is refused it), **bounded** (its canonical JSON at
+   revision keeps its claims' ids, so the id alone does not say which report's claim was faulty). Never an agent's prose
+   (statements and notes are never copied), never an ``OVS`` code, a finding's text, a consolidation result or a fault
+   label, and no refuted, unverifiable or unresolved accusation. What it does disclose, in both modes, is that a
+   deterministic check confirmed each listed fault (its kind and identifiers). A BLIND merged review's context leaves out
+   every fault whose kind only a signature verification, a replay or a custody comparison decides
+   (:data:`BLIND_HIDDEN_KINDS`: a blind dossier never shows a signature-verification outcome or an auditor finding;
+   architecture review after arena round 8), so a blind merged reviewer learns of a source's content faults only. It is
+   **scoped** to the request (its channel, task and request; a dossier of any other channel, task or request is refused
+   it), **bounded** (its canonical JSON at
    most the plan's bound, 65,536 bytes at the floor; past it the last records are cut and counted, ``omitted``, and the
    record says ``complete: false``), **recorded** in the signed verdicts audit of the review (its digest, size, bound,
    scope and every record), and **discarded** after the request (:meth:`TemporaryContext.discard`: its records and the
@@ -63,7 +68,7 @@ from .verdicts import ACCUSATION_KINDS, ID_FIELDS, IDENTIFIER_PATTERN
 __all__ = [
     "CONTEXT_FORMAT", "CONTEXT_MAX_BYTES", "N_FOLD_MIN_PACK_MAJOR", "teaches_n_fold", "SourcePart", "CombinedLayout", "combined_layout", "part_view", "features_of", "part_reading",
     "pool_item", "ContextFault", "ContextSource", "ContextScope", "TemporaryContextRecord", "TemporaryContext", "TwofoldPart", "TwofoldReview",
-    "run_twofold", "review_scope",
+    "run_twofold", "review_scope", "BLIND_HIDDEN_KINDS",
 ]
 
 CONTEXT_FORMAT = "overseer-temporary-context/1.0"
@@ -72,6 +77,11 @@ CONTEXT_FORMAT = "overseer-temporary-context/1.0"
 N_FOLD_MIN_PACK_MAJOR = 2
 #: The temporary context's bound at the floor (the router port's ``CONTEXT_MAX_BYTES``).
 CONTEXT_MAX_BYTES = 65536
+#: The accusation kinds that only a signature verification, a replay or a custody comparison of the live objects with the
+#: journal decides (their ``KIND_CHECKS``: OVS-RES-*, OVS-CUST-*, the receipt's digest and statement checks): a blind
+#: dossier never shows such an outcome, so a blind merged review's temporary context leaves them out (step 3).
+BLIND_HIDDEN_KINDS: frozenset[str] = frozenset({"result_unsigned_or_forged", "replay_differs", "result_from_other_problem", "result_out_of_task",
+                                                "payload_altered", "receipt_altered"})
 _STEM_BRANCHES = frozenset({"sciences", "mathematics", "computer_science"})
 _REPORT_KINDS = ("response", "response_text", "relay_report")
 
@@ -350,13 +360,18 @@ class TemporaryContext:
         self.discarded = True
 
     @classmethod
-    def build(cls, layout: CombinedLayout, assessments: Mapping[int, Sequence[Any]], *, max_bytes: int = CONTEXT_MAX_BYTES) -> "TemporaryContext":
+    def build(cls, layout: CombinedLayout, assessments: Mapping[int, Sequence[Any]], *, max_bytes: int = CONTEXT_MAX_BYTES,
+              mode: str = "informed") -> "TemporaryContext":
         """The context of ``layout`` from the validated assessments of each source review (``source index -> assessments``):
         only valid assessments, only confirmed accusations, each as its kind and the identifiers its confirming findings
         cover, with the report each claim is pinned to (:func:`_pinned_reports`), deduplicated, in source order then kind
-        and identifier order; cut from the end to the bound."""
+        and identifier order; cut from the end to the bound. In ``blind`` mode no fault of a kind in
+        :data:`BLIND_HIDDEN_KINDS` is shown (nor decides anything through the context)."""
         if not 1 <= int(max_bytes) <= CONTEXT_MAX_BYTES:
             raise ValueError(f"the temporary context's bound is 1 to {CONTEXT_MAX_BYTES} bytes")
+        if mode not in ("blind", "informed"):
+            raise ValueError(f"unknown review mode {mode!r}")
+        hidden = BLIND_HIDDEN_KINDS if mode == "blind" else frozenset()
         sources: list[dict] = []
         flat: list[tuple[int, dict, dict[tuple[str, str], list[Any]]]] = []  # (source, shown record, its confirming references)
         for part in layout.sources:
@@ -364,7 +379,7 @@ class TemporaryContext:
             faults: dict[str, tuple[dict, dict[tuple[str, str], list[Any]]]] = {}
             for va in valid:
                 for acc in va.accusations:
-                    if acc.outcome != "confirmed" or acc.kind not in ACCUSATION_KINDS:
+                    if acc.outcome != "confirmed" or acc.kind not in ACCUSATION_KINDS or acc.kind in hidden:
                         continue
                     ids = acc.covered_identifiers if acc.covered_identifiers and any(acc.covered_identifiers.values()) else acc.identifiers
                     rec = {"kind": acc.kind, **{k: sorted(dict.fromkeys(ids.get(k, []))) for k in ID_FIELDS if k != "receipt_ids"}}
@@ -543,7 +558,7 @@ def run_twofold(*, layout: CombinedLayout, view: Any, plan_twofold: Any, runners
                                         combined=combine(by_source[p.index]) if by_source[p.index] else None, refused=tuple(refused[p.index]),
                                         runner_errors=tuple(errors[p.index]), dossier_sha256=tuple(digests[p.index])))
     # 3. the temporary context of what validation accepted, scoped, bounded
-    ctx = TemporaryContext.build(layout, by_source, max_bytes=int(plan_twofold.context_max_bytes))
+    ctx = TemporaryContext.build(layout, by_source, max_bytes=int(plan_twofold.context_max_bytes), mode=mode)
     record = ctx.record
     try:
         merged_part, carried = _merged_review(layout=layout, view=view, plan_twofold=plan_twofold, runners=runners, intake=intake, mode=mode,

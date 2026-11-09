@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -86,16 +87,46 @@ def _named_policies_merged() -> bool:
     return getattr(policies, "NAMED_POLICIES", None) is not None and callable(getattr(policies, "named_policy", None))
 
 
+def _found_by_the_service(module: str) -> bool:
+    """``module`` is located where the service started from this tree imports it, in a process with this tree's source
+    roots on its path and no ``EPINOIC_`` variable (as ``readiness/check.py`` ``_py`` starts the service): the top-level
+    package by ``importlib.util.find_spec``, a submodule by the path finder in that package's own locations, so nothing
+    is imported (a broken overseer import still fails the tests that expect it to start). An overseer installed as a
+    package (as after its split, ``overseer/README.md``) counts as well as the sub-project ``overseer/`` (architecture
+    lenses after arena round 8: G1 finds the overseer the way the service does)."""
+    roots = [ROOT / "src"] + [ROOT / sub / "src" for sub in ("overseer", "flash-router") if (ROOT / sub / "src").is_dir()]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
+    env["PYTHONPATH"] = os.pathsep.join(str(r) for r in roots)
+    code = ("import importlib.machinery, importlib.util, sys\n"
+            f"name = {module!r}\n"
+            "head, _, tail = name.partition('.')\n"
+            "spec = importlib.util.find_spec(head)\n"
+            "if spec is not None and tail:\n"
+            "    spec = importlib.machinery.PathFinder.find_spec(name, list(spec.submodule_search_locations or []))\n"
+            "sys.exit(0 if spec is not None else 1)\n")
+    return subprocess.run([sys.executable, "-P", "-c", code], env=env, capture_output=True, timeout=120).returncode == 0
+
+
 def _overseer_merged() -> bool:
     """The overseer package is on this tree (the second translator merge joined the overseer build, OVERSEER_DESIGN
-    section 44; since architecture step 2 of phase 2 it is the sub-project ``overseer/``)."""
-    return (ROOT / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists() or (ROOT / "overseer" / "src" / "epinoic_overseer" / "__init__.py").exists()
+    section 44; since architecture step 2 of phase 2 it is the sub-project ``overseer/``), or installed where the
+    service imports it (:func:`_found_by_the_service`)."""
+    return ((ROOT / "src" / "epinoic_logic" / "overseer" / "__init__.py").exists() or (ROOT / "overseer" / "src" / "epinoic_overseer" / "__init__.py").exists()
+            or _found_by_the_service("epinoic_overseer"))
 
 
 def _overseer_port_connected() -> bool:
-    """The embedded overseer port adapter (``epinoic_overseer.port``, the overseer sub-project's) is on this tree: phase 2
-    connected it (architecture step 2), so the service's preflight passes."""
-    return (ROOT / "overseer" / "src" / "epinoic_overseer" / "port.py").exists()
+    """The embedded overseer port adapter (``epinoic_overseer.port``, the overseer sub-project's) is on this tree, or
+    an installed overseer's is where the service imports it (:func:`_found_by_the_service`): phase 2 connected it
+    (architecture step 2), so the service's preflight passes."""
+    return (ROOT / "overseer" / "src" / "epinoic_overseer" / "port.py").exists() or _found_by_the_service("epinoic_overseer.port")
+
+
+def _predates_phase_2() -> bool:
+    """This tree's contract line (``docs/integration-contract.md``) is older than 0.5: a pre-build commit, the only kind
+    whose rows carry the "(connected in phase 2: ...)" mark."""
+    m = re.search(r"Contract version:\*\* ([0-9.]+)", (ROOT / "docs" / "integration-contract.md").read_text(encoding="utf-8"))
+    return m is not None and tuple(int(x) for x in m.group(1).split(".")) < (0, 5)
 
 
 def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router():
@@ -122,10 +153,20 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
     the preflight row names KIT-HS-006; after it (this branch since 17 October 2026) the overseer package is the only
     one, and the preflight row names KIT-HS-007 (the overseer port adapter). After the second translator merge (the
     overseer package on this tree) G1 has no BLOCKER, and the preflight row still names KIT-HS-007 with its mark: only
-    the overseer port adapter, which phase 2 connects, causes it."""
+    the overseer port adapter, which phase 2 connects, causes it.
+
+    Rewritten to a stricter rule after arena round 8's architecture review: the mark is the pre-build state's, so it is
+    given only on a tree whose contract line predates 0.5 (the assertions above hold there unchanged); on a 0.5 tree no
+    row carries it, and a part missing there (the overseer not where the service imports it, as after a split without
+    the overseer installed) is a BLOCKER that names a defect of the commit. The overseer and its port adapter count as
+    present where the service finds them (:func:`_found_by_the_service`)."""
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--g1", str(ROOT)], capture_output=True, text=True, timeout=120)
     blockers = [line for line in out.stdout.splitlines() if "  BLOCKER  " in line]
-    assert all("(connected in phase 2: " in line for line in blockers), out.stdout
+    pre = _predates_phase_2()
+    if pre:
+        assert all("(connected in phase 2: " in line for line in blockers), out.stdout
+    else:  # a tree whose contract line is 0.5: no row carries the mark, and a BLOCKER names a defect of the commit
+        assert "connected in phase 2" not in out.stdout and all("a defect of this commit" in line for line in blockers), out.stdout
     merged = _named_policies_merged()
     if merged and _overseer_merged():
         # the second translator merge: G1 has no BLOCKER left; the service still refuses with KIT-HS-007, which only the
@@ -144,8 +185,11 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
         assert "PASS" in preflight and preflight.rstrip().endswith("ready"), out.stdout
     else:
         stop = "KIT-HS-007 overseer_unavailable" if merged else "KIT-HS-006"
-        assert "BLOCKER" in preflight and stop in preflight and "(connected in phase 2: " in preflight, out.stdout
-    assert not [line for line in out.stdout.splitlines() if "  BLOCKER  " in line and "connected in phase 2" not in line], out.stdout
+        assert "BLOCKER" in preflight and stop in preflight and ("(connected in phase 2: " in preflight) == pre, out.stdout
+    if pre:
+        assert not [line for line in out.stdout.splitlines() if "  BLOCKER  " in line and "connected in phase 2" not in line], out.stdout
+    else:
+        assert "connected in phase 2" not in out.stdout, out.stdout
 
 
 def _check_module():
@@ -161,10 +205,16 @@ def test_the_service_check_py_starts_can_import_the_flash_router_in_the_routers_
     kit's src/ and then the sub-projects' src/ (the overseer's, whose port adapter is the service's default overseer port
     since architecture step 2 of phase 2, then the flash router's), so the router's own process (which receives that
     path) imports it. No EPINOIC_ variable of the caller reaches the service (check.py _py drops them): a stray one is
-    planted to show it. (The expected path gained the overseer's src/ with that step; the assertion is otherwise the same.)"""
+    planted to show it. (The expected path gained the overseer's src/ with that step; the assertion is otherwise the same.)
+    A checkout without the overseer sub-project (after its split, where the overseer is installed as a package) has no
+    overseer src/ to put on the path: the expected path then lacks exactly that entry (architecture review after arena
+    round 8; on a checkout that has it the assertion is unchanged)."""
     monkeypatch.setenv("EPINOIC_STRAY_CALLER_VARIABLE", "must-not-reach-the-service")
     env = _check_module().service_env(ROOT)
-    assert env["PYTHONPATH"].split(os.pathsep) == [str(ROOT / "src"), str(ROOT / "overseer" / "src"), str(ROOT / "flash-router" / "src")]
+    expected = [str(ROOT / "src"), str(ROOT / "overseer" / "src"), str(ROOT / "flash-router" / "src")]
+    if not (ROOT / "overseer" / "src").is_dir():
+        expected.remove(str(ROOT / "overseer" / "src"))
+    assert env["PYTHONPATH"].split(os.pathsep) == expected
     code = ("from epinoic_logic.integration import router_port as R\n"
             "a = R.attach_router('epinoic_flash_router.port')\n"
             "print(a.attached, a.refusal, a.hello.router.name if a.hello else None)")

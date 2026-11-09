@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from epinoic_logic.ir.schema import ALLOWED_OPS, IntConst, RealConst
+from epinoic_logic.api.ir import ALLOWED_OPS, IntConst, RealConst
 from epinoic_overseer.pack import PACK_VERSION, installed_pack_dir
 from epinoic_logic.translate.subjects import STEM_ENCODING_GUIDANCE
 
@@ -101,7 +101,7 @@ def test_what_d30_says_the_translator_is_told_is_the_translator_s_guidance_and_o
                   "use one symbol per quantity and prefix it with the claim it comes from (s<claim>_v)", "record a unit as an assumption, never inside an expression",
                   "encode a square root or a trigonometric value as a squared comparison, or report UNSUPPORTED"):
         assert words in g, words
-    from epinoic_logic.engine.validator import parse_and_validate
+    from epinoic_logic.api.engine import parse_and_validate
     import json
     free = {"problem_id": "p", "request_id": "req", "claim_id": "s2.1", "query": "entailment",
             "symbols": [{"name": "g", "sort": "Real", "meaning": "g"}, {"name": "m", "sort": "Real", "meaning": "the mass"}],

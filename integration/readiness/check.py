@@ -25,9 +25,14 @@ no ``not_run.website_path``, the website driver's own line ``subchecks.website_d
 ``specialist_contract`` equal to the pin), else NOT RUN (the pinned runtime was not simulated).
 Exit status 1 when a row is a BLOCKER. Four kinds of BLOCKER rows, each named as such:
 
-* **kit rows** (G1, the translator section, the service start-up): on a commit where a part phase 2 connects is absent,
-  a BLOCKER row that only that part causes says "(connected in phase 2: ...)"; a kit BLOCKER row without that mark is a
-  defect of the commit;
+* **kit rows** (G1, the translator section, the service start-up): on a commit that predates phase 2 (its contract line
+  is older than 0.5) where a part phase 2 connects is absent, a BLOCKER row that only that part causes says "(connected
+  in phase 2: ...)"; a kit BLOCKER row without that mark is a defect of the commit. A kit whose contract line is 0.5
+  postdates phase 2, so none of its rows carries the mark: a part missing there is a defect, never the pre-build state.
+  G1 looks for the overseer the way the service imports it: the package ``epinoic_overseer`` and its port adapter
+  ``epinoic_overseer.port`` on the import path of a process run from the kit (:func:`_py`), the sub-project
+  ``overseer/`` or an overseer installed as a package (as after the overseer's split, ``overseer/README.md``), and only
+  then at the in-repo paths;
 * **owner gates** (the website's G0): a decision only its owner records; the row says "(owner gate: ...)". It blocks
   website work, never the rehearsal, and is never a defect of the kit;
 * **website rows** (``--website-copy``, playbook steps 9 and 10): the export is not a disposable one, its base has no
@@ -81,20 +86,117 @@ def _named_policies(kit: Path) -> bool:
     return "NAMED_POLICIES" in pol and "def named_policy" in pol
 
 
-def _overseer_package(kit: Path) -> Optional[str]:
-    """Where the overseer package is on this kit: the overseer sub-project (``overseer/src/epinoic_overseer/``, architecture
-    step 2 of phase 2), or, on a commit before that step, the translator's own ``src/epinoic_logic/overseer/``; None when
-    neither is there."""
+def _predates_phase2(kit: Path) -> bool:
+    """The kit predates phase 2: its contract line reads a version older than 0.5. Only such a commit is a pre-build
+    commit, on which a part phase 2 connects may be absent as the expected pre-build state, so only its rows carry the
+    "(connected in phase 2: ...)" mark. A kit whose line is 0.5 (or later) postdates phase 2, and one whose line is absent
+    or unreadable is no known pre-build state: a part missing on either is a defect of the commit, never marked."""
+    version = _contract_version(kit)
+    try:
+        return version is not None and tuple(int(part) for part in version.split(".")) < (0, 5)
+    except ValueError:
+        return False
+
+
+#: Run in a process with the environment of a process run from the kit (:func:`_py`), as the service runs: the overseer
+#: package ``epinoic_overseer`` where the import system finds it (``importlib.util.find_spec``: a regular package, its
+#: ``__init__.py``), then its port adapter ``epinoic_overseer.port`` in that package's own search locations, the module
+#: the service imports by default (``EPINOIC_OVERSEER_PORT``), and the version of the distribution ``epinoic-overseer``
+#: when one is installed. It locates and never imports either, so no code of the overseer runs. One JSON object.
+_OVERSEER_PROBE = """\
+import importlib.machinery, importlib.metadata, importlib.util, json
+found = {"package": None, "port": None, "version": None}
+try:
+    spec = importlib.util.find_spec("epinoic_overseer")
+except Exception:
+    spec = None
+if spec is not None and spec.origin and spec.submodule_search_locations is not None:
+    found["package"] = spec.origin
+    try:
+        port = importlib.machinery.PathFinder.find_spec("epinoic_overseer.port", list(spec.submodule_search_locations))
+    except Exception:
+        port = None
+    found["port"] = port.origin if port is not None and port.origin else None
+    try:
+        found["version"] = importlib.metadata.version("epinoic-overseer")
+    except Exception:
+        pass
+print(json.dumps(found))
+"""
+
+
+def _overseer_found(kit: Path) -> Optional[dict]:
+    """What a process run from the kit finds of the overseer (:data:`_OVERSEER_PROBE`, run with this interpreter and
+    :func:`_py`'s environment, as the service is started, and with ``-P``, so nothing in the directory it is run from is
+    imported): ``package`` (its ``__init__.py``), ``port`` (the port adapter's file) and ``version``, each None when not
+    found; None when the probe could not run."""
+    try:
+        p = subprocess.run([sys.executable, "-P", "-c", _OVERSEER_PROBE], env=_py(kit), capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = p.stdout.strip().splitlines()
+    try:
+        found = json.loads(lines[-1]) if p.returncode == 0 and lines else None
+    except ValueError:
+        return None
+    return found if isinstance(found, dict) else None
+
+
+def _in_kit(kit: Path, path: Path) -> Optional[str]:
+    """``path`` relative to the kit (POSIX, with a trailing slash), or None when it lies outside the kit."""
+    try:
+        return path.resolve().relative_to(kit.resolve()).as_posix() + "/"
+    except ValueError:
+        return None
+
+
+def _subproject_version(kit: Path) -> Optional[str]:
+    """The overseer sub-project's version (``overseer/pyproject.toml``), or None."""
+    pyproject = kit / "overseer" / "pyproject.toml"
+    m = re.search(r'^version = "([^"]+)"', pyproject.read_text(encoding="utf-8"), re.M) if pyproject.exists() else None
+    return m.group(1) if m else None
+
+
+def _declared_version(init: Path) -> Optional[str]:
+    """The ``__version__`` a package's ``__init__.py`` states as a literal (read, never run), or None: the version of the
+    code the service imports, which an editable install's recorded distribution version may lag behind."""
+    try:
+        m = re.search(r'^__version__ = "([^"]+)"', init.read_text(encoding="utf-8"), re.M)
+    except (OSError, UnicodeDecodeError):
+        return None
+    return m.group(1) if m else None
+
+
+def _overseer_package(kit: Path) -> Optional[tuple[str, Optional[str], bool]]:
+    """Where the overseer package is for this kit, found the way the service imports it (:func:`_overseer_found`), as
+    ``(where, version, installed)``: the sub-project ``overseer/src/epinoic_overseer/`` (architecture step 2 of phase 2;
+    its version from ``overseer/pyproject.toml``), or an overseer installed as a package outside the kit (as after its
+    split, ``overseer/README.md``; ``where`` is then its absolute location and ``version`` the one its ``__init__.py``
+    states, else the installed distribution's); a location inside the kit is given relative to it. When the import
+    path holds none (or the probe could not run), the in-repo paths, as before: the sub-project, or, on a commit before
+    that step, the translator's own ``src/epinoic_logic/overseer/``. None when neither has it."""
+    found = _overseer_found(kit)
+    if found and found.get("package"):
+        location = Path(found["package"]).parent
+        rel = _in_kit(kit, location)
+        if rel is None:
+            return location.as_posix() + "/", _declared_version(Path(found["package"])) or found.get("version"), True
+        return rel, _subproject_version(kit) if rel == "overseer/src/epinoic_overseer/" else None, False
     for rel in ("overseer/src/epinoic_overseer/", "src/epinoic_logic/overseer/"):
         if (kit / rel / "__init__.py").exists():
-            return rel
+            return rel, _subproject_version(kit) if rel == "overseer/src/epinoic_overseer/" else None, False
     return None
 
 
 def _overseer_port_adapter(kit: Path) -> bool:
-    """The embedded overseer port adapter (``epinoic_overseer.port``, decision D18) is on the import path a process run
-    from the kit has (:func:`_py`). Phase 2 connects it after the overseer package itself: a commit with the package
-    merged and no adapter yet still refuses with KIT-HS-007, which only the absent adapter causes."""
+    """The embedded overseer port adapter (``epinoic_overseer.port``, decision D18) is where the service imports it: in the
+    overseer package a process run from the kit finds (:func:`_overseer_found`; the sub-project's, or an installed
+    one). Phase 2 connects it after the overseer package itself: a commit with the package merged and no adapter yet
+    still refuses with KIT-HS-007, which only the absent adapter causes. When no package is found (or the probe could not
+    run), the in-repo paths on that import path (:func:`_src_roots`) decide, as before."""
+    found = _overseer_found(kit)
+    if found and found.get("package"):
+        return bool(found.get("port"))
     roots = _src_roots(kit)
     return any((r / "epinoic_overseer" / "port.py").exists() or (r / "epinoic_overseer" / "port" / "__init__.py").exists() for r in roots)
 
@@ -105,21 +207,34 @@ def _src_roots(kit: Path) -> list[Path]:
     return [kit / "src"] + [kit / sub / "src" for sub in ("overseer", "flash-router") if (kit / sub / "src").is_dir()]
 
 
+def _overseer_detail(where: str, version: Optional[str], installed: bool) -> str:
+    """The G1 overseer row's detail for the package found at ``where`` (:func:`_overseer_package`)."""
+    if installed:
+        return f"{where} (installed: epinoic-overseer {version or '?'}, outside the kit; attached through the overseer port)"
+    if version:
+        return f"{where} (epinoic-overseer {version}, a sub-project of its own; attached through the overseer port)"
+    return where
+
+
 def g1(kit: Path, rows: list) -> None:
-    version, named, overseer = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
-    oversion = re.search(r'^version = "([^"]+)"', (kit / "overseer" / "pyproject.toml").read_text(encoding="utf-8"), re.M) if (kit / "overseer" / "pyproject.toml").exists() else None
+    version, named, found = _contract_version(kit), _named_policies(kit), _overseer_package(kit)
+    pre = _predates_phase2(kit)
+    defect = f" (a defect of this commit: its contract line is {version or 'absent'}, so it is no pre-build commit)"
     # the contract line moves to 0.4 when phase 2 merges contract 0.3, and to 0.5 with the argument diagnosis (the integration
     # step before arena round 8: two signed result fields and release rules 8 and 9); before the contract 0.3 merge (no named
-    # policies yet) an older line is the expected pre-build state; after it, an older line is a defect
-    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.5)" if version != "0.5" and not named else ""
+    # policies yet) an older line is the expected pre-build state; after it, an older line is a defect. The mark is given
+    # only to a kit that predates phase 2 (_predates_phase2): never to one whose line is 0.5
+    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.5)" if pre and not named else ""
     row(rows, "G1 contract 0.5", PASS if version == "0.5" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
-    row(rows, "G1 overseer package", PASS if overseer else BLOCKER,
-        (f"{overseer} (epinoic-overseer {oversion.group(1)}, a sub-project of its own; attached through the overseer port)" if overseer and oversion else overseer)
-        if overseer else "overseer/src/epinoic_overseer/ absent (connected in phase 2: the rebuilt overseer and its port adapter)")
+    row(rows, "G1 overseer package", PASS if found else BLOCKER,
+        _overseer_detail(*found) if found else
+        "overseer/src/epinoic_overseer/ absent (connected in phase 2: the rebuilt overseer and its port adapter)" if pre else
+        "epinoic_overseer absent: not on the import path of a process run from the kit (neither overseer/src/epinoic_overseer/ "
+        "nor an installed package)" + defect)
     reg = (kit / "src" / "epinoic_logic" / "branches" / "registry.py").read_text(encoding="utf-8")
     row(rows, "G1 STEM branches", PASS if all(b in reg for b in ("sciences", "mathematics", "computer_science")) else BLOCKER, "branches/registry.py")
     row(rows, "G1 named policies (contract 0.3)", PASS if named else BLOCKER,
-        "engine/policies.py NAMED_POLICIES" + ("" if named else " absent (connected in phase 2: contract 0.3 merge)"))
+        "engine/policies.py NAMED_POLICIES" + ("" if named else " absent (connected in phase 2: contract 0.3 merge)" if pre else " absent" + defect))
     compat = json.loads((kit / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
     row(rows, "G1 protocol", PASS if compat.get("protocol") == "epinoic.integration.v1" else BLOCKER, compat.get("protocol", "?"))
     router = kit / "flash-router"
@@ -145,7 +260,12 @@ def _py(kit: Path) -> dict:
 
 
 def _phase2_note(kit: Path, line: str) -> str:
-    """The "(connected in phase 2: ...)" mark of a service refusal that only an absent phase-2 part causes, else ''."""
+    """The "(connected in phase 2: ...)" mark of a service refusal that only an absent phase-2 part causes on a kit that
+    predates phase 2 (:func:`_predates_phase2`), else ''. A kit whose contract line is 0.5 never gets it: there the
+    refusal is a defect of the commit, whatever part is missing. The port adapter is looked for where the service
+    imports it (:func:`_overseer_port_adapter`)."""
+    if not _predates_phase2(kit):
+        return ""
     if line.startswith("KIT-HS-006") and not _named_policies(kit):
         return " (connected in phase 2: the named policies of contract 0.3; then KIT-HS-007 until the overseer port adapter)"
     if line.startswith("KIT-HS-007") and not _overseer_port_adapter(kit):

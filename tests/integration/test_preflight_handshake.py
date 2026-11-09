@@ -17,6 +17,7 @@ from epinoic_logic.integration.preflight import Probes, run_preflight
 from epinoic_logic.integration.runtime import build_runtime
 from epinoic_logic.integration.selftest import run_selftest
 from tests.integration.helpers import FixtureProbes, RecordingPort, hello, settings
+from tests.overseer_attach import REASON
 
 SRC = str(Path(__file__).resolve().parents[2] / "src")
 
@@ -61,7 +62,10 @@ def test_on_this_tree_the_named_policies_of_contract_0_3_are_missing():
 
 def test_the_default_overseer_port_adapter_is_the_overseer_sub_projects_and_connects():
     """Phase 2, architecture step 2: the default ``EPINOIC_OVERSEER_PORT`` (``epinoic_overseer.port``, the overseer
-    sub-project) connects through the real probe, its hello names the pinned pack and the standard profile only (D30)."""
+    sub-project) connects through the real probe, its hello names the pinned pack and the standard profile only (D30).
+    Skipped, with the reason, where the overseer is not installed (the translator's suite runs without it; the service then
+    refuses at start-up with KIT-HS-007, which the tests of the probe's refusals hold)."""
+    pytest.importorskip("epinoic_overseer.port", reason=REASON)
     facts = run_preflight(settings(), FixtureProbes(missing="overseer"))
     assert facts.settings.overseer_port == "epinoic_overseer.port"
     assert set(facts.overseer.pack_digests) <= PINNED_PACK_DIGESTS and facts.overseer.mode == "embedded" and facts.overseer.profiles == ["standard"]

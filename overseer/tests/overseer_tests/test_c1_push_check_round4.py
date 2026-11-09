@@ -44,8 +44,8 @@ from pathlib import Path
 import pytest
 
 from epinoic_logic.adapters.stem_specialist.parser import _STRUCTURE_HEAD_RE
-from epinoic_logic.branches import RouterHub
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, DeliveryPolicy
 from epinoic_overseer.meta_notes import (
     _CONFUSABLES, _LIST_DENY, _PURE_LOCATORS, _SOURCE_WORDS, SOURCE_LIST_RULE, lead_blocks, lead_starts, read_meta_paragraph,
@@ -54,7 +54,7 @@ from epinoic_overseer.meta_notes import (
 from epinoic_overseer.non_material import (
     LAYOUT_LABEL_RE, LAYOUT_RULE, english_units, non_material_blocks, read_layout, task_wordings, unread_non_material_blocks,
 )
-from epinoic_logic.translate.contracts import SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import SpecialistReport, SuppliedText, sha256_text
 
 from .c1_texts import EN_T14, EN_T14_Q
 from .growth import growth

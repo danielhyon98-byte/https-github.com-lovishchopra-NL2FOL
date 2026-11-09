@@ -18,7 +18,7 @@ import json
 
 import pytest
 
-from epinoic_logic.integrity.contracts import payload_hash
+from epinoic_logic.api.integrity import payload_hash
 from epinoic_overseer import delivery_decision
 from epinoic_overseer.consolidate import answer_facts
 

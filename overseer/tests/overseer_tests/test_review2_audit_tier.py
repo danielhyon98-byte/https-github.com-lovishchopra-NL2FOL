@@ -28,17 +28,15 @@ if str(SCRIPTS) not in sys.path:
 import ovs_harness as H  # noqa: E402
 import tamper as T  # noqa: E402
 
-from epinoic_logic.channel import TranslatorChannel  # noqa: E402
-from epinoic_logic.engine.provenance import compute_binding, sign_result  # noqa: E402
-from epinoic_logic.engine.results import SolverConfig  # noqa: E402
+from epinoic_logic.api.channel import TranslatorChannel  # noqa: E402
+from epinoic_logic.engine.provenance import compute_binding  # noqa: E402
+from epinoic_logic.api.engine import sign_result, SolverConfig, VerificationStatus as S  # noqa: E402
 from epinoic_logic.engine.sink import emit  # noqa: E402
-from epinoic_logic.engine.statuses import VerificationStatus as S  # noqa: E402
-from epinoic_logic.ir.schema import SourceRef  # noqa: E402
+from epinoic_logic.api.ir import SourceRef  # noqa: E402
 from epinoic_overseer import may_act  # noqa: E402
 from epinoic_overseer.replay import classify  # noqa: E402
 from epinoic_overseer.store import ResultStore  # noqa: E402
-from epinoic_logic.translate.contracts import SuppliedText  # noqa: E402
-from epinoic_logic.translate.outcome import compose_outcome  # noqa: E402
+from epinoic_logic.api.translate import SuppliedText, compose_outcome  # noqa: E402
 
 
 def _auditor(**kw):
@@ -200,10 +198,10 @@ def test_a_genuine_report_id_reuse_is_rejected_and_audits_clean():
 
 def _request_without_scope_rules(self, from_agent_id, to_agent_id, user_input, supplied_texts=(), *, items=None, constraints=None):
     """The channel's request with its plan-scope rules (INT-HANDOFF-002/004) dropped: the bug."""
-    from epinoic_logic.channel.bus import _now, extract_constraints, extract_items
-    from epinoic_logic.channel.contracts import TaskRequest, TransmissionStatus
-    from epinoic_logic.integrity.contracts import AgentMessage, AgentRole, payload_hash
-    from epinoic_logic.ir.canonical import sha256_hex
+    from epinoic_logic.channel.bus import _now, extract_items
+    from epinoic_logic.api.channel import extract_constraints, TaskRequest, TransmissionStatus
+    from epinoic_logic.api.integrity import AgentMessage, AgentRole, payload_hash
+    from epinoic_logic.api.ir import sha256_hex
     req = TaskRequest(request_id=self.plan.request_id, task_id=self.plan.task_id, plan_id=self.plan.plan_id, from_agent_id=from_agent_id, to_agent_id=to_agent_id,
                       subject=self._subject_for(to_agent_id), course_level=self.plan.course_level, task_type=self._task_type_for(to_agent_id), user_input=user_input,
                       user_input_sha256=sha256_hex(user_input), items=list(items) if items is not None else extract_items(user_input),

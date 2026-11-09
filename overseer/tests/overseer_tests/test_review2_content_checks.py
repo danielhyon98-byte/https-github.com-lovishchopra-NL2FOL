@@ -24,14 +24,15 @@ from pathlib import Path
 import pytest
 
 from epinoic_logic.adapters.fixtures_multi_subject import by_name
-from epinoic_logic.integrity import AgentRole, Synthesis, SynthesizedClaim, WorkPlan
-from epinoic_logic.integrity.ledger import check_synthesis_ledger, figure_pairing_differences, meaning_inversions
-from epinoic_logic.ir.schema import Assertion
+from epinoic_logic.api.integrity import SynthesizedClaim
+from epinoic_logic.api.integrity import AgentRole, Synthesis, WorkPlan, check_synthesis_ledger
+from epinoic_logic.integrity.ledger import figure_pairing_differences, meaning_inversions
+from epinoic_logic.api.ir import Assertion
 from epinoic_overseer import may_act, may_release
 from epinoic_overseer.checks import normalise, plain_form
 from epinoic_overseer.checks.fidelity import claim_occurs, response_list_numbers
 from epinoic_overseer.policy import release_decision
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 
 from .conftest import (
     EN_CLAIMS, EN_TEXT, EXTRACT, EN_INPUT, HI_INPUT, HI_TEXT, default_synthesis, english_report, findings, int_problem, make_auditor, make_plan,

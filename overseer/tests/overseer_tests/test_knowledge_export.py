@@ -24,6 +24,7 @@ from epinoic_overseer.verdicts import PackIdentity
 
 from .conftest import run_task
 from .test_knowledge_pack import SRC_PACK_DIR, copy_pack, edit, identity_of, refused, remanifest
+from .translator_checkout import SUBPROJECT
 
 #: The installed pack's directory (and zip root) name and its master prompt's PACK line.
 PACK_DIR_NAME = pack_dir_name(PACK_NAME, PACK_VERSION)
@@ -325,8 +326,14 @@ def test_refresh_refusals(tmp_path, variant):
 
 
 def test_refresh_of_the_source_tree_needs_a_source_checkout(monkeypatch):
-    assert source_checkout_root() == Path(SRC_ROOT).parent
-    monkeypatch.setattr(export_mod, "source_checkout_root", lambda: None)
+    # architecture review after arena round 8: under a normal (non-editable) install the package is imported from
+    # site-packages, which is no source checkout; there the refusal is checked as it is, unpatched
+    from_source = Path(export_mod.__file__).resolve().parent == (SUBPROJECT / "src" / "epinoic_overseer").resolve()
+    if from_source:
+        assert source_checkout_root() == Path(SRC_ROOT).parent
+        monkeypatch.setattr(export_mod, "source_checkout_root", lambda: None)
+    else:
+        assert source_checkout_root() is None, "an installed copy is never a source checkout"
     before = (SRC_PACK_DIR / MANIFEST_FILE).read_bytes()
     with pytest.raises(ExportError) as ei:
         refresh_source()

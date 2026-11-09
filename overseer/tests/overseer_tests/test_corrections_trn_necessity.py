@@ -23,11 +23,11 @@ import json
 
 import pytest
 
-from epinoic_logic.channel import TransmissionStatus
-from epinoic_logic.engine import SolverConfig, verify
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.channel import TransmissionStatus
+from epinoic_logic.api.engine import SolverConfig, verify
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.checks import translation as T
-from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
+from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.pipeline import Translator
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
@@ -237,7 +237,7 @@ def test_an_undecidable_necessity_run_keeps_the_error(monkeypatch, how):
             raise RuntimeError("engine unavailable")
         monkeypatch.setattr(T, "_engine_verify", boom)
     else:  # an engine call that emits no result into the capture: nothing signed to rely on
-        from epinoic_logic.engine.results import VerificationResult  # noqa: F401
+        from epinoic_logic.api.engine import VerificationResult  # noqa: F401
         monkeypatch.setattr(T, "_engine_verify", lambda raw, config: None)
     a0 = make_auditor(shadow="off")
     try:

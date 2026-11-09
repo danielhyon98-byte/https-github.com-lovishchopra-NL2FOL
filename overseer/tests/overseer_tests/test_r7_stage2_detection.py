@@ -25,9 +25,8 @@ from pathlib import Path
 import pytest
 
 import epinoic_logic.channel.bus as bus
-from epinoic_logic.channel.bus import DECLINED_BOUND_PREFIX, TranslatorChannel
-from epinoic_logic.channel.contracts import ConstraintResult
-from epinoic_logic.channel.request_parser import measure_answer_words
+from epinoic_logic.api.channel import DECLINED_BOUND_PREFIX, TranslatorChannel, measure_answer_words
+from epinoic_logic.api.channel import ConstraintResult
 from epinoic_overseer.checks.translation import _as_stated, _as_written, untraced_content
 
 from .conftest import findings

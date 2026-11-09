@@ -39,16 +39,16 @@ from pathlib import Path
 import pytest
 
 import epinoic_overseer.delivery_policy as delivery_policy
-from epinoic_logic.branches import RouterHub
+from epinoic_logic.api.branches import RouterHub
 from epinoic_logic.integration.delivery import FORMAL_LABEL_RULE as KIT_FORMAL_LABEL_RULE
 from epinoic_logic.integration.delivery import ClaimFields, count_claims, summarize
-from epinoic_logic.integrity import WorkPlan
+from epinoic_logic.api.integrity import WorkPlan
 from epinoic_overseer.delivery_policy import (
     DELIVERY_MODES, FORMAL_LABEL_REASON, FORMAL_LABEL_RULE, ClaimFormal, DeliveryConfig, DeliveryPolicy,
 )
 from epinoic_overseer.meta_notes import source_list_grounding, unread_lead_blocks
 from epinoic_overseer.non_material import english_units, unread_non_material_blocks
-from epinoic_logic.translate.contracts import SpecialistReport
+from epinoic_logic.api.translate import SpecialistReport
 
 from .c1_texts import EN_T14, EN_T14_Q
 from .growth import growth

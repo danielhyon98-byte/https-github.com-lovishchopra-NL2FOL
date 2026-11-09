@@ -4,12 +4,14 @@ rendering keeps planted text inside its quotation and within its bounds, the can
 findings were produced in, and the specialists' addendum quotes the course-correction rules verbatim."""
 from __future__ import annotations
 
+import ast
 import random
 import re
 from pathlib import Path
 
 import pytest
 
+import epinoic_logic
 from epinoic_logic.channel import feedback as fb
 from epinoic_logic.channel.contracts import (
     MAX_FLAWS, ConstraintResult, RevisionClaim, RevisionFlaw, RevisionRequest, TransmissionReceipt, TransmissionStatus,
@@ -18,6 +20,8 @@ from epinoic_logic.engine.statuses import VerificationStatus
 from epinoic_logic.integrity import IntegrityFinding
 from epinoic_logic.translate.contracts import StructuralFinding
 
+# the overseer only through its public package API; a test that reads it is skipped where it is not installed
+from ..overseer_attach import overseer, overseer_module
 from .revision_support import GOOD_CLAIMS, INVENTED, answer, block_for, flaws_for, report
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,20 +35,36 @@ def _receipt(findings=(), structural=(), outcomes=()) -> TransmissionReceipt:
 
 def _all_codes() -> dict[str, set[str]]:
     """Every receipt code the translator raises with its severities (the overseer's table of them, kept identical to the
-    code by its own drift tests), and every OVS code."""
-    from epinoic_overseer.codes import OVS_CODES
-    from epinoic_overseer.emitted import RECEIPT_CODES
-    out = {c: set(e.severities) for c, e in RECEIPT_CODES.items()}
-    out.update({c: {sev} for c, (sev, _stage, _m) in OVS_CODES.items()})
+    code by its own drift tests), and every OVS code. The overseer's public package API only (``overseer_attach``): the
+    test that reads them is skipped where the overseer is not installed, and the allowlist is still held over the
+    translator's own codes (``_translator_codes``)."""
+    receipt_codes = overseer_module("epinoic_overseer.emitted").RECEIPT_CODES
+    ovs_codes = overseer().OVS_CODES
+    out = {c: set(e.severities) for c, e in receipt_codes.items()}
+    out.update({c: {sev} for c, (sev, _stage, _m) in ovs_codes.items()})
     return out
 
 
-# ============================================================================================ the allowlist
-def test_only_allowlisted_codes_ever_yield_a_flaw():
+_CODE = re.compile(r"[A-Z]{2,7}-[A-Z]{2,10}-\d{3}")
+
+
+def _translator_codes() -> dict[str, set[str]]:
+    """Every finding code the translator's own source names (every string constant of ``src/epinoic_logic`` that is a
+    code, read as data), at every severity: no table of the overseer's is needed, so this holds where it is not
+    installed."""
+    out: dict[str, set[str]] = {}
+    for path in sorted(Path(epinoic_logic.__file__).resolve().parent.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and _CODE.fullmatch(node.value):
+                out[node.value] = {"error", "warning", "info"}
+    return out
+
+
+def _assert_only_allowlisted_codes_yield_a_flaw(codes: dict[str, set[str]]) -> None:
     case = answer()
     rep, req = case.rep, case.req
     allowed = set(fb.CODE_RULES)
-    for code, sevs in sorted(_all_codes().items()):
+    for code, sevs in sorted(codes.items()):
         for sev in sorted(sevs):
             f = IntegrityFinding(code=code, severity=sev, message=f"constraint c1 not satisfied: measured 200 words; {code}", claim_ids=["e3"])
             sf = StructuralFinding(code=code, severity=sev, message="x", claim_ids=["e3"], rule_source="test") if not code.startswith(("INT-", "OVS-")) else None
@@ -53,6 +73,20 @@ def test_only_allowlisted_codes_ever_yield_a_flaw():
             assert all(c.code in allowed for c in got), (code, sev, [c.code for c in got])
             if code not in allowed:
                 assert got == [], (code, sev)
+
+
+# ============================================================================================ the allowlist
+def test_only_allowlisted_codes_ever_yield_a_flaw():
+    _assert_only_allowlisted_codes_yield_a_flaw(_all_codes())
+
+
+def test_only_allowlisted_codes_of_the_translators_own_source_ever_yield_a_flaw():
+    """The same rule over every code the translator's source names, at every severity, with no overseer installed."""
+    codes = _translator_codes()
+    allowed = set(fb.CODE_RULES)
+    assert codes.keys() & allowed and codes.keys() - allowed  # both outcomes are exercised
+    assert {"INT-REQ-006", "INT-SUBJ-001", "ST-PARSE-001", "CORE-SRC-005"} <= codes.keys()
+    _assert_only_allowlisted_codes_yield_a_flaw(codes)
 
 
 @pytest.mark.parametrize("family", ["INT-CONFLICT-001", "INT-GLOSSARY-001", "INT-STALE-001", "INT-ENV-002", "INT-HANDOFF-015", "INT-INTERNAL-001",
