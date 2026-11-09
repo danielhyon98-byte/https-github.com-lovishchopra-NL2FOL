@@ -21,14 +21,18 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 - Phase 2 = wf_eee12853-0ae, task wxij9jbhz, script S/wf-scripts/phase2-cont.js (sha256 a7db87ad82f4edc5, LAYOUT2 + 2b + 2c +
   CARRY.c2, installed 8 Nov 10:38), args = the contents of S/wf/phase2-cont-args.json (continueAfterRound8 true; checked against
   the transcript 9 Nov). NOT the r8only args file (that one stops after round 8).
-  Done since 8 Nov: arch:twofold -> dev b570339 "Integration: twofold review of combined answers through the flash router";
-  integrate:feedback -> dev f3d338a "Integration: specialist feedback and revision function"; architecture lenses: 4 major + 13
-  minor; post-r8-arch fix round: fix:core, fix:overseer, fix:integration, fix:router DONE (every suite green; router: r7 177/177,
-  c1 203/203); fix:handoffs RUNNING at 00:00 (cross-owner items H1-H11, overseer items 1-4, router A4/B1). One item is "for a
-  decision": the merged review's temporary context (up to 65,536 bytes) is not priced by the pool or the port.
-  Next: verify:post-r8-arch, commit:post-r8-arch, then round 9 (c2): design, deploy, bind, harness, overseer agents (N_FOLD,
-  pool sizing, gold), feedback exercise (FEEDBACK_LIVE), lenses, overseer-rescore, fix round with the 54 carried records,
-  verify, commit, push-check:c2, push:c2 (held by the live gate until #208), readme; then round 10 (c3).
+  ARCHITECTURE STEP DONE: b570339 (twofold), f3d338a (feedback), c4f276c "Integration: fix the architecture findings after
+  round 8" (9 Nov 03:01; suite 23051 passed, 1 strict xfail, 0 failed, 0 skipped; harness = baseline incl. c1 203/203).
+  Dev also has progress notes 8af211d .. 60b0fd8 (tests/README.md only).
+  ROUND 9 (c2), as of 13:00 9 Nov: design 22 tasks; harness 180/188 (all 8 misses STEM: arithmetic slip 7/10, wrong unit 4/5,
+  substitution 5/9); overseer review on the new layout (80 dossiers, 80 valid verdicts; 12 instances = 7 wave 1 + 3 N_FOLD
+  merged + 2 duplicates; reviewers named 5 of 49 faults; 18 green-lit, 15 of them confirmed inaccurate by two judges);
+  feedback exercise live (15 revisions, flaws 30 -> 8, 0 weakened, 3 false INT-SUBJ-001 findings left); 5 lenses: 88 major +
+  54 minor per lens, 61 critical-flagged; rescore done. FIX ROUND clearance-c2 RUNNING: fix:overseer DONE (26 fixed, 12 handed
+  off; it notes 40 overseer push-check tests failing because of the parsers fixer's in-progress note-reader change, for the
+  handoff fixer/verify to settle); fix:parsers (since ~10:00) and fix:stem (since 12:45) running; other owners queued; then
+  fix:handoffs:clearance-c2, verify, commit "Fix the c2 clearance findings", push-check:c2, push:c2 (held by the live gate
+  until #208), readme:c2; then round 10 (c3).
 - WEEKLY LIMIT PROCEDURE (as on 2 Nov): at ~85% make the final checkpoint (D) before anything else. Then stop phase 2 (TaskStop on
   its task) BEFORE 100% at a clean point (between agents if possible: agents that die at the limit return null and the script
   may treat null as a result). Record the stop in runs.json (stoppedN: time, labels done, agents killed in flight), update this
