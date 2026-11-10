@@ -29,6 +29,14 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   fixer) re-checks every finding against the current tree (the 91 edited paths), fixes what still reproduces, with
   regression tests; then verify, commit "Fix the c2 clearance findings", push-check:c2, push:c2, readme:c2, reusing the
   functions of phase2-cont.js (fixRound's handoff prompt, verifyAndCommit, the push check), then round 10 (c3).
+- DANIEL 10 Nov ~15:55 UTC: "pause hourly runs but add small workflow reports and a release tag for monday's upload".
+  (1) Hourly routine trig_018DjeNCSCGD5yGC4WwaWxDz DISABLED 15:56; re-enable it at the reset (Fri 13 Nov 16:00 UTC).
+  (2) make_checkpoint.sh now pushes wf-reports.tar.xz (small reports under S/wf, git worktrees skipped; backup
+  make_checkpoint.sh.before-wf-reports); restore with `tar -C "$S" -xJf wf-reports.tar.xz`.
+  (3) Tag prototype-round8-arch at verified-updates 1c2fb5c (the upload of c4f276c), script S/release_round8_arch.sh:
+  dry run OK, the tag PUSH WAS REFUSED (HTTP 403) although branch pushes to the same repository work; reported to
+  Daniel, not retried another way. The annotated tag exists locally in R; the script reuses it once pushing tags is
+  allowed (or Bruno creates the tag at 1c2fb5c himself).
 - Lesson: the local-only tier dies with the container. Small workflow reports (handoff files, fixer summaries) belong in the
   pushed tier; proposed to Daniel.
 
@@ -359,7 +367,7 @@ sha256sum -c SHA256SUMS
    then either `git read-tree -m -u <staged-commit>` style restore from refs/checkpoint/2026-10-12/<name>-staged
    (`git checkout <ref> -- .` then `git reset --soft HEAD`; for a merge also write MERGE_HEAD/MERGE_MSG into the
    worktree's git dir), or `git apply --index staged.patch && git apply unstaged.patch`, plus untracked.tar.xz.
-5. Tools and records: `tar -C "$S" -xJf tools.tar.xz` (scripts, wf-scripts, sim mocks, STANDING_INSTRUCTIONS.md,
+5. Tools and records: `tar -C "$S" -xJf tools.tar.xz` and (since 10 Nov) `tar -C "$S" -xJf wf-reports.tar.xz` (scripts, wf-scripts, sim mocks, STANDING_INSTRUCTIONS.md,
    runs.json, feedback-design.json, round8-prep, clearance/c1, push-check, simcache, c1-design, publisher-next, and the
    recorded arena rounds arena/r* that simulate.sh replays before every upload).
    Knowledge bases (not in the pushed tier): `git -C "$R" archive epinoic/docs/specialist-kb-v4 | tar -x -C "$S/kb-v4"`
