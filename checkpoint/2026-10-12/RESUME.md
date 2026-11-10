@@ -31,6 +31,7 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   functions of phase2-cont.js (fixRound's handoff prompt, verifyAndCommit, the push check), then round 10 (c3).
 - DANIEL 10 Nov ~15:55 UTC: "pause hourly runs but add small workflow reports and a release tag for monday's upload".
   (1) Hourly routine trig_018DjeNCSCGD5yGC4WwaWxDz DISABLED 15:56; re-enable it at the reset (Fri 13 Nov 16:00 UTC).
+  A one-shot reminder (trig_01438wq6rXPqr5jGCHrB4gJy) wakes this session at Fri 13 Nov 16:05 UTC to do that and resume.
   (2) make_checkpoint.sh now pushes wf-reports.tar.xz (small reports under S/wf, git worktrees skipped; backup
   make_checkpoint.sh.before-wf-reports); restore with `tar -C "$S" -xJf wf-reports.tar.xz`.
   (3) Tag prototype-round8-arch at verified-updates 1c2fb5c (the upload of c4f276c), script S/release_round8_arch.sh:
