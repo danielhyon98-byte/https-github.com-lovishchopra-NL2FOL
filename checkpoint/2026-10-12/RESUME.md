@@ -1,10 +1,34 @@
-# Resume after the weekly limit of 9 Nov 2026 (phase 2 STOPPED at 19:30 UTC Mon 9 Nov at weekly 95%, at a clean point; the weekly window resets Fri 13 Nov 16:00 UTC). Older sections below are history.
+# Resume after the weekly limit of 9 Nov 2026 (phase 2 STOPPED at 19:30 UTC Mon 9 Nov at weekly 95%; the CONTAINER WAS REPLACED at ~03:56 UTC Tue 10 Nov and restored from the checkpoint, but the workflow journals are LOST: read the first section; the weekly window resets Fri 13 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 10 Nov ~03:56 UTC: THE CONTAINER WAS REPLACED; RESTORED 04:00-04:10 FROM CHECKPOINT 09077ad (02:13); JOURNALS LOST
+- Restored (procedure in section 1): checkpoint files sha256 OK; R work in progress re-applied (91 paths, status identical to
+  the saved status, the 77 changed files byte-identical to the saved copies); S tools, KNOWLEDGE (as of 02:13), runs.json
+  (stopped7 intact); the clone was shallow, so `git fetch --unshallow origin` came first, then 41 branch/checkpoint refs from
+  the bundle + branch-tips (all match); remote epinoic; worktrees overseer, review-*, stem, import, c1-metanote (+ its work in
+  progress), probe (+ its work in progress), S/wf/final-handoff; z3venv. The hourly upload works again (verified-updates
+  fae4da8, 04:02). make_checkpoint.sh now tolerates missing journals (backup make_checkpoint.sh.before-fresh-container).
+- LOST (it lived only in the local-only tier): every workflow journal and agent transcript, so phase 2 wf_eee12853-0ae can NOT
+  be resumed with resumeFromRunId; S/wf/phase2/** incl. the six c2 fixers' cross-owner handoff files
+  (clearance-c2/handoff-*.md) and handoff-pushcheck.md; the full-scratchpad copy; logs from 02:13-03:56. The overseer
+  publisher now prints STOP (its build journal is missing) and uploads nothing (it was on HOLD anyway).
+- NEW RESUME PLAN after Fri 13 Nov 16:00 UTC (replaces "resumeFromRunId" in the section below): write a continuation script
+  for c2 that starts at the cross-owner step. Inputs: the 196 findings = the bugs in S/clearance/c2/overseers/
+  {communication-fidelity,results-audit,adversarial-live,stem-integration,translation-fidelity}.json (142) + CARRY.c2 (line 71
+  of S/wf-scripts/phase2-cont.js, 54); the six fixers' totals (overseer 26 fixed/12 left, parsers 14/10, stem 20/9, core
+  19/23, harness 6/10, combinator 1/5; their handoff texts are lost); the open items in "suspicious" of
+  S/push-check/c4f276ca060909e1e7d26c2ed403a6726c50eb2c.json (1 medium: an evaded revision ends next=done, channel/
+  feedback.py ~l.1000; minors and notes). One fixer with no ownership limit (as the script's handoff
+  fixer) re-checks every finding against the current tree (the 91 edited paths), fixes what still reproduces, with
+  regression tests; then verify, commit "Fix the c2 clearance findings", push-check:c2, push:c2, readme:c2, reusing the
+  functions of phase2-cont.js (fixRound's handoff prompt, verifyAndCommit, the push check), then round 10 (c3).
+- Lesson: the local-only tier dies with the container. Small workflow reports (handoff files, fixer summaries) belong in the
+  pushed tier; proposed to Daniel.
 
 ## 9 Nov 19:30 UTC: PHASE 2 STOPPED FOR THE WEEKLY LIMIT (round 9 fix stage: all six owner fixers done; the handoff fixer is next)
 - Stop: TaskStop on task wxij9jbhz at 19:30 UTC (weekly 95%), recorded in S/runs.json phase2-cont.stopped7 (labels done

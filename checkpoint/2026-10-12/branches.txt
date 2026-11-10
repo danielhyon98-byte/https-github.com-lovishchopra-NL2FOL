@@ -1,38 +1,38 @@
-+ argdiag-a                                 72173b9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-a) Argument diagnosis, fixer a: the evidence family, its false alarms and the security fixes
-  argdiag-accfix-before                     4267cb3 Snapshot: argument-diagnostics staged tree before the accuracy round (local only)
-+ argdiag-b                                 b3c66f3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-b) Argument diagnosis, fixer b: R0, the engine pattern rules, the claim and report rules, B8/B21/B22/B16 and prompt v3 (rules argdiag-1)
-+ argdiag-base                              be6723c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-base) Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
-+ argdiag-c                                 542d345 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-c) Argument diagnosis (fixer c): STEM reference, named STEM diagnostics, STEM false errors
-  argdiag-close3-snapshot                   eeb3d99 Argument diagnostics: staged tree after regression close round 3 (local snapshot, not for upload)
-+ argdiag-d                                 1f4f0f1 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-d) Argument diagnosis, fixer d: the channel and the response gate
-+ argdiag-e                                 1e6103f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-e) Re-run review findings: engine runner and provenance, CLI, translation records, hub, sentence reader
-+ argdiag-final                             c219b4f (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-integ) Argument diagnostics: name unchecked sources, unstated links and STEM method faults (known defects listed)
-+ argdiag-port                              e521e94 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/argdiag-port) [origin/argdiag-port] Port argument diagnostics: fix the verification findings
-  argdiag-r6-snapshot                       ac7df9f Argument diagnostics: staged tree after repair round 5 (local snapshot, not for upload)
-+ c1-land2                                  402276d (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/c1-land2) Stage 2 (ported onto ab44c8a)
-+ c1-metanote-fix                           f2329df (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/c1-metanote) Fix the c1 clearance findings
-* claude/z3-verification-engine-plan-nk3luq 60b0fd8 [origin/claude/z3-verification-engine-plan-nk3luq] Tests README: progress note 10:00
-+ contained-fix                             6947c2d (/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/contained-fix/tree) Integration: a correct base-unit conversion of a STEM figure is grounded again
-+ docs/final-z3-handoff                     e88a793 (/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/final-handoff) Handoff: update the completion report and website launch package at 99% weekly usage
-+ e2e-fix-channel                           0d28eba (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-channel) Fix the channel and service bugs of the end-to-end simulation
-+ e2e-fix-detect                            dae3265 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/e2e-fix-detect) Name the run1 STEM and quotation injections the arena missed
-+ import/translator-baseline                650d1d3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
-+ integ-prebuild                            5697a62 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/integ-prebuild) Integration: fix the combinator pre-build verification findings (round 2)
-+ kit-agents-retarget                       c853ecb (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-retarget) Integration: retarget the kit to the retrained agents repository
-+ kit-publish                               f34ff1d (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/kit-publish) Integration: retarget the kit to the retrained agents repository
-+ overseer-build                            502fcff (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer rebuild: on the STEM-merged translator, with the faulty checks corrected
-  preserve/2026-10-16/overseer-ef4ba9f      405ddf7 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
-  preserve/2026-10-16/overseer-rebuild-wip  d149738 Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
-  preserve/2026-10-16/review-engine         118bc0d Preservation snapshot (UNVERIFIED, not a release): review-engine fix branch
-  preserve/2026-10-16/review-fixes-wip      1150f4a Preservation snapshot (UNVERIFIED, work in progress): review fixes after the second repair
-  preserve/2026-10-16/review-metrics        d3a148e Preservation snapshot (UNVERIFIED, not a release): review-metrics fix branch
-  preserve/2026-10-16/review-stem-channel   640abcc Preservation snapshot (UNVERIFIED, not a release): review-stem-channel (STEM review fixes)
-  preserve/2026-10-16/review-stem-checks    18d7202 Preservation snapshot (UNVERIFIED, not a release): review-stem-checks (STEM review fixes)
-  preserve/2026-10-16/review-translate      f24d8b1 Preservation snapshot (UNVERIFIED, not a release): review-translate fix branch
-+ r7-ovs-fix                                3ac5d30 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/r7-ovs-fix) Stage 2: restore the contained-run detections the round-8 fixes lost (declined-bound recount, as-written task figures, T5 harness)
-+ review-engine                             f902edd (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine) Review fixes (engine)
-+ review-metrics                            2b1cad3 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics) Review fixes (metrics)
-+ review-stem-channel                       eb66038 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel) STEM review fixes (stem-channel)
-+ review-stem-checks                        50611e6 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-checks) STEM review fixes (stem-checks)
-+ review-translate                          6c3b802 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-translate) Review fixes (translate)
-+ stem-build                                b5cf312 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/stem) STEM support: documentation and results
+  argdiag-a                                 72173b92 Argument diagnosis, fixer a: the evidence family, its false alarms and the security fixes
+  argdiag-accfix-before                     4267cb3c Snapshot: argument-diagnostics staged tree before the accuracy round (local only)
+  argdiag-b                                 b3c66f39 Argument diagnosis, fixer b: R0, the engine pattern rules, the claim and report rules, B8/B21/B22/B16 and prompt v3 (rules argdiag-1)
+  argdiag-base                              be6723c8 Argument diagnosis: the shared contract of named diagnostics (rules argdiag-1)
+  argdiag-c                                 542d345a Argument diagnosis (fixer c): STEM reference, named STEM diagnostics, STEM false errors
+  argdiag-close3-snapshot                   eeb3d998 Argument diagnostics: staged tree after regression close round 3 (local snapshot, not for upload)
+  argdiag-d                                 1f4f0f14 Argument diagnosis, fixer d: the channel and the response gate
+  argdiag-e                                 1e6103fe Re-run review findings: engine runner and provenance, CLI, translation records, hub, sentence reader
+  argdiag-final                             c219b4f4 Argument diagnostics: name unchecked sources, unstated links and STEM method faults (known defects listed)
+  argdiag-port                              e521e94f Port argument diagnostics: fix the verification findings
+  argdiag-r6-snapshot                       ac7df9f6 Argument diagnostics: staged tree after repair round 5 (local snapshot, not for upload)
+  c1-land2                                  402276da Stage 2 (ported onto ab44c8a)
++ c1-metanote-fix                           f2329df8 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/c1-metanote) Fix the c1 clearance findings
+* claude/z3-verification-engine-plan-nk3luq 60b0fd8b [origin/claude/z3-verification-engine-plan-nk3luq] Tests README: progress note 10:00
+  contained-fix                             6947c2d4 Integration: a correct base-unit conversion of a STEM figure is grounded again
++ docs/final-z3-handoff                     e88a7934 (/tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad/wf/final-handoff) Handoff: update the completion report and website launch package at 99% weekly usage
+  e2e-fix-channel                           0d28ebad Fix the channel and service bugs of the end-to-end simulation
+  e2e-fix-detect                            dae3265a Name the run1 STEM and quotation injections the arena missed
++ import/translator-baseline                650d1d36 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import) Baseline evidence, result handling and import record
+  integ-prebuild                            5697a62b Integration: fix the combinator pre-build verification findings (round 2)
+  kit-agents-retarget                       c853ecb0 Integration: retarget the kit to the retrained agents repository
+  kit-publish                               f34ff1dd Integration: retarget the kit to the retrained agents repository
++ overseer-build                            502fcff9 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer) Overseer rebuild: on the STEM-merged translator, with the faulty checks corrected
+  preserve/2026-10-16/overseer-ef4ba9f      405ddf70 Preservation snapshot (UNVERIFIED, not a release): corrected overseer ef4ba9f
+  preserve/2026-10-16/overseer-rebuild-wip  d149738c Preservation snapshot (UNVERIFIED, work in progress): overseer rebuild on the STEM-merged translator
+  preserve/2026-10-16/review-engine         118bc0db Preservation snapshot (UNVERIFIED, not a release): review-engine fix branch
+  preserve/2026-10-16/review-fixes-wip      1150f4a0 Preservation snapshot (UNVERIFIED, work in progress): review fixes after the second repair
+  preserve/2026-10-16/review-metrics        d3a148ec Preservation snapshot (UNVERIFIED, not a release): review-metrics fix branch
+  preserve/2026-10-16/review-stem-channel   640abcc6 Preservation snapshot (UNVERIFIED, not a release): review-stem-channel (STEM review fixes)
+  preserve/2026-10-16/review-stem-checks    18d7202f Preservation snapshot (UNVERIFIED, not a release): review-stem-checks (STEM review fixes)
+  preserve/2026-10-16/review-translate      f24d8b12 Preservation snapshot (UNVERIFIED, not a release): review-translate fix branch
+  r7-ovs-fix                                3ac5d30c Stage 2: restore the contained-run detections the round-8 fixes lost (declined-bound recount, as-written task figures, T5 harness)
++ review-engine                             f902edd1 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-engine) Review fixes (engine)
++ review-metrics                            2b1cad3d (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-metrics) Review fixes (metrics)
++ review-stem-channel                       eb660383 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-channel) STEM review fixes (stem-channel)
++ review-stem-checks                        50611e6c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-stem-checks) STEM review fixes (stem-checks)
++ review-translate                          6c3b802c (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/review-translate) Review fixes (translate)
++ stem-build                                b5cf3124 (/home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/stem) STEM support: documentation and results
