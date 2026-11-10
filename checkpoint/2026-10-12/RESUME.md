@@ -13,6 +13,8 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   the bundle + branch-tips (all match); remote epinoic; worktrees overseer, review-*, stem, import, c1-metanote (+ its work in
   progress), probe (+ its work in progress), S/wf/final-handoff; z3venv. The hourly upload works again (verified-updates
   fae4da8, 04:02). make_checkpoint.sh now tolerates missing journals (backup make_checkpoint.sh.before-fresh-container).
+  A fresh clone also lacks the local ignore rule: `.worktrees/` was added to R/.git/info/exclude (without it git status
+  shows "?? .worktrees/", step A never sees a clean tree, and a `git add -A` would commit the worktrees).
 - LOST (it lived only in the local-only tier): every workflow journal and agent transcript, so phase 2 wf_eee12853-0ae can NOT
   be resumed with resumeFromRunId; S/wf/phase2/** incl. the six c2 fixers' cross-owner handoff files
   (clearance-c2/handoff-*.md) and handoff-pushcheck.md; the full-scratchpad copy; logs from 02:13-03:56. The overseer
@@ -349,7 +351,7 @@ sha256sum -c SHA256SUMS
    `while read -r ref sha; do git rev-parse -q --verify "$ref" >/dev/null || git update-ref "$ref" "$sha"; done < $OUT/branch-tips.txt`
 2. Bruno's remote: `git -C "$R" remote add epinoic https://github.com/Bruno-ios/Epinoic-Logic-Translator.git && git -C "$R" fetch epinoic`
    (if access is refused, attach the repository with add_repo, push access).
-3. Worktrees (see worktrees.txt): `git worktree add .worktrees/overseer overseer-build`, likewise review-engine,
+3. Worktrees (see worktrees.txt; first `echo .worktrees/ >> "$R/.git/info/exclude"`): `git worktree add .worktrees/overseer overseer-build`, likewise review-engine,
    review-metrics, review-translate, review-stem-checks, review-stem-channel, `.worktrees/stem stem-build`,
    `.worktrees/import import/translator-baseline`. Then `tar -C "$R/.worktrees" -xJf worktree-scripts.tar.xz`
    (restores .worktrees/scripts/phase2-pipeline.js).
