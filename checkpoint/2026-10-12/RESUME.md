@@ -38,6 +38,25 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   dry run OK, the tag PUSH WAS REFUSED (HTTP 403) although branch pushes to the same repository work; reported to
   Daniel, not retried another way. The annotated tag exists locally in R; the script reuses it once pushing tags is
   allowed (or Bruno creates the tag at 1c2fb5c himself).
+- READY 11 Nov (Daniel: "continue"): the continuation S/wf-scripts/phase2-c2c3.js (472 KB, syntax-checked with
+  wf-scripts/syncheck.mjs) = phase2-cont.js's definitions + a c2 block + the round loop for k=3 only. Its data is embedded
+  (C2DATA: the 142 lens findings from clearance/c2/overseers, 5 open items of the c4f276c push check, the c2 summary,
+  lastHarness = the c4f276c line; CARRY.c2 54 records as before = 201 findings). LAUNCH after the reset and after
+  re-enabling the hourly routine: Workflow({scriptPath: "<S>/wf-scripts/phase2-c2c3.js"}) with NO args. It runs the six
+  owner fixers again as a SECOND PASS (label clearance-c2b: each finding is checked first; already-fixed ones are listed
+  with evidence), the cross-owner fixer, verify, commit "Fix the c2 clearance findings", push check, push, README; then
+  round 10 (c3) end to end. Prepared for it: the v4 knowledge bases copied to S/kb-v4/ib-specialist-knowledge-bases-v4
+  from /home/user/epinoic-agent-training/knowledge-bases (commit 651d71d; NOT from the epinoic docs branch, which only
+  holds a reference page); S/wf/phase2 created; a baseline suite of the restored c2 tree (snapshot commit 63dfa1c,
+  local ref refs/checkpoint/wip-c2-snapshot) in S/sim-evidence/wip-c2-baseline-suite.txt.
+- BASELINE 12 Nov of the restored c2 tree (snapshot 63dfa1c): full suite 8 failed, 23979 passed, 45 deselected, 1 xfailed (1:20:21).
+  Six failures were the fresh environment (z3-solver 5.3.3 outside the accepted [5.1.0, 5.2): five integration tests; pydantic
+  2.14.3: the nesting-depth bound reports E100 instead of E303); with z3-solver 5.1.0 and pydantic 2.14.0 they pass on the
+  snapshot and on c4f276c. Real failures of the c2 work in progress: overseer test_clearance_c2_overseer[note by negation] and
+  test_stem_completion[maa-t13] (both named by the first-pass fixers). Both version problems were added to C2DATA as findings
+  (now 7 extra records: 5 from the push check, 2 from the environment check; 203 findings in the second pass).
+  Replay of the snapshot (SIM_SKIP_SUITE): every recorded round = its record, contained 355/355 tamperings, BUT the contained
+  gate stem_fault_classes_named FAILS (passes at c4f276c) -> added to C2DATA as a major finding (8 extra; 204 findings).
 - Lesson: the local-only tier dies with the container. Small workflow reports (handoff files, fixer summaries) belong in the
   pushed tier; proposed to Daniel.
 
@@ -371,12 +390,14 @@ sha256sum -c SHA256SUMS
 5. Tools and records: `tar -C "$S" -xJf tools.tar.xz` and (since 10 Nov) `tar -C "$S" -xJf wf-reports.tar.xz` (scripts, wf-scripts, sim mocks, STANDING_INSTRUCTIONS.md,
    runs.json, feedback-design.json, round8-prep, clearance/c1, push-check, simcache, c1-design, publisher-next, and the
    recorded arena rounds arena/r* that simulate.sh replays before every upload).
-   Knowledge bases (not in the pushed tier): `git -C "$R" archive epinoic/docs/specialist-kb-v4 | tar -x -C "$S/kb-v4"`
+   Knowledge bases (not in the pushed tier): `mkdir -p "$S/kb-v4" && cp -r /home/user/epinoic-agent-training/knowledge-bases "$S/kb-v4/ib-specialist-knowledge-bases-v4"` (commit 651d71d; the epinoic docs/specialist-kb-v4 branch holds only a reference page)
    (check the layout round8-prep/pre.json expects). If $S differs from the old path, rewrite it in the tools:
    `grep -rl OLD_S "$S" --include='*.sh' --include='*.py' --include='*.js' | xargs sed -i "s#OLD_S#$S#g"`.
    The full scratchpad, workflow journals and workflow reports are in the local copy only
    (/home/user/epinoic-checkpoint-2026-10-12/local-only/) and survive only while that container lives.
-6. Environments: `python3 -m venv "$S/z3venv" && "$S/z3venv/bin/pip" install -e "$R[dev,service,providers]"`;
+6. Environments: `python3 -m venv "$S/z3venv" && "$S/z3venv/bin/pip" install -e "$R[dev,service,providers]"`, THEN pin the recorded
+   versions: `"$S/z3venv/bin/pip" install "z3-solver>=5.1.0,<5.2" "pydantic==2.14.0"` (a fresh resolve on 10 Nov took z3-solver 5.3.3,
+   which the bootstrap refuses, and pydantic 2.14.3, which changes one structural-bound diagnostic: 6 tests failed for the environment);
    simulate.sh builds its own overlay venv per run.
 7. Workflow journals: publish_overseer.sh gates an overseer candidate on its build or rebuild workflow journal
    (runs.json). A candidate committed before the checkpoint and not yet published needs the local-only journals;
