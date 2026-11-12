@@ -57,6 +57,11 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   (now 7 extra records: 5 from the push check, 2 from the environment check; 203 findings in the second pass).
   Replay of the snapshot (SIM_SKIP_SUITE): every recorded round = its record, contained 355/355 tamperings, BUT the contained
   gate stem_fault_classes_named FAILS (passes at c4f276c) -> added to C2DATA as a major finding (8 extra; 204 findings).
+  DIAGNOSED 12 Nov 15:1x-16:0x (copies only, no agents; written into that finding): (a) test_stem_completion[maa-t13] 16->14 =
+  the two stem_comparison checks of m2.5 ('Both values lie in 0 ≤ t ≤ 3.'), dropped by the first pass's rule stated-condition
+  (stem/relations.py), though the sentence is a claim about the values, not a condition; (b) the gate fails on ONE probe,
+  physics-translation (ph-t13, 0.60 Ω planted for 0.50 Ω): expected OVS-TRN-005, raised OVS-TRN-004 (caught, not named);
+  likely the first pass's data-standing/grounding change in overseer checks/translation.py.
 - Lesson: the local-only tier dies with the container. Small workflow reports (handoff files, fixer summaries) belong in the
   pushed tier; proposed to Daniel.
 
