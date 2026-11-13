@@ -1,10 +1,16 @@
-# Resume after the weekly limit of 9 Nov 2026 (phase 2 STOPPED at 19:30 UTC Mon 9 Nov at weekly 95%; the CONTAINER WAS REPLACED at ~03:56 UTC Tue 10 Nov and restored from the checkpoint, but the workflow journals are LOST: read the first section; the weekly window resets Fri 13 Nov 16:00 UTC). Older sections below are history.
+# Resume notes (13 Nov 16:15 UTC: weekly window reset at 16:00; hourly routine RE-ENABLED; the continuation phase2-c2c3 = wf_e6995188-011 (task wcuzu8b61) RUNNING: round 9 second fix pass, then round 10). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 13 Nov 16:15 UTC: CONTINUATION LAUNCHED
+- Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js}) with no args -> run wf_e6995188-011, task wcuzu8b61 (script sha256 48809ecf5afc75a1).
+  First agents: fix:overseer:clearance-c2b and fix:parsers:clearance-c2b (2 at a time on 4 CPUs). Resume (same session only, journal
+  local-only): Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js, resumeFromRunId: "wf_e6995188-011"}). milestones.py now reads this
+  run's journal; watch-milestones.txt lists its steps. Environment: z3-solver 5.1.0, pydantic 2.14.0 (pinned).
 
 ## 10 Nov ~03:56 UTC: THE CONTAINER WAS REPLACED; RESTORED 04:00-04:10 FROM CHECKPOINT 09077ad (02:13); JOURNALS LOST
 - Restored (procedure in section 1): checkpoint files sha256 OK; R work in progress re-applied (91 paths, status identical to
