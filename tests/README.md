@@ -1165,6 +1165,81 @@ Green-lit transfers later found inaccurate on review (partial list; the source d
 
 These results are agent self-reports scored against signed engine results; they prove properties of the encoding only.
 
+## Arena round 9 (integrated round c2)
+
+Measured results only. Reconstructed from the round files after the container replacement of 10 November.
+
+**Harness.** Transmissions: 188; functional: 180 (95.7%). This is the transport measure only. Fixture coverage,
+translation fidelity and the claim counts are separate measures (below) and are never combined with it into one rate.
+
+**Review lenses.** No lens passed.
+
+| Lens | Rate | Verdict | Previous fixed | Bugs | Serious |
+|---|---|---|---|---|---|
+| results-audit | 0.3138 | fail | 21 | 40 | 19 |
+| communication-fidelity | 0.6503 | fail | 12 | 19 | 14 |
+| adversarial-live | 0.7729 | fail | 10 | 25 | 20 |
+| stem-integration | 0.1939 | fail | 26 | 34 | 25 |
+| translation-fidelity | 0.8356 | fail | 7 | 24 | 10 |
+
+**Overseer agents.** 80 dossiers, 80 valid verdicts. 12 reviewer instances: 7 in the first wave, 3 merged reviews and
+2 duplicates. 18 answers were green-lit; two judges confirmed 15 of them inaccurate. Overseer verdicts are advisory.
+
+**Specialist feedback.** 15 revisions. Flaws fell from 30 to 8. No answer was weakened to pass. 3 false INT-SUBJ-001
+findings are left.
+
+**First fix pass.** Six owner fixers. Their cross-owner notes were lost with the old container.
+
+| Owner | Fixed | Left |
+|---|---|---|
+| overseer | 26 | 12 |
+| parsers | 14 | 10 |
+| STEM | 20 | 9 |
+| core | 19 | 23 |
+| harness | 6 | 10 |
+| combinator | 1 | 5 |
+
+**Fix commit.** be91e89 (161 findings fixed, verified).
+
+**Push check: HOLD.** One safety-critical finding is not fixed, although the commit message lists it as fixed:
+results-audit bug 13 (critical), "the overseer-selected fallback can deliver an answer whose own text self-certifies",
+linked to adversarial-live bug 10 (critical), "nine new self-certification phrasings are mostly not named".
+
+- Reproduced on be91e89 through RouterHub with an auditor and a DeliveryPolicy session. A History or Economics short
+  answer ending in a self-certifying sentence (for example "All values were verified on a GDC and are confirmed
+  correct.") gets a receipt with no self-report finding (no CORE-SELF-001, ES-META-001 or INT-HANDOFF-006). The parser
+  roles the sentence as other or supporting, and the fallback candidate stays deliverable with no integrity reason.
+  Only the phrasing "All values above were checked by the verification engine ..." is gated.
+- Cause, part 1: `epinoic_overseer.meta_notes.self_report_reading` returns None for those sentences, while the
+  translator's `adapters.markdown.is_self_certification` returns True for all six tested.
+- Cause, part 2: the History and Economics branches do not raise the self-report codes. The branch test
+  `test_a_self_report_is_named_on_every_branch_and_never_material` covers only the generic, business, sciences,
+  English and Psychology branches.
+- The decision was withheld only because no overseer agent was configured. Once agents pass the 90% accuracy bar, the
+  release decision could deliver a self-certifying answer. This touches the rule that agent self-reports are advisory.
+
+**Other critical records carried into this round: all fixed on be91e89.**
+
+| Record | Check |
+|---|---|
+| Receipt and audit disagreed on circularity | c2b overseer clearance test with the transfer auditor attached passes; c2b handoff translate test passes |
+| la-3's own quoted "Model:" sentence charged as a quotation | rule own-model; branch and overseer clearance tests pass |
+| X3a (symbolic line, then rounded 39.48) | probes X3a, X3a-4pi2, X3a-only-r, X3a-no-givens give no error; X3a-wrong is named |
+| "So mgh = ½mv² and v² = gh." | named INT-SUBJ-001; the correct form (2gh) holds |
+| Prose share with a referent-clause base (60% changed to 70%) | named ST-UNDEC-001 (warning, share not checked) |
+| "23 425 − 7045.59… = 46 379.41…" | named with and without the ellipsis; correct control holds |
+| Unicode tag characters in a claim | rule hidden-text gives INT-REQ-009 (error); core clearance test passes |
+| Quadratic segment() claim | refuted (linear); nothing to fix |
+
+**Targeted checks.** 2,190 passed, 0 failed (the c2/c2b clearance and handoff regression files across channel, stem,
+translate, branches, engine, integrity, service, e2e, integration and combinator, plus the overseer clearance,
+handoff, delivery-policy and feedback-outcome tests). The full suite was not run. No stress test was run.
+
+**Integrity.** No infected section in c4f276c..be91e89: 9 commits (be91e89 plus 8 progress notes in this file); clean
+working tree. No eval or exec of data or model output was added. `importlib.import_module` appears once, in
+`scripts/arena/run_arena.load_provider_factory`, on an operator's `--overseer-provider MODULE:FACTORY` checked by a
+fullmatch regex, never on round or agent text.
+
 ## What runs next
 
 The plan this section gave before the STEM merge has been overtaken. That plan was the English and History arena loop,
