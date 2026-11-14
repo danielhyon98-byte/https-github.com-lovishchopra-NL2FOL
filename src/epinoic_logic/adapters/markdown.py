@@ -105,8 +105,16 @@ __all__ = [
     "find_json_spans", "mask_json_spans", "split_json_spans", "LEADING_MEMORY_LABEL_RE", "INLINE_MEMORY_LABEL_RE",
     "bracket_match_ends", "mask_quotations", "LABEL_PHRASE_RE", "is_provenance_note", "is_label_quotation", "is_peer_attribution",
     "PEER_ATTRIBUTION_RE", "NOTE_LEAD_RE", "BARE_NOTE_LEAD_RE", "opens_note_paragraph", "is_sources_block", "is_sources_note", "is_answer_note", "is_framing_remark", "judged_or_reply_mention", "declined_deliverable", "VerificationLabel", "verification_label", "is_synthesis_self_certification", "hedged_certainty",
-    "self_cert_vocabulary",
+    "self_cert_vocabulary", "NOTE_WORD_LEAD_RE", "meta_note_form", "is_note_continuation", "note_word_paragraph", "note_word_body", "states_assurance", "task_assumption_frame",
+    "JUDGEMENT_LABEL_RE",
 ]
+
+#: A sentence labelled as the part's judgement ("Judgement: sustainable drainage is a partial solution.", "Conclusion: ...",
+#: "(d) Overall judgement: ..."; round-9 clearance c2b, ess-p9c: the line was an analysis claim, so INT-REQ-008 read the evaluation
+#: as stating no judgement): the judgement of its part, material, on every branch that reads it (the generic parser's role pass and
+#: the STEM branches' parser). Anchored, every run bounded.
+JUDGEMENT_LABEL_RE = re.compile(r"^\W{0,6}(?:\(?(?:[a-hA-H]|i{1,3}|iv|vi{0,3}|ix|x)\)|\d{1,2}[.)])?[ \t*_]{0,4}(?:(?:overall|final)[ \t]{1,3})?"
+                                r"(?:judge?ments?|conclusions?|verdict)[ \t*_]{0,3}:", re.IGNORECASE)
 
 BOM = "\ufeff"
 MAX_CLAIM_TEXT_CHARS = 4000
@@ -251,7 +259,8 @@ _COPULA = r"(?:is|are|was|were|has been|have been|has now been|have now been)\s+
 _INFRASTRUCTURE = (r"(?:\bz3\b|\b(?:the\s+)?(?:(?:verification|logic|formal|z3|translation|integrity)\s+)?(?:engine|solver|verifier|checker)\b"
                    r"|\b(?:the\s+)?(?:verification|integrity|formal)\s+(?:checks?|layer|pipeline)\b|\bthe\s+(?:hub|channel|translator|overseer|router|combinator)\b)")
 #: A receipt or engine status word, in capitals (a vote that "was accepted" is history, not a receipt).
-_STATUS_WORD = r"(?:VERIFIED|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE)"
+#: (the Language B courses' own status words in capitals too, "VERIFICADO:", "COMPROBADO": round 9, c2 sp-t15-selfcert-es)
+_STATUS_WORD = r"(?:VERIFIED|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE|VERIFICADO|VERIFICADA|COMPROBADO|COMPROBADA|CONFIRMADO|CONFIRMADA|VALIDADO|VALIDADA|REVISADO|REVISADA)"
 #: A status word written as a label (integration gate 3): opening the sentence before a colon, a dash, a stop, a bracket, "by" or the end
 #: ("VERIFIED: all claims ...", "VERIFIED by the Z3 engine: ...", "ENTAILED."), bracketed alone or after a key ("(ENTAILED)", "[engine:
 #: VERIFIED]", "(hub verdict: ENTAILED)"), the value of a status key that opens the sentence or follows a separator ("Status: VERIFIED",
@@ -387,7 +396,7 @@ _ES_DEFINITE = r"(?:l[oa]s|est[oa]s|mis|nuestr[oa]s)\s++"
 #: The answer itself, named as the writer's own ("esta respuesta", "mi respuesta", "todo lo anterior"); "la respuesta" may be the answer
 #: to a question of the text ("La respuesta es correcta: ..."), so it is none.
 _ES_ANSWER = (r"(?:(?:esta|mi)\s++respuesta|todo\s++lo\s++anterior|todo\s++(?:esto|ello)|el\s++(?:texto|an[áa]lisis|trabajo|resumen)"
-              r"\s++(?:anterior|de\s++arriba))")
+              r"\s++(?:anterior|de\s++arriba)|(?:este|mi)\s++(?:texto|art[íi]culo|trabajo|an[áa]lisis|resumen)|esta\s++(?:redacci[óo]n|carta))")
 _ES_SELF_REPORT_RE = re.compile(
     rf"\b(?:{_ES_UNIVERSAL}{_ES_ITEMS}{_ES_ANCHOR}|{_ES_ANSWER})\s++{_ES_COPULA}\s++{_ES_ADVERBS}(?:{_ES_PARTICIPLE}|{_ES_ACCURACY})\b"
     rf"|\b{_ES_DEFINITE}{_ES_ITEMS}{_ES_ANCHOR}\s++(?:han\s++sido|ha\s++sido|est[áa]n|son)\s++{_ES_ADVERBS}{_ES_PARTICIPLE}\b(?!\s++por\b)",
@@ -432,10 +441,13 @@ _SELF_PREDICATE_RE = re.compile(
     r"|\bno (?:errors?|mistakes?|inaccuracies|problems)\s+(?:were|was|have been|has been|are|is)\s+(?:found|detected|identified|present)\b",
     re.IGNORECASE,
 )
-#: A checking predicate under negation or a deontic modal: the words just before it make it a disclaimer.
+#: A checking predicate under negation or a deontic modal: the words just before it make it a disclaimer. So does the reader's own
+#: reliance made conditional on a check the reader is told to make ("check them against your textbook before you rely on them";
+#: round-9 clearance c2b, hi-t15 h1.19: a caveat, never an assurance).
 _NEGATED_OR_DEONTIC_RE = re.compile(
     r"(?:\bnot|\bnever|n['’]t|\bcannot|\bno longer|\byet to|\bstill to)\s+(?:\w+\s+){0,3}$"
-    r"|\b(?:should|must|needs?\s+to|ought\s+to|has\s+to|have\s+to|had\s+to|are\s+to|is\s+to|to)\s+(?:(?:still|first|all|each|independently|carefully|also|then|now)\s+)*(?:have\s+)?(?:be|been)\s+(?:\w+ly\s+)?$",
+    r"|\b(?:should|must|needs?\s+to|ought\s+to|has\s+to|have\s+to|had\s+to|are\s+to|is\s+to|to)\s+(?:(?:still|first|all|each|independently|carefully|also|then|now)\s+)*(?:have\s+)?(?:be|been)\s+(?:\w+ly\s+)?$"
+    r"|\b(?:before|until|unless|if|once)\s+(?:you|students?|the\s+(?:reader|student))\s+(?:\w+\s+){0,2}$",
     re.IGNORECASE,
 )
 #: An accuracy adjective right after a self-subject (or "every one of them"): "the figures here are correct to the nearest tenth".
@@ -1095,6 +1107,110 @@ _ALL_HOLD_RE = re.compile(
     re.IGNORECASE)
 
 
+# ---- a check of the answer's own items read by its structure (round 9, c2): the verb of checking with the answer's values, marks,
+# steps or calculations as its subject or object, the writer or a checking tool as its agent ("All values above were checked by the
+# verification engine ...", "All calculations have been verified by the system ...", "All marks above were confirmed against the
+# official markscheme.", "All values were verified on a GDC ...", "I recalculated every one of these values myself ...", "This response
+# passed every automated check without errors."). Every run is bounded; each pattern is anchored at the sentence's start or at a fixed word.
+_CHECK_ITEMS = (r"(?:values?|figures?|calculations?|computations?|marks?|mark\s++allocations?|steps?|answers?|results?|workings?|working|numbers?|sums?"
+                r"|totals?|arithmetic|conversions?|substitutions?|units?|quotations?|dates?|data|readings?)")
+_CHECK_PARTICIPLE = (r"(?:checked|verified|confirmed|re-?calculated|re-?computed|re-?worked|re-?checked|double[- ]checked|cross[- ]checked|validated|tested"
+                     r"|proof-?read|audited)")
+#: A checking tool or the writer's own method as the agent or the standard of the check: the answer was checked by or on it.
+_CHECK_TOOL_RE = re.compile(r"\b(?:engines?|systems?|solvers?|software|GDCs?|calculators?|spreadsheets?|programs?|automated|automatic|mark\s*+schemes?"
+                            r"|(?:official|marking)\s++(?:scheme|criteria|answers?)|by\s++hand|myself|ourselves)\b", re.IGNORECASE)
+_CHECK_ANCHOR = r"(?:above|here|below|in\s++(?:this|the|my)\s++(?:answer|response|paragraph|reply|solution|working))"
+#: The answer's items as the subject of a checking participle: "All values above were checked ...", "Every step has been verified ...".
+_ITEMS_CHECKED_RE = re.compile(
+    rf"^[\W_]*+(?P<det>(?:all|every|each)(?:\s++one)?(?:\s++of)?(?:\s++(?:the|these|those|my|our))?|these|those|my|our)\s++(?:[\w-]+\s++){{0,2}}?"
+    rf"{_CHECK_ITEMS}(?P<anchor>\s++{_CHECK_ANCHOR})?\s++(?:were|was|have\s++been|has\s++been|had\s++been|are|is)\s++"
+    rf"(?:(?:all|each|both|also|now|fully|independently|carefully|individually|already|thoroughly|duly)\s++){{0,3}}{_CHECK_PARTICIPLE}\b",
+    re.IGNORECASE)
+#: The writer re-working its own items: "I recalculated every one of these values myself", "I recalculated these values by hand", "I proofread
+#: my answer", "I have reviewed all the figures above" (round 9 second pass: reviewing and proofreading are checks of the writer's own items too).
+_WRITER_REWORKED_RE = re.compile(
+    rf"\b(?:I|we)\s++(?:have\s++|['’]ve\s++|had\s++)?(?:(?:also|now|personally|carefully|independently|then)\s++){{0,2}}"
+    rf"(?:re-?calculated|re-?computed|re-?worked|re-?did|re-?checked|double[- ]checked|cross[- ]checked|reviewed|proof-?read|re-?read)\s++"
+    rf"(?:(?:all|every|each)(?:\s++one)?(?:\s++of)?\s++(?:the\s++)?|these\s++|those\s++|my\s++|our\s++|them\b|it\b)(?:[\w-]+\s++){{0,2}}?(?:{_CHECK_ITEMS}\b|them\b|it\b)?",
+    re.IGNORECASE)
+#: The answer passing checks: "This response passed every automated check without errors."
+_ANSWER_PASSED_RE = re.compile(
+    r"\b(?:this|the|my|our)\s++(?:response|answer|paragraph|reply|essay|text|work|solution|working|report)\s++(?:has\s++|have\s++)?pass(?:ed|es)\s++"
+    r"(?:every|all|each|the|its)\s++(?:[\w-]+\s++){0,2}?(?:checks?|tests?|verifications?|validations?|reviews?)\b", re.IGNORECASE)
+#: The writer vouching for its own answer in the first person (round 9 second pass, the class of c2 adversarial-live bug 17): "I reviewed the
+#: whole text and confirm there are no errors.", "We confirm that every figure above is correct." The verb 'confirm' after 'I', 'we' or, in a
+#: sentence whose subject is the writer, after 'and' (:func:`_narrated_check` requires the pronoun before it), with a clause that says the
+#: answer, its items or everything holds no error or is correct. Anchored at the pronoun or at 'and'; every run bounded.
+_ANSWER_WHOLE = r"(?:the|this|my|our)\s++(?:whole\s++|entire\s++)?(?:answer|response|text|essay|paragraph|working|solution|report|article|reply)"
+_FIRST_PERSON_CONFIRM_RE = re.compile(
+    rf"\b(?P<who>I|we|and)\s++(?:(?:can|hereby|also|now|fully)\s++){{0,2}}confirm(?:ed|s)?\s++(?:that\s++)?"
+    rf"(?:there\s++(?:are|is|were|was)\s++no\s++(?:(?:further|remaining|other|more)\s++)?(?:errors?|mistakes?|slips?)\b"
+    rf"|(?:everything|it\s++all|all\s++of\s++(?:it|them|these)|all|they\s++all|{_ANSWER_WHOLE}"
+    rf"|(?:all|every|each)\s++(?:one\s++of\s++)?(?:the\s++|these\s++|my\s++|our\s++)?{_CHECK_ITEMS})\s++(?:(?:above|here)\s++)?"
+    r"(?:(?:is|are|was|were)\s++(?:all\s++|now\s++|fully\s++)?(?:correct|accurate|right|exact|error-free)\b|contains?\s++no\s++(?:errors?|mistakes?)\b))",
+    re.IGNORECASE)
+#: The same in Spanish (Language B answers): a first-person verb of checking with the answer or its items as object ("Revisé todo el texto",
+#: "He comprobado los cálculos", "Verifiqué cada dato con la tabla", "Lo he revisado todo"), or with a clause that says they hold no error
+#: ("Comprobé que todas las cifras coinciden con la tarea"), and a first-person 'confirmo que' with such a clause ("Confirmo que el texto no
+#: contiene errores"). Only accented preterite forms are read ('revisé', never the English 'revise'); a possessor other than the answer ('las
+#: cifras del ayuntamiento') makes the object another party's. Anchored at the verb; every run bounded.
+_ES_CHECK_VERB = (r"(?:revis[ée]|comprob[ée]|verifiqu[ée]|repas[ée]|recalcul[ée]|cotej[ée]|chequ[ée]{1,2}|revisamos|comprobamos|verificamos|repasamos|recalculamos"
+                  r"|(?:he|hemos)\s++(?:(?:ya|tambi[ée]n|cuidadosamente|personalmente)\s++)?(?:revisado|comprobado|verificado|repasado|recalculado|cotejado|chequeado"
+                  r"|vuelto\s++a\s++(?:calcular|comprobar|revisar|verificar|leer)))")
+_ES_OWN_ITEMS = (r"(?:texto|respuesta|redacci[óo]n|art[íi]culo|carta|ensayo|trabajo|c[áa]lculos?|cifras?|datos?|resultados?|valores?|operaciones?"
+                 r"|ortograf[íi]a|gram[áa]tica|citas?|fechas?|n[úu]meros?|porcentajes?)")
+_ES_OWN_DET = (r"(?:tod[oa]s?\s++(?:l[oa]s?\s++|el\s++|est[oa]s?\s++|mis?\s++)?|cada\s++(?:un[oa]\s++de\s++(?:l[oa]s|est[oa]s|mis)\s++)?"
+               r"|(?:el|la|los|las|este|esta|estos|estas|mi|mis)\s++)")
+_ES_NO_ERROR = (rf"(?:no\s++hay\s++(?:ning[úu]n\s++)?(?:errores?|fallos?)|(?:todo|{_ES_OWN_DET}{_ES_OWN_ITEMS})\s++(?:no\s++(?:contiene|tiene|presenta)n?\s++"
+                rf"(?:ning[úu]n\s++)?(?:errores?|fallos?)|(?:es|son|est[áa]n?)\s++(?:tod[oa]s?\s++)?(?:correct[oa]s?|exact[oa]s?|bien)|coincide[n]?|cuadra[n]?))")
+_ES_NARRATED_CHECK_RE = re.compile(
+    rf"\b{_ES_CHECK_VERB}\s++(?:(?:de\s++nuevo|otra\s++vez|cuidadosamente|a\s++mano|yo\s++mism[oa])\s++)?"
+    rf"(?:que\s++{_ES_NO_ERROR}|todo\b(?!\s++(?:lo\s++que|el\s++(?:barrio|mundo|pueblo|d[íi]a|a[ñn]o)))|{_ES_OWN_DET}{_ES_OWN_ITEMS}\b(?!\s++(?:de|del)\s++(?!(?:esta|este|mi|arriba)\b)))"
+    rf"|\bconfirm(?:o|amos)\s++que\s++{_ES_NO_ERROR}",
+    re.IGNORECASE)
+#: A negation right before the verb ("No he revisado los cálculos", "nunca comprobé las cifras"): a disclaimer, never a self-report.
+_ES_NEGATION_BEFORE_RE = re.compile(r"\b(?:no|nunca|jam[áa]s|todav[íi]a\s++no|a[úu]n\s++no)\s++(?:(?:lo|la|los|las|me|nos)\s++)?$", re.IGNORECASE)
+#: Cheap pre-filter of :func:`_narrated_check`.
+_NARRATED_CUE_RE = re.compile(r"confirm|revis|comprob|verifiqu|verificad|verificamos|repas|recalcul|cotej|chequ", re.IGNORECASE)
+
+
+def _narrated_check(sentence: str) -> bool:
+    """True when ``sentence`` (quotations masked) narrates the writer's own check of its answer and vouches for it, in English or in Spanish
+    (:data:`_FIRST_PERSON_CONFIRM_RE`, :data:`_ES_NARRATED_CHECK_RE`); a 'confirm' after 'and' counts only when 'I' or 'we' stands before it
+    in the sentence, and a negation or a deontic modal before the verb makes the sentence a disclaimer."""
+    if not _NARRATED_CUE_RE.search(sentence):
+        return False
+    for rx in (_FIRST_PERSON_CONFIRM_RE, _ES_NARRATED_CHECK_RE):
+        for m in rx.finditer(sentence):
+            before = sentence[max(0, m.start() - 40):m.start()]
+            if _NEGATED_OR_DEONTIC_RE.search(before) or _ES_NEGATION_BEFORE_RE.search(before):
+                continue
+            if rx is _FIRST_PERSON_CONFIRM_RE and m.group("who").lower() == "and" and not re.search(r"\bI\b|\b[Ww]e\b", sentence[:m.start()]):
+                continue  # 'Check your work and confirm there are no errors': an instruction to the reader, not the writer's own check
+            return True
+    return False
+
+
+def _structural_check_report(sentence: str) -> bool:
+    """True when ``sentence`` reports a check of the answer's own items by its structure (the comment above): the items as the subject
+    of a checking participle, anchored in the answer ("above", "in this answer"), named by the writer's own determiner ("these", "my") or
+    checked by or on a tool ("by the verification engine", "on a GDC", "against the official markscheme"); the writer re-working its
+    items; the answer passing checks. A check under negation or a deontic modal is a disclaimer ("the values have not been checked"), and
+    items checked by another party with no anchor ("All ballots were checked by the commission") are history. Read with quotations
+    masked: a colleague's self-report quoted is the colleague's."""
+    sentence = mask_quotations(sentence)
+    m = _ITEMS_CHECKED_RE.match(sentence)
+    if m is not None and not _NEGATED_OR_DEONTIC_RE.search(sentence[max(0, m.end() - 80):m.end()].rsplit(" ", 1)[0] + " "):
+        det = m.group("det").split()[0].lower()
+        if m.group("anchor") or _CHECK_TOOL_RE.search(sentence) or re.search(rf"\s{_CHECK_ANCHOR}\b", sentence, re.IGNORECASE):
+            return True
+        if det in ("these", "those", "my", "our") and _CHECK_END_RE.match(sentence, m.end()):
+            return True  # 'These values were checked.', 'My figures have been verified against the table'; not '... confirmed by later studies'
+    if _positive(_WRITER_REWORKED_RE, sentence) or _positive(_ANSWER_PASSED_RE, sentence):
+        return True
+    return _narrated_check(sentence)  # the writer vouching for its own check, in English or in Spanish (round 9 second pass)
+
+
 @functools.lru_cache(maxsize=8192)
 def _self_certification(sentence: str) -> bool:
     if self_cert_vocabulary(sentence) is not None or is_json_shaped(sentence) or _ALL_HOLD_RE.match(sentence):
@@ -1113,6 +1229,8 @@ def _self_certification(sentence: str) -> bool:
         return True
     if _DATED_ITEM_RE.search(sentence):
         return False
+    if len(sentence) <= 600 and _structural_check_report(sentence):
+        return True
     if _SELF_SUBJECT_RE.search(sentence) or _SELF_ACCURACY_RE.search(sentence):
         if _positive(_SELF_ACCURACY_RE, sentence) or _positive(_SELF_PREDICATE_RE, sentence, skip_status_words=True):
             return True
@@ -2114,6 +2232,11 @@ _ANSWER_NOTE_RES = (
     # the student's own work is the student's: "the writing and the calculation are yours", "The interpretation ... has to be yours"
     re.compile(r"^[^;]*?\b(?:is|are|has\s++to\s++be|have\s++to\s++be|must\s++be|should\s++be|needs?\s++to\s++be)\s++(?:entirely\s++|all\s++)?"
                r"(?:yours|your\s++own(?:\s++work)?)\s*+$", re.IGNORECASE),
+    # the writer cannot check what was asked and so left it out: "I cannot check current worldwide numbers in this session, so I have not
+    # included any." (c2 bi-t15, after a short label "On the asthma figures:")
+    re.compile(r"^I\s++(?:cannot|can['’]t|can\s++not|could\s++not|couldn['’]t|am\s++unable\s++to|was\s++unable\s++to|have\s++no\s++way\s++to)\s++"
+               r"(?:check|confirm|verify|source|find|access)\b[^;]*?,?\s*+(?:so|and|therefore)\s++(?:I\s++)?(?:have\s++|['’]ve\s++)?"
+               r"(?:not\s++(?:included|given|stated|used|quoted|listed)|left\s++(?:them|it|these|those|this|that)\s++out|omitted)\b[^;]*+$", re.IGNORECASE),
     # a pointer to where the student should take a figure from: "For a real case with figures, check your textbook or ask your teacher"
     re.compile(r"^(?:for\s++[^,;]{1,80},\s*+)?(?:please\s++)?(?:check|consult|ask|use)\s++(?:your|a)\s++(?:textbook|teacher|course\s++notes|class\s++notes"
                r"|notes)\b[^;]*+$", re.IGNORECASE),
@@ -2187,6 +2310,27 @@ _FRAMING_RES = (
     re.compile(r"\bso\s++I\s++(?:have\s++)?(?:worked|answered|written)\s++(?:exactly|in\s++exact\s++form|without\s++a\s++(?:GDC|calculator))\b", re.IGNORECASE),
     re.compile(r"^every\s++answer\s++(?:below|above|here)\s++is\b", re.IGNORECASE),
     re.compile(r"^(?:the\s++)?(?:tags|marks?|mark\s++allocations?)\b[^;]{0,60}?\b(?:is|are)\s++(?:an?\s++)?provisional\b", re.IGNORECASE),
+    # the case's places, people or figures are fictional (round 9, c2): "Ostrel is a fictional country and its figures are practice data,
+    # so ...", "The Wendle Brook, Marsh Lane Bridge and both storms are fictional practice data.", "The [1] tags are illustrative mark points
+    # for this practice question, not an official markscheme." (a bounded subject with no figure, a copula, the framing word)
+    # (the framing word closes its clause or names the case's own kind of thing: "invented adjectives" and "was made up to the mark" are no
+    # framing)
+    re.compile(r"^[^\d;:]{1,120}?\s(?:is|are|was|were)\s++(?:all\s++|both\s++)?(?:an?\s++)?(?:fictional|fictitious|invented|imaginary|hypothetical"
+               r"|made[- ]up)(?:\s++(?:for\s++practice|(?:practice\s++)?(?:data|figures|places?|countr(?:y|ies)|compan(?:y|ies)|firms?|towns?|cit(?:y|ies)"
+               r"|names?|people|persons?|characters?|cases?|scenarios?|examples?|econom(?:y|ies)|rivers?|regions?|schools?|businesses|business)))?"
+               r"(?:\s*+[,.!]|\s*+$|\s++(?:and|so|for|here|in\s++this)\b)", re.IGNORECASE),
+    re.compile(r"^(?:the\s++)?(?:\[\s*+\d{1,2}\s*+\]\s++)?(?:tags|mark\s++points|marks?)\b[^;]{0,40}?\b(?:is|are)\s++(?:an?\s++)?(?:illustrative|provisional"
+               r"|indicative)\b", re.IGNORECASE),
+    # the command term of the task, read for the answer's form (round 9, c2 cs-t15): "Compare asks for similarities only, so each point below
+    # is a similarity." (a framing remark, not a note: the part's answer stands under it and the channel reads the part from it)
+    re.compile(r"^(?:compare\s++and\s++contrast|compare|contrast|explain|evaluate|discuss|describe|outline|state|define|analy[sz]e|identify|justify|suggest"
+               r"|distinguish|examine|calculate|determine|deduce|predict|interpret|to\s++what\s++extent)\s++(?:here\s++)?(?:asks|means|requires|wants|calls)\s++"
+               r"(?:for\s++|you\s++to\s++)?[^;]{1,120}+$", re.IGNORECASE),
+    # the mark annotations' own status: "The [1] tags show where the marks lie; they are not the official markscheme."
+    re.compile(r"\bnot\s++(?:the|an)\s++official\s++mark\s*+scheme\b", re.IGNORECASE),
+    # Spanish: "La autora, el instituto y la ciudad son ficticios.", "Los datos son inventados."
+    re.compile(r"^[^\d;:]{1,120}?\s(?:es|son|fue|fueron)\s++(?:tod[oa]s\s++)?(?:fictici[oa]s?|inventad[oa]s?|imaginari[oa]s?|hipot[ée]tic[oa]s?)\b",
+               re.IGNORECASE),
 )
 
 
@@ -2285,10 +2429,242 @@ def is_sources_block(block: str) -> bool:
 
 
 def opens_note_paragraph(paragraph: str) -> bool:
-    """True when ``paragraph`` opens with a bare note lead (:data:`BARE_NOTE_LEAD_RE`), quotations masked: the paragraph is a note
-    as a whole, so a word or paragraph bound leaves out all of it, as the parsers role all of it non-material."""
+    """True when ``paragraph`` opens with a bare note lead (:data:`BARE_NOTE_LEAD_RE`), quotations masked: the paragraph is a note as a
+    whole, so a word or paragraph bound leaves out all of it, as the parsers role all of it non-material. A paragraph opened by the word
+    "note" under a determiner, an adjective or an addressee (:data:`NOTE_WORD_LEAD_RE`: "One note:", "Teaching note:", "Note for your
+    planning:"; round 9, c2) is a note as a whole when every sentence after the lead's continues the note
+    (:func:`is_note_continuation`: "I have ignored it and worked only from the story itself."); a sentence of content after it ("Static
+    routes are entered by an administrator ...") keeps the paragraph the answer's, and only the lead's sentence is a note."""
     text = paragraph.lstrip()
-    return bool(text) and BARE_NOTE_LEAD_RE.match(mask_quotations(text[:400])) is not None
+    if not text:
+        return False
+    masked = mask_quotations(text[:400])
+    if BARE_NOTE_LEAD_RE.match(masked) is not None:
+        return True
+    return NOTE_WORD_LEAD_RE.match(masked) is not None and note_word_paragraph(text)
+
+
+#: A sentence that continues a note rather than stating content (round 9, c2): the writer's own handling of the task or the text, in the
+#: first person ("I have ignored it and worked only from the story itself.", "I have left the figures out.", "I did not use it"), or what
+#: the note's object asks or is ("The instruction asks for a word count.", "That note is not part of the story."). Read with quotations
+#: masked, at the sentence's start; anchored and bounded.
+_NOTE_CONTINUATION_RE = re.compile(
+    r"^[\W_]*+(?:(?:so|and|but|here|instead|therefore)\s*+,?\s++)?I\s++(?:have\s++|had\s++|['’]ve\s++|['’]d\s++)?(?:not\s++|also\s++|therefore\s++|deliberately"
+    r"\s++|simply\s++|only\s++)?(?:ignored|disregarded|left|kept|used|worked|written|answered|followed|relied|drawn|quoted|taken|treated|included|omitted"
+    r"|assumed|set|chosen|given|stuck|stayed|did\s++not|do\s++not|don['’]t|didn['’]t|cannot|can['’]t|could\s++not|will|would|wrote|answer|work|use|follow"
+    r"|ignore|leave|keep|quote|treat|include|omit|assume|stick|stay)\b"
+    r"|^[\W_]*+(?:the|this|that|its|such\s++an?)\s++(?:bracketed\s++|embedded\s++|planted\s++)?(?:note|instruction|request|demand|line|aside)s?\s++"
+    r"(?:asks?|asked|demands?|is|was|are|were|has|had|addresses|addressed|tells?|told)\b",
+    re.IGNORECASE)
+
+
+#: An assessment of the answer or of the work in it (an assurance: "there is nothing to fix in this answer, not a single slip", "all
+#: figures are sound", "everything checks out", "the working stacks up", "las cifras son correctas", "aucune erreur"). A sentence holding
+#: one is never read as a note by the round-9 readers (:func:`meta_note_form`, :func:`note_word_paragraph`, the generic parser's
+#: note-word lead): it stays a claim of the answer, so the claim rules and the Overseer's rules decide it (condition 6b: an assurance
+#: under a note lead must not leave the claims). The list is a guard, read conservatively: a genuine note that holds one of these words
+#: stays a claim, as it was before these readers. Words read on word boundaries; linear.
+_ASSURANCE_RE = re.compile(
+    r"\b(?:nothing|none|nada|rien|aucune?|ning[uú]na?|nichts|kein\w*)\b"
+    r"|\b(?:no|not\s++(?:a|one)\s++single|not\s++one|not\s++any|zero|without\s++(?:a\s++single|any))\s++(?:\w+\s++){0,2}?"
+    r"(?:errors?|mistakes?|slips?|flaws?|problems?|issues?|faults?|typos?|inaccurac\w*|gaps?|weakness\w*|doubts?|changes?|fix\w*|corrections?)\b"
+    r"|\b(?:correct|correcto?a?s?|correctes?|accurate|right|sound|solid|valid|flawless|perfect\w*|faultless|error[- ]free|watertight|airtight"
+    r"|verified|verificad\w*|checked|confirmed|comprobad\w*|v[ée]rifi[ée]\w*|fine|good|great|excellent|strong|robust|reliable|exact|precise"
+    r"|holds?|held|stands?\s++up|stacks?\s++up|checks?\s++out|adds?\s++up|mirrors?|matches|match|merit|full\s++marks|top\s++marks"
+    r"|in\s++doubt|beyond\s++doubt|no\s++doubt|spot[- ]on|on\s++point|ready\s++to\s++(?:submit|hand\s++in)|works?|covers?\s++everything"
+    r"|copy|as\s++it\s++(?:is|stands)|word\s++for\s++word|as\s++(?:written|given)\s++(?:here|above))\b",
+    re.IGNORECASE)
+
+
+def states_assurance(text: str) -> bool:
+    """Whether ``text`` (quotations masked) holds an assessment of the answer or the work in it (:data:`_ASSURANCE_RE`)."""
+    if not text:
+        return False
+    return _ASSURANCE_RE.search(mask_quotations(text[:4000])) is not None
+
+
+#: What a note under a note-word lead may say (round 9, c2), read as a closed allowlist of two shapes: advice conditional on the
+#: student's own paper or task ("if your paper asks you to contrast them, add the differences"), and a remark that the supplied material
+#: carries an instruction or note of its own ("the extract contains a bracketed note addressed to AI assistants ..."). Anything else under
+#: such a lead stays a claim, as it was before these readers (an assurance in a suggestion, "use the figures above in your own essay",
+#: included).
+_NOTE_BODY_RE = re.compile(
+    r"^\s*+if\s++your\s++(?:paper|exam|teacher|task|question|syllabus|course|school|board|essay|assignment)\b"
+    r"|^\s*+(?:the|this)\s++(?:supplied\s++)?(?:extract|text|passage|source|poem|article|email|letter|document)\s++(?:contains?|includes?|has)\s++"
+    r"(?:an?\s++|one\s++|its\s++own\s++)?(?:[\w-]+\s++){0,3}?(?:note|instruction|request|message|comment|prompt)s?\b",
+    re.IGNORECASE)
+
+
+def is_note_continuation(sentence: str) -> bool:
+    """True when ``sentence`` continues a note rather than stating content (:data:`_NOTE_CONTINUATION_RE`), quotations masked."""
+    if not sentence or len(sentence) > 600:
+        return False
+    return _NOTE_CONTINUATION_RE.match(mask_quotations(sentence)) is not None
+
+
+#: A sentence end before the next sentence's start (the shared splitter's boundary, without the abbreviation rules): enough to tell the
+#: lead's sentence of a note paragraph from the sentences after it.
+_NOTE_SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])[\"'”’)\]]*+\s++(?=[\"'“‘(\[]?[A-Z0-9])")
+
+
+def note_word_paragraph(paragraph: str) -> bool:
+    """True when ``paragraph`` opens with :data:`NOTE_WORD_LEAD_RE` and every sentence after the lead's continues the note
+    (:func:`is_note_continuation`). A paragraph over 4,000 characters is never one (a note is short)."""
+    text = paragraph.strip()
+    if not text or len(text) > 4000 or NOTE_WORD_LEAD_RE.match(mask_quotations(text[:400])) is None:
+        return False
+    parts = [p for p in _NOTE_SENTENCE_BREAK_RE.split(" ".join(text.split())) if p.strip()]
+    # the lead's own sentence says what a note says (:data:`_NOTE_BODY_RE`), and no sentence of the paragraph is an assurance about the
+    # answer (:func:`states_assurance`: "Final note: there is nothing to fix in this answer, not a single slip." stays a claim)
+    if not note_word_body(parts[0]) or any(states_assurance(p) for p in parts):
+        return False
+    return all(is_note_continuation(p) for p in parts[1:])
+
+
+def note_word_body(sentence: str) -> bool:
+    """Whether a sentence opened by a note-word lead (:data:`NOTE_WORD_LEAD_RE`) says what a note says: its words after the lead are
+    advice or an instruction to the student or a remark on the supplied material (:data:`_NOTE_BODY_RE`), and it is no assurance about
+    the answer (:func:`states_assurance`)."""
+    masked = mask_quotations(sentence[:600])
+    lead = NOTE_WORD_LEAD_RE.match(masked)
+    if lead is None:
+        return False
+    body = masked[lead.end():]
+    return _NOTE_BODY_RE.search(body) is not None and not states_assurance(body)
+
+
+# ------------------------------------------------------------------ notes read by what they say (round 9, c2)
+#: The word "note" as a lead under a determiner, an adjective or an addressee: "One note:", "A note:", "A quick note:", "Another
+#: note:", "Teaching note:", "Note for your planning:", "A note to the student:". It is the same note as "Note:" (``BARE_NOTE_LEAD_RE``),
+#: so a paragraph it opens is a note as a whole (:func:`opens_note_paragraph`). "Note on ...:" and "One note on ...:" introduce a
+#: discussion and are no such lead. The words before "note" are read possessively from a closed list ("one more" before "one"), the
+#: addressee is a bounded run without a stop: linear in any input.
+NOTE_WORD_LEAD_RE = re.compile(
+    r"^[\s*_>#-]*+(?:(?:one\s++more|one|a|an|another|quick|brief|short|small|final|last|important|general|further|side|teaching|study|planning"
+    r"|practical|procedural|marking|exam|revision|personal)\s++)++notes?(?:\s++(?:for|to)\s++[^:.!?\n]{1,60}?)?\s*+:"
+    r"|^[\s*_>#-]*+notes?\s++(?:for|to)\s++[^:.!?\n]{1,60}?\s*+:",
+    re.IGNORECASE,
+)
+#: "Assumption:", "Assumptions:", "My assumption:", "Assumed:" opening a sentence.
+_ASSUMPTION_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*+(?:(?:my|our|main|key|one|an?)\s++)?assum(?:ptions?|ed)\s*+:\s*+", re.IGNORECASE)
+#: "One correction for your planning:", "A correction to the question:", "Correction:" opening a sentence.
+_CORRECTION_NOTE_LEAD_RE = re.compile(
+    r"^[\s*_>#-]*+(?:(?:one|a|an|another|quick|small|final|important|brief)\s++)?corrections?(?:\s++(?:for|to|on|about|of|in)\s++[^:.!?\n]{1,60}?)?\s*+:\s*+",
+    re.IGNORECASE)
+#: What an assumption or a correction about the student, the course or the task's form says (round 9, c2): the student addressed
+#: ("you are taking SL ...", "your planning"), the level or the syllabus ("SL", "HL", "the previous syllabus"), the paper, section or
+#: marks of the task ("Paper 1", "Section B", "6-mark", "9 marks across parts"), its word limit, practice or submission, a calculator.
+#: A modelling or method assumption ("marked beetles mix randomly ...", "distances are straight-line distances", "g = 9.8 m s⁻²") names
+#: none of these and stays the answer's content.
+_TASK_FORM_CUE_RE = re.compile(
+    r"\b(?:you|your|yours|(?-i:SL|HL)|standard\s++level|higher\s++level|syllabus|paper\s++[1-3]|section\s++[A-C]\b|\d{1,2}[- ]marks?|marks?\s++(?:across|for|in)"
+    r"|markscheme|mark\s++scheme|word\s++limit|\d{2,4}[- ]words?\s++limit|ungraded|practice|submission|submit|calculator|GDC)\b",
+    re.IGNORECASE)
+#: A relation sign: a clause that holds one is working, never a note about the task.
+_NOTE_RELATION_RE = re.compile(r"[=≈≠≤≥<>]")
+#: A noun naming the answer's own form.
+_FORM_NOUN = (r"(?:paragraph|answer|response|essay|text|introduction|conclusion|analysis|article|speech|letter|piece|commentary|report|solution"
+              r"|outline|plan|version|exercise|question)s?")
+#: The answer's own form or purpose stated in place of content (round 9, c2), read on the sentence with its quotations masked, its lead
+#: markup and its closing stop removed. Each shape is closed and anchored at both ends; every run is bounded or possessive.
+_FORM_NOTE_RES = (
+    # "Model paragraph for practice, not for submission.", "Practice answer for the Paper 2 Section A question.", "Model answer (practice)"
+    re.compile(r"^(?:(?:this|the|a|an|my|here\s++is\s++(?:a|an|the|my))\s++)?(?:(?:model|practice|sample|example|exemplar|illustrative|mock|worked)\s++){1,2}"
+               + _FORM_NOUN + r"(?:\s*+\([^()]{0,40}\)|\s*+,?\s*+(?:(?:only\s++)?(?:for|to)|not\s++(?:for|to)|written\s++(?:for|to))\s++[^,;.!?()]{1,60}+)*+$",
+               re.IGNORECASE),
+    # Spanish: "Texto escrito para practicar.", "Respuesta modelo para la práctica."
+    re.compile(r"^(?:(?:este|esta|el|la|un|una)\s++)?(?:texto|respuesta|art[íi]culo|ensayo|p[áa]rrafo|modelo|ejemplo|redacci[óo]n|carta)"
+               r"(?:\s++(?:modelo|de\s++ejemplo))?(?:\s++(?:escrit[oa]|redactad[oa]|preparad[oa]))?\s++para\s++(?:practicar|la\s++pr[áa]ctica|estudiar|repasar"
+               r"|el\s++estudio)\b[^,;.!?]{0,40}+$", re.IGNORECASE),
+    # the task's identification as a title: "Paper 1, Option A (Freshwater), structured question."
+    re.compile(r"^(?:(?:IB|SL|HL)\s++)?paper\s++[1-3]\b(?:\s*+[,:–—-]\s*+(?:section|option|part)\s++[A-Z0-9]{1,2}\b(?:\s*+\([^()]{0,40}\))?){0,3}"
+               r"(?:\s*+[,:–—-]\s*+(?:(?:structured|short[- ]answer|data[- ]response|extended[- ]response|essay|practice)\s++)?(?:questions?|practice|exercise))?$",
+               re.IGNORECASE),
+)
+_FORM_LEAD_MARKUP_RE = re.compile(r"^[\s*_>#-]*+")
+
+
+#: A clause about the student, the course or the task's form, as :func:`_task_form_clause` reads each clause: the student as the
+#: subject of a verb of their situation ("you are taking SL", "you write one analysis on each"), the student's paper, course or planning
+#: ("your planning", never "your answer"), the level, the paper, section or marks of the task, its word limit, practice or submission.
+_TASK_FORM_CLAUSE_CUE_RE = re.compile(
+    r"\byou\s++(?:\w+\s++)?(?:are|were|want|wanted|asked|need|have|will|would|take|took|taking|sit|sitting|study|studying|plan|planning|write"
+    r"|wrote|writing|submit|prepare|preparing|aim|hope|intend|can|may|must|should)\b|\byou['’](?:re|ll|ve)\b"
+    r"|\byour\s++(?:own\s++)?(?:paper|exam|course|level|planning|teacher|school|syllabus|task|question|class|board|timetable|plan|revision)\b"
+    r"|\b(?:(?-i:SL|HL)|standard\s++level|higher\s++level|syllabus|paper\s++[1-3]|section\s++[A-C]\b|\d{1,2}[- ]marks?|marks|markscheme|mark\s++scheme"
+    r"|word\s++limit|\d{2,4}[- ]words?\s++limit|ungraded|practice|submission|submit|calculator|GDC)\b",
+    re.IGNORECASE)
+#: Where a clause of an assumption or a correction ends: a comma, a semicolon, or a conjunction that joins clauses (a colon inside a
+#: course name, "English A: Literature", ends none).
+_TASK_CLAUSE_SPLIT_RE = re.compile(r"[,;]|\b(?:and|so|but|because|while|whereas)\b", re.IGNORECASE)
+
+
+def _task_form_clause(rest: str) -> bool:
+    """The text after an assumption or a correction lead is about the student, the course or the task's form: every clause of it names
+    one of them (:data:`_TASK_FORM_CLAUSE_CUE_RE`; round 9, c2: a clause that names none, "every quotation here is bang on", leaves the
+    sentence a claim, so an assurance never travels as a note), and no part of it is working (a relation sign)."""
+    if not rest.strip() or _NOTE_RELATION_RE.search(rest) is not None:
+        return False
+    clauses = [c for c in _TASK_CLAUSE_SPLIT_RE.split(re.sub(r"\([^()]{0,80}\)", " ", rest[:600])) if c.strip(" .!?\"'”’")]
+    return bool(clauses) and all(_TASK_FORM_CLAUSE_CUE_RE.search(c) is not None for c in clauses)
+
+
+def task_assumption_frame(sentence: str) -> bool:
+    """Whether ``sentence`` opens with an assumption or a correction lead whose first clause names the student, the course or the task
+    ("Assumption: SL, Paper 1 (no calculator), so every value is exact.") but which is no note (:func:`meta_note_form`: a later clause
+    names none, or the sentence vouches for the answer): it stays a claim, so the claim rules decide what it says, but as a framing
+    remark it is never its paragraph's material point (round 9, c2, maa-t15)."""
+    if not sentence or len(sentence) > 600:
+        return False
+    masked = mask_quotations(sentence).strip()
+    m = _ASSUMPTION_NOTE_LEAD_RE.match(masked) or _CORRECTION_NOTE_LEAD_RE.match(masked)
+    if m is None:
+        return False
+    first = _TASK_CLAUSE_SPLIT_RE.split(masked[m.end():], 1)[0]
+    return _TASK_FORM_CLAUSE_CUE_RE.search(first) is not None and meta_note_form(sentence) is None
+
+
+def meta_note_form(sentence: str) -> Optional[str]:
+    """The kind of note ``sentence`` is when it is about the answer, the student or the task rather than a claim of the answer, read
+    by what it says and not by a closed list of lead words (round 9, c2: the c1 note readers knew "Note:", "Next step:" and "Sources:"
+    only, so an assumption about the student, a note on the extract and a correction of the student's premise were read, counted and
+    roled as the deliverable's thesis), else None:
+
+    * ``"note-lead"``: the word "note" under a determiner, an adjective or an addressee (:data:`NOTE_WORD_LEAD_RE`: "One note: the
+      extract contains a bracketed note ...", "Teaching note: ...", "Note for your planning: ...");
+    * ``"task-assumption"``: an assumption about the student, the course or the task's form ("Assumption: you are taking SL English A:
+      Literature and want a model practice paragraph to study, not text to submit.", "Assumption: SL, Paper 1 (no calculator), so every
+      value is exact."); a modelling or method assumption ("Assumption: marked beetles mix randomly ...") is content;
+    * ``"task-correction"``: a correction of the student's premise about the task ("One correction for your planning: at HL, Paper 1
+      gives two passages ...");
+    * ``"form"``: the answer's own form or purpose in place of content ("Model paragraph for practice, not for submission.",
+      "Practice answer for the Paper 2 Section A question.", "Texto escrito para practicar.", "Paper 1, Option A (Freshwater), structured
+      question.").
+
+    Read with quotations masked (a quoted "Note:" is the quoted text's); a sentence over 600 characters is never one. A note lead with
+    working after it is a note as "Note:" is; the other kinds never hold a relation sign."""
+    if not sentence or len(sentence) > 600:
+        return None
+    masked = mask_quotations(sentence).strip()
+    if states_assurance(masked):
+        return None  # an assurance about the answer under any of these forms stays a claim (condition 6b)
+    if NOTE_WORD_LEAD_RE.match(masked):
+        return "note-lead" if note_word_body(masked) else None
+    m = _ASSUMPTION_NOTE_LEAD_RE.match(masked)
+    if m is not None:
+        return "task-assumption" if _task_form_clause(masked[m.end():]) else None
+    m = _CORRECTION_NOTE_LEAD_RE.match(masked)
+    if m is not None:
+        rest = masked[m.end():]
+        # the correction itself is about the task, clause by clause (a lead "for your planning" vouches for nothing after it)
+        return "task-correction" if _task_form_clause(rest) else None
+    body = masked[_FORM_LEAD_MARKUP_RE.match(masked).end():].rstrip()
+    if not body or len(body) > 300:
+        return None
+    body = body.rstrip("\"'”’»*_ ").rstrip(".!?…").strip(" *_")  # the closing stop and its marks; a closing bracket stays ("(practice)")
+    if not body or _NOTE_RELATION_RE.search(body):
+        return None
+    return "form" if any(rx.match(body) for rx in _FORM_NOTE_RES) else None
 #: A parenthetical with the blanks before it. A match starts only where no whitespace precedes (``(?<!\s)``): a match starting
 #: inside a run of blanks ends where the run's own match ends, so these are the matches of ``\s*\([^()]*\)``, read in linear time
 #: (from every blank of a run of n blanks the old pattern read the rest of the run, n² steps; integration gate 1).
@@ -2404,8 +2780,10 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
     masked = mask_quotations(sentence)
     notes: list[str] = []
     # 0. a note lead ("Note:", "Note on ...:", "N.B.", "Next step:", "Confidence:") makes the whole sentence a note, and so does the
-    #    answer's list of sources ("Sources: ...", no quotation, a list's length)
-    if NOTE_LEAD_RE.match(masked) or is_sources_note(sentence):
+    #    answer's list of sources ("Sources: ...", no quotation, a list's length), and a note read by what it says about the answer,
+    #    the student or the task ("One note: ...", "Assumption: you are taking SL ...", "One correction for your planning: ...",
+    #    "Model paragraph for practice, not for submission."; :func:`meta_note_form`, round 9, c2)
+    if NOTE_LEAD_RE.match(masked) or is_sources_note(sentence) or meta_note_form(sentence) is not None:
         return "", (sentence.strip(),)
     # 1. parentheticals: a from-memory label word anywhere inside the brackets, a label, a self-report or a task note
     cuts = [(m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(masked) if _note_clause(m.group(0), parenthetical=True)]
@@ -2689,6 +3067,19 @@ def _single_mark_kind(text: str, pos: int) -> Optional[str]:
     return None
 
 
+#: A quoting frame right before a single-quoted word (round 9 second pass, c2 adversarial-live bug 24: "Mr Hallam opens with the sardonic
+#: 'Wonderful,'" was read as no quotation, so an altered word crossed unchecked): a verb of saying or of opening and closing, or 'the' with an
+#: adjective or a noun of words ('the sardonic', 'the word', 'the single repeated'). 'the' alone ("the 'cheap' option") is a scare quote and no
+#: frame. Read on the 60 characters before the mark, anchored at their end.
+_QUOTING_FRAME_RE = re.compile(
+    r"(?:\b(?:says?|said|asks?|asked|repl(?:y|ies|ied)|answers?|answered|calls?|called|writes?|wrote|whispers?|whispered|shouts?|shouted|mutters?|muttered"
+    r"|exclaims?|exclaimed|snaps?|snapped|cries|cried|repeats?|repeated|(?:opens?|opened|opening|begins?|began|beginning|ends?|ended|ending|closes?|closed|closing)\s+with)"
+    r"|\bthe\s+(?:(?:sardonic|ironic|clipped|curt|blunt|bare|single|one|repeated|final|opening|closing|first|last|key|loaded|emotive|simple|short|flat"
+    r"|sarcastic|bitter|terse|abrupt|exclamatory|imperative|verb|noun|adjective|adverb)\s+){0,3}(?:sardonic|ironic|clipped|curt|blunt|bare|single|repeated"
+    r"|final|opening|closing|key|loaded|emotive|flat|sarcastic|bitter|terse|abrupt|exclamatory|imperative|word|term|phrase|exclamation|reply|response"
+    r"|retort|command|order|verb|noun|adjective|adverb|greeting|interjection))\s*+,?\s*+$", re.IGNORECASE)
+
+
 def _single_quote_spans(text: str, min_words: int) -> list[tuple[int, int]]:
     """``(start, end)`` of the single-quoted spans of ``text`` (double-quoted spans already blanked).
 
@@ -2735,8 +3126,10 @@ def _single_quote_spans(text: str, min_words: int) -> list[tuple[int, int]]:
             continue
         end = marks[chosen][0]
         inner = text[start + 1:end]
-        if inner.strip() and inner[0] != " " and len(inner.split()) >= min_words:
-            spans.append((start, end + 1))
+        words = len(inner.split())
+        if inner.strip() and inner[0] != " " and (words >= min_words or (min_words == 2 and words == 1 and kind == "open"
+                                                                          and _QUOTING_FRAME_RE.search(text, max(0, start - 60), start))):
+            spans.append((start, end + 1))  # (one word in single marks only after a quoting frame: "opens with the sardonic 'Wonderful,'")
         i = chosen + 1
     return spans
 
@@ -3494,16 +3887,28 @@ REPLY_BEFORE_RE = re.compile(r"(?:^|[.!?:;(—–]\s*+|\b(?:just|simply|please|o
                              re.IGNORECASE)
 
 
+#: A quoted phrase introduced as a label or a definition ('Let E be "at least one blue" and F be "both blue".', 'we call it "the gap"',
+#: 'a process called "osmosis"', 'define S as "a success"', 'denoted by "n"', 'stands for "not applicable"'): the writer's own name for
+#: something, a mention, never a quotation of a text (round-9 clearance c2b, maa-t15 m11.1 drew CORE-SRC-003). Naming is the writer's
+#: own ("we call it", "let us call") or a name with no speaker ("called" right before the mark); words another speaker gave ('One
+#: minister called it "a parliament that could only say no"', 'Marx calls them "..."') stay a quotation. Read on the characters right
+#: before the opening mark, every run bounded.
+LABEL_BEFORE_RE = re.compile(r"(?:\blet[ \t]{1,3}[^\W\d_]{1,12}[ \t]{1,3}be|\band[ \t]{1,3}[^\W\d_]{1,12}[ \t]{1,3}be"
+                             r"|\b(?:we|i|let[ \t]{1,3}us|let['’]s)[ \t]{1,3}call(?:ed)?(?:[ \t]{1,3}(?:it|this|them|these|that))?|\bcalled"
+                             r"|\bdefine[ds]?[ \t]{1,3}[^\W\d_]{1,12}[ \t]{1,3}as|\bdenoted?[ \t]{1,3}by|\bstands?[ \t]{1,3}for)[ \t]{0,3}[*_`]{0,2}$", re.IGNORECASE)
+
+
 def _absent_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
     """For each span, whether :data:`ABSENT_BEFORE_RE` ends right before it (read in the 60 characters before it), or it
     follows such a span with only :data:`ABSENT_JOIN_RE` between them; or it is a statement the sentence judges true or false
-    (:data:`JUDGED_AFTER_RE`) or the word the reader is told to reply with (:data:`REPLY_BEFORE_RE`)."""
+    (:data:`JUDGED_AFTER_RE`), the word the reader is told to reply with (:data:`REPLY_BEFORE_RE`) or a label or a definition the
+    writer introduces (:data:`LABEL_BEFORE_RE`)."""
     out: list[bool] = []
     prev_absent_end: Optional[int] = None
     for s, e, _inner in spans:
         before = text[max(0, s - 60): s]
         if (ABSENT_BEFORE_RE.search(before) or (prev_absent_end is not None and ABSENT_JOIN_RE.match(text[prev_absent_end: s]))
-                or JUDGED_AFTER_RE.match(text, e, e + 48) or REPLY_BEFORE_RE.search(before)):
+                or JUDGED_AFTER_RE.match(text, e, e + 48) or REPLY_BEFORE_RE.search(before) or LABEL_BEFORE_RE.search(before)):
             out.append(True)
             prev_absent_end = e
         else:

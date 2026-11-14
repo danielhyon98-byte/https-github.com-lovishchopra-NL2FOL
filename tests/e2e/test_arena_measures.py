@@ -203,6 +203,14 @@ def test_a_replay_that_loses_recorded_translations_is_qualified_in_the_title_and
     assert cl["completed"] <= cl["attempted"] and cl["approved"] <= cl["completed"]
 
 
+def _as_installed(out: dict) -> list[str]:
+    """The command line of a replay as the environment requires it: ``--without-overseer`` where the run could not run the
+    overseer's passes (``out["overseer"]["passes_not_run"]``; round-9 clearance c2b: such a run fails unless the command line
+    says so, ``tests/e2e/test_arena_without_the_overseer.py``), nothing where it could, so there the passes run and the exit
+    status is the qualification's alone."""
+    return ["--without-overseer"] if out["overseer"]["passes_not_run"] else []
+
+
 def test_a_round_whose_translations_are_all_served_and_bound_is_not_qualified(tmp_path):
     """Control: with the claim-text digest recorded and every translation served, nothing is lost, nothing is bound by
     claim id only, the title carries no qualification and --fail-on-qualification exits 0."""
@@ -212,7 +220,7 @@ def test_a_round_whose_translations_are_all_served_and_bound_is_not_qualified(tm
     assert (cov["recorded"], cov["served"], cov["lost"], cov["served_with_recorded_digest"], cov["served_by_claim_id_only"]) == (1, 1, 0, 1, 0)
     assert out["qualified"] is False and out["qualifications"] == []
     assert (tmp_path / "bound" / "summary.md").read_text().split("\n")[0] == "# Arena bound"
-    assert ra.main([str(tmp_path / "bound"), "--fail-on-qualification"]) == 0
+    assert ra.main([str(tmp_path / "bound"), "--fail-on-qualification", *_as_installed(out)]) == 0
 
 
 def test_a_stale_translation_is_lost_not_served_and_the_strict_run_fails(tmp_path, capsys):
@@ -223,8 +231,8 @@ def test_a_stale_translation_is_lost_not_served_and_the_strict_run_fails(tmp_pat
     assert cov["served"] == 0 and cov["lost_by_reason"] == {"refused_stale": 1}
     cl = out["metrics"]["claims"]
     assert (cl["attempted"], cl["completed"], cl["approved"]) == (1, 0, 0)
-    assert ra.main([str(tmp_path / "stale")]) == 0
-    assert ra.main([str(tmp_path / "stale"), "--fail-on-qualification"]) == 1
+    assert ra.main([str(tmp_path / "stale"), *_as_installed(out)]) == 0
+    assert ra.main([str(tmp_path / "stale"), "--fail-on-qualification", *_as_installed(out)]) == 1
     assert "FAILED: the run is qualified (--fail-on-qualification): TRANSLATIONS_LOST" in capsys.readouterr().out
 
 

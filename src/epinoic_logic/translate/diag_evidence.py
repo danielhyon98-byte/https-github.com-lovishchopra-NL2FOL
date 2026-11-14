@@ -762,6 +762,11 @@ def evd_lack_001(ctx: Any) -> Iterable[NamedDiagnostic]:
     symbols = _symbols(ctx)
     hit = [(p, r) for p, r in _needed_with_role(ctx, "fact") if (r.kind is None or r.kind in WRITER_KINDS) and r.authority in ("writer_own", "unverified")
            and not _figures_supported(ctx, p, symbols)]
+    # round 9 (c2, second fix pass; c1 results-audit #30, en-t14 p2-point): a general-knowledge premise that only states the
+    # conventional meaning of a word the claim quotes from a supplied text ("conventionally, 'only' limits a claim to one item",
+    # 'only' inside the located quotation "It's only the A that's gone") is a reading of the quoted language, not a fact about
+    # the world that needs a source
+    hit = [(p, r) for p, r in hit if not (r.kind == _KNOWLEDGE_KIND and _quoted_word_convention(ctx, p, symbols))]
     if not hit:
         return ()
     invited: list[tuple[Any, Any]] = []
@@ -788,6 +793,59 @@ def evd_lack_001(ctx: Any) -> Iterable[NamedDiagnostic]:
                      "knowledge, which the request invites; no check verified it in this process"))
         out.extend(cap([d], "info", "not_source_bound"))
     return tuple(out)
+
+
+#: A label that states what a word conventionally means or does ("conventionally, 'only' limits a claim to one item", "the word
+#: 'just' signals ...", "'nearly' means almost").
+_CONVENTION_CUE_RE = re.compile(r"\b(?:conventionally|by\s+convention|usually\s+means|means|meaning|signals?|denotes?|limits?|connotes?|"
+                                r"restricts?|marks?|is\s+used\s+to)\b", re.IGNORECASE)
+#: A word or short phrase a label quotes (straight or curly marks; a straight single mark opens and closes outside a word).
+_QUOTED_WORD_RE = re.compile(r"[\"“]([^\"“”\n]{1,40})[\"”]|‘([^‘’\n]{1,40})’|(?<![^\W\d_])'([^'\n]{1,40})'(?![^\W\d_])")
+_QUOTED_PASSAGE_RE = re.compile(r"[\"“]([^\"“”\n]{1,600})[\"”]|(?<![^\W\d_])'([^'\n]{1,600})'(?![^\W\d_])")
+
+
+def _quoted_word_convention(ctx: Any, p: Any, symbols: dict[str, Any]) -> bool:
+    """Whether premise ``p`` only states the conventional meaning of a word the claim quotes from a supplied text: its label
+    (or its atom's meaning) quotes a word of at most three tokens and carries a convention cue (:data:`_CONVENTION_CUE_RE`),
+    and that word stands inside a quotation of the claim (or of a claim it cites) that a supplied text holds. Bounded: a
+    label of at most 300 characters, quotations of at most 600, read once each."""
+    if ctx.report is None or not ctx.report.supplied_texts:
+        return False
+    names = sorted(_vars_of(p.expr))
+    texts = [p.label or ""] + [getattr(symbols.get(n), "meaning", None) or "" for n in names]
+    label = next((t for t in texts if t and _CONVENTION_CUE_RE.search(t[:300]) and _QUOTED_WORD_RE.search(t[:300])), None)
+    if label is None:
+        return False
+    words = [tuple(lexis_tokens(m.group(1) or m.group(2) or m.group(3) or "")) for m in _QUOTED_WORD_RE.finditer(label[:300])]
+    words = [w for w in words if 0 < len(w) <= 3]
+    if not words:
+        return False
+    docs = [(t.text or "").casefold() for t in ctx.report.supplied_texts]
+    for text in [ctx.claim.claim_text, *(c.claim_text for c in ctx.supporting)]:
+        for m in _QUOTED_PASSAGE_RE.finditer((text or "")[:4000]):
+            passage = m.group(1) or m.group(2) or ""
+            if not passage.strip() or not any(passage.casefold() in d for d in docs):
+                continue  # a quotation no supplied text holds is no quoted language of the text
+            toks = tuple(lexis_tokens(passage))
+            if any(any(toks[i:i + len(w)] == w for i in range(len(toks) - len(w) + 1)) for w in words):
+                return True
+    return False
+
+
+def _vars_of(expr: Any) -> set[str]:
+    out: set[str] = set()
+    stack = [expr]
+    while stack:
+        n = stack.pop()
+        if getattr(n, "op", None) == "var":
+            out.add(n.name)
+            continue
+        for key in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(n, key, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(n, "args", None) or ())
+    return out
 
 
 def _answer_texts(ctx: Any) -> list[str]:

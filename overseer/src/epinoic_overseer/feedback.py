@@ -38,7 +38,7 @@ from epinoic_logic.api.channel import (
     FEEDBACK_KEY_ID as _CHANNEL_FEEDBACK_KEY_ID, FEEDBACK_RULES, MAX_ADVISORY, MAX_FLAW_CLAIMS, MAX_FLAWS, MAX_MESSAGE_CHARS, MAX_QUOTED_TOTAL,
     REVISION_RULES, REVISION_SCOPE, RevisionClaim, RevisionFlaw, RevisionRequest, advisory_candidate, eligible_flaws, finding_digest, keep_list,
     match_claims, named_claim_ids, quote_text, render_instruction, render_revision_message, rendered_digest, revision_budget, revision_id_of,
-    revision_signable_text, weakened, carries_quotation,
+    revision_signable_text, weakened, carries_quotation, withheld_deliverable,
 )
 from epinoic_logic.api.integrity import IntegrityFinding
 from epinoic_logic.api.ir import canonical_json, sha256_hex
@@ -51,6 +51,7 @@ __all__ = [
     "RevisionIssueRecord", "FlawOutcome", "IntroducedFlaw", "RevisionOutcome", "RevisionEscalation", "BuildResult", "sign_revision", "verify_revision",
     "sign_record", "verify_record", "revision_chain", "advisory_items", "flaw_candidates", "build_revision_request", "revision_outcome",
     "escalation_for", "check_revision_request", "OUTCOME_CONTRACT", "ESCALATION_CONTRACT", "ISSUE_CONTRACT", "ESCALATION_REASONS",
+    "FEEDBACK_HOLD_RULE", "held_back",
 ]
 
 assert FEEDBACK_KEY_ID == _CHANNEL_FEEDBACK_KEY_ID, "the channel and the overseer name the feedback key alike"
@@ -58,7 +59,7 @@ assert FEEDBACK_KEY_ID == _CHANNEL_FEEDBACK_KEY_ID, "the channel and the oversee
 ISSUE_CONTRACT = "revision_issue/1.0"
 OUTCOME_CONTRACT = "revision_outcome/1.0"
 ESCALATION_CONTRACT = "revision_escalation/1.0"
-ESCALATION_REASONS = ("budget_exhausted", "repeated_after_feedback", "revision_not_delivered")
+ESCALATION_REASONS = ("budget_exhausted", "repeated_after_feedback", "revision_not_delivered", "evaded_after_feedback")
 _FROZEN = ConfigDict(extra="forbid", frozen=True)
 _AGENT_KIND_RE = re.compile(r"^accusation #\d+ \(([a-z_]+)\)")
 #: The quotation rules: a flaw of one whose claim is kept with no quotation at all was removed, not fixed.
@@ -202,7 +203,7 @@ class RevisionEscalation(BaseModel):
     max_rounds: int
     remaining_signatures: list[str] = Field(default_factory=list)
     remaining_codes: list[str] = Field(default_factory=list)
-    reason: Literal["budget_exhausted", "repeated_after_feedback", "revision_not_delivered"]
+    reason: Literal["budget_exhausted", "repeated_after_feedback", "revision_not_delivered", "evaded_after_feedback"]
     finding: IntegrityFinding
     scope_statement: str = REVISION_SCOPE
     signature: Optional[str] = None
@@ -284,6 +285,69 @@ def advisory_items(verdicts_audits: Sequence[Any], keyring: KeyRing, answer: Tra
     return out[:MAX_ADVISORY]
 
 
+#: Rule ``feedback-hold`` (round-9 clearance c2, the c2 lenses: 22 of the 30 flaws fed back were false, a correct academic-integrity
+#: decline was answered "Answer it", and a revision cut material analysis to meet a word bound its analysis already met): an allowlisted
+#: finding is fed back only when it holds on the receipt's own terms. Held back (never sent, listed on the build result):
+#:
+#: * a flaw whose named claims are all text the parser reads as no claim of the answer (claims roled ``other``: a note, a source list,
+#:   an assumption, a study suggestion), or that names a claim the report does not hold;
+#: * an unaddressed item (INT-REQ-004, ``cov.item_unaddressed``) the answer declines or defers (the channel's own reading of a decline,
+#:   ``channel.bus.withheld_deliverable``: "the item is declined, not answered"), or that the coverage reads by shared words only (a
+#:   ``lexical_heuristic`` record: no deterministic check stands behind it);
+#: * a calculation flaw (``calc.*``, INT-SUBJ-001) on a claim an INT-XENC-001 of the same receipt names (at least one encoding misreads
+#:   the claim, so the computed value rests on an unresolved reading), and every INT-SUBJ-004 (a check that relied on a reading the
+#:   answer did not state: it does not rest on what the answer states);
+#: * a word or paragraph flaw (INT-REQ-005) when the answer holds text the parser reads as no claim (claims roled ``other``): the measure
+#:   counts it, so it is not the measure of the answer proper.
+FEEDBACK_HOLD_RULE = "feedback-hold"
+
+
+def _coverage_heuristic(receipt: Any) -> bool:
+    """Whether the receipt reads the request's items by shared words only (every unaddressed item's record ``lexical_heuristic``)."""
+    unaddressed = [r for r in list(getattr(receipt, "coverage", []) or []) if not r.addressed]
+    return bool(unaddressed) and all(r.method == "lexical_heuristic" for r in unaddressed)
+
+
+def held_back(answer: Transfer, cands: Sequence[tuple[Any, str]]) -> tuple[list[tuple[Any, str]], list[str]]:
+    """Rule ``feedback-hold`` (:data:`FEEDBACK_HOLD_RULE`): ``(kept, held)`` of the candidate flaws of ``answer``; ``held`` names each
+    flaw held back (its code, rule and why, the policy's own words). Advisory items are kept as they were."""
+    report, receipt = answer.report, answer.receipt
+    if report is None or receipt is None:
+        return list(cands), []
+    roles = {c.claim_id: c.claim_role for c in report.claims}
+    xenc = {cid for f in list(receipt.findings) if f.code == "INT-XENC-001" for cid in f.claim_ids}
+    try:
+        declined = withheld_deliverable(report.original_response) is not None
+    except Exception:  # noqa: BLE001 - a reader that fails reads no decline
+        declined = False
+    heuristic = _coverage_heuristic(receipt)
+    notes = any(c.claim_role == "other" for c in report.claims)
+    kept: list[tuple[Any, str]] = []
+    held: list[str] = []
+    for c, sig in cands:
+        why = None
+        named = list(c.claim_ids)
+        if c.basis == "advisory":
+            pass
+        elif named and all(roles.get(cid, "other") == "other" for cid in named):
+            why = "it names only text the parser reads as no claim of the answer (a note, a source list or an assumption)"
+        elif c.rule == "cov.item_unaddressed" and declined:
+            why = "the answer declines or defers the item (the channel's own reading of a decline): it is not unanswered"
+        elif c.rule == "cov.item_unaddressed" and heuristic:
+            why = "the coverage reads the item by shared words only (a heuristic): no deterministic check stands behind it"
+        elif c.rule.startswith("calc.") and set(named) & xenc:
+            why = "the same receipt marks the claim's encodings as misreading it (INT-XENC-001): the computed value rests on an unresolved reading"
+        elif c.code == "INT-SUBJ-004":
+            why = "the check relied on a reading the answer did not state (INT-SUBJ-004): it does not rest on what the answer states"
+        elif c.rule in ("cov.word_limit", "cov.paragraphs") and notes:
+            why = "the measure counts text the parser reads as no claim of the answer (notes, sources, assumptions): not the answer proper's measure"
+        if why is None:
+            kept.append((c, sig))
+        else:
+            held.append(f"{c.code} ({c.rule}): {why} (rule {FEEDBACK_HOLD_RULE})")
+    return kept, held
+
+
 def flaw_candidates(view: OverseerView, answer: Transfer, original: Transfer, task_audit: Any, *, advisory: Sequence[Any] = ()) -> list[tuple[Any, str]]:
     """``(candidate, signature)`` of every allowlisted flaw of ``answer`` (``channel.feedback.eligible_flaws`` over its
     journaled receipt, the task audit's OVS-FID findings naming it, and ``advisory``)."""
@@ -307,6 +371,8 @@ class BuildResult(BaseModel):
     remaining_codes: list[str] = Field(default_factory=list)
     chain_message_ids: list[str] = Field(default_factory=list)
     original_request_message_id: Optional[str] = None
+    #: rule feedback-hold (round-9 clearance c2): the candidate flaws held back, each with why (the policy's own words)
+    held_back: list[str] = Field(default_factory=list)
 
 
 def _flaw(i: int, c: Any, sig: str, own: Mapping[str, Any], limit: int) -> RevisionFlaw:
@@ -347,7 +413,8 @@ def build_revision_request(view: OverseerView, answer_message_id: str, *, task_a
     if chain and (answer.status == "REJECTED" or not answer.delivered):
         return BuildResult(reason="revision_not_delivered", round=rnd, max_rounds=budget, escalation_reason="revision_not_delivered", **ids)
     advisory = advisory_items(verdicts_audits, keyring, answer)
-    cands = flaw_candidates(view, answer, original, task_audit, advisory=advisory)
+    cands, held = held_back(answer, flaw_candidates(view, answer, original, task_audit, advisory=advisory))  # rule feedback-hold
+    ids = dict(ids, held_back=held)
     returned = _returned(view, answer, chain, cands)
     returned_errors = [(c, s) for c, s in returned if c.severity == "error"]
     remaining = [(c, s) for c, s in cands if (c, s) not in returned]  # a fed-back flaw is never sent again
@@ -422,7 +489,8 @@ def escalation_for(*, task_id: str, channel_uid: str, agent_id: str, chain_messa
     """The signed escalation of a chain (OVS-FB-002, warning, outside the task audit)."""
     what = {"budget_exhausted": f"the budget of {max_rounds} revision round(s) is spent with flaws left",
             "repeated_after_feedback": "a fault fed back to the specialist came back in its revision",
-            "revision_not_delivered": "the revision was not delivered (REJECTED)"}[reason]
+            "revision_not_delivered": "the revision was not delivered (REJECTED)",
+            "evaded_after_feedback": "the revision weakened a statement the feedback named instead of correcting it (evaded)"}[reason]
     finding = ovs_finding("OVS-FB-002", f"revision chain of agent {agent_id} on task {task_id} escalated for human review: {what}; codes {sorted(set(remaining_codes))}; "
                           "nothing more is sent to the specialist on this chain, and the pool reviews the task with at least two overseer instances",
                           message_ids=list(chain_message_ids), agent_ids=[agent_id])
@@ -521,6 +589,11 @@ def revision_outcome(view: OverseerView, revised_message_id: str, *, task_audit:
     persisted = [o for o in outcomes if o.bucket == "persisted"]
     if [o for o in persisted if o.severity == "error"] or reps:
         nxt, why = "escalated", "repeated_after_feedback"  # a fed-back error came back: the chain ends at once
+    elif any(o.bucket == "evaded" for o in outcomes):
+        # rule evaded-escalates (the c4f276c push check): a flaw that disappears because its statement was weakened (made
+        # approximate, turned into a range, hedged, its calculation dropped) is not corrected; the chain ends for human review
+        # and the revision never replaces the answer it revises (consolidate's rule superseded-by-revision)
+        nxt, why = "escalated", "evaded_after_feedback"
     elif (introduced or persisted) and block.round >= block.max_rounds:
         nxt, why = "escalated", "budget_exhausted"
     elif introduced:

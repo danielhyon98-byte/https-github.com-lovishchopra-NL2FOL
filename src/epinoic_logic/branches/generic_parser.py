@@ -111,8 +111,8 @@ from typing import Optional
 from ..adapters.base import AdapterError
 from ..adapters.english_specialist.parser import documents_named
 from ..adapters.history_specialist.parser import is_source_caveat
-from ..adapters.markdown import (
-    BARE_NOTE_LEAD_RE,
+from ..adapters.markdown import (JUDGEMENT_LABEL_RE, 
+    BARE_NOTE_LEAD_RE, NOTE_WORD_LEAD_RE, is_note_continuation, meta_note_form, note_word_body, task_assumption_frame,
     NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_answer_note, is_framing_remark, is_note_sentence,
     is_self_certification, mask_quotations,
     parser_quotation_spans,
@@ -132,6 +132,7 @@ _NUM_RE = re.compile(r"\d")
 _LETTER_RE = re.compile(r"[^\W\d_]")
 _MIN_QUOTE_CHARS = 4
 _JUDGE = ("therefore", "overall", "to a large extent", "on balance", "in conclusion", "recommend", "should", "outweigh")
+
 _MAX_CLAIMS = 512
 _TAIL_CLAIM_ID = "g.tail"
 _SELF_REPORT = "self-certified in the response text"
@@ -217,6 +218,12 @@ _ARITHMETIC_RE = re.compile(r"\d\s*[×÷*^]\s*[\d($]|\d\s+[+−-]\s+[\d$(]|\d\s*
 _COPULA_RE = re.compile(r"\b(?:is|are|was|were|be|been|has|have|had|gives?|equals?|means?|falls?|rises?|shows?)\b", re.IGNORECASE)
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?…][\"'”’»)\]]*\s*$")
 _QUESTION_RE = re.compile(r"\?[\"'”’»)\]]*\s*$")
+#: A numbered step of the answer that opens with a verb in the imperative and asks its question after it ('2) Check the direction of the
+#: shift in your diagram: what happens to AD when net exports fall?'; round 9, c2 ec-t15): an instruction of the answer like the steps around
+#: it, never a question the answer leaves open. The first word after the number is no question word, auxiliary, pronoun or determiner.
+_NUMBERED_STEP_RE = re.compile(r"^\s{0,4}(?:step\s{1,3})?\(?\d{1,2}[.):]\s{1,4}(?!(?:what|why|how|which|who|whom|whose|when|where|whether|is|are|was|were|do|"
+                               r"does|did|can|could|should|would|will|shall|may|might|must|has|have|had|it|its|this|that|these|those|there|the|a|an|"
+                               r"you|your|i|we|they|he|she|my|our|their|his|her)\b)[A-Z][a-z]{1,20}\b", re.IGNORECASE)
 _CONTINUATION_RE = re.compile(r"^\s*+\$?\s*+[=≈]")  # blank runs possessive: linear, the same lines (stem.layout)
 #: A line of a table set out without its outer pipes: at least two cell separators ('Site | Distance from square (m) | Pedestrians').
 _TABLE_CELLS_RE = re.compile(r"[^|\n]\|[^|\n]*+\|")
@@ -225,13 +232,25 @@ _TITLE_MAX_WORDS = 12
 _FUNCTION_WORD_RE = re.compile(r"\b(?:with|of|and|the|in|from|on|to|by|for|who|how|why|what|using)\b", re.IGNORECASE)
 
 
+#: A part's title that names its question as an indirect question ("Why high pressure and a moderate temperature are used", "How the
+#: multiplier works"): a wh-word opening a short line with no closing stop. Its verb is the title's own, not a claim (round 9, c2 ch-t15).
+_WH_TITLE_RE = re.compile(r"^\W*(?:why|how|what|which|whether|when|where|who)\s", re.IGNORECASE)
+
+
 def _is_part_title(text: str) -> bool:
     """A part's title on its label's line ("Explanation with an AD/AS diagram", "Who gains and who loses, with a tariff diagram"): a
     title (:func:`_is_title`) of three to :data:`_TITLE_MAX_WORDS` words with no closing stop, holding a function word, so a short
-    answer on the label's line ("Primary consumer", "3.5 million tonnes") is never read as one."""
+    answer on the label's line ("Primary consumer", "3.5 million tonnes") is never read as one; or an indirect question of three to
+    :data:`_TITLE_MAX_WORDS` words with no closing stop, no figure, no working and no quotation ("Why high pressure and a moderate
+    temperature are used", :data:`_WH_TITLE_RE`), whose verb is the title's own (round 9, c2 ch-t15)."""
     masked = mask_quotations(text).strip()
-    return (len(masked.split()) >= 3 and not _TERMINAL_PUNCT_RE.search(masked) and _FUNCTION_WORD_RE.search(masked) is not None
-            and _is_title(text, max_words=_TITLE_MAX_WORDS))
+    words = masked.split()
+    if len(words) < 3 or _TERMINAL_PUNCT_RE.search(masked):
+        return False
+    if (_WH_TITLE_RE.match(masked) and len(words) <= _TITLE_MAX_WORDS and "?" not in masked and not _NUM_RE.search(masked)
+            and not _is_working(masked) and not find_quotation_spans(text)):
+        return True
+    return _FUNCTION_WORD_RE.search(masked) is not None and _is_title(text, max_words=_TITLE_MAX_WORDS)
 
 
 def _is_title(text: str, max_words: int = 6) -> bool:
@@ -262,10 +281,30 @@ def _is_working(masked: str) -> bool:
     return bool(_RELATION_RE.search(masked) or _ARITHMETIC_RE.search(masked))
 
 
+#: A bracketed number written right after a locator word that names a part of a text by its number ("linked to paragraph [3].", "see
+#: line [12]", "Table [2]", "Source [1]"): the locator's number, never a mark allocation (round 9, c2 ec-t15: "... linked to paragraph
+#: [3]." was delivered as "... linked to paragraph."). A locator after an article or a determiner ("using the source [2]") names no
+#: number: the bracket is its line's mark. Read on at most 40 characters before the bracket; anchored at their end.
+_LOCATOR_BEFORE_RE = re.compile(r"(?:^|(?<=\s))(?:(?P<det>the|this|that|each|every|a|an|its|their|his|her|my|your|our)\s++)?"
+                                r"(?:paragraphs?|paras?|lines?|pages?|pp?|stanzas?|chapters?|sections?|rows?|columns?|tables?|figures?|figs?|appendix|appendices"
+                                r"|footnotes?|equations?|eqs?|exhibits?|verses?|sources?|extracts?|documents?|docs?)\.?\s*+$", re.IGNORECASE)
+#: The bare bracketed number that opens a run of trailing annotations.
+_LEADING_BRACKET_NUMBER_RE = re.compile(r"\s*+\[\s*+\d{1,3}\s*+\]")
+
+
 def _strip_annotations(text: str) -> str:
     """``_TRAILING_ANNOTATION_RE.sub("", text).rstrip()`` in linear time: the STEM layout's reader of the same pattern
     (``stem.layout.strip_trailing_annotations``; tests/stem/test_layout.py holds the two patterns identical). The pattern
-    searched as written re-read a run of annotations from each of them, quadratic in the run (integration gate 1)."""
+    searched as written re-read a run of annotations from each of them, quadratic in the run (integration gate 1). A bare
+    bracketed number right after a locator word ("linked to paragraph [3].", :data:`_LOCATOR_BEFORE_RE`) is the locator's number
+    and is kept, only the marks after it removed (round 9, c2 ec-t15)."""
+    span = trailing_annotation_span(text)
+    if span is not None:
+        lead = _LEADING_BRACKET_NUMBER_RE.match(text, span[0])
+        if lead is not None:
+            m = _LOCATOR_BEFORE_RE.search(text[max(0, span[0] - 40):span[0]])
+            if m is not None and m.group("det") is None:
+                return (text[:lead.end()] + text[span[1]:]).rstrip()
     return strip_trailing_annotations(text)
 
 
@@ -499,8 +538,11 @@ _STATED_VALUE_RE = re.compile(
     r"^[^\d,;:=]{1,80}?\s(?:is|was|are|were|equals|comes\s+to|works\s+out\s+(?:at|to))\s+(?:about\s+|approximately\s+|roughly\s+|around\s+"
     r"|exactly\s+|only\s+)?[-−+]?(?:US)?[$£€¥]?\s?\d"
     r"|^[^\d,;:=]{1,40}?=\s*[-−+]?(?:US)?[$£€¥]?\s?\d", re.IGNORECASE)
-#: Lines that never open a part's answer: diagram description, headings, notes and questions.
-_NOT_OPENING = frozenset({"diagram", "heading", "note", "bare_note", "question", "answer_note"})
+#: Lines that never open a part's answer: diagram description, headings, notes, questions and framing remarks (a framing remark is never
+#: the answer it frames: c2 ge-t15 g6.1 "Ostrel is a fictional country ...").
+_NOT_OPENING = frozenset({"diagram", "heading", "note", "bare_note", "word_note", "question", "answer_note", "frame"})
+#: A list number cut from its item by the sentence split ("1.", "2)"): never a claim of its own.
+_LIST_NUMBER_ONLY_RE = re.compile(r"\d{1,3}[.)]")
 
 
 @dataclass
@@ -512,16 +554,28 @@ class _State:
     join_budget: Optional[_JoinBudget] = None  # the answer's budget for the join rules' readings (set by parse_response)
 
 
+#: A line that states a value after its label ("Stock solution: 0.984", "Total: 450"): a result, never a short title (round-9
+#: clearance c2b, ch-p9b: the first line of a result list was read as a heading and roled other, so a synthesis dropped it).
+_LABEL_VALUE_RE = re.compile(r":[ \t]{0,3}[+\-−]?\d")
+#: A heading worded as the question it answers, with no stop of its own, over the lines that answer it ("Why a volumetric flask is
+#: used", "How the mark scheme rewards evaluation"): a heading, never a claim of the answer (at most twelve words).
+_QUESTION_HEADING_RE = re.compile(r"(?:why|how|what|which|when|where)\b", re.IGNORECASE)
+
+
 def _line_heading(body: str, has_following: bool) -> bool:
     """A heading line: a short line closing on a colon ("Working for (b):"), or a short title over the lines it heads
-    ("2024 (no tax)", "2025"). Sentence-level headings ("Measure: ..." stating no working, "Diagram 1: ...") are read by
-    :func:`_classify` on the sentence that carries them."""
+    ("2024 (no tax)", "2025"); a line that states a value after a colon is no title (:data:`_LABEL_VALUE_RE`). Sentence-level
+    headings ("Measure: ..." stating no working, "Diagram 1: ...") are read by :func:`_classify` on the sentence that carries
+    them."""
     masked = mask_quotations(body).strip()
     words = masked.split()
     if masked.endswith(":") and len(words) <= 8 and not _is_working(masked):
         return True
+    if (has_following and len(words) <= 12 and _QUESTION_HEADING_RE.match(masked) and not _TERMINAL_PUNCT_RE.search(masked)
+            and not _is_working(masked) and not find_quotation_spans(body)):
+        return True  # "Why a volumetric flask is used" over the lines that answer it (round-9 clearance c2b, ch-p9b, ch-t15)
     return (has_following and len(words) <= 4 and not _TERMINAL_PUNCT_RE.search(masked) and not _is_working(masked)
-            and not _COPULA_RE.search(masked) and not find_quotation_spans(body))
+            and not _COPULA_RE.search(masked) and not find_quotation_spans(body) and not _LABEL_VALUE_RE.search(masked))
 
 
 def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
@@ -571,16 +625,33 @@ def _classify(u: _Unit, heading: bool) -> _Unit:
         u.lead = ""
     elif _BARE_NOTE_LEAD_RE.match(masked) or _BRANCH_NOTE_LEAD_RE.match(masked):
         u.lead = "bare_note"
+    elif NOTE_WORD_LEAD_RE.match(masked) and note_word_body(u.text):
+        # the word "note" under a determiner or an addressee ("One note:", "Teaching note:"; round 9, c2): a note, and its paragraph a
+        # note as a whole when every sentence after it continues the note (``assign_roles``)
+        u.lead = "word_note"
     elif NOTE_LEAD_RE.match(masked):
         u.lead = "note"
+    elif not u.working and meta_note_form(u.text) == "form":
+        # the answer's own form or purpose ("Model answer (practice)", "Practice answer for the Paper 2 Section A question."): a framing
+        # remark, never the material answer, but a claim of the answer as it was, so the Overseer's reading of the text the parser reads
+        # as no claim (rule non-material-text) is unchanged on these lines
+        u.lead = "frame"
+    elif not u.working and meta_note_form(u.text) is not None:
+        # a note read by what it says about the answer, the student or the task (round 9, c2): "Assumption: SL, Paper 1 (no calculator),
+        # so every value is exact.", "Practice answer for the Paper 2 Section A question.", "Compare asks for similarities only, ..."
+        u.lead = "note"
+    elif _LIST_NUMBER_ONLY_RE.fullmatch(masked.strip()):
+        u.lead = "heading"  # a list number cut from its item ("(c) 1. A conifer plantation ..."): no claim of its own (round 9, c2 ess-t15)
     elif not u.working and is_answer_note(u.text):
         u.lead = "answer_note"  # a note read by what it says: an omission, a decline, an offer, a request to send work back (c1 bug 4)
-    elif not u.working and is_framing_remark(u.text):
-        u.lead = "frame"  # practice data, the level assumed, the answer's own form: never its paragraph's point
+    elif not u.working and (is_framing_remark(u.text) or task_assumption_frame(u.text)):
+        # practice data, the level assumed, the answer's own form, an assumption about the task that also says more (it stays a claim
+        # for the claim rules): never its paragraph's point
+        u.lead = "frame"
     elif heading or (masked.rstrip().endswith(":") and len(masked.split()) <= 4 and not u.working) or _DIAGRAM_TITLE_RE.match(masked) \
             or (_MEASURE_LEAD_RE.match(masked) and not u.working):
         u.lead = "heading"  # "Measure: ..." stating no working, "Working for (b):", "Diagram 1: ...", "Ask yourself:"
-    elif _QUESTION_RE.search(masked):
+    elif _QUESTION_RE.search(masked) and not _NUMBERED_STEP_RE.match(masked):
         u.lead = "question"
     elif _RESULT_LEAD_RE.match(masked):
         u.lead = "result"
@@ -800,7 +871,8 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
         cores = [split_note_clauses(s)[0] for s in sents]
         reports = [k for k, s in enumerate(sents) if is_self_certification(s)]
         notes_flags = [GenericTextParser._is_note(units[k], cores[k], k in reports) for k in range(len(units))]
-        note_paragraph = all(notes_flags) or units[0].lead == "bare_note"
+        note_paragraph = (all(notes_flags) or units[0].lead == "bare_note"
+                          or (units[0].lead == "word_note" and all(notes_flags[k] or is_note_continuation(units[k].text) for k in range(1, len(units)))))
         demoted = [f"sentence {k + 1} ('{sents[k][:80]}')" for k in reports]
         if demoted and not note_paragraph:
             unresolved.append(f"paragraph {pi + 1}: {len(demoted)} sentence(s) carrying verification-status language were roled other and count as no material claim; "
@@ -818,7 +890,7 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
             opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
             consequence[i] = not opening_command and _is_consequence(mask_quotations(core or sent))
             caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
-            if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command):
+            if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command) or JUDGEMENT_LABEL_RE.match(core or sent):
                 roles[i] = "judgement"
             elif quoted[i]:
                 roles[i] = "evidence"
@@ -943,8 +1015,10 @@ class GenericTextParser:
     def _is_note(u: _Unit, core: str, self_report: bool) -> bool:
         """A note: a self-report, a note lead, a heading, a question, or a sentence whose core is empty once its labels are
         set aside. A line of working or a bare value is never a note for having no letters."""
-        if self_report or u.lead in ("note", "bare_note", "heading", "question", "answer_note"):
+        if self_report or u.lead in ("note", "bare_note", "word_note", "heading", "question", "answer_note"):
             return True
+        if u.lead == "frame":
+            return False  # a framing remark is a claim of the answer, never its point (the channel's counts still set a form line aside)
         if not u.is_json and (not _NUM_RE.search(u.text) or _NEGATIVE_CAVEAT_RE.search(u.text)) and is_source_caveat(u.text):
             return True  # 'My sources do not confirm the exact total, so the figure is given as "millions".': the History parser's caveat
         if u.is_json:
@@ -960,7 +1034,9 @@ class GenericTextParser:
         plain claims after it. Two labelled answers opening the paragraph are coordinate points. A line-structured block
         (working, label-led lines, list items, table rows) has no point of its own."""
         live = [start + k for k, u in enumerate(units) if roles[start + k] != "other"]
-        if len(live) == 1 and roles[live[0]] != "point":
+        if len(live) == 1 and roles[live[0]] != "point" and units[live[0] - start].lead != "frame":
+            # (a framing remark that gives its reason, "Ostrel is a fictional country ..., so these reasons are general explanations ...",
+            # argues nothing of the answer: round 9, c2 ge-t15 g6.1)
             # a paragraph whose one claim argues, stating its own reason ("The town opened a library in 2015, and pollution fell
             # in 2016, so the library caused the fall"), is its own point: material, as the History and English parsers read it,
             # so a warning the argument diagnosis names on it reaches the receipt as INT-ARG-001
@@ -1026,7 +1102,7 @@ class GenericTextParser:
                 if run:
                     last = run[-1]
                     closing = [*reversed(_parallel_rows(flat, last, run)), last]
-            opening = [i for i in live if flat[i].opening and leads[i] not in ("diagram", "assumption")]
+            opening = [i for i in live if flat[i].opening and leads[i] not in ("diagram", "assumption", "frame")]
             opening_answers: list[int] = []
             if opening and not closing:
                 first_line = flat[opening[0]].line
@@ -1042,6 +1118,12 @@ class GenericTextParser:
                         # a title on the label's line, alone in its paragraph ("(d) Explanation with an AD/AS diagram [4]"), over the part's
                         # answer in later paragraphs names the part and answers nothing: it is no answer (c1 notes finding: ec-t14, ec-p8a)
                         opening_answers = on_line[:1]
+                    elif _WH_TITLE_RE.match(mask_quotations(flat[on_line[0]].text)):
+                        # a title that names the part's question ("(g) Why high pressure and a moderate temperature are used [3]"): the
+                        # part's answer opens on the first line after it, as after a label-only line (round 9, c2 ch-t15: the title was the
+                        # part's material answer and its answer no material claim)
+                        after = [i for i in live if flat[i].line > first_line and leads[i] not in _NOT_OPENING and leads[i] not in ("assumption",)]
+                        opening_answers = after[:1]
             elif opening and flat[opening[0]].value:
                 opening_answers = [opening[0]]
             for i in closing + opening_answers:

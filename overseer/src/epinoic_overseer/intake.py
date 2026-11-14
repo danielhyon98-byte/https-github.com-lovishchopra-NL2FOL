@@ -294,6 +294,16 @@ class VerdictIntake:
             if temporary_context.channel_uid != view.channel_uid:
                 raise IntakeRefused("temporary_context", "the temporary context belongs to another channel: it is never shown in this dossier")
             context_record = temporary_context.record
+            if mode == "blind":
+                # round-9 clearance c2b (the c4f276c push check, defense in depth): a blind dossier never shows a fault only a signature,
+                # replay or custody check decides (decision 132), whatever mode the context says it was built in
+                from .twofold import BLIND_HIDDEN_KINDS
+                hidden = sorted({str(f.get("kind")) for s in (context_record or {}).get("sources") or [] for f in s.get("confirmed") or []
+                                 if isinstance(f, dict) and f.get("kind") in BLIND_HIDDEN_KINDS})
+                if hidden or getattr(temporary_context, "mode", None) not in (None, "blind"):
+                    raise IntakeRefused("temporary_context", "the temporary context was built for an informed review (mode "
+                                        f"{getattr(temporary_context, 'mode', None)!r}" + (f", faults of kind(s) {hidden}" if hidden else "")
+                                        + "): a blind dossier is never shown it")
         if review is not None and (not isinstance(review, dict) or review.get("method") != "N_FOLD" or review.get("role") not in ("source", "merged")
                                    or (review.get("role") == "merged") != (temporary_context is not None)):
             raise IntakeRefused("review", "a part dossier names its part of an N_FOLD review, and only the merged review is shown a temporary context")

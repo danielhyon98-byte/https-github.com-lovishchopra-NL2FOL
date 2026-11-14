@@ -370,6 +370,154 @@ def _unencoded_reason_diagnostic(problem: Problem, proc: ProcedureOutcome, compi
     ))
 
 
+#: Round 9 (c2): how the no-verdict E111 of an encoding that left out what its own link or definition needs begins.
+OMITTED_CONDITION = "unencoded reason (omitted condition):"
+
+
+def _expr_dump(node) -> dict:
+    return node.model_dump(mode="json", exclude_none=True) if hasattr(node, "model_dump") else node
+
+
+#: Grounding kinds that declare a symbol's value as stated (by the task, a supplied text, a quotation or a written
+#: calculation): a figure the encoding promised a source for.
+_STATED_VALUE_KINDS = frozenset({"arithmetic_fact", "task_setting", "rubric_rule", "supplied_text", "quotation"})
+
+
+def _antecedent_only_conditions(problem: Problem) -> tuple[list[str], list[dict]]:
+    """``(symbols, conditions)``: the numeric symbols the premises mention only inside the antecedent of a premise that is
+    a link (``A implies B`` at the top), never elsewhere and never in the conclusion, so no premise constrains them, whose
+    own grounding declares their value as stated (:data:`_STATED_VALUE_KINDS`: the encoding promised a source for the
+    figure and gave none); and the conjuncts of those antecedents that mention one of them (as IR JSON). Empty when there
+    are none. A Bool condition of a link no premise establishes is the claim's own missing link (``ARG-NS-002``), never
+    read here."""
+    inside: set[str] = set()
+    elsewhere: set[str] = set()
+    conds: list[dict] = []
+    for pr in problem.premises:
+        e = pr.expr
+        if getattr(e, "op", None) == "implies":
+            for c in _conjuncts(e.left):
+                inside |= _expr_vars(c, set())
+            _expr_vars(e.right, elsewhere)
+        else:
+            _expr_vars(e, elsewhere)
+    if problem.conclusion is not None:
+        _expr_vars(problem.conclusion.expr, elsewhere)
+    declared = {sym.name for sym in problem.symbols if sym.sort in _NUMERIC_SORTS and sym.grounding is not None
+                and sym.grounding.kind in _STATED_VALUE_KINDS}
+    only = (inside - elsewhere) & declared
+    if not only:
+        return [], []
+    for pr in problem.premises:
+        e = pr.expr
+        if getattr(e, "op", None) == "implies":
+            for c in _conjuncts(e.left):
+                if _expr_vars(c, set()) & only:
+                    conds.append(_expr_dump(c))
+    return sorted(only), conds
+
+
+def _conclusion_definitions(problem: Problem, free: list[str]) -> tuple[list[dict], list[dict]]:
+    """``(definitions, rest)``: the conclusion's conjuncts that define a symbol no premise mentions by an equation with
+    symbols a premise does mention ("0.25 × c = n" beside a premise fixing n), and its other conjuncts (as IR JSON)."""
+    premise_vars, _concl = _assertion_vars(problem)
+    defs: list[dict] = []
+    rest: list[dict] = []
+    for c in _conjuncts(problem.conclusion.expr):
+        names = _expr_vars(c, set())
+        if getattr(c, "op", None) == "eq" and names & set(free) and names & premise_vars:
+            defs.append(_expr_dump(c))
+        else:
+            rest.append(_expr_dump(c))
+    return defs, rest
+
+
+def _entailed_with(problem: Problem, extra: list[dict], conclusion: dict, config: SolverConfig, deadline: Optional[float]) -> Optional[bool]:
+    """Whether ``problem``'s premises and ``extra`` entail ``conclusion`` (IR JSON): True (unsat of the negation), False
+    (a model), None (undecided within what remains of the probes' budget, or not compilable). One solver call."""
+    remaining = int((deadline - time.perf_counter()) * 1000.0) if deadline is not None else int(config.timeout_ms)
+    if remaining < 1:
+        return None
+    data = problem.model_dump(mode="json", exclude_none=True)
+    taken = {pr["id"] for pr in data.get("premises", [])}
+    added = []
+    for i, e in enumerate(extra):
+        pid = f"omitted_{i}"
+        while pid in taken:
+            pid += "_"
+        taken.add(pid)
+        added.append({"id": pid, "expr": e})
+    data["premises"] = list(data.get("premises", [])) + added
+    data["conclusion"] = {"id": "probe_conclusion", "expr": conclusion}
+    data["query"] = "entailment"
+    try:
+        compiled = compile_problem(Problem.model_validate(data))
+        solver = z3.Solver(ctx=compiled.ctx)
+        solver.set("timeout", max(1, min(int(config.timeout_ms), remaining)))
+        if config.rlimit is not None:
+            solver.set("rlimit", int(config.rlimit))
+        for term in compiled.premises.values():
+            solver.add(term)
+        solver.add(z3.Not(compiled.conclusion))
+        answer = solver.check()
+    except Exception:  # noqa: BLE001 - a probe that cannot be built or run decides nothing
+        return None
+    if answer == z3.unsat:
+        return True
+    if answer == z3.sat:
+        return False
+    return None
+
+
+def _omitted_condition_diagnostic(problem: Problem, proc: ProcedureOutcome, config: SolverConfig, *, deadline: Optional[float] = None,
+                                  timings: Optional[list[StageTiming]] = None) -> _Probe:
+    """Round 9 (c2): a COUNTEREXAMPLE that exists only because the encoding left out what its own link or definition needs,
+    which is no verdict on the claim (``E111``):
+
+    * a link's antecedent holds a condition on symbols no premise constrains ("reduced storage and a larger share of runoff
+      mean more surface flow", with the shares never given: ess-p9c s4.1), and with those conditions the conclusion follows:
+      the countermodel only makes the condition false (the shares equal), so the encoding omitted the premises that state it;
+    * the conclusion defines a symbol no premise mentions by an equation over premise symbols ("c = n / V" written in the
+      conclusion: ch-p9b s5.3), and with those definitions as premises the rest of the conclusion follows: the countermodel
+      only gives the symbol another value.
+
+    A COUNTEREXAMPLE that survives the omitted conditions or definitions (a wrong figure, a wrong step) keeps its verdict, and
+    a free conclusion atom with no definition stays the advisory W111 of :func:`_unencoded_reason_diagnostic`. One solver call
+    per shape, bounded by the probes' shared budget and timed into ``timings``."""
+    if proc.status is not VerificationStatus.COUNTEREXAMPLE or problem.conclusion is None or not problem.premises:
+        return _Probe()
+    start = time.perf_counter()
+    try:
+        only, conds = _antecedent_only_conditions(problem)
+        if conds:
+            ok = _entailed_with(problem, conds, _expr_dump(problem.conclusion.expr), config, deadline)
+            if ok is True:
+                return _Probe(Diagnostic(
+                    code=DiagnosticCode.UNENCODED_REASON.value,
+                    message=(f"{OMITTED_CONDITION} the counterexample only makes false a condition of a link on symbol(s) {', '.join(only[:6])}, which no "
+                             "premise constrains; with that condition the conclusion follows, so the encoding left out the premises that state it "
+                             "(a stated reason or a figure of an earlier part) and this COUNTEREXAMPLE is no verdict on the claim"),
+                    path="conclusion"))
+        premise_vars, concl_vars = _assertion_vars(problem)
+        sorts = {sym.name: sym.sort for sym in problem.symbols}
+        free = sorted(v for v in concl_vars - premise_vars if sorts.get(v) in _NUMERIC_SORTS)
+        if free:
+            defs, rest = _conclusion_definitions(problem, free)
+            if defs and rest:
+                ok = _entailed_with(problem, defs, {"op": "and", "args": rest} if len(rest) > 1 else rest[0], config, deadline)
+                if ok is True:
+                    return _Probe(Diagnostic(
+                        code=DiagnosticCode.UNENCODED_REASON.value,
+                        message=(f"{OMITTED_CONDITION} the conclusion defines symbol(s) {', '.join(free[:6])}, which no premise mentions, by relation(s) "
+                                 "that belong to the premises; with those definitions as premises the rest of the conclusion follows, so the "
+                                 "counterexample only gives the symbol another value and is no verdict on the claim"),
+                        path="conclusion"))
+        return _Probe()
+    finally:
+        if timings is not None:
+            timings.append(StageTiming(stage=PROBE_STAGES[1], ms=(time.perf_counter() - start) * 1000.0))
+
+
 def _conjuncts(expr) -> list:
     """The "and" conjuncts of ``expr`` (nested conjunctions flattened); ``[expr]`` for anything else."""
     out, stack = [], [expr]
@@ -917,6 +1065,11 @@ def verify(
             if figure_note is None or figure_note.code == DiagnosticCode.UNASSERTED_FIGURE_ADVISORY.value:
                 reason = _unencoded_reason_diagnostic(problem, proc, compiled, config, deadline=deadline, timings=probe_timings)
                 reason_note, probe_undecided = reason.diagnostic, probe_undecided or reason.undecided
+                if reason_note is None or reason_note.code == DiagnosticCode.UNENCODED_REASON_ADVISORY.value:
+                    # round 9 (c2): a link's condition or a definition the encoding left out of the premises (E111, no verdict)
+                    omitted = _omitted_condition_diagnostic(problem, proc, config, deadline=deadline, timings=probe_timings)
+                    if omitted.diagnostic is not None:
+                        reason_note = omitted.diagnostic
         except z3.Z3Exception:
             # Z3 aborted (its memory budget was exhausted). Restore a budget the running
             # verifications can work within so later calls are not left under the exhausted one.

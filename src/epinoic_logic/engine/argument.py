@@ -389,6 +389,63 @@ def _is_number(token: str) -> bool:
 _STATED_PAIR_RE = re.compile(r"\b(?:both|either|neither|the\s{1,3}two|these\s{1,3}two|those\s{1,3}two)\b", re.IGNORECASE)
 
 
+#: A majority cue word ("most", "majority", "more than half").
+_MAJORITY_WORD_RE = re.compile(r"\b(?:most|majority|half)\b", re.IGNORECASE)
+#: A symbol's meaning that names a share of a whole (and whether it is read in per cent).
+_SHARE_MEANING_RE = re.compile(r"\b(?:share|shares|proportion|fraction|percentage|percent|per\s+cent|ratio)\b|%", re.IGNORECASE)
+_PERCENT_MEANING_RE = re.compile(r"\b(?:percent|per\s+cent|percentage)\b|%", re.IGNORECASE)
+
+
+#: Prepositions that place a population somewhere wider ("most students in the country", "across the region").
+_SCOPE_PREPOSITIONS = frozenset({"in", "across", "throughout", "over", "around", "within", "nationwide", "worldwide", "everywhere"})
+
+
+def _widens(consequent: str, added: Sequence[str]) -> bool:
+    """Whether a word the majority's population adds (:func:`_population_added`) places it in a wider scope: it follows a scope
+    preposition (an article between them aside: "most students in the country"), or is itself a scope word ("nationwide").
+    A head noun naming the counted cases otherwise ("beetles" for "individuals") widens nothing."""
+    toks = list(_tokens(consequent))
+    for k, t in enumerate(toks):
+        if t not in added:
+            continue
+        if t in _SCOPE_PREPOSITIONS:
+            return True
+        j = k - 1
+        while j >= 0 and toks[j] in ("the", "a", "an", "this", "that", "whole", "entire"):
+            j -= 1
+        if j >= 0 and toks[j] in _SCOPE_PREPOSITIONS:
+            return True
+    return False
+
+
+def _definitional_majority(node: dict, meanings: dict[str, str]) -> bool:
+    """Whether ``node`` (a link's antecedent) puts a share above half: a comparison ``share > half`` or ``share >= half``
+    (either way round) of a symbol whose meaning names a share of a whole, against 50 when the meaning reads it in per cent and
+    1/2 otherwise (a bound above half included). A majority drawn from it of the same whole ("over half of the individuals, so
+    most belong to one species", round 9, c2 ess-t15 s6.2; the caller checks that the majority adds no population of its own)
+    restates the share by definition: no generalisation from instances."""
+    op = node.get("op") if isinstance(node, dict) else None
+    flip = {"gt": "lt", "ge": "le", "lt": "gt", "le": "ge"}
+    if op not in flip:
+        return False
+    left, right = node.get("left"), node.get("right")
+    if isinstance(right, dict) and right.get("op") == "var" and isinstance(left, dict) and left.get("op") != "var":
+        left, right, op = right, left, flip[op]
+    if op not in ("gt", "ge") or not isinstance(left, dict) or left.get("op") != "var" or not isinstance(right, dict):
+        return False
+    if right.get("op") not in ("int", "real"):
+        return False
+    try:
+        bound = Fraction(str(right.get("value")))
+    except (ValueError, ZeroDivisionError):
+        return False
+    meaning = (meanings.get(str(left.get("name")), "") or "")[:400]
+    if not _SHARE_MEANING_RE.search(meaning):
+        return False
+    half = Fraction(50) if _PERCENT_MEANING_RE.search(meaning) else Fraction(1, 2)
+    return bound >= half
+
+
 def _open_universal(text: Optional[str]) -> Optional[str]:
     """The first open universal cue of ``text``: not closed by a number within the next three tokens ("all three",
     "each of the four"), and an "any" not in the scope of an earlier negation ("cannot find any")."""
@@ -1788,6 +1845,9 @@ class _Diagnosis:
                     continue
                 if cue in ("each", "both", "either", "every") and any(_STATED_PAIR_RE.search(t) for t in ante_texts):
                     continue  # "each" over a pair the facts name ("both species ...", "the two plants"): no universal (round-8 clearance c1)
+                if _MAJORITY_WORD_RE.search(cue) and _definitional_majority(node["left"], self.meanings) and \
+                        not _widens(consequent, _population_added(consequent, cue, ante_texts)):
+                    continue  # "most" read off a share over half of the same whole: the share's definition, no generalisation (round 9, c2)
                 if not sampled and (any(_open_universal(t) for t in ante_texts) or not all(_instance(t) for t in ante_texts)):
                     continue
                 self.emit("ARG-HG-001", f"hasty generalisation: the writer's link {self.named(w)} draws the universal '{cue} ...' "

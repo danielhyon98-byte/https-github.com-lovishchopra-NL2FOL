@@ -89,7 +89,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from pydantic import ValidationError
 
@@ -125,11 +125,13 @@ from .contracts import (
 from .coverage import apply_coverage_evidence, assess_definitions, assess_unconstrained
 from .diag_argument import REASON_CONNECTIVES, mask_quotations
 from .eligibility import decide_eligibility
+from .fidelity import fidelity_flags, unencoded_support, unencoded_support_flag
 from .grounding import check_problem_grounding, grounding_support
 from .parsing import ProviderOutputError, asserted_verified_paths, parse_json_object
 from .precision import added_premise_support, compare_conclusions, decide_precision, premise_changes, read_sites, reference_reading
 from .providers.base import ProviderError, TranslationProvider, TranslationRequest
 from .quantities import SourceText
+from .restatement import PRIOR_LINES
 from .roles import premise_roles as _premise_roles
 from .subjects import SubjectProfile
 
@@ -226,12 +228,16 @@ def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
     A note for the reader: a figure may count something else ("I checked 3 values"), so it never decides the status."""
     from .precision import collect_sites
     from .quantities import figures_in, is_year_like, literal_matches
+    from .eligibility import _MARK_ANNOTATION_RE, _NAMED_ITEM_RE
     literals = _all_literal_values(problem)
     intervals = [(site.lo, site.hi) for site in collect_sites(problem) if site.kind == "interval" and site.lo is not None and site.hi is not None]
     text = claim.claim_text
+    # a named item ("Paper 1", "Table 1", "question 3") or a mark annotation ("[2]") names no figure of the claim, as eligibility
+    # reads it (round 9, c2 translation-fidelity: lit-t15 p2-point's "Paper 1" was named an unencoded figure '1')
+    labels = [(m.start(), m.end()) for rx in (_NAMED_ITEM_RE, _MARK_ANNOTATION_RE) for m in rx.finditer(text[:4000])]
     missing: list[str] = []
     for f in figures_in(SourceText("claim", claim.claim_id, text)):
-        if f.word or is_year_like(f) or _is_code_numeral(f, text):
+        if f.word or is_year_like(f) or _is_code_numeral(f, text) or any(a <= f.start < b for a, b in labels):
             continue
         if any(literal_matches(v, [f], conversions=True)[0] for v in literals):
             continue  # typed: '50.0 cm³' is encoded by 0.0000500 (in m³) too
@@ -285,6 +291,220 @@ def introduced_figures(problem: Problem, sources: Sequence[SourceText]) -> list[
     return out
 
 
+def unstated_values(sources: Sequence[SourceText]) -> Callable[[Fraction], bool]:
+    """Whether no source of ``sources`` states a value, in any typed form (``quantities.literal_matches`` against every figure
+    they state, converted figures included; a domain value 0, 1, 10, 100 or 1000 counts as stated): the reading of the
+    translator's rule unstated-scaling (``restatement._scaled_by_unstated``, round 9, c2). The figures are read once, when
+    the predicate is first asked."""
+    from .quantities import TRIVIAL_VALUES, figures_in, literal_matches
+    stated: list = []
+    read = False
+
+    def unstated(value: Fraction) -> bool:
+        nonlocal read
+        if abs(value) in TRIVIAL_VALUES:
+            return False
+        if not read:
+            stated.extend(f for src in sources for f in figures_in(src))
+            read = True
+        return not literal_matches(value, stated, conversions=True)[0]
+    return unstated
+
+
+def _literal_values(node) -> list[tuple[str, Fraction]]:
+    """``(written, value)`` of every numeric literal of an IR expression (iteratively)."""
+    out: list[tuple[str, Fraction]] = []
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        op = getattr(n, "op", None)
+        if op in ("int", "real"):
+            v = _fraction(str(n.value))
+            if v is not None:
+                out.append((str(n.value), v))
+            continue
+        for fld in ("arg", "left", "right", "cond", "then", "otherwise"):
+            child = getattr(n, fld, None)
+            if child is not None:
+                stack.append(child)
+        stack.extend(getattr(n, "args", None) or ())
+    return out
+
+
+def _non_decimal(value: Fraction) -> bool:
+    """Whether ``value`` is a fraction no finite decimal writes (its reduced denominator has a prime factor other than 2 and
+    5): a figure no answer states in digits, the mark of a value the translation computed itself (-20800/943)."""
+    d = value.denominator
+    for p in (2, 5):
+        while d % p == 0:
+            d //= p
+    return d != 1
+
+
+def introduced_conclusion_figures(problem: Problem, sources: Sequence[SourceText]) -> list[str]:
+    """Round 9 (c2): the conclusion's literals that are fractions no finite decimal writes and that no source states in any
+    typed form (``\\frac{45}{11}`` and "45/11" are stated): a value the translation computed itself from the claim's
+    operands ("-20800/943 in [-22.15, -22.05)" for the written "(294.0 − 377.2) ÷ 377.2 × 100"), so the engine checks the
+    translation's computation, never the claim's written calculation. Nothing is evaluated: literals and stated figures
+    compare as exact values."""
+    from .quantities import figures_in, literal_matches
+    if problem.conclusion is None:
+        return []
+    stated = None
+    out: list[str] = []
+    for written, value in _literal_values(problem.conclusion.expr):
+        if not _non_decimal(value):
+            continue
+        if stated is None:
+            stated = [f for src in sources for f in figures_in(src)]
+        if literal_matches(value, stated, conversions=True)[0] or literal_matches(-value, stated, conversions=True)[0]:
+            continue
+        if written not in out:
+            out.append(written)
+    return out
+
+
+#: A consequence the claim draws categorically ("..., so Kc falls", "therefore", "thus", "hence", "which means").
+_CATEGORICAL_CONSEQUENCE_RE = re.compile(r"(?:,|;|:|\.)\s{0,3}(?:and\s{1,3})?(?:so|therefore|thus|hence|which\s{1,3}means|consequently)\b", re.IGNORECASE)
+#: Words that make a claim conditional, hypothetical or general rather than categorical: its encoding as a link is faithful.
+_CONDITIONAL_CUE_RE = re.compile(r"\b(?:if|when|whenever|unless|provided|assuming|suppose|supposing|would|could|might|should|as\s{1,3}long\s{1,3}as|"
+                                 r"on\s{1,3}condition|in\s{1,3}case|as\s{1,3}(?:wind|the|a|an)\b)", re.IGNORECASE)
+
+
+def conditional_conclusion(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
+    """Round 9 (c2, ch-t15 s15.4: "Fewer products and more reactants are present at equilibrium, so Kc falls." concluded
+    ``shift_left -> kc_falls``): the ``conditional_conclusion`` flag when the claim draws its consequence categorically (a
+    consequence connective, no conditional, hypothetical or general cue) while the encoding's conclusion is a link
+    ``A implies B`` at the top: the verdict covers the link, not the consequence the claim asserts, so it is
+    AMBIGUOUS_TRANSLATION, never a verdict on the claim (deterministic, one pass over the claim's text). None otherwise."""
+    if problem.conclusion is None or getattr(problem.conclusion.expr, "op", None) != "implies":
+        return None
+    text = (claim.claim_text or "")[:4000]
+    if _CATEGORICAL_CONSEQUENCE_RE.search(text) is None or _CONDITIONAL_CUE_RE.search(text) is not None:
+        return None
+    return AmbiguityFlag(code="conditional_conclusion", message=truncate(
+        "the claim draws its consequence categorically (a consequence connective and no conditional cue), while the encoding's conclusion "
+        "is a link 'A implies B': the verdict would cover the link, not the consequence the claim asserts; encode the consequence as the "
+        "conclusion and the link as a premise", 2000))
+
+
+#: The IR operators of an arithmetic term.
+_ARITH_OPS = frozenset({"add", "sub", "mul", "div", "neg", "idiv", "mod", "to_real"})
+
+
+def _valued_symbols(problem: Problem) -> set[str]:
+    """The symbols a premise gives a figure or bounds by figures ("mass_c = 12.01", "945 = bond_nn", "1.7320 < s3 < 1.7321"
+    for √3; a negated figure too), read in each premise and its top-level conjuncts."""
+    out: set[str] = set()
+    for pr in problem.premises:
+        parts = list(getattr(pr.expr, "args", None) or ()) if getattr(pr.expr, "op", None) == "and" else [pr.expr]
+        for e in parts:
+            if getattr(e, "op", None) not in ("eq", "lt", "le", "gt", "ge"):
+                continue
+            for a, b in ((e.left, e.right), (e.right, e.left)):
+                lit = getattr(b, "arg", None) if getattr(b, "op", None) == "neg" else b
+                if getattr(a, "op", None) == "var" and getattr(lit, "op", None) in ("int", "real"):
+                    out.add(a.name)
+    return out
+
+
+def _computes_on_numbers(problem: Problem) -> bool:
+    """Whether some premise or the conclusion holds an arithmetic term over figures alone: literals and symbols a premise gives
+    or bounds by a figure ("0.6 × 150000", "5 ÷ 8", "12 × mass_c" beside "mass_c = 12.01", "0.2 × s3" beside "1.7320 < s3 <
+    1.7321"): the engine computes a value from figures there
+    (iteratively, over the problem's bounded nodes). A term over an unknown ("20000 × v") computes nothing from figures."""
+    valued = _valued_symbols(problem)
+    stack = [pr.expr for pr in problem.premises] + ([problem.conclusion.expr] if problem.conclusion is not None else [])
+    while stack:
+        node = stack.pop()
+        if getattr(node, "op", None) in _ARITH_OPS:
+            leaves, has_var, inner = 0, False, [node]
+            while inner and not has_var:
+                n = inner.pop()
+                op = getattr(n, "op", None)
+                if op == "var":
+                    if n.name in valued:
+                        leaves += 1
+                    else:
+                        has_var = True
+                elif op in ("int", "real"):
+                    leaves += 1
+                else:
+                    inner.extend(c for c in (getattr(n, "arg", None), getattr(n, "left", None), getattr(n, "right", None)) if c is not None)
+                    inner.extend(getattr(n, "args", None) or ())
+            if not has_var and leaves >= 2:
+                return True
+        stack.extend(c for c in (getattr(node, "arg", None), getattr(node, "left", None), getattr(node, "right", None),
+                                 getattr(node, "cond", None), getattr(node, "then", None), getattr(node, "otherwise", None)) if c is not None)
+        stack.extend(getattr(node, "args", None) or ())
+    return False
+
+
+#: The most '=' signs of a claim's text :func:`unencoded_calculation` reads (each reads a bounded tail of the text before it).
+_MAX_CALCULATION_SIGNS = 64
+
+
+def unencoded_calculation(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
+    """Round 9 (c2, ph-t15 s3.3: "(1.2 × 10⁴ kg)(3.0 m s⁻¹) + (8.0 × 10³ kg)(0) = (1.2 × 10⁴ kg + 8.0 × 10³ kg)v" encoded as
+    "36000 = 20000 × v_coupled", the next line's figures, with the products asserted as arithmetic facts): the
+    ``unencoded_calculation`` flag when the claim writes a calculation before an '=' (``quantities._calculation_run``, the
+    reader of rule result-asserted), at least two of its operand figures (between the previous '=' and this one; years,
+    code numerals, number words and the domain values 0, 1, 10, 100, 1000 apart) are figures, and no literal or interval of
+    the problem encodes any of them, while the problem checks figures of its own, none of which the claim states, and
+    computes nothing on numbers (no arithmetic term over figures: its figures are results asserted as values, taken from
+    elsewhere): the engine would check values the
+    translation computed or took from another line, never the claim's written calculation, so the outcome is
+    AMBIGUOUS_TRANSLATION (translate_v3: a written calculation is computed by the engine from its operands). An encoding
+    that encodes one operand of the calculation, that computes it from the figures its operands come from ('$90,000 +
+    $16,000' as 0.6 × 150000 + 0.4 × 40000; '(5/8) × (4/7)' as 5 ÷ 8 × 4 ÷ 7; '144.12 + 22.22 + 176.00' as 12 × mass_c + ...
+    beside 'mass_c = 12.01'), that checks a figure the claim states ('120 × $8 = $960, so it exceeded the target' with
+    revenue = 960: the claim's own result, which rule result-asserted reads), or that encodes no figure at all (a
+    Boolean reading the figure notes name) is untouched. Deterministic; nothing is evaluated; each '=' reads a bounded
+    tail of the text."""
+    from .precision import collect_sites
+    from .quantities import TRIVIAL_VALUES, _calculation_run, figures_in, is_year_like, literal_matches
+    if problem.conclusion is None:
+        return None
+    literals = _all_literal_values(problem)
+    if not any(abs(v) not in TRIVIAL_VALUES for v in literals) or _computes_on_numbers(problem):
+        return None
+    text = (claim.claim_text or "")[:4000]
+    if "=" not in text:
+        return None
+    intervals = [(site.lo, site.hi) for site in collect_sites(problem) if site.kind == "interval" and site.lo is not None and site.hi is not None]
+
+    def encoded(f) -> bool:
+        if any(literal_matches(v, [f], conversions=True)[0] for v in literals):
+            return True
+        candidates = {f.value, f.value * f.scale}
+        if f.unit_factor:
+            candidates.add(f.value * f.scale * f.unit_factor)
+        return any(lo <= c <= hi for c in candidates for lo, hi in intervals)
+
+    figures = [f for f in figures_in(SourceText("claim", claim.claim_id, text))
+               if not (f.word or is_year_like(f) or _is_code_numeral(f, text)) and abs(f.value * f.scale) not in TRIVIAL_VALUES]
+    if any(literal_matches(v, figures, conversions=True)[0] for v in literals if abs(v) not in TRIVIAL_VALUES):
+        return None  # the encoding checks a figure the claim states (a result it writes: "120 × $8 = $960, so ...")
+    start = 0
+    signs = 0
+    for i, ch in enumerate(text):
+        if ch != "=":
+            continue
+        signs += 1
+        if signs > _MAX_CALCULATION_SIGNS:
+            break
+        segment, start = (start, i), i + 1
+        operands = [f for f in figures if f.start >= segment[0] and f.end <= segment[1]]
+        if len(operands) < 2 or any(encoded(f) for f in operands) or _calculation_run(text[:i]) is None:
+            continue
+        written = text[segment[0]:segment[1]].strip()
+        return AmbiguityFlag(code="unencoded_calculation", message=truncate(
+            f"the claim writes the calculation {written[-160:]!r} and no literal of the encoding is any of its operands "
+            f"({', '.join(repr(f.written) for f in operands[:6])}): the engine would check values the translation computed or took from "
+            "another line, never the claim's written calculation; encode the written operands and let the engine compute", 2000))
+    return None
+
+
 def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optional[Interpretation]) -> Optional[AmbiguityFlag]:
     """The ``partial_encoding`` flag when the translation's own reading says part of the claim is not encoded ("The
     'likely cause' is an interpretation and is not encoded"): the encoding covers only part of the claim, so the outcome
@@ -292,7 +512,7 @@ def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optio
     verdict, never to give one). The figures the claim states and no literal encodes are named with it when there are
     any. None otherwise."""
     reading = interpretation.reading if interpretation is not None else ""
-    m = _NOT_ENCODED_RE.search(reading or "")
+    m = next((x for x in _NOT_ENCODED_RE.finditer((reading or "")[:4000]) if _names_claim_part(reading, x.start(), x.end(), claim)), None)
     if m is None:
         return None
     a = max(0, m.start() - 120)
@@ -302,6 +522,27 @@ def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optio
         parts.append(f"the claim states figure(s) {', '.join(missing[:8])} that no literal of the problem encodes")
     return AmbiguityFlag(code="partial_encoding", message=truncate("the encoding covers only part of the claim: " + "; ".join(parts)
                                                                  + ", so its verdict is no verdict on the claim as a whole", 2000))
+
+
+#: A part of an answer that is no content of the claim a verdict checks: a sources line, a support listing, a framing label,
+#: a heading, a disclaimer or a line that is no claim ("the sources line (p6-point) is not a claim", "the listing also cites
+#: p1-point", "the 'what the question wants' label", "the disclaimer that only the teacher ... award real marks").
+_NON_CONTENT_PART_RE = re.compile(r"\b(?:sources?\s+line|source\s+list|listing|label|heading|framing|disclaimer|not\s+a\s+claim)\b", re.IGNORECASE)
+
+
+def _names_claim_part(reading: str, start: int, end: int, claim: ClaimRecord) -> bool:
+    """Whether the sentence of ``reading`` that says something is not encoded (its match at ``start``-``end``; sentences end at
+    ". " or a line break) names a stated part of the claim: any part but a sources line, a support listing, a framing label, a
+    heading, a disclaimer or a line that is no claim (:data:`_NON_CONTENT_PART_RE`). Round 9 (c2, second fix pass; c1
+    translation-fidelity #17): the flag fired on the reading's words wherever they stood, withholding verdicts on fully
+    encoded claims (c1 en-p8c p1-s01's sources line, lit-t14 p1-s09's support listing, ch-t14 s2.2's framing label, bm-t14
+    g1.1's disclaimer). What the reading leaves out may be written in symbols ("the square-root step is not encoded" for a
+    claim that writes "√"), so no word of it needs to occur in the claim."""
+    left = max(reading.rfind(". ", 0, start), reading.rfind("\n", 0, start)) + 1
+    stops = [k for k in (reading.find(". ", end), reading.find("\n", end)) if k != -1]
+    sentence = reading[left:min(stops) if stops else len(reading)][:600]
+    # what the reading leaves out may be written in symbols ("the square-root step"), so any part counts but these
+    return _NON_CONTENT_PART_RE.search(sentence) is None
 
 
 _ENCODED_CLAIM_RE = re.compile(r"\b(?:literal\s+)?equalit(?:y|ies)\b[^.;]*\b(?:is|are)\s+encoded\b|\bencoded\s+as\s+(?:a\s+)?literal\s+equalit", re.IGNORECASE)
@@ -568,6 +809,18 @@ def _unencoded_reason(text: str, problem: Problem) -> Optional[str]:
         if all(len(stems & e) < 2 for e in encoded):
             return truncate(" ".join(text[spans[part[0]][0]:spans[part[-1]][1]].split()), 300)
     return None
+
+
+def previous_lines(claim: ClaimRecord, report: SpecialistReport) -> list[str]:
+    """The claim's previous lines of working: the texts of the (at most :data:`~.restatement.PRIOR_LINES`) claims the report
+    holds before it, nearest last, and of the claims it cites (rule ``previous-line-step``, ``restatement._previous_line_step``;
+    the transfer auditor's ``prior_lines`` reads the same three)."""
+    ids = [c.claim_id for c in report.claims]
+    if claim.claim_id not in ids:
+        return []
+    at = ids.index(claim.claim_id)
+    cited = set(claim.supporting_claim_ids) - {claim.claim_id}
+    return [c.claim_text for c in report.claims[max(0, at - PRIOR_LINES):at]] + [c.claim_text for c in report.claims if c.claim_id in cited]
 
 
 def source_texts(claim: ClaimRecord, supporting: list[ClaimRecord], report: SpecialistReport, task: Optional[TaskRecord] = None) -> list[SourceText]:
@@ -901,7 +1154,16 @@ class Translator:
         checks = checks + evidence_checks
         notes += self._stated_figures(grounded, tag, interpretation, coverage, checks)
         notes += label_beyond_expression(grounded)
-        self._circularity(grounded, tag, checks, claim_text=claim.claim_text)
+        # a figure is introduced only when the whole report states it nowhere (round 9, c2; c1 bug r8-19: the figures other claims
+        # of the report state, beside the supporting ones, are the report's own, at most an unverified dependency, never introduced)
+        listed = {s.ident for s in sources}
+        report_sources = [*sources, *(SourceText("supporting_claim", c.claim_id, c.claim_text) for c in report.claims if c.claim_id not in listed)]
+        # Rule previous-line-step (round 9, c2, second fix pass; ``restatement._previous_line_step``) exempts the input of the step
+        # a claim writes from its previous lines of working (:func:`previous_lines`). The transfer auditor's floor (rule
+        # circularity-agreement, ``translator_semantic_floor``) re-runs this step 4c with the same lines (the handoff fixer of the
+        # second fix pass changed the two together), so a step check decided here reaches the receipt as the audit reads it.
+        self._circularity(grounded, tag, checks, claim_text=claim.claim_text, unstated=unstated_values(report_sources),
+                          prior_texts=previous_lines(claim, report))
         readings = read_sites(grounded, sources)
         decision = decide_precision(grounded, readings, self.config, tag)
         if decision.reject is not None:
@@ -924,7 +1186,16 @@ class Translator:
         if unchecked:
             notes.append(truncate("part of the claim only: the conclusion checks no figure of the clause(s) " + "; ".join(repr(c) for c in unchecked[:4])
                                   + ", while it checks another clause of the claim: the verdict concerns the clauses it checks", _MAX_DIAGNOSTIC_CHARS * 2))
-        introduced = introduced_figures(grounded, sources)
+        computed = introduced_conclusion_figures(grounded, report_sources)
+        if computed:
+            # round 9 (c2): the conclusion checks a value the translation computed itself, not the claim's written calculation
+            flag = AmbiguityFlag(code="introduced_figure", message=truncate(
+                "the conclusion checks value(s) no source states (" + ", ".join(computed[:6]) + "), fractions no answer writes in digits: the "
+                "translation computed them from the claim's operands itself, so the engine checks the translation's computation, not the "
+                "claim's written calculation (encode the written operands and let the engine compute)", 2000))
+            interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, flag]})
+            notes.append(truncate(f"introduced figure: {flag.message}", _MAX_DIAGNOSTIC_CHARS * 2))
+        introduced = introduced_figures(grounded, report_sources)
         if introduced:
             if self._figures_decide_entailment(grounded, [x.split(" ", 1)[0] for x in introduced]):
                 flag = AmbiguityFlag(code="introduced_figure", message=truncate(
@@ -936,7 +1207,18 @@ class Translator:
             else:
                 notes.append(truncate("introduced figure (it does not decide the verdict): the translation encodes figure(s) no source states ("
                                       + "; ".join(introduced[:6]) + ")", _MAX_DIAGNOSTIC_CHARS * 2))
-        encoding = self._encoding_flags(grounded, claim)
+        cited = set(claim.supporting_claim_ids) - {claim.claim_id}
+        supporting_claims = [c for c in report.claims if c.claim_id in cited]
+        encoding = self._encoding_flags(grounded, claim, supporting_claims)
+        conditional = conditional_conclusion(grounded, claim)
+        if conditional is not None:
+            encoding = [*encoding, conditional]
+        calculation = unencoded_calculation(grounded, claim)
+        if calculation is not None:
+            encoding = [*encoding, calculation]
+        # round 9 (c2, second fix pass): the encoding compared with the claim it encodes (``translate.fidelity``): another
+        # claim's content, a dropped bracketed qualifier, a stated reason left unconnected, a reported inference concluded
+        encoding = [*encoding, *fidelity_flags(grounded, claim, supporting_claims, report, task)]
         if encoding:
             interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, *encoding]})
             notes += [truncate(f"{f.code}: {f.message}", _MAX_DIAGNOSTIC_CHARS * 2) for f in encoding]
@@ -1040,7 +1322,7 @@ class Translator:
                 return None
         return self._probe(problem).status
 
-    def _encoding_flags(self, problem: Problem, claim: ClaimRecord) -> list[AmbiguityFlag]:
+    def _encoding_flags(self, problem: Problem, claim: ClaimRecord, supporting: Sequence[ClaimRecord] = ()) -> list[AmbiguityFlag]:
         """The flags of an encoding that leaves the claim's link out (the missing link of the argument diagnosis), each an
         ambiguity: the engine still runs for inspection, but the claim is never shown as decided by a part the encoding
         does not link to its reasons.
@@ -1053,6 +1335,11 @@ class Translator:
           COUNTEREXAMPLE, but the claim's own text gives a reason clause (a reason connective, never "because of") that
           shares fewer than two content words with every premise label and symbol meaning: the translation left the
           claim's stated reason out. A claim whose reason is encoded, or that gives none, keeps its counterexample.
+
+        * ``UNENCODED_SUPPORT`` (round 9, c2, second fix pass: lit-t15 p1-point): the conclusion's Bool atoms no premise
+          mentions, while the premises reach the rest of it, are stated by a supporting claim (``supporting``) the encoding
+          encodes nothing of (:func:`.fidelity.unencoded_support`), and the problem is a COUNTEREXAMPLE: the counterexample
+          turns on what the translation left out of the specialist's own reasoning, so it is no verdict on the claim.
 
         An encoding that covers only part of the claim is this tree's own ``partial_encoding`` rule (:func:`partial_encoding`).
         A problem the precondition does not fit is never probed; every probe passes ``diagnose=False``."""
@@ -1082,22 +1369,29 @@ class Translator:
                                      "words with every premise label and symbol meaning), and no premise mentions the point: the translation left "
                                      "the claim's own reason out, so its counterexample is no verdict on the claim as written", 2000),
                     alternatives=[truncate(f"the claim with its stated reason encoded: {clause}", 200), "the encoding as given: COUNTEREXAMPLE"]))
+        if unlinked and linked and supporting:
+            found = unencoded_support(problem, claim, supporting)
+            if found is not None and full() is VerificationStatus.COUNTEREXAMPLE:
+                flags.append(unencoded_support_flag(problem, found[0], found[1], supporting))
         return flags
 
     @staticmethod
-    def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None) -> None:
+    def _circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None,
+                     unstated: Optional[Callable[[Fraction], bool]] = None, prior_texts: Sequence[str] = ()) -> None:
         """Reject a problem whose conclusion (or each of its conjuncts) is asserted by premises the writer supplies itself:
         the solver would prove the claim from the claim (the engine's ``E112``; ``engine.authority.assumed_grounding`` decides
         which premises are the writer's own). Premises that contradict each other (``engine.runner.premises_inconsistent``) are
         no circle: the engine names the contradiction first (consistency before entailment); neither is a conclusion that
         holds with no premise at all (``engine.runner.conclusion_valid_alone``): it is vacuous, and the engine names that.
-        ``claim_text`` (the claim encoded) lets the semantic rules read the claim's stated result and its consequence."""
+        ``claim_text`` (the claim encoded) lets the semantic rules read the claim's stated result and its consequence, and
+        ``unstated`` (:func:`unstated_values` of the report's sources) lets them read a premise scaled by figures no source states
+        (rule unstated-scaling)."""
         if problem.query != "entailment" or problem.conclusion is None:
             return
         restating = circular_premises(problem)
         by_id = {pr.id: pr for pr in problem.premises}
         if not restating or not all(assumed_grounding(by_id[pid].grounding) for pid in restating if pid in by_id):
-            Translator._semantic_circularity(problem, tag, checks, claim_text=claim_text)
+            Translator._semantic_circularity(problem, tag, checks, claim_text=claim_text, unstated=unstated, prior_texts=prior_texts)
             return
         if premises_inconsistent(problem):
             # premises that contradict each other prove nothing: the engine decides INCONSISTENT_PREMISES first (consistency
@@ -1117,7 +1411,8 @@ class Translator:
             "relation to check"], retryable=True, reason="circular", problem=problem, checks=checks)
 
     @staticmethod
-    def _semantic_circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None) -> None:
+    def _semantic_circularity(problem: Problem, tag: str, checks: Optional[list[GroundingCheck]] = None, *, claim_text: Optional[str] = None,
+                              unstated: Optional[Callable[[Fraction], bool]] = None, prior_texts: Sequence[str] = ()) -> None:
         """Step 4c beyond a restatement as written (``translate.restatement``, round-8 clearance c1): a conclusion restated
         in another form (by Boolean structure, or by the arithmetic of its own symbols) by premises no check verified, or
         part of it restated by a task-given premise no check verified, on which the result rests, is assumed, not derived:
@@ -1128,7 +1423,7 @@ class Translator:
         each other and a conclusion that holds alone are the engine's to name, as for the restatement as written."""
         from .restatement import semantic_restatement
         located = {c.target_id for c in (checks or []) if c.verified is True and c.method in ("verbatim_match", "normalized_match")}
-        found = semantic_restatement(problem, located, claim_text=claim_text)
+        found = semantic_restatement(problem, located, claim_text=claim_text, unstated=unstated, prior_texts=prior_texts)
         if found is None or premises_inconsistent(problem) or conclusion_valid_alone(problem):
             return
         by_id = {pr.id: pr for pr in problem.premises}

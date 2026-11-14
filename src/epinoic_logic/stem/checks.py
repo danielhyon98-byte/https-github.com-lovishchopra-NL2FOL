@@ -381,6 +381,8 @@ def build_check(doc: StemDocument, rel: Relation, *, report_id: str = "report", 
         if note:
             ctx.detail(note)
         builder(ctx)
+        if rel.kind != "eq" and "(rule table-working)" in (rel.reason or ""):
+            ctx.warn(_TITLED_WARNINGS["rule table-working"])  # the eq check warns with its titled warnings
         if rel.fraction_units:
             # rule fraction-unit (STEM repair 6): the statement says which reading of a unit written after a fraction it decided
             ctx.detail("the unit written after " + ", ".join(f"'{t}'" for t in rel.fraction_units) + " is read as the fraction's own, the reading under "
@@ -415,6 +417,8 @@ def _question_note(rel: Relation) -> str:
 
 _ARITH = frozenset("+-−×*/·÷^")
 _SIGNS = frozenset("+-−")
+#: round-9 clearance (rule spaced-dash): the dashes that may stand for a minus sign between two operands
+_DASH_SIGNS = frozenset("–—‐‒")
 #: short words after which a signed expression may start a relation in prose ("so −2x > 4")
 _SHORT_WORDS = frozenset({"so", "is", "as", "to", "of", "or", "if", "at", "by", "we", "it", "be", "in", "on", "ie", "eg", "and", "the", "get", "has"})
 
@@ -464,6 +468,23 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
         shown = " ".join(text[op.start:op.end].split())[:80]
         if (before and before in _ARITH) or (after and after in _ARITH):
             return f"the operand '{shown}' is cut from a longer expression (an arithmetic operator adjoins it), so the relation is not checked"
+        # round-9 clearance (rule spaced-dash): a dash between this operand and another one ('Δv = v – 4.0 = 16 m s⁻¹', '20 m – 4 m = 16 m')
+        # may be a minus sign the reading view did not read as one: the operand may be cut from a longer expression, so the relation is
+        # withheld (it had been checked without its left part: INT-SUBJ-001 on correct work). A dash before a word stays prose
+        if before and before in _DASH_SIGNS:
+            jj = j - 1
+            while jj >= 0 and j - jj <= 8 and text[jj] in " \t":
+                jj -= 1
+            if jj >= 0 and text[jj] != "\n" and (text[jj].isalnum() or text[jj] in ")]⁰¹²³⁴⁵⁶⁷⁸⁹"):
+                return (f"the operand '{shown}' may be cut from a longer expression (a dash, which may stand for a minus sign, joins it to "
+                        f"the operand before it), so the relation is not checked")
+        if after and after in _DASH_SIGNS:
+            kk = k + 1
+            while kk < n and kk - k <= 8 and text[kk] in " \t":
+                kk += 1
+            if kk < n and (text[kk].isdigit() or text[kk] == "("):
+                return (f"the operand '{shown}' may be cut from a longer expression (a dash, which may stand for a minus sign, joins it to "
+                        f"the operand after it), so the relation is not checked")
         if ("0" <= after <= "9" and after != "") or ("0" <= before <= "9" and before != ""):
             return (f"the operand '{shown}' is adjoined by more digits ('{' '.join(text[max(0, op.start - 6):min(n, op.end + 8)].split())}'), so it may be "
                     f"part of a longer numeral such as a thousands group written with a space; the relation is not checked")
@@ -1470,6 +1491,16 @@ def _domain_from_bindings(name: str, blist: tuple[Binding, ...]) -> SymbolDomain
     return d
 
 
+def _written_expression_of(ctx: _Ctx, name: str) -> str:
+    """The closed expression the answer states for ``name`` with no value after it ('k = 2.0 × 40⁻¹ N m⁻¹'), as written, or ''."""
+    for rel in ctx.doc.relations:
+        if rel.kind == "binding" and rel.reason == "a symbol defined as a written expression" and rel.left is not None \
+                and isinstance(rel.left.node, Sym) and rel.left.node.name == name and rel.right is not None and rel.right.node is not None \
+                and is_closed(rel.right.node):
+            return ctx.doc.text[rel.right.start:rel.right.end][:80]
+    return ""
+
+
 def _substitution_domain(ctx: _Ctx, name: str) -> Optional[SymbolDomain]:
     """A symbol the answer binds nowhere but gives a value by substitution (``mg = 5.0 × 9.81`` reads
     m as 5.0): its readings, each widened to the other values of its product group (a substitution
@@ -1913,6 +1944,15 @@ _TITLED_WARNINGS = {
     # round-8 clearance
     "rule parenthetical-sum": "that the bracket after the value writes how the value is formed is a reading the answer did not state with a "
                               "relation sign (rule parenthetical-sum)",
+    # round-9 clearance
+    "rule table-working": "that the value of the next cell of the table row is the result of the cell's arithmetic is a reading the answer did "
+                          "not state with a relation sign (rule table-working)",
+    "rule referent-share": "which value is the whole the opening clause names is a reading: the last value of the same unit the answer states for "
+                           "those words before it (rule referent-share)",
+    # round-9 clearance, second pass
+    "rule mole-consequence": "which balanced equation the amounts follow, and that the amount stated is the one the coefficients' ratio gives "
+                             "(no excess and no yield below 100%), is a reading: the last equation the answer writes before them that holds both "
+                             "species (rule mole-consequence)",
 }
 
 
@@ -2417,8 +2457,30 @@ def _cnv(ctx: _Ctx) -> None:
         ctx.detail("°C/°F offset " + ("not applied: the statement speaks of a change" if change else "applied (an explicit temperature conversion)"))
     degrees_si = (lv[3] == "°" or rv[3] == "°") and ((lu.dim is not None and lu.dim.angle) or (ru.dim is not None and ru.dim.angle))
     readings, _unknown = _readings([left, right], force="si", affine=affine, degrees_si=bool(degrees_si))
-    _compare(ctx, [(left, right)], kind="cnv", tau=tau, h_written=[_value_half_width(right)], readings=readings, intervals={},
-             h_scale_nodes=[(left, right)], label="value converted to SI", stated_label="stated value in SI")
+    # round-9 clearance (rule converted-value): the value converted is taken as written. Its half-width widens the band only when it is
+    # written with a decimal point or a power of ten (a rounded value, '1.075 × 10⁴ s', '250.0 cm³'); a whole number ('1 byte', '2 h', '6
+    # bytes') states the quantity converted, so the band is the stated value's alone. Before, half a unit of the left value was added ('1 byte
+    # = 4 bits' had a band of 0.5 byte + 0.5 bit around 8 bits and held). A whole number of bits or bytes is an exact count, as the count
+    # nouns are: every written digit of it counts ('6 bytes = 40 bits' fails, 48 is right)
+    lnum = lv[1]
+    rounded_left = lnum is not None and (lnum.has_point or lnum.scientific or lnum.cut)
+    h_right = _value_half_width(right)
+    rnum = rv[1]
+    if rnum is not None and not rnum.has_point and not rnum.scientific and is_data_unit(ru):
+        h_right = half_width(rnum, min_sig_figs=rnum.digit_count)
+    elif rnum is not None and not rnum.has_point and not rnum.scientific and not rnum.cut and lnum is not None and not rounded_left \
+            and not lnum.trailing_zeros and lnum.value != 0:
+        # round-9 clearance, second pass (rule converted-value, its stated side): a whole number with no trailing zero converted ('2 h',
+        # '3 min') is exact, so it limits no figure of the whole number stated for it: every written digit of that number counts ('2 h =
+        # 7000 s' and '3 min = 200 s' fail; 7200 and 180 are right). Before, the trailing zeros of the stated number were read as not
+        # significant, a band of 500 s and 50 s, so both held. A converted value written with trailing zeros ('100 km/h') still limits them
+        ctx.detail("the whole number converted is exact, so every written digit of the whole number stated for it counts (rule converted-value)")
+        h_right = half_width(rnum, min_sig_figs=rnum.digit_count)
+    if not rounded_left or (rnum is not None and not rnum.has_point and not rnum.scientific and is_data_unit(ru)):
+        ctx.detail("the value converted is a whole number taken as written; only the stated value's half-width bands the comparison (rule "
+                   "converted-value)" + ("; a whole number of bits or bytes is an exact count" if is_data_unit(ru) else ""))
+    _compare(ctx, [(left, right)], kind="cnv", tau=tau, h_written=[h_right], readings=readings, intervals={},
+             h_scale_nodes=[(left if rounded_left else None, right)], label="value converted to SI", stated_label="stated value in SI")
 
 
 def _change_context(ctx: _Ctx) -> bool:
@@ -2499,6 +2561,11 @@ def _res(ctx: _Ctx) -> None:
         # integration gate 2: 'The acceleration is 6.0 m s⁻².' right after '… = 5.0 m s⁻²': that the sentence names the chain's quantity is a reading
         ctx.warn("the sentence after the chain names the quantity whose value it states, read as the chain's quantity by its words (rule "
                  "named-restatement), a reading the answer did not state")
+    if "(rule result-list)" in (rel.reason or ""):
+        # round-9 clearance, second pass: 'Made from 30.00 cm³ of stock: 0.590' after the line '30.00 cm³: … = 0.59029 mol dm⁻³'
+        ctx.warn("which result a line of the result list restates is read from its label (the figure that opens the line of working, or the "
+                 "word the symbol writes in brackets), and a bare value in the unit its heading states (rule result-list), a reading the answer "
+                 "did not state")
     hs = [_value_half_width(r) for _l, r in pairs]
     if rel.rounding is not None:
         # rule rounding-cue: the prose states the rounding of the restated value, so its half-width is that rounding's. The stated
@@ -2701,9 +2768,16 @@ def _giv(ctx: _Ctx) -> None:
     wname = b.declare("w", meaning=(f"{r8['w']} {w_written}" if r8 is not None else
                                     f"the value the answer gives {w_written}" if named_result else
                                     f"the {'stated' if rel.exact_candidates else 'Given'} value {w_written}"), role="pinned")
-    frame = _frame([w_aw] + ([w_si] if w_si is not None else []) + [c.value for c in rel.candidates])
+    # round-9 clearance (rule kelvin-substitution): a temperature the request states in °C, put in in kelvin ('at 27 °C', then '× 27 K')
+    # is compared in kelvin, the offset exact. Before, the °C value had no SI value, the comparison fell back to the written numerals and
+    # 27 K held against 27 °C. A value the request states as a change ('heated by 27 °C') or a Δ symbol keeps the written comparison
+    kelvin = _kelvin_candidates(ctx, rel, w_si, w_unit)
+    if kelvin:
+        ctx.detail("a temperature the request states in °C is compared with the kelvin value put in for it in kelvin, the offset exact "
+                   "(rule kelvin-substitution)")
+    frame = _frame([w_aw] + ([w_si] if w_si is not None else []) + [c.value for c in rel.candidates] + list(kelvin.values()))
     # one pinned symbol in SI when every value has an SI reading, else as written
-    use_si = w_si is not None and all(c.si is not None for c in rel.candidates)
+    use_si = w_si is not None and all(c.si is not None or i in kelvin for i, c in enumerate(rel.candidates))
     w_val = w_si if use_si else w_aw
     held = rel.left.node.name if rel.left and isinstance(rel.left.node, Sym) else "the symbol"  # type: ignore[union-attr]
     b.premise("W", {"op": "eq", "left": {"op": "var", "name": wname}, "right": literal_in_frame(w_val, frame)},
@@ -2719,7 +2793,7 @@ def _giv(ctx: _Ctx) -> None:
                                             f"the supplied table's {cand.number.text}{(' ' + cand.unit.text) if cand.unit else ''}" if rel.exact_candidates else
                                             f"the {'supplied text' if cand.source == 'supplied' else 'request'}'s {cand.number.text}"
                                             f"{(' ' + cand.unit.text) if cand.unit else ''}"), role="pinned")
-        c_val = cand.si if use_si else cand.value
+        c_val = (kelvin[i - 1] if (i - 1) in kelvin else cand.si) if use_si else cand.value
         f_c = abs(cand.unit.readings[0].factor) if (use_si and cand.unit is not None and cand.unit.readings and cand.unit.readings[0].factor is not None) else Fraction(1)
         if use_si and cand.unit is None and cand.wrapper == "%":
             f_c = Fraction(1, 100)
@@ -2794,7 +2868,19 @@ def _cmp(ctx: _Ctx) -> None:
     nodes = [n for c in combos for n in c]
     names = sorted({s for n in nodes for s in symbols(n)})
     domains: dict[str, SymbolDomain] = {}
+    # round-9 clearance, second pass (rule values-in-interval): the roots the part states for the symbol, each of which the order must hold for
+    every_root = "(rule values-in-interval)" in (rel.reason or "") and bool(rel.pairs)
     for name in names:
+        if every_root:
+            d = SymbolDomain(name)
+            for sym, node in rel.pairs:
+                v = value_of(node) if sym == name else None
+                if v is not None and v[1] is not None and (v[0], v[0]) not in d.values_aw:
+                    d.add(v[0], v[0], (v[0], v[0]), grounding("figure", f"a root of '{name}' stated in its part"), f"{name} = {v[1].text} (a root stated in its part)")
+            if not d.labels:
+                raise EncodeError("ST-UNDEC-002", f"'{name}' has no stated root in its part")
+            domains[name] = d
+            continue
         blist = ctx.doc.bindings.get(name, ())
         if not blist:
             raise EncodeError("ST-UNDEC-002", f"'{name}' has no stated value")
@@ -2836,6 +2922,10 @@ def _cmp(ctx: _Ctx) -> None:
         raise EncodeError("ST-UNDEC-001", "no reading of the comparison could be encoded")
     expr = nary("or", alts) if len(alts) > 1 else alts[0]
     ctx.detail("exact comparison (R6): no slack")
+    if every_root:
+        # every root is a value the symbol takes, so the order must follow from each: decided as entailment over the disjunction of the roots
+        ctx.detail("the order is decided for every root the part states for the symbol (rule values-in-interval)")
+        uses_s = False
     if uses_s:
         ctx.form, ctx.query, ctx.expected = "S", "satisfiability", "SATISFIABLE"
         b.premise("ORDER", expr, "the stated order holds under some admissible reading", grounding("figure"))
@@ -2877,10 +2967,18 @@ def _injective(options: list[list[int]], limit: int = _MAX_ORDERINGS) -> Optiona
 def _sub_pairs(ctx: _Ctx) -> None:
     rel = ctx.rel
     num_side = _numeric_side(rel)
+    if num_side is None and rel.pairs and rel.right is not None and all(is_closed(n) for _s, n in rel.pairs):
+        # round-9 clearance (rule substitution-instance): a law with values put in for some of its symbols and an unknown left in it ('Δ =
+        # (−6)² − 4(1)(k)' after 'Δ = b² − 4ac with a = 1, b = −6, c = k'): each value put in is closed and set against its symbol's values
+        num_side = rel.right.node
     if num_side is None:
         raise EncodeError("ST-UNDEC-001", "a substitution with no closed side")
     groups = _product_groups(num_side)
     sym_side = rel.left.node if (rel.left is not None and rel.left.node is not num_side) else (rel.right.node if rel.right is not None else None)
+    if rel.formula is not None and isinstance(sym_side, Sym):
+        # round-9 clearance: a line that evaluates a law stated before it ('Δ = (−6)² − 4(1)(k)' after 'Δ = b² − 4ac') writes the law's own
+        # coefficients (the 4 of 4ac) as the law does: they are no factor a symbol stands for ('with a = 4' had matched the written 4)
+        sym_side = rel.formula.expr
     b = ctx.builder
     defined: dict[tuple[int, bool], tuple[str, int]] = {}
     checked: list[str] = []
@@ -2947,6 +3045,13 @@ def _sub_pairs(ctx: _Ctx) -> None:
                     data = bd.source in ("request", "supplied", "given")
                     if si:
                         bval = bd.si if bd.unit is not None else bd.value
+                        if bval is None and bd.unit is not None and len(bd.unit.readings) == 1 and bd.unit.readings[0].affine is not None \
+                                and w_unit is not None and w_unit.readings and all(r.affine is None for r in w_unit.readings):
+                            # round-9 clearance (rule kelvin-substitution): a temperature the request or the answer states in °C, put in in
+                            # kelvin ('T = 27 °C', then '× 27 K'): compared in kelvin, the offset exact. Before, the °C value had no SI
+                            # value, so the symbol was never compared and the Celsius-for-kelvin slip crossed with its arithmetic held
+                            fac, off = bd.unit.readings[0].affine
+                            bval = (bd.value + off) * fac
                         if bval is None:
                             continue
                         f_b = abs(bd.unit.readings[0].factor) if (bd.unit is not None and bd.unit.readings and bd.unit.readings[0].factor is not None) else Fraction(1)
@@ -3241,6 +3346,12 @@ def _sub_evaluate(ctx: _Ctx) -> None:
             continue  # Euler's number: an enclosure (below)
         reading = _booklet_for(ctx, name, sym0, num0)
         if reading is None:
+            written = _written_expression_of(ctx, name)
+            if written:
+                # round-9 clearance, second pass: 'k = 2.0 × 40⁻¹ N m⁻¹' states k as an expression with no value written after it; the
+                # finding names that statement, never claims that k has no stated value (c1 stem-integration#25)
+                raise EncodeError("ST-UNDEC-002", f"'{name}' is stated only as the written expression '{written}', which no check reads as a value "
+                                                  "(no value is written after it); the substitution is not checked")
             raise EncodeError("ST-UNDEC-002", f"'{name}' has no stated value and no admissible booklet reading (no dimension check confirms one)")
         d = SymbolDomain(name, booklet=True)
         g = grounding("booklet", reading.note)
@@ -3551,6 +3662,37 @@ def _step(ctx: _Ctx) -> None:
 #: rule cited-given (round-8 clearance): the words with which a Given's statement says its value is the question's
 _CITED_RE = re.compile(r"\b(?:from|in|as\s+given\s+in|as\s+stated\s+in|stated\s+in|given\s+in|taken\s+from|quoted\s+from)\s+the\s+(?:question|request|task|data)"
                        r"\b|\bthe\s+(?:question|request)\s+(?:gives|states)\b", re.IGNORECASE)
+
+
+_BY_VALUE_RE = re.compile(r"\b(?:by|of)\s*$", re.IGNORECASE)
+
+
+def _kelvin_candidates(ctx: _Ctx, rel: Relation, w_si: Optional[Fraction], w_unit: Optional[UnitExpr]) -> dict[int, Fraction]:
+    """Rule ``kelvin-substitution`` for a Given check: the index of each request value written in an affine unit (°C, °F) that the value
+    put in, written in a non-affine unit of the same dimension (K), stands for, with its absolute value in that unit. Empty when the
+    symbol is a change (Δ) or the request's own clause states the value as a change ('by 27 °C', 'a rise of 27 °C')."""
+    out: dict[int, Fraction] = {}
+    if w_si is None or w_unit is None or len(w_unit.readings) != 1 or w_unit.readings[0].affine is not None or w_unit.readings[0].dim is None:
+        return out
+    head = rel.left.node if rel.left is not None else None
+    name = head.name if isinstance(head, Sym) else ""
+    if "Δ" in name or name.lower().startswith("delta"):
+        return out
+    req = ctx.doc.request_text or ""
+    for i, cand in enumerate(rel.candidates):
+        if cand.si is not None or cand.unit is None or len(cand.unit.readings) != 1 or cand.source != "request":
+            continue
+        r = cand.unit.readings[0]
+        if r.affine is None or r.dim is None or not r.dim.same_physical(w_unit.readings[0].dim) or not (0 <= cand.start <= len(req)):
+            continue
+        head_text = req[max(0, cand.start - 160):cand.start]
+        cut = max(head_text.rfind(","), head_text.rfind(";"), head_text.rfind(". "), head_text.rfind(" and "), head_text.rfind("\n"))
+        clause = head_text[cut + 1:] if cut >= 0 else head_text
+        if "Δ" in clause or any(w in clause.lower() for w in _CHANGE_WORDS if w != "Δ") or _BY_VALUE_RE.search(clause):
+            continue
+        fac, off = r.affine
+        out[i] = (cand.value + off) * fac
+    return out
 
 
 def _cites_request(ctx: _Ctx, rel: Relation) -> bool:

@@ -421,7 +421,8 @@ def _range_before(text: str, end: int) -> bool:
 _EVENT_NOUNS = frozenset("""election vote referendum plebiscite crisis crash collapse treaty war peace armistice truce putsch coup rising uprising revolt rebellion revolution
     strike occupation invasion battle siege conference congress plenum meeting summit decree act law bill plan agreement pact settlement ultimatum default murder
     assassination reform budget census purge famine flight letter broadcast speech declaration resignation dissolution devaluation moratorium holiday riot massacre
-    blockade landing offensive campaign surrender abdication coronation accession founding foundation partition annexation mutiny raid bombing election""".split())
+    blockade landing offensive campaign surrender abdication coronation accession founding foundation partition annexation mutiny raid bombing election
+    boycott arrest trial protest talks negotiation intervention withdrawal ceasefire""".split())
 _DEMONSTRATIVES = frozenset({"that", "this", "these", "those"})
 _DEFINITES = frozenset({"the", "its", "their", "his", "her"}) | _DEMONSTRATIVES
 #: Words that end a noun phrase read after a cue, or that are stripped from the end of the clause before a cue.
@@ -430,6 +431,9 @@ _NP_STOP = frozenset("""was were is are be been being had has have did do does c
     spread made led caused produced brought turned and or but so because which who whom whose when while as if than in on at by of for from to with into
     only shortly soon immediately long just well not also even still already then again first finally later""".split())
 _WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ'’-]+")
+#: ' which began on ', ' that had broken out in ': a relative clause of occurrence right after a noun's comma, whose date is that noun's.
+_RELATIVE_DATE_RE = re.compile(r"^\s*(?:which|that)\s+(?:had\s+)?(?:began|begun|started|opened|ended|closed|broke\s+out|broken\s+out|took\s+place|"
+                               r"(?:was|were|had\s+been)\s+(?:held|signed|launched|called|declared|announced|opened))\s+(?:on|in)\s+(?:c\.\s+)?$", re.IGNORECASE)
 #: 'Signed on ', 'held in ': a participial opener whose date is the noun's that follows the comma.
 _PARTICIPIAL_DATE_RE = re.compile(r"^\s*[A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:on|in|at|during|by)\s+(?:c\.\s+)?$", re.IGNORECASE)
 
@@ -506,8 +510,8 @@ def _premodifiers(text: str, head: str, near: int) -> list[str]:
     while j >= 0:
         w = words[j].group(0).lower()
         gap = text[words[j].end(): words[j + 1].start()]
-        if gap.strip() or w in _DEFINITES or w in _NP_STOP or w in MONTHS:
-            break
+        if gap.strip() or w in _DEFINITES or w in ("a", "an") or w in _NP_STOP or w in MONTHS:
+            break  # (an indefinite article ends the run as a definite one does: 'a boycott, which began on ...' carries no modifier; round 9 second pass)
         out.append(_stem(w))
         j -= 1
     out.reverse()
@@ -658,6 +662,10 @@ def _mention_heads(other: str, tok: DateToken) -> set[str]:
             noun_before = [_stem(w) for w in _WORD_RE.findall(pieces[-2])][-4:]
     else:
         window_after = re.split(r"[,;:()]", after)[0]
+    if not noun_before and len(pieces) >= 2 and _RELATIVE_DATE_RE.match(clause_before):
+        # 'a boycott, which began on 5 December 1955': a relative clause of occurrence after the noun's comma dates the noun before it
+        # (round 9 second pass, c1 hi-p8c: the boycott was dated nowhere else, so an order against it was neither decided nor named)
+        noun_before = [_stem(w) for w in _WORD_RE.findall(pieces[-2])][-4:]
     words = noun_before + [_stem(w) for w in _WORD_RE.findall(clause_before)][-4:] + [_stem(w) for w in _WORD_RE.findall(window_after)][:3]
     heads = set(words)
     if _GOVERNING_DATE_HEAD_RE.fullmatch(clause_before):
@@ -690,16 +698,23 @@ def _side_date(text: str, *, trailing: bool, context: Optional[str], sentence: s
 _PRONOUN_SUBJECT_RE = re.compile(r"^\s*(?:it|this|they|these)\b", re.IGNORECASE)
 
 
-def _pronoun_subject_date(sentence: str, cue_start: int, left_clause: str) -> Optional[tuple[DateToken, str]]:
+def _pronoun_subject_date(sentence: str, cue_start: int, left_clause: str, context: Optional[str] = None) -> Optional[tuple[DateToken, str]]:
     """For a cue whose clause opens with a pronoun subject ('..., and it came before the Act was signed'): the one date of the clause
     before it in the same sentence ('West Germany's currency reform of 20 June 1948 ended the black market ...'), which the pronoun
-    takes up; None when that clause states no date or several, or a date only in an aside."""
+    takes up; None when that clause states no date or several, or a date only in an aside. A pronoun that opens its sentence ('This came
+    before the Inchon landing of 15 September 1950.') takes up the event of the previous sentence of the paragraph, by its one date
+    (:func:`_previous_sentence_date`; round 9 second pass, c1 hi-t14: such an order was neither decided nor named)."""
     if not _PRONOUN_SUBJECT_RE.match(left_clause):
         return None
     words = _np_words(left_clause, trailing=True)
     if len(words) != 1:
         return None
     prev_text = sentence[: max(0, cue_start - len(left_clause))]
+    if not prev_text.strip():
+        tok, where = _previous_sentence_date(sentence, context)
+        if tok is None:
+            return None
+        return tok, f"'{words[0]}' opens its sentence and takes up the event of the previous sentence, dated {tok.text} ('{where[:120]}')"
     breaks = list(_CLAUSE_BREAK_RE.finditer(prev_text))
     if not breaks or prev_text[breaks[-1].end():].strip():
         return None
@@ -912,7 +927,7 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
             l_cross = left_tok is not None
             if left_tok is None:
                 # '..., and it came before ...': the pronoun is the subject of the clause before it, dated there once
-                pron = _pronoun_subject_date(sentence, cue_start, left_text)
+                pron = _pronoun_subject_date(sentence, cue_start, left_text, context)
                 if pron is not None:
                     left_tok, lhow = pron
                     l_pron = True

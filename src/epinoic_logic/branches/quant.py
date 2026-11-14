@@ -251,7 +251,10 @@ def _fig(i: int, *, dated: bool = False, numx: str = _FIG_NUMX, unit_words: str 
     """One figure of a pair, with named groups ``q<i>`` (qualifier), ``c<i>`` (currency sign), ``n<i>`` (number), ``u<i>`` (unit),
     ``noun<i>`` and ``d<i>`` (date). ``numx`` and ``unit_words`` default to the general reading's; the SI reading passes its own."""
     date = _DATE_BODY if dated else _DATE
-    return (rf"(?:(?P<q{i}>{_QUAL})\s+)?(?P<c{i}>{_CUR})?\s?(?P<n{i}>{numx})(?:\s*(?P<u{i}>{unit_words})(?!\w))?(?P<noun{i}>{_NOUN}){_PER}(?P<d{i}>{date})")
+    # the general reading reads a minus sign written right before the figure ('and −4.6 billion dalers in 2025'; round 9, c2), never one
+    # glued to a word or a figure ('1929-1932'); the SI reading's number already holds its sign
+    sign = r"(?:(?<![\w.,])[−-](?=\d))?" if numx == _FIG_NUMX else ""
+    return (rf"(?:(?P<q{i}>{_QUAL})\s+)?(?P<c{i}>{_CUR})?\s?{sign}(?P<n{i}>{numx})(?:\s*(?P<u{i}>{unit_words})(?!\w))?(?P<noun{i}>{_NOUN}){_PER}(?P<d{i}>{date})")
 
 
 _FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+{_fig(1)}\s+(?:to|and)\s+{_fig(2)}", re.IGNORECASE)
@@ -308,6 +311,8 @@ _FOLD_RE = re.compile(
     rf"\b(doubl(?:ed|ing)|trebl(?:ed|ing)|tripl(?:ed|ing)|quadrupl(?:ed|ing)|halv(?:ed|ing)"
     rf"|({_DIGITS})-fold|({'|'.join(_FOLD_WORDS)})-?fold)\b", re.IGNORECASE)
 _FOLD_STEMS = {"doubl": Fraction(2), "trebl": Fraction(3), "tripl": Fraction(3), "quadrupl": Fraction(4), "halv": Fraction(1, 2)}
+#: An opening quotation mark right after a fold word: the word qualifies quoted words ('The doubled "we know"'), no quantity.
+_QUOTE_AFTER_RE = re.compile(r"\s{0,3}[\"“‘'«]")
 #: A multiple: 'six times its earlier length', 'four times as large', 'twice its 1928 level' (a fold change by another wording).
 _TIMES_RE = re.compile(
     rf"\b(?:(?P<q>{_QUAL})\s+)?(?:(?P<n>(?<![\d.,])\d+(?:\.\d+)?|{_WNUM}|a hundred)\s+times|(?P<twice>twice|thrice))\s+"
@@ -803,7 +808,18 @@ class _Fig:
 
 def _fig_of(m: "re.Match[str]", i: int) -> _Fig:
     cur = _cur_key(m.group(f"c{i}") or "")
-    return _Fig(m.group(f"n{i}"), m.group(f"u{i}"), (m.group(f"noun{i}") or "").strip(), (m.group(f"d{i}") or "").strip(), m.start(f"n{i}"), m.end(), cur)
+    num = m.group(f"n{i}")
+    if num and num[:1].isdigit() and _signed_before(m.string, m.start(f"c{i}") if m.group(f"c{i}") else m.start(f"n{i}")):
+        num = "-" + num  # a figure written with a minus sign ('0.2 billion in 2024 and −4.6 billion in 2025'): its value is negative (round 9, c2)
+    return _Fig(num, m.group(f"u{i}"), (m.group(f"noun{i}") or "").strip(), (m.group(f"d{i}") or "").strip(), m.start(f"n{i}"), m.end(), cur)
+
+
+def _signed_before(text: str, at: int) -> bool:
+    """A minus sign written right before the figure at ``at`` ('−4.6', '(−4.6', ' -4.6'), itself after a blank, a bracket or the start: the
+    figure is negative. A hyphen glued to a word or a figure ('1929-1932', 'post-1945') is no sign."""
+    if at <= 0 or text[at - 1] not in "−-":
+        return False
+    return at - 1 == 0 or text[at - 2] in " \t\n(["
 
 
 #: Currency signs and the noun that names the same currency ('$4.03' and '4.03 dollars' are one unit of account).
@@ -927,6 +943,8 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
             factor = Fraction(m.group(3).replace(",", "")) if m.group(3) else Fraction(_FOLD_WORDS[m.group(4).lower()])
         if factor <= 0:
             continue
+        if _QUOTE_AFTER_RE.match(clause, m.end()):
+            continue  # a fold word that qualifies a quotation ('The doubled "we know"' repeats a phrase; round 9, c1 stem-integration 33)
         end, words = m.end(), m.group(0).strip()
         if si:
             rep = _REPEAT_RE.match(clause, m.end())
@@ -1026,10 +1044,30 @@ def _arith_endpoint(clause: str, p: _Pair, pat: _Patterns) -> _Pair:
     return _Pair(p.start, res.end(), p.before, _fig_of(res, 1), [], via=expr)
 
 
+#: The label of the case a figure of a from-to pair belongs to, written between the figure and the 'to' or 'and' of the pair ('from 5.4 m³ s⁻¹ in
+#: Storm 1 to 16.2 m³ s⁻¹ in Storm 2', 'from 40 at site A to 120 at site B', 'from 5.4 (Storm 1) to 16.2 (Storm 2)'): a preposition and a
+#: word that is no month, with a number of one or two digits or a capital letter after it, or the same in brackets. The pair reader reads the
+#: clause with such a label blanked, at the same length so that every offset holds: the label names the figure's case, never a date or a unit
+#: (round 9 second pass, c2 ess-p9c s8.2 and ge-p9c g3.2: the stated change was named undecided as if its sentence stated no figures). Read only
+#: right after a word character or a sign of a unit, every run possessive or bounded: linear in the clause.
+_PAIR_LABEL_RE = re.compile(
+    r"(?<=[\w%³²¹⁰⁻])(?:\s++(?:in|for|at|on)\s++(?:the\s++)?|\s*+\(\s*+)"
+    r"(?!(?:January|February|March|April|May|June|July|August|September|October|November|December)\b)[A-Za-z][a-z]{1,15}\s++(?:\d{1,2}|[A-Z])\b(?:\s*+\))?"
+    r"(?=\s++(?:to|and|until)\s)")
+
+
+def _blank_pair_labels(clause: str) -> str:
+    """``clause`` with each case label between a figure of a pair and its 'to' or 'and' blanked (:data:`_PAIR_LABEL_RE`), at the same length."""
+    if "to " not in clause and "and " not in clause:
+        return clause
+    return _PAIR_LABEL_RE.sub(lambda m: " " * (m.end() - m.start()), clause)
+
+
 def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
     """Every pair of figures of ``clause`` (from/to with its list and continuations, then 'X in D1 and Y in D2'), in order.
     ``pat`` holds the reading's figure patterns (the general reading's by default). A later figure that opens written arithmetic
-    ends the pair at the arithmetic's stated result (:func:`_arith_endpoint`).
+    ends the pair at the arithmetic's stated result (:func:`_arith_endpoint`). A case label after a figure ('in Storm 1', '(site A)') is
+    read as no part of the pair (:func:`_blank_pair_labels`; offsets unchanged).
 
     Linear in the pairs: a continuation's earlier pair (the first of the pairs ending latest before it) and whether a match
     overlaps a pair already read are looked up by bisection, never by reading every pair again (integration gate 1: thousands of
@@ -1038,6 +1076,7 @@ def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
     pairs: list[_Pair] = []
     if not _FIGURE_HINT_RE.search(clause):
         return pairs
+    clause = _blank_pair_labels(clause)
     for m in pat.from_to.finditer(clause):
         p = _Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2))
         pos = m.end()
@@ -1398,6 +1437,8 @@ def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction
                      Fraction(0), d.side, note, basis, d.words), ""
     if a == 0:
         return None, "the earlier figure is zero, so no relative change can be computed"
+    if not si and (a < 0 or b < 0):
+        return None, "a figure of its pair is negative, and a relative change of a negative figure is not read in this reading"
     if d.kind in ("percent_change", "change"):
         direction = d.direction or ("rise" if b >= a else "fall")
         change = {"op": "mul", "args": [_real(Fraction(100)), {"op": "div", "left": {"op": "sub", "left": _v("after"), "right": _v("before")}, "right": _real(base)}]}
@@ -1421,6 +1462,37 @@ def _pair_spec(values: _Values, d: _Derived, statement: str, tolerance: Fraction
     ratio = {"op": "div", "left": _v("after"), "right": _real(a)}
     return _Spec("fold_change", statement, before_after, premises, ("STATED_FOLD", _within(ratio, d.stated, tolerance, Fraction(0), d.side),
                  f"stated '{d.words}' (factor {_fmt(d.stated)}) against the computed ratio"), Fraction(0), d.side, note, basis, d.words), ""
+
+
+#: A clause turn between a stated change and a later pair, followed by the pair's own subject and its own direction verb right before its
+#: 'from' ("... the market grew by 25.0%, so its market share fell from 15.0% to 13.2%"): read only on the text between the change and
+#: the pair (bounded by a clause), from the turn's end.
+_CHANGE_TURN_RE = re.compile(r"(?:,\s*+(?:so|and|but|while|whereas|yet|hence|thus|therefore|which\s++meant|meaning)\b|;)", re.IGNORECASE)
+#: The subject of the pair's own clause: one to six words that are no pronoun of the change's own subject ('it', 'this', 'they').
+_TURN_SUBJECT_RE = re.compile(r"^\s*+(?:(?:as\s++a\s++result|in\s++turn|consequently|then)\s*+,?\s++)?(?P<subj>(?!(?:it|this|that|they|these|those|which)\b)"
+                              r"[\w'’$£€%.-]++(?:\s++[\w'’$£€%.-]++){0,5}?)\s++$", re.IGNORECASE)
+
+
+def _foreign_change(clause: str, d: "_Derived", p: "_Pair") -> bool:
+    """True when the change ``d`` stated before the pair ``p`` is the change of another quantity (round 9, c2 bm-t15): a clause turn
+    (', so', ', but', ';', ...) lies between them and the pair's clause has its own subject and its own direction verb right before its
+    'from' ("Pellow Cycles' sales revenue rose by 10.0%, but the market grew by 25.0%, so its market share fell from 15.0% to 13.2%": the
+    25.0% is the market's growth, the pair the market share's fall). A change written right before its pair ("roughly tripled from 1.9
+    million ..."), after it (", a rise of 63 per cent"), or whose pair's clause has no subject of its own or a pronoun of the change's
+    ("..., and it fell from 100 to 70") stays bound. Read on the text between the two, at most 400 characters."""
+    if d.end > p.start:
+        return False
+    gap = clause[d.end:p.start]
+    if len(gap) > 400:
+        return False
+    turns = list(_CHANGE_TURN_RE.finditer(gap))
+    if not turns:
+        return False
+    tail = gap[turns[-1].end():]
+    verb = _PAIR_DIR_BEFORE_RE.search(tail)
+    if verb is None:
+        return False
+    return _TURN_SUBJECT_RE.match(tail[:verb.start()] + " ") is not None
 
 
 def _segments(clause: str, pairs: list[_Pair]) -> list[tuple[int, int]]:
@@ -2147,8 +2219,11 @@ class WorkedEquation:
 
 #: Where a line of working holds several statements: a semicolon, or a full stop before a capital or a figure ('Table 1. 4,200 × 12 = ...').
 _WORKING_SEGMENT_RE = re.compile(r";\s*|(?<=[.!?])\s+(?=[A-Z0-9(])")
-#: Where the stated result of a link ends: a comma or full stop before a space, or an opening bracket ('$192.00 million per year (no tax, ...').
-_RESULT_END_RE = re.compile(r",\s|\.\s|\s\(|;|[”\"’]")
+#: Where the stated result of a link ends: a comma or full stop before a space, or an opening bracket ('$192.00 million per year (no tax, ...'),
+#: or the closing bracket of working written in brackets inside a sentence ('a threefold increase (16.2 ÷ 5.4 = 3.0).': round 9, c2).
+_RESULT_END_RE = re.compile(r",\s|\.\s|\s\(|;|[”\"’]|\)")
+#: The opening bracket of working written in brackets inside a sentence, before the working's first figure: the phrase starts after it.
+_OPEN_WORKING_RE = re.compile(r"\((?=[^()]*$)")
 #: Where the words before the arithmetic of a link end ('Check: $31.50 million + ...', 'Answer: 2,000').
 _LINK_LEAD_END_RE = re.compile(r".*(?::\s|\.\s)")
 
@@ -2206,6 +2281,11 @@ def worked_equations(text: str) -> list[WorkedEquation]:
                     continue
                 lead = _LINK_LEAD_END_RE.match(links[first])
                 p_start = bounds[first] + 1 + (lead.end() if lead else 0)
+                # working written in brackets inside a sentence ('This is a threefold increase (16.2 ÷ 5.4 = 3.0).'): the phrase starts after
+                # the bracket that opens it, before its first figure, so the words before it are no label of the line (round 9, c2 ge-p9c)
+                opened = _OPEN_WORKING_RE.search(segment, p_start, bounds[first + 1])
+                if opened is not None and _OPERATOR_BETWEEN_RE.search(segment, opened.end(), bounds[first + 1]):
+                    p_start = opened.end()
                 stop = _RESULT_END_RE.search(links[k])
                 p_end = bounds[k] + 1 + (stop.start() if stop else len(links[k]))
                 out.append(WorkedEquation(start, end, shown_line, statement, segment[p_start:p_end].strip().rstrip(" .,;:")))
@@ -2374,6 +2454,278 @@ def _part_markers_over_bound(clause: str) -> bool:
             if count > _MAX_CLAUSE_PART_MARKERS:
                 return True
     return False
+
+
+# ------------------------------------------------------------------ prose arithmetic of round 9 (c2): products, rates, shares, point gaps
+#
+# Each reader below reads one closed shape of a sentence stated in words and decides it as an exact entailment problem under the
+# tolerance rule (round 9, c2: wrong arithmetic in these shapes crossed the hub with no finding, or named only as 'not checked'):
+#
+# * a count times an amount each, stated as a total: 'Four criteria of 6 marks each give a total of 26 marks' (4 × 6 against 26);
+# * a rate over periods, stated as a total: 'Thirteen years at £90,000 a year comes to £1.71 million' (13 × £90,000), 'At £4 a month a
+#   year costs £52' (12 × £4);
+# * a gap in percentage points between the two per cents its clause states: '... 228 of 1,200 (19%) and 54 of 1,800 (3%), a difference
+#   of 18 percentage points' (19 − 3);
+# * a share stated after the part and the whole it is of: '$18,000 of the $300,000 increase in market sales, which is 8.0% of the
+#   growth', '$40m of a market of $200m, a share of 25%', '$40m in a market worth $200m, so its market share is 25%', 'market share is
+#   25% ($40m of $200m)';
+# * a multiple compared across the two counts its clause states: 'Site A recorded 40 pedestrians and site B recorded 120, so site B had twice
+#   as many as site A' (the larger over the smaller; a failure is a warning, since which figure is which is the reader's);
+# * a per cent change followed by its working in brackets: 'grew by 38.0% (1,050 ÷ 820)', 'rose by 5.29% (131.4 ÷ 124.8 − 1)', 'an
+#   increase of 82.0% ((567.0 − 311.6) ÷ 311.6 × 100)': the bracket read as the growth factor, the fractional change or the per cent
+#   itself, the check failing only when no reading holds.
+#
+# Every pattern is anchored at a figure or a fixed word and every run in it is bounded or possessive; each reader runs only on a
+# sentence that holds its fixed words, so the readers are linear in the text.
+
+_C2_FIG = rf"(?:{_DIGITS})"
+_C2_COUNT = rf"(?:{_DIGITS}|{_WNUM})"
+_C2_SCALE = rf"(?:\s*+(?:{_SCALE_UNIT})\b)?"
+_C2_TOTAL_VERB = (r"(?:gives?|gave|make|makes|made|comes?\s++to|came\s++to|totals?|totall?ed|adds?\s++up\s++to|added\s++up\s++to|amounts?\s++to"
+                  r"|amounted\s++to|is|are|was|were|equals?|costs?)")
+#: 'Four criteria of 6 marks each give a total of 26 marks'.
+_EACH_TOTAL_RE = re.compile(
+    rf"(?<![\w.,$£€¥])(?P<n>{_C2_COUNT})\s++(?:[a-z][a-z'’-]*+\s++){{1,3}}?(?:of|at|worth|carrying)\s++(?P<mc>{_CUR})?\s?(?P<m>{_C2_FIG})(?P<mu>{_C2_SCALE})"
+    rf"\s++(?P<unit>[a-z][a-z'’-]*+)\s++each\b[^.;:]{{0,40}}?\b{_C2_TOTAL_VERB}\s++(?:a\s++total\s++of\s++)?(?:(?P<q>{_QUAL})\s++)?"
+    rf"(?P<tc>{_CUR})?\s?(?P<t>{_C2_FIG})(?P<tu>{_C2_SCALE})(?![\d.,]?\d)",
+    re.IGNORECASE)
+#: 'Thirteen years at £90,000 a year comes to £1.71 million'.
+_PERIODS_AT_RATE_RE = re.compile(
+    rf"(?<![\w.,$£€¥])(?P<n>{_C2_COUNT})\s++(?P<per>years?|months?|weeks?|days?|quarters?|hours?)\s++at\s++(?:(?P<q1>{_QUAL})\s++)?(?P<xc>{_CUR})?\s?"
+    rf"(?P<x>{_C2_FIG})(?P<xu>{_C2_SCALE})\s++(?:a|an|per|each|every)\s++(?P<per2>year|month|week|day|quarter|hour)\b\s*+,?\s*+{_C2_TOTAL_VERB}\s++"
+    rf"(?:a\s++total\s++of\s++)?(?:(?P<q>{_QUAL})\s++)?(?P<zc>{_CUR})?\s?(?P<z>{_C2_FIG})(?P<zu>{_C2_SCALE})(?![\d.,]?\d)",
+    re.IGNORECASE)
+#: 'At £4 a month a year costs £52', 'at $20 a week, a year comes to $1,040'.
+_AT_RATE_PERIOD_RE = re.compile(
+    rf"\bat\s++(?:(?P<q1>{_QUAL})\s++)?(?P<xc>{_CUR})?\s?(?P<x>{_C2_FIG})(?P<xu>{_C2_SCALE})\s++(?:a|an|per|each|every)\s++(?P<per1>day|week|month|quarter|year)\b"
+    rf"(?:\s*+,\s*+|\s++)(?:a|one|each|every|the|per)\s++(?P<per2>week|month|quarter|year)\s++(?:of\s++(?:it|them|membership|payments?)\s++)?{_C2_TOTAL_VERB}\s++"
+    rf"(?:(?P<q>{_QUAL})\s++)?(?P<zc>{_CUR})?\s?(?P<z>{_C2_FIG})(?P<zu>{_C2_SCALE})(?![\d.,]?\d)",
+    re.IGNORECASE)
+#: Whole periods of a longer period: only the exact ones ('a month' to 'a year' is twelve; 'a week' to 'a month' is no whole count).
+_PERIODS_IN = {("day", "week"): 7, ("week", "year"): 52, ("month", "year"): 12, ("quarter", "year"): 4, ("day", "year"): 365, ("month", "quarter"): 3}
+#: 'a difference of 18 percentage points', 'a gap of about 16 percentage points'.
+_PP_GAP_RE = re.compile(rf"\b(?:an?\s++)?(?:difference|gap|margin|spread)\s++of\s++(?:(?P<q>{_QUAL})\s++)?(?P<d>\d{{1,3}}(?:\.\d{{1,4}})?)\s++percentage[ -]points?\b",
+                        re.IGNORECASE)
+_PCT_FIG_RE = re.compile(r"(?<![\w.,])(\d{1,3}(?:\.\d{1,4})?)\s*+(?:%|per\s?cent\b|percent\b)(?!\s*+points?\b)", re.IGNORECASE)
+_SHARE_PART = rf"(?<![\w.,])(?P<cp>{_CUR})?\s?(?P<np>{_C2_FIG})(?:\s*+(?P<up>{_SCALE_UNIT})\b)?"
+_SHARE_WHOLE = rf"(?P<cw>{_CUR})?\s?(?P<nw>{_C2_FIG})(?:\s*+(?P<uw>{_SCALE_UNIT})\b)?"
+_SHARE_PN = rf"(?:(?P<q>{_QUAL})\s++)?(?P<pn>\d{{1,3}}(?:\.\d{{1,4}})?)\s*+{_PCT_UNIT}"
+_SHARE_IS = r"(?:is|was|are|were|represents?|represented|makes?\s++up|made\s++up|accounts?\s++for|accounted\s++for|equals?|comes?\s++to|came\s++to)"
+#: Shares stated after their part and their whole (module comment above). Each opens at the part's figure.
+_C2_SHARE_RES = (
+    # '$18,000 of the $300,000 increase in market sales, which is 8.0% of the growth'
+    re.compile(rf"{_SHARE_PART}\s++of\s++(?:the|its|their|a|an|all)\s++{_SHARE_WHOLE}(?P<noun>(?:\s++[a-z][a-z'’-]*+){{0,6}}?)\s*+,\s*+(?:which|that|this)\s++"
+               rf"{_SHARE_IS}\s++{_SHARE_PN}", re.IGNORECASE),
+    # '$40m of a market of $200m, a share of 25%'
+    re.compile(rf"{_SHARE_PART}\s++of\s++(?:the|its|their|a|an)\s++(?:[a-z][a-z'’-]*+\s++){{0,2}}?(?:of|worth)\s++{_SHARE_WHOLE}(?P<noun>)\s*+,\s*+"
+               rf"(?:giving\s++(?:it\s++)?|for\s++|or\s++)?an?\s++(?:market\s++)?share\s++of\s++{_SHARE_PN}", re.IGNORECASE),
+    # '$40m of the $200m market, a share of 25%' (round 9 second pass, c1 stem-integration#33: the whole right after its determiner, the share
+    # after a comma, as the first shape's 'which is')
+    re.compile(rf"{_SHARE_PART}\s++of\s++(?:the|its|their|a|an|all)\s++{_SHARE_WHOLE}(?P<noun>(?:\s++[a-z][a-z'’-]*+){{0,6}}?)\s*+,\s*+"
+               rf"(?:giving\s++(?:it\s++)?|for\s++|or\s++)?an?\s++(?:market\s++)?share\s++of\s++{_SHARE_PN}", re.IGNORECASE),
+    # '$40m in a market worth $200m, so its market share is 25%'
+    re.compile(rf"{_SHARE_PART}\s++(?:[a-z][a-z'’-]*+\s++){{0,3}}?in\s++an?\s++(?:[a-z][a-z'’-]*+\s++){{0,2}}?market\s++(?:worth|of)\s++{_SHARE_WHOLE}(?P<noun>)\s*+,?\s*+"
+               rf"(?:so|giving|which\s++gives|and)\s++(?:it\s++|its\s++|the\s++firm['’]s\s++)?(?:a\s++)?(?:market\s++)?share\s++(?:is|was|of)\s++{_SHARE_PN}", re.IGNORECASE),
+)
+#: 'market share is 25% ($40m of $200m)': the share first, the part and the whole in brackets after it.
+_SHARE_BRACKETED_RE = re.compile(
+    rf"\bshare\s++(?:is|was|of)\s++{_SHARE_PN}\s*+\(\s*+(?P<cp>{_CUR})?\s?(?P<np>{_C2_FIG})(?:\s*+(?P<up>{_SCALE_UNIT})\b)?\s++of\s++(?:the\s++|a\s++)?"
+    rf"{_SHARE_WHOLE}(?P<noun>)\s*+\)", re.IGNORECASE)
+#: A multiple stated as a comparison of two counts its clause states before it ('Site A recorded 40 pedestrians and site B recorded 120, so
+#: site B had twice as many as site A'): 'N times as many/much/large as', 'twice as many as'.
+_TIMES_AS_RE = re.compile(rf"\b(?:(?P<q>{_QUAL})\s++)?(?:(?P<n>(?<![\d.,])\d+(?:\.\d+)?|{_WNUM})\s++times|(?P<twice>twice|thrice))\s++as\s++(?:many|much|large|big|high|great|long)\b"
+                          r"(?:\s++[a-z]+){0,2}?\s++as\b", re.IGNORECASE)
+_COUNT_FIG_RE = re.compile(r"(?<![\w.,$£€¥])(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?![\d.,]?\d|\s*+(?:%|per\s?cent))")
+#: A per cent change followed right after by its working in brackets ('grew by 38.0% (1,050 ÷ 820)'): the bracket holds figures and
+#: operators only (an operator at least), at most 120 characters, one level of inner brackets.
+_PCT_THEN_WORKING_RE = re.compile(
+    rf"(?P<lead>(?:\b(?:rose|grew|increased|climbed|fell|dropped|declined|decreased|shrank|went\s++up|went\s++down)\s++by"
+    rf"|\b(?:an?\s++)?(?:increase|rise|growth|fall|decrease|decline|drop|reduction)\s++of)\s++(?:(?P<q>{_QUAL})\s++)?)"
+    rf"(?P<pct>\d{{1,4}}(?:\.\d{{1,4}})?)\s*+{_PCT_UNIT}\s*+\((?P<work>(?:[^()\n]|\([^()\n]{{0,60}}\)){{1,120}}?)\)",
+    re.IGNORECASE)
+_WORKING_ONLY_RE = re.compile(r"^[\s\d.,()+\-−–×÷*/x$£€¥%]+$")
+_FALL_LEAD_RE = re.compile(r"fell|dropped|declined|decreased|shrank|down|fall|decrease|decline|drop|reduction", re.IGNORECASE)
+
+
+def _c2_count(num: str) -> Optional[Fraction]:
+    """A count in digits or words ('Four', '13'), or None when it is not a whole positive count."""
+    try:
+        v = _number(num)
+    except (ValueError, ZeroDivisionError, FigureTooLarge):
+        return None
+    return v if v > 0 and v.denominator == 1 else None
+
+
+def _c2_amount(cur: Optional[str], num: str, unit: Optional[str]) -> tuple[Fraction, str]:
+    """The value of an amount ('£90,000', '$1.71 million') and how it is shown."""
+    u = (unit or "").strip()
+    return _frac(num, u or None), " ".join(x for x in (f"{(cur or '').strip()}{num}", u) if x)
+
+
+def _c2_product_spec(clause: str, phrase: str, factors: list[tuple[str, Fraction, str]], stated: Fraction, shown_total: str, qualifier: Optional[str],
+                     tolerance: Fraction, kind: str, label: str) -> _Spec:
+    """``factors`` multiplied against the stated total within the tolerance rule (the first factors as constants, the last as a variable,
+    so the product is linear)."""
+    *consts, (name, value, meaning) = factors
+    symbols = ((name, meaning),)
+    premises = ((name.upper(), {"op": "eq", "left": _v(name), "right": _real(value)}, f"{meaning} = {_fmt(value)}"),)
+    product = {"op": "mul", "args": [*(_real(v) for _n, v, _m in consts), _v(name)]}
+    label = f"{label}: {' × '.join(f'{_fmt(v)} ({m})' for _n, v, m in factors)}"
+    side = _side(qualifier)
+    return _Spec(kind, clause.strip(), symbols, premises, ("STATED_TOTAL", _within(product, stated, tolerance, Fraction(0), side),
+                 f"{label} ({shown_total}) against the product of its stated figures"), Fraction(0), side, "figure stated in the report itself", "", phrase)
+
+
+def _c2_bracket_change_spec(clause: str, m: "re.Match[str]", tolerance: Fraction) -> tuple[Optional[_Spec], str]:
+    """The per cent change ``m`` states against its working in brackets, read as the growth factor (a ÷ b), the fractional change or the
+    per cent itself: the check fails only when the stated per cent lies outside its band under every reading. ``(None, why)`` when the
+    working cannot be read (a figure the expression reader refuses, a quotient by an expression)."""
+    work = m.group("work")
+    if not _WORKING_ONLY_RE.match(work) or not re.search(r"\d\s*+[×÷*/+\-−–x]\s*+\(?\s*+\d", work):
+        return None, ""
+    from . import worked as _w  # the expression reader of the worked equations (imported here: worked imports this module)
+    try:
+        tree = _w._Parser(_w._tokens(work)).parse()
+        expr, closed = _w._Encoder("", False).enc(tree, work)
+    except Exception:  # noqa: BLE001 - never an exception on agent text: the bracket is not read
+        return None, "its working in brackets is outside the written-arithmetic reading"
+    if not closed:
+        return None, "its working in brackets divides by an expression, which this reader does not decide"
+    stated = _number(m.group("pct"))
+    fall = bool(_FALL_LEAD_RE.search(m.group("lead")))
+    side = _side(m.group("q"))
+    as_written = expr
+    as_fraction = {"op": "mul", "args": [_real(Fraction(100)), expr]}
+    factor = {"op": "sub", "left": {"op": "mul", "args": [_real(Fraction(100)), _v("c")]}, "right": _real(Fraction(100))}
+    if fall:
+        factor = {"op": "neg", "arg": factor}
+    places = _written_places(m.group("pct"), stated)
+    tol = tolerance
+    c = _v("c")
+    readings = (c, {"op": "mul", "args": [_real(Fraction(100)), c]}, factor)
+    del as_written, as_fraction
+    bands = [_within(e, stated, tol, POINT_FLOOR if not places else Fraction(0), side) for e in readings]
+    concl = {"op": "or", "args": bands}
+    phrase = " ".join(m.group(0).split())
+    label = (f"stated {'fall' if fall else 'change'} of {_fmt(stated)} per cent against its working in brackets ({' '.join(work.split())}), read as the "
+             f"per cent itself, as the fractional change or as the growth factor (the check fails only when no reading holds)")
+    return _Spec("percent_change", clause.strip(), (("c", "the value of the working in brackets, as written"),),
+                 (("C_DEF", {"op": "eq", "left": c, "right": expr}, f"c = {' '.join(work.split())}"),), ("STATED_CHANGE", concl, label), POINT_FLOOR, side,
+                 "figure stated in the report itself", "the working in brackets after the stated per cent", phrase), ""
+
+
+def _c2_prose_specs(sent: str, si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided], list[str]]:
+    """The checks of the round-9 (c2) prose shapes (module comment above) in ``sent``: ``(specs, undecided, phrases read)``; a phrase
+    read is never also named undecided by the derived-figure reader (the caller drops such an entry)."""
+    specs: list[_Spec] = []
+    undecided: list[QuantUndecided] = []
+    read: list[str] = []
+    if len(sent) > 4000 or not _FIGURE_HINT_RE.search(sent):
+        return specs, undecided, read
+    clauses = split_clauses(sent) if ";" in sent else [sent]
+    for clause in clauses:
+        cl = clause.lower()
+        if " each" in cl:
+            for m in _EACH_TOTAL_RE.finditer(clause):
+                n = _c2_count(m.group("n"))
+                if n is None:
+                    continue
+                each, each_shown = _c2_amount(m.group("mc"), m.group("m"), m.group("mu"))
+                total, total_shown = _c2_amount(m.group("tc"), m.group("t"), m.group("tu"))
+                phrase = " ".join(m.group(0).split())
+                specs.append(_c2_product_spec(clause, phrase, [("count", n, f"the count ('{m.group('n')}')"), ("each", each, f"the amount each ({each_shown} {m.group('unit')})")],
+                                              total, total_shown, m.group("q"), tolerance, "product_total", "stated total of a count of equal amounts"))
+                read.append(phrase)
+        if "at " in cl:
+            for m in _PERIODS_AT_RATE_RE.finditer(clause):
+                per, per2 = m.group("per").lower().rstrip("s"), m.group("per2").lower()
+                n = _c2_count(m.group("n"))
+                if n is None or per != per2:
+                    continue
+                rate, rate_shown = _c2_amount(m.group("xc"), m.group("x"), m.group("xu"))
+                total, total_shown = _c2_amount(m.group("zc"), m.group("z"), m.group("zu"))
+                if (m.group("xc") or "") and (m.group("zc") or "") and _cur_key(m.group("xc")) != _cur_key(m.group("zc")):
+                    continue
+                phrase = " ".join(m.group(0).split())
+                specs.append(_c2_product_spec(clause, phrase, [("periods", n, f"the number of {per}s ('{m.group('n')}')"), ("rate", rate, f"the amount a {per} ({rate_shown})")],
+                                              total, total_shown, m.group("q") or m.group("q1"), tolerance, "rate_total", f"stated total over {m.group('n')} {per}s"))
+                read.append(phrase)
+            for m in _AT_RATE_PERIOD_RE.finditer(clause):
+                k = _PERIODS_IN.get((m.group("per1").lower(), m.group("per2").lower()))
+                if k is None:
+                    continue
+                if (m.group("xc") or "") and (m.group("zc") or "") and _cur_key(m.group("xc")) != _cur_key(m.group("zc")):
+                    continue
+                rate, rate_shown = _c2_amount(m.group("xc"), m.group("x"), m.group("xu"))
+                total, total_shown = _c2_amount(m.group("zc"), m.group("z"), m.group("zu"))
+                phrase = " ".join(m.group(0).split())
+                specs.append(_c2_product_spec(clause, phrase, [("periods", Fraction(k), f"the {m.group('per1')}s in a {m.group('per2')}"), ("rate", rate, f"the amount a {m.group('per1')} ({rate_shown})")],
+                                              total, total_shown, m.group("q") or m.group("q1"), tolerance, "rate_total", f"stated amount a {m.group('per2')}"))
+                read.append(phrase)
+        if "percentage point" in cl or "percentage-point" in cl:
+            for m in _PP_GAP_RE.finditer(clause):
+                head = clause[: m.start()]
+                pcts = _PCT_FIG_RE.findall(head)
+                if len(pcts) != 2 or _pairs(clause):
+                    continue
+                a, b = _number(pcts[0]), _number(pcts[1])
+                stated = _number(m.group("d"))
+                side = _side(m.group("q"))
+                premises = (("FIRST", {"op": "eq", "left": _v("first"), "right": _real(a)}, f"first share = {pcts[0]}%"),
+                            ("SECOND", {"op": "eq", "left": _v("second"), "right": _real(b)}, f"second share = {pcts[1]}%"))
+                gap = {"op": "sub", "left": _v("first"), "right": _v("second")} if a >= b else {"op": "sub", "left": _v("second"), "right": _v("first")}
+                phrase = " ".join(m.group(0).split())
+                specs.append(_Spec("points_change", clause.strip(), (("first", "the first per cent as stated"), ("second", "the second per cent as stated")), premises,
+                                   ("STATED_POINTS", _within(gap, stated, tolerance, POINT_FLOOR, side),
+                                    f"stated gap of {_fmt(stated)} percentage points against the difference of the two per cents its clause states ({pcts[0]}% and {pcts[1]}%)"),
+                                   POINT_FLOOR, side, "figure stated in the report itself", "", phrase))
+                read.append(phrase)
+        if "%" in cl or "per cent" in cl or "percent" in cl:
+            for rx in _C2_SHARE_RES + (_SHARE_BRACKETED_RE,):
+                for m in rx.finditer(clause):
+                    part, whole = _share_fig(m, "p"), _share_fig(m, "w")
+                    if _year_like(part.num, part.unit or part.cur) or _year_like(whole.num, whole.unit or whole.cur):
+                        continue
+                    phrase = " ".join(m.group(0).split()).strip(" ,(")
+                    spec, why = _share_spec(clause, whole, part, None, m.group("pn"), m.group("q"), tolerance, phrase, "the share stated of the part and the whole before it")
+                    if spec is not None:
+                        specs.append(spec)
+                        read.append(phrase)
+                    elif why:
+                        undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+                        read.append(phrase)
+        if " as " in cl and ("times" in cl or "twice" in cl or "thrice" in cl):
+            for m in _TIMES_AS_RE.finditer(clause):
+                head = clause[: m.start()]
+                figs = [f for f in _COUNT_FIG_RE.finditer(head) if not _YEAR_LIKE_RE.match(f.group(0))]
+                if len(figs) != 2 or _pairs(clause):
+                    continue
+                a, b = _number(figs[0].group(0)), _number(figs[1].group(0))
+                if a <= 0 or b <= 0 or a == b:
+                    continue
+                stated = Fraction(2) if (m.group("twice") or "").lower() == "twice" else Fraction(3) if m.group("twice") else _number(m.group("n"))
+                big, small = (a, b) if a > b else (b, a)
+                phrase = " ".join(m.group(0).split())
+                premises = (("LARGER", {"op": "eq", "left": _v("larger"), "right": _real(big)}, f"the larger figure = {_fmt(big)}"),)
+                ratio = {"op": "div", "left": _v("larger"), "right": _real(small)}
+                specs.append(_Spec("fold_change", clause.strip(), (("larger", "the larger of the two figures its clause states"),), premises,
+                                   ("STATED_FOLD", _within(ratio, stated, tolerance, Fraction(0), _side(m.group("q"))),
+                                    f"stated '{phrase}' (factor {_fmt(stated)}) against the ratio of the larger to the smaller figure its clause states "
+                                    f"({_fmt(big)} and {_fmt(small)})"), Fraction(0), _side(m.group("q")), "figure stated in the report itself",
+                                   "the two figures its clause states before the comparison", phrase, severity="warning"))
+                read.append(phrase)
+                read.append(" ".join(m.group(0).split()[:2]))
+        if "%" in cl or "per cent" in cl or "percent" in cl:
+            for m in (_PCT_THEN_WORKING_RE.finditer(clause) if "(" in clause else ()):
+                spec, why = _c2_bracket_change_spec(clause, m, tolerance)
+                phrase = " ".join(m.group(0).split())
+                if spec is not None:
+                    specs.append(spec)
+                    read.append(phrase)
+                    read.append(" ".join((m.group("lead") + m.group("pct")).split()))
+                elif why:
+                    undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, why))
+    return specs, undecided, read
 
 
 def _part_specs(sent: str, para: str, si: int, pi: int, tolerance: Fraction) -> tuple[list[_Spec], list[QuantUndecided]]:
@@ -2856,6 +3208,388 @@ def _duration_specs(sentences: list[str], si: int, pi: int, tolerance: Fraction)
     return specs, undecided
 
 
+# ------------------------------------------------------------------ calendar lengths between dated events (round 9 second pass)
+#
+# A length of time stated in days, weeks, months or years, alone or compounded ('two years and seventeen days', 'about seven months', '381
+# days', 'more than a year'), read against the two dates it spans (round 9 second pass: c2 adversarial-live bug 20 and the leftovers' History
+# chronology finding; a wrong length crossed every branch with no finding). The shapes read, each in one sentence of a paragraph:
+#
+# * a length after the later of two dates of its sentence: '... opened at Kaesong on 10 July 1951, and the armistice was signed at Panmunjom on
+#   27 July 1953, two years and seventeen days later';
+# * a length up to an end date, its start the date before it in the sentence's clause, or the date the paragraph gives the beginning of the event
+#   the sentence names: 'The boycott began on 5 December 1955 and lasted for 381 days, until 20 December 1956'; '... sustained the boycott for
+#   381 days, until 20 December 1956' after '... a boycott, which began on 5 December 1955';
+# * a length set after a span: '... ran from January 1968 to the invasion of 20–21 August 1968, about seven months', 'Between January 1968 and
+#   August 1968, seven months passed';
+# * a length between the two dated events an order cue sets apart: 'The Action Programme of April 1968 came two months before the June manifesto of
+#   1968'.
+#
+# A length after an event noun that the reader cannot pair with two dates ('A war of three years and one month ...') is named undecided
+# (CORE-QNT-001), never skipped. Every pattern is anchored at a fixed word or a date, and every run in it is bounded or possessive.
+
+_CAL_UNIT = r"(?:years?|months?|weeks?|days?)"
+_CAL_COUNT = rf"(?:an?|one|{_WNUM}|\d{{1,4}})"
+_CAL_PART = rf"{_CAL_COUNT}\s++(?:full\s++|whole\s++|calendar\s++)?{_CAL_UNIT}\b"
+#: A stated length with its qualifier: groups ``q`` (the qualifier) and ``len`` (the length, up to three parts).
+_CAL_LENGTH = rf"(?:(?P<q>{_QUAL})\s++)?(?P<len>{_CAL_PART}(?:(?:\s*+,\s*+(?:and\s++)?|\s++and\s++){_CAL_PART}){{0,2}})"
+_CAL_PART_RE = re.compile(rf"({_CAL_COUNT})\s++(?:full\s++|whole\s++|calendar\s++)?({_CAL_UNIT})\b", re.IGNORECASE)
+#: One date as text (a day range, a day, a month, a year): '20–21 August 1968', '5 January 1968', 'January 30, 1933', 'January 1968', '1968'.
+_CAL_DATE_TEXT = (rf"(?:(?:\d{{1,2}}\s*+[–-]\s*+)?(?:\d{{1,2}}(?:st|nd|rd|th)?\s++)?(?:{_MONTHS_TEXT})(?:\s++\d{{1,2}}(?:st|nd|rd|th)?,?)?\s++)?"
+                  r"(?:1[0-9]{3}|20[0-9]{2})(?![\d,.]?\d)")
+#: A date of a sentence (groups: ``d0`` the first day of a day range, ``d`` / ``dm`` the day, ``mon``, ``fill`` the noun between a month and
+#: 'of' in 'the June manifesto of 1968', ``y``; ``yo`` a year alone).
+_CAL_DATE_RE = re.compile(
+    rf"(?<![\w,.$£€])(?:(?P<d0>\d{{1,2}})\s*+[–-]\s*+)?(?:(?P<d>\d{{1,2}})(?:st|nd|rd|th)?\s++)?(?P<mon>{_MONTHS_TEXT})"
+    rf"(?:\s++(?P<dm>\d{{1,2}})(?:st|nd|rd|th)?,?|(?P<fill>(?:\s++[a-z][a-z'’-]{{0,20}}){{1,2}}?\s++of))?\s++(?P<y>1[0-9]{{3}}|20[0-9]{{2}})(?![\d,.]?\d)"
+    r"|(?<![\w,.$£€])(?P<yo>1[0-9]{3}|20[0-9]{2})(?![\d,.]?\d)(?!\s*+(?:per\s*+cent|percent|%|million|billion|thousand|seats|votes)\b)")
+_CAL_HINT_RE = re.compile(r"\b(?:years?|months?|weeks?|days?)\b", re.IGNORECASE)
+#: '..., two years and seventeen days later'.
+_CAL_LATER_RE = re.compile(rf"(?:,\s*+|\s++)(?:only\s++|exactly\s++)?{_CAL_LENGTH}\s++(?:later|afterwards|after\s++that)\b", re.IGNORECASE)
+#: '... for 381 days, until 20 December 1956', '... lasted seven months, until ...'.
+_CAL_UNTIL_RE = re.compile(rf"\b(?P<verb>for|lasted|lasting|lasts|ran|running|continued|continuing|endured|enduring)\s++(?:for\s++)?{_CAL_LENGTH}\s*+,?\s*+"
+                           r"(?:until|till|up\s++to)\s++", re.IGNORECASE)
+#: A span and the length after it: '... from January 1968 to the invasion of 20–21 August 1968, about seven months', 'Between January 1968 and
+#: August 1968, seven months passed'.
+_CAL_SPAN_LENGTH_RE = re.compile(
+    rf"\b(?:from|between)\s++(?:[^\d;:!?]{{0,80}}?\b(?:on|in|of)\s++)?(?P<a>{_CAL_DATE_TEXT})(?:\s*+,)?\s++(?:and|to|until|till|through|up\s++to)\s++"
+    rf"(?:[^\d;:!?]{{0,60}}?\b(?:on|in|of)\s++)?(?P<b>{_CAL_DATE_TEXT})\s*+,\s*+(?:a\s++(?:period|span|gap|total)\s++of\s++|or\s++|some\s++)?{_CAL_LENGTH}"
+    r"(?=\s*+(?:[.;,)]|$|passed|elapsed|went\s++by|had\s++passed|in\s++all|in\s++total))", re.IGNORECASE)
+#: A length between two dated events an order cue sets apart: '... came two months before ...', '... three years after ...'.
+_CAL_CUE_RE = re.compile(rf"(?<![\w-]){_CAL_LENGTH}\s++(?P<cue>before|after|earlier\s++than|later\s++than|prior\s++to)\b", re.IGNORECASE)
+#: A length after an event noun with no dates of its own: 'A war of three years and one month', 'a boycott of 381 days'.
+_CAL_NOUN_RE = re.compile(rf"\b(?:an?|the|this|that|its)\s++(?:[a-z]+\s++)?(?P<noun>war|conflict|occupation|boycott|strike|siege|campaign|reign|blockade|struggle"
+                          rf"|presidency|premiership|dictatorship|regime|truce|ceasefire|crisis|revolution|uprising|lockout)\s++of\s++{_CAL_LENGTH}", re.IGNORECASE)
+_CAL_BEGIN_VERBS = r"(?:began|begun|started|opened|broke\s++out|was\s++launched|were\s++launched|got\s++under\s++way|commenced)"
+#: Where a length's clause ends: a semicolon, a colon, or ', and' / ', but' before another clause.
+_CAL_CLAUSE_END_RE = re.compile(r";|:|,\s*+(?:and|but|while|whereas|yet)\b", re.IGNORECASE)
+_CAL_RULE = ("a stated length of time against the dates it spans, counted on the calendar from the start (a month or a year moves the date on, a "
+             "day it the number of days): a length with days in it holds to the day, give or take one (the end day counted or not), one in weeks to "
+             "three days, one in whole months to the elapsed time rounded or cut to whole months (from half a month short of it to a month beyond "
+             "it), one in whole years to half a year either way; 'about', 'around', 'roughly' and 'some' allow one unit of the smallest unit "
+             "stated or 5% of the length; 'more than', 'over', 'at least', 'less than', 'under', 'at most' are bounds; 'nearly'/'almost' "
+             "approach the length from below (85 per cent of it up to it) and 'just over' from above; a date stated only as a month or a year is "
+             "every day it can be, and a length its dates are too coarse to decide is named undecided")
+
+
+@dataclass(frozen=True)
+class _CalDate:
+    """A date of a sentence as the days it can denote: ``lo`` and ``hi`` are proleptic Gregorian ordinals (a year: 1 January to 31
+    December; a month: its first to its last day; a day range '20–21 August': its two days)."""
+    text: str
+    start: int
+    end: int
+    lo: int
+    hi: int
+    res: str = "day"          # 'day' (a day or a day range), 'month' or 'year': what the date states
+    index: int = 0            # year * 12 + month (a 'year' date: year * 12), for the month and year rules
+
+
+def _cal_dates(text: str) -> list[_CalDate]:
+    """The dates of ``text`` in order (:data:`_CAL_DATE_RE`); a day the month does not have is no date. 'the June manifesto of 1968' is
+    June 1968; a month and a noun before 'of' with no 'the' before them ('May the people of 1968') date only the year."""
+    import calendar
+    from datetime import date
+    out: list[_CalDate] = []
+    for m in _CAL_DATE_RE.finditer(text):
+        try:
+            if m.group("yo") or (m.group("fill") and text[max(0, m.start() - 4): m.start()].lower() != "the "):
+                y = int(m.group("yo") or m.group("y"))
+                s, e = (m.start(), m.end()) if m.group("yo") else (m.start("y"), m.end("y"))
+                out.append(_CalDate(text[s:e], s, e, date(y, 1, 1).toordinal(), date(y, 12, 31).toordinal(), "year", y * 12))
+                continue
+            y, mon = int(m.group("y")), _MONTH_NUMBER[m.group("mon").lower()]
+            last = calendar.monthrange(y, mon)[1]
+            day = m.group("d") or m.group("dm")
+            if day is None:
+                lo, hi = date(y, mon, 1).toordinal(), date(y, mon, last).toordinal()
+            else:
+                d = int(day)
+                first = int(m.group("d0")) if m.group("d0") else d
+                if not 1 <= first <= d <= last:
+                    continue
+                lo, hi = date(y, mon, first).toordinal(), date(y, mon, d).toordinal()
+            out.append(_CalDate(" ".join(m.group(0).split()), m.start(), m.end(), lo, hi, "month" if day is None else "day", y * 12 + mon))
+        except (ValueError, KeyError):
+            continue
+    return out
+
+
+def _cal_parts(length: str) -> Optional[tuple[int, int, int, int]]:
+    """``(years, months, weeks, days)`` of a stated length ('two years and seventeen days' -> (2, 0, 0, 17)), or None when a count is not a
+    whole number of at most four digits or a unit is stated twice."""
+    parts = {"year": 0, "month": 0, "week": 0, "day": 0}
+    seen: set[str] = set()
+    for m in _CAL_PART_RE.finditer(length):
+        word, unit = m.group(1).lower(), m.group(2).lower().rstrip("s")
+        try:
+            n = Fraction(1) if word in ("a", "an", "one") else _number(word)
+        except (ValueError, ZeroDivisionError, FigureTooLarge, KeyError):
+            return None
+        if unit in seen or n.denominator != 1 or not 0 < n <= 9999:
+            return None
+        seen.add(unit)
+        parts[unit] = int(n)
+    return (parts["year"], parts["month"], parts["week"], parts["day"]) if seen else None
+
+
+def _cal_add(ordinal: int, years: int, months: int, days: int) -> Optional[int]:
+    """The day ``ordinal`` moved on by ``years`` and ``months`` on the calendar (the day of the month kept, or the month's last day when it is
+    shorter: 31 January and a month is 28 or 29 February) and then by ``days``; None outside the calendar."""
+    import calendar
+    from datetime import date
+    try:
+        d = date.fromordinal(ordinal)
+        total = d.year * 12 + (d.month - 1) + years * 12 + months
+        y, m = divmod(total, 12)
+        day = min(d.day, calendar.monthrange(y, m + 1)[1])
+        return date(y, m + 1, day).toordinal() + days
+    except (ValueError, OverflowError):
+        return None
+
+
+def _cal_band(start: int, parts: tuple[int, int, int, int], qualifier: Optional[str]) -> Optional[tuple[Optional[Fraction], bool, Optional[Fraction], bool]]:
+    """``(low, low strict, high, high strict)`` in days of the elapsed time a stated length allows from the day ``start`` (:data:`_CAL_RULE`)."""
+    years, months, weeks, days = parts
+    end = _cal_add(start, years, months, weeks * 7 + days)
+    if end is None:
+        return None
+    length = Fraction(end - start)
+    if length <= 0:
+        return None
+    if days:
+        slack, unit = Fraction(1), Fraction(1)
+    elif weeks:
+        slack, unit = Fraction(3), Fraction(7)
+    elif months:
+        slack, unit = Fraction(0), Fraction(30)
+    else:
+        slack, unit = Fraction(183), Fraction(365)
+    q = " ".join((qualifier or "").lower().split())
+    if q in _LOWER_ONLY:
+        return length, q in _STRICT_LOWER, None, False
+    if q in _UPPER_ONLY:
+        return None, False, length, q in _STRICT_UPPER
+    if q in _APPROACH_BELOW:
+        return length * APPROACH_BAND, False, length, False
+    if q in _APPROACH_ABOVE:
+        return length, False, length / APPROACH_BAND, False
+    if q in ("about", "around", "roughly", "approximately", "approx.", "some", "c.", "ca.", "circa", "close to", "an estimated", "near"):
+        width = max(unit, length / 20)
+        return length - width, False, length + width, False
+    if months and not (days or weeks):
+        return length - 15, False, length + 30, True  # rounded or cut to whole months
+    return length - slack, False, length + slack, False
+
+
+def _cal_spec(sent: str, phrase: str, qualifier: Optional[str], length: str, d1: _CalDate, d2: _CalDate, basis: str, pi: int, si: int
+              ) -> tuple[Optional[_Spec], Optional[QuantUndecided]]:
+    """The check of the stated ``length`` from ``d1`` to ``d2``, or the reason it is undecided (a length the reader cannot read, dates too
+    coarse to decide it), or ``(None, None)`` when the span runs backwards (its order is the chronology check's)."""
+    parts = _cal_parts(length)
+    if parts is None:
+        return None, QuantUndecided(pi, si + 1, sent.strip(), phrase, "a stated length of time whose parts could not be read as whole numbers of days, weeks, months and years")
+    if d2.hi <= d1.lo:
+        return None, None
+    years, months, weeks, days = parts
+    # a length in whole years between two dates stated as months or years is read on the year index ('three years after the war began in
+    # June 1950' for July 1953: a length of years is rounded or cut to whole years); one with months between two month dates on the month index
+    unit = "year" if {d1.res, d2.res} <= {"month", "year"} and not (months or weeks or days) else \
+        "month" if d1.res == d2.res == "month" and not (weeks or days) else None
+    if unit is not None:
+        return _cal_index_spec(sent, phrase, qualifier, d1, d2, years * 12 + months if unit == "month" else years, unit, basis, pi, si)
+    lows, highs = [], []
+    for s in {d1.lo, d1.hi}:
+        band = _cal_band(s, parts, qualifier)
+        if band is None:
+            return None, QuantUndecided(pi, si + 1, sent.strip(), phrase, "a stated length of time outside the calendar the reader reads")
+        lows.append(band[:2])
+        highs.append(band[2:])
+    lo = min((x for x in lows if x[0] is not None), default=(None, False), key=lambda x: x[0])
+    hi = max((x for x in highs if x[0] is not None), default=(None, False), key=lambda x: x[0])
+    band = (lo[0], lo[1], hi[0], hi[1], "")
+    shown = f"{d1.text} to {d2.text}"
+    verdict = _inside(Fraction(max(0, d2.lo - d1.hi)), Fraction(d2.hi - d1.lo), band)
+    if verdict is None:
+        return None, QuantUndecided(pi, si + 1, sent.strip(), phrase, f"the stated length ('{phrase}') cannot be decided at the resolution of its dates: {shown} is between "
+                                                                      f"{max(0, d2.lo - d1.hi)} and {d2.hi - d1.lo} days" + (f" ({basis})" if basis else ""))
+    premises = (("START_FROM", {"op": "ge", "left": _v("start"), "right": _real(Fraction(d1.lo))}, f"start on or after the first day of {d1.text}"),
+                ("START_TO", {"op": "le", "left": _v("start"), "right": _real(Fraction(d1.hi))}, f"start on or before the last day of {d1.text}"),
+                ("END_FROM", {"op": "ge", "left": _v("end"), "right": _real(Fraction(d2.lo))}, f"end on or after the first day of {d2.text}"),
+                ("END_TO", {"op": "le", "left": _v("end"), "right": _real(Fraction(d2.hi))}, f"end on or before the last day of {d2.text}"))
+    symbols = (("start", f"the first day of the span ({d1.text}) as a day ordinal"), ("end", f"the last day of the span ({d2.text}) as a day ordinal"))
+    elapsed = {"op": "sub", "left": _v("end"), "right": _v("start")}
+    bounds = []
+    if band[0] is not None:
+        bounds.append(f"{'more than' if band[1] else 'at least'} {_fmt(band[0])} days")
+    if band[2] is not None:
+        bounds.append(f"{'less than' if band[3] else 'at most'} {_fmt(band[2])} days")
+    label = f"stated length '{phrase}' against the elapsed days from {shown} (on the calendar: {' and '.join(bounds)})"
+    return _Spec("duration", sent.strip(), symbols, premises, ("STATED_DURATION", _band_expr(elapsed, band), label), Fraction(0), "both",
+                 "figure stated in the report itself", basis, phrase, _CAL_RULE), None
+
+
+def _cal_index_verdict(diff: int, stated: int, qualifier: Optional[str]) -> tuple[Optional[bool], dict]:
+    """The month or year rule (:func:`_cal_index_spec`): the verdict on the elapsed whole units ``diff`` (the later date's index less the
+    earlier's) against the ``stated`` units, and the conclusion over ``diff`` that encodes it. Each date covers its whole month (or year), so the
+    elapsed time lies between ``diff - 1`` and ``diff + 1`` units: without a qualifier the stated length is the difference, or the difference
+    plus one when both end units are counted; 'about' allows one unit more either way; a bound ('more than', 'less than') holds only when every
+    elapsed time the dates allow meets it, fails when none does, and is undecided otherwise; 'nearly' is the length or one unit short of it, and
+    'just over' the length or one unit more."""
+    q = " ".join((qualifier or "").lower().split())
+    d = {"op": "sub", "left": _v("later"), "right": _v("earlier")}
+
+    def cmp(op: str, k: int) -> dict:
+        return {"op": op, "left": d, "right": _real(Fraction(k))}
+    if q in _LOWER_ONLY:
+        verdict = True if diff - 1 >= stated else False if diff + 1 <= stated else None
+        return verdict, cmp("ge", stated + 1)
+    if q in _UPPER_ONLY:
+        verdict = True if diff + 1 <= stated else False if diff - 1 >= stated else None
+        return verdict, cmp("le", stated - 1)
+    if q in _APPROACH_BELOW:
+        verdict = True if stated - 1 <= diff <= stated else False if diff > stated or diff < stated * APPROACH_BAND - 1 else None
+        return verdict, {"op": "and", "args": [cmp("ge", stated - 1), cmp("le", stated)]}
+    if q in _APPROACH_ABOVE:
+        verdict = True if stated <= diff <= stated + 1 else False if diff < stated - 1 or diff > stated / APPROACH_BAND + 1 else None
+        return verdict, {"op": "and", "args": [cmp("ge", stated), cmp("le", stated + 1)]}
+    if q in ("about", "around", "roughly", "approximately", "approx.", "some", "c.", "ca.", "circa", "close to", "an estimated", "near"):
+        return stated - 2 <= diff <= stated + 1, {"op": "and", "args": [cmp("ge", stated - 2), cmp("le", stated + 1)]}
+    return diff in (stated, stated - 1), {"op": "or", "args": [cmp("eq", stated), cmp("eq", stated - 1)]}
+
+
+def _cal_index_spec(sent: str, phrase: str, qualifier: Optional[str], d1: _CalDate, d2: _CalDate, stated: int, unit: str, basis: str, pi: int, si: int
+                    ) -> tuple[Optional[_Spec], Optional[QuantUndecided]]:
+    """A length in whole months (or years) between two dates stated only as months (or years): read on the month (year) index, as a stated
+    length of years is read between two years ('from January 1968 to August 1968, seven months')."""
+    step = 12 if unit == "year" else 1
+    a, b = d1.index // step, d2.index // step
+    verdict, concl = _cal_index_verdict(b - a, stated, qualifier)
+    if verdict is None:
+        return None, QuantUndecided(pi, si + 1, sent.strip(), phrase, f"the stated length ('{phrase}') cannot be decided at the resolution of its dates: "
+                                                                      f"{d1.text} to {d2.text} is {b - a} {unit}s apart as written, so the elapsed time lies between "
+                                                                      f"{b - a - 1} and {b - a + 1} {unit}s" + (f" ({basis})" if basis else ""))
+    premises = (("EARLIER", {"op": "eq", "left": _v("earlier"), "right": _real(Fraction(a))}, f"the {unit} of {d1.text} as a {unit} index"),
+                ("LATER", {"op": "eq", "left": _v("later"), "right": _real(Fraction(b))}, f"the {unit} of {d2.text} as a {unit} index"))
+    symbols = (("earlier", f"the {unit} of {d1.text}"), ("later", f"the {unit} of {d2.text}"))
+    label = f"stated length '{phrase}' against the {unit}s from {d1.text} to {d2.text} (the difference, or the difference plus one when both ends are counted)"
+    return _Spec("duration", sent.strip(), symbols, premises, ("STATED_DURATION", concl, label), Fraction(0), "both", "figure stated in the report itself",
+                 basis, phrase, _CAL_RULE), None
+
+
+def _cal_clause(sent: str, at: int, end: int) -> tuple[int, int]:
+    """The clause of ``sent`` around ``at``..``end``: from after the last clause break before ``at`` to the first after ``end``."""
+    before = [m.end() for m in _CAL_CLAUSE_END_RE.finditer(sent, 0, at)]
+    after = _CAL_CLAUSE_END_RE.search(sent, end)
+    return (before[-1] if before else 0), (after.start() if after else len(sent))
+
+
+def _cal_event_start(sentences: list[str], si: int, noun: str) -> tuple[Optional[_CalDate], str]:
+    """The date an earlier sentence of the paragraph gives the beginning of the event ``noun`` names ('a boycott, which began on 5 December
+    1955'; 'The boycott began on 5 December 1955'): exactly one such date, else None and the reason."""
+    pattern = re.compile(rf"\b{re.escape(noun)}s?\b[^.;]{{0,40}}?\b{_CAL_BEGIN_VERBS}\s++(?:on|in)\s++(?P<date>{_CAL_DATE_TEXT})", re.IGNORECASE)
+    found: dict[tuple[int, int], tuple[_CalDate, str]] = {}
+    for j in range(max(0, si - 12), si):
+        for m in pattern.finditer(sentences[j][:20_000]):  # (each earlier sentence read to a bound: a look-up is linear in the paragraph)
+            dates = _cal_dates(m.group("date"))
+            if dates:
+                found[(dates[0].lo, dates[0].hi)] = (dates[0], sentences[j].strip())
+    if len(found) == 1:
+        d, where = next(iter(found.values()))
+        return d, f"its start is the date the paragraph gives the beginning of the {noun} ('{where[:120]}')"
+    return None, (f"the paragraph gives the beginning of the {noun} {len(found)} different dates" if found
+                  else f"neither its sentence nor an earlier sentence of the paragraph dates the beginning of the {noun}")
+
+
+def _calendar_length_specs(sentences: list[str], si: int, pi: int) -> tuple[list[_Spec], list[QuantUndecided], list[str]]:
+    """The checks of the stated calendar lengths of sentence ``si`` (the module comment above): ``(specs, undecided, phrases read)``."""
+    sent = sentences[si]
+    specs: list[_Spec] = []
+    undecided: list[QuantUndecided] = []
+    read: list[str] = []
+    if len(sent) > 4000 or not _CAL_HINT_RE.search(sent):
+        return specs, undecided, read
+    dates = _cal_dates(sent)
+    taken: list[tuple[int, int]] = []
+    starts: dict[str, tuple[Optional[_CalDate], str]] = {}
+
+    def add(m: "re.Match[str]", d1: Optional[_CalDate], d2: Optional[_CalDate], basis: str = "", why: str = "") -> None:
+        phrase = " ".join(m.group(0).strip(" ,").split())
+        taken.append((m.start("len"), m.end("len")))
+        read.append(phrase)
+        if d1 is None or d2 is None:
+            undecided.append(QuantUndecided(pi, si + 1, sent.strip(), phrase, f"a stated length of time whose dates cannot be paired: {why}"))
+            return
+        spec, und = _cal_spec(sent, phrase, m.group("q"), m.group("len"), d1, d2, basis, pi, si)
+        if spec is not None:
+            specs.append(spec)
+        if und is not None:
+            undecided.append(und)
+
+    for m in _CAL_SPAN_LENGTH_RE.finditer(sent):
+        a, b = _cal_dates(m.group("a")), _cal_dates(m.group("b"))
+        add(m, a[0] if a else None, b[0] if b else None, why="its span's dates could not be read")
+    for m in _CAL_LATER_RE.finditer(sent):
+        if any(s <= m.start("len") < e for s, e in taken):
+            continue
+        before = [d for d in dates if d.end <= m.start()]
+        if len(before) >= 2:
+            add(m, before[-2], before[-1])
+        # (with fewer than two dates before it the length dates an undated event by its offset, 'founded in 2019 and profitable two years
+        # later', or relates no dated events at all, 'paid a month later': no relation between stated dates, so nothing to check or name)
+    for m in _CAL_UNTIL_RE.finditer(sent):
+        if any(s <= m.start("len") < e for s, e in taken):
+            continue
+        parts = _cal_parts(m.group("len"))
+        if parts is not None and parts[1:] == (0, 0, 0) and _DUR_PHRASE_RE.match(sent, m.start()):
+            continue  # 'lasted for twelve years, until ...': a length of years the duration reader above reads (with the span next to it)
+        after = [d for d in dates if d.start >= m.end() and d.start - m.end() <= 60]
+        if not after:
+            continue
+        c0, _c1 = _cal_clause(sent, m.start(), m.end())
+        before = [d for d in dates if c0 <= d.start and d.end <= m.start()]
+        if before:
+            add(m, before[-1], after[0])
+            continue
+        head = re.search(r"\b(?:the|this|that|its|their)\s++(?:[a-z]+\s++)?([a-z]{3,20})\s*+$", sent[max(0, m.start() - 80): m.start()], re.IGNORECASE)
+        if head is None:
+            continue  # a length up to an end date with no start the text states: it dates the start by its offset, nothing to check
+        noun = head.group(1).lower()
+        if noun not in starts:
+            starts[noun] = _cal_event_start(sentences, si, noun)  # one look-up per event noun of the sentence
+        start, how = starts[noun]
+        if start is not None:
+            add(m, start, after[0], basis=how)
+        elif how.startswith("the paragraph gives"):
+            add(m, None, None, why=how)  # the paragraph dates the event's beginning more than once: which is meant is not stated
+    for m in _CAL_CUE_RE.finditer(sent):
+        if any(s <= m.start("len") < e for s, e in taken):
+            continue
+        c0, c1 = _cal_clause(sent, m.start(), m.end())
+        left = [d for d in dates if c0 <= d.start and d.end <= m.start()]
+        right = [d for d in dates if m.end() <= d.start and d.end <= c1]
+        if not left or not right:
+            continue  # an interval against an event the sentence does not date: the chronology check names the order
+        cue = m.group("cue").lower()
+        earlier, later = (left[-1], right[0]) if cue in ("before", "earlier than", "prior to") else (right[0], left[-1])
+        add(m, earlier, later)
+    for m in _CAL_NOUN_RE.finditer(sent):
+        if any(s <= m.start("len") < e for s, e in taken):
+            continue
+        c0, c1 = _cal_clause(sent, m.start(), m.end())
+        own = [d for d in dates if c0 <= d.start and d.end <= c1]
+        noun = m.group("noun").lower()
+        if len(own) == 2:
+            add(m, own[0], own[1])  # 'The war of three years and one month, from 25 June 1950 to 27 July 1953, ...': the two dates of its clause
+            continue
+        start, _how = _cal_event_start(sentences, si, noun) if not own else (None, "")
+        if own or start is not None:
+            # a length of an event the text dates: named undecided with what is missing ('A war of three years and one month ...' after 'the
+            # war had begun on 25 June 1950'); one of an event the text never dates relates no dated events, so nothing is named
+            add(m, None, None, why=(f"the paragraph dates the beginning of the {noun} ({start.text}) but neither this sentence nor the paragraph "
+                                    f"states its end" if start is not None else f"its clause states {len(own)} date(s) of the {noun}, not the two its length spans"))
+    return specs, undecided, read
+
+
 def _paragraph_sentences(text: str, reading: QuantReading):
     """``(paragraph number, paragraph, sentences, sentence numbers or None)`` of ``text``: the general reading splits
     blank-line paragraphs with the shared splitter (numbers 1, 2, ...); the SI reading takes the STEM statements of the SI
@@ -2955,6 +3689,8 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
     pat = _patterns(reading)
     specs: list[_Spec] = []
     undecided: list[QuantUndecided] = []
+    read_phrases: dict[tuple[int, str], list[str]] = {}   # (paragraph, sentence) -> phrases a round-9 prose reader read (never also undecided)
+    own_undecided: set[int] = set()                       # the round-9 prose readers' own undecided entries (kept)
     all_clauses: list[str] = []
     clause_where: list[tuple[int, int, str]] = []   # (paragraph, sentence number, sentence) of every clause, for SI undecided shares
     for pi, para, sentences, numbers in _paragraph_sentences(text, reading):
@@ -2972,12 +3708,25 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                 clause_where.extend((pi, _num(numbers, si), sent.strip()) for _c in clauses)
             try:
                 part_specs, part_undecided = _part_specs(sent, para, si, pi, tolerance) if not si_mode else ([], [])
+                if not si_mode:
+                    c2_specs, c2_undecided, c2_read = _c2_prose_specs(sent, si, pi, tolerance)
+                    part_specs, part_undecided = part_specs + c2_specs, part_undecided + c2_undecided
+                    own_undecided.update(id(u) for u in c2_undecided)
+                    if c2_read:
+                        read_phrases.setdefault((pi, sent.strip()), []).extend(c2_read)
                 if not si_mode and _RATE_TREND_RE.search(sent):
                     trend_specs, trend_undecided = _rate_trend_specs(sentences, si, pi)
                     part_specs, part_undecided = part_specs + trend_specs, part_undecided + trend_undecided
                 if not si_mode and "year" in sent.lower() and _DUR_PHRASE_RE.search(sent):
                     dur_specs, dur_undecided = _duration_specs(sentences, si, pi, tolerance)
                     part_specs, part_undecided = part_specs + dur_specs, part_undecided + dur_undecided
+                if not si_mode and _CAL_HINT_RE.search(sent):
+                    # a calendar length between dated events (round 9 second pass): decided, or named undecided with its own reason
+                    cal_specs, cal_undecided, cal_read = _calendar_length_specs(sentences, si, pi)
+                    part_specs, part_undecided = part_specs + cal_specs, part_undecided + cal_undecided
+                    own_undecided.update(id(u) for u in cal_undecided)
+                    if cal_read:
+                        read_phrases.setdefault((pi, sent.strip()), []).extend(cal_read)
             except FigureTooLarge:
                 part_specs, part_undecided = [], [QuantUndecided(pi, _num(numbers, si), sent.strip(), sent.strip()[:120], _TOO_LARGE_REASON)]
             per_sentence_specs.extend((si, sp) for sp in part_specs)
@@ -3009,7 +3758,8 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                     bound: set[int] = set()
                     segments = _segments(clause, pairs)
                     for k, (p, (seg_start, seg_end)) in enumerate(zip(pairs, segments)):
-                        mine = [d for d in derived if seg_start <= d.start < seg_end]
+                        # a change stated of another quantity in an earlier clause of the segment is not this pair's (round 9, c2 bm-t15)
+                        mine = [d for d in derived if seg_start <= d.start < seg_end and not _foreign_change(clause, d, p)]
                         if not mine:
                             continue
                         for d in mine:
@@ -3046,9 +3796,9 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                         head = clause[prev_end: p.start]
                         inner = clause[p.start: p.after.start]   # 'before climbing to' for a continuation; 'from X to' for a from/to pair
                         prev_end = p.end
-                        if any(seg_start <= d.start < seg_end for d in derived):
+                        if any(seg_start <= d.start < seg_end and not _foreign_change(clause, d, p) for d in derived):
                             prev_dir = None
-                            continue  # a stated change already decides the pair's direction
+                            continue  # a stated change already decides the pair's direction (a change of another quantity does not)
                         # the direction word must govern the pair: right before its 'from' (adverbs aside), or inside a continuation
                         own = _PAIR_DIR_BEFORE_RE.search(head) if inner[:4].lower() == "from" else _PAIR_DIR_RE.search(inner)
                         word = own.group(1).lower() if own else (prev_dir if _elliptical(clause[max(0, p.start - 40): p.start]) else None)
@@ -3224,6 +3974,18 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                 else:
                     others.append((kind, (sent.strip(), m.groups(), values)))
         return tuple(specs), tuple(undecided), tuple(others)
+    if read_phrases:
+        # a phrase a round-9 prose reader read (decided, or named undecided with its own reason) is not named again by the derived-figure
+        # reader ('a total of 26 marks' with no pair; 'grew by 38.0%' with its working in brackets)
+        def _covered(u: QuantUndecided) -> bool:
+            phrases = read_phrases.get((u.paragraph, (u.sentence_text or "").strip()))
+            if not phrases or not u.phrase or id(u) in own_undecided:
+                return False
+            ph = " ".join(u.phrase.split())
+            words = ph.split()
+            head = " ".join(words[:-1]) if len(words) >= 3 else ph  # the phrase without its trailing unit word ('a total of 26 [marks]')
+            return any(ph in r or r in ph or head in r for r in phrases)
+        undecided = [u for u in undecided if not _covered(u)]
     for sent in all_clauses:
         sh = _SHARE_RE.search(sent)
         if sh and not any(sum(ch.isdigit() for ch in (g or "")) > MAX_FIGURE_DIGITS for g in sh.groups()):
@@ -3264,7 +4026,7 @@ def _extract(text: str, *, request_id: str, claim_id: str, tolerance: Fraction, 
     n = 0
     prefix = {"percent_change": "pct", "points_change": "points", "fraction_change": "frac", "fold_change": "fold", "series_monotonic": "trend", "series_extreme": "extreme",
               "abs_change": "abs", "rate_change": "rate", "comparison": "cmp", "pair_direction": "dir", "parts": "parts", "share": "share", "difference": "diff",
-              "duration": "dur", "rate_trend": "trend"}
+              "duration": "dur", "rate_trend": "trend", "product_total": "prod", "rate_total": "rtot"}
     for spec in specs:
         n += 1
         if spec.rule:

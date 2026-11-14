@@ -39,6 +39,7 @@ import json
 from dataclasses import dataclass, field
 from decimal import Decimal
 from fractions import Fraction
+from functools import lru_cache
 from typing import Any, Literal, Optional, Sequence
 
 from pydantic import ValidationError
@@ -261,6 +262,37 @@ def collect_sites(problem: Problem) -> list[Site]:
 # ------------------------------------------------------------------ readings
 
 
+@lru_cache(maxsize=512)
+def _mark_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """The spans of the mark annotations of ``text`` ("[10]", "[2 marks]"; ``eligibility._MARK_ANNOTATION_RE``), in order."""
+    from .eligibility import _MARK_ANNOTATION_RE
+    return tuple((m.start(), m.end()) for m in _MARK_ANNOTATION_RE.finditer(text))
+
+
+def _stated_figures(src: SourceText) -> tuple[StatedFigure, ...]:
+    """The figures of ``src`` (:func:`.quantities.figures_in`) less those of its mark annotations: the number of "[10]" or
+    "[2]" counts marks, it states no value of any quantity. Round 9 (c2 translation-fidelity, c1 bug r8-18): bm-t15 g5.1's
+    "10.0%" was read as the task's mark "[10]" (given exactly), so the exactness rule rejected the faithful encoding of a
+    correct claim. (bi-p9b s4.4's "-2.0%", read as the peer report's "[2]", is now read as another '2' the task writes: a
+    reading that requires the matched figure to name the same quantity is not made here.) One pass over figures and spans,
+    both in order."""
+    figs = figures_in(src)
+    if "[" not in src.text:
+        return figs
+    spans = _mark_spans(src.text)
+    if not spans:
+        return figs
+    out: list[StatedFigure] = []
+    i = 0
+    for f in figs:
+        while i < len(spans) and spans[i][1] <= f.start:
+            i += 1
+        if i < len(spans) and spans[i][0] <= f.start < spans[i][1]:
+            continue
+        out.append(f)
+    return tuple(out)
+
+
 def _combine(src: SourceText, matches: list[Match]) -> tuple[str, Match, Optional[Exactness]]:
     """One reading from the occurrences of a figure in one source: exact and rounded statements together are
     conflicting; a statement (a cue, or a written calculation computed as written) outranks the presumption of the
@@ -302,7 +334,7 @@ def _reading_of(site: Site, value: Fraction, sources: Sequence[SourceText], decl
     approximate; else the claim's calculation convention; else ``unstated``. None when no source states it."""
     found: list[tuple[SourceText, str, Match, Optional[Exactness]]] = []
     for src in sources:
-        matches, _why = literal_matches(value, figures_in(src), declared)
+        matches, _why = literal_matches(value, _stated_figures(src), declared)
         if matches:
             kind, m, ex = _combine(src, matches)
             found.append((src, kind, m, ex))
@@ -330,7 +362,7 @@ def _contained_figure(site: Site, sources: Sequence[SourceText], declared: Decla
         return None
     for src in sources:  # the first source (the claim before its supporting claims, before the task material) that has one
         best: Optional[tuple[tuple, Reading]] = None
-        for f in figures_in(src):
+        for f in _stated_figures(src):
             for value in {f.value, f.scaled, f.scaled * (f.unit_factor or 1) if f.is_percent_like else f.value}:
                 if site.lo <= value <= site.hi and value != 0 and (site.hi - site.lo) < abs(value):
                     reading = _reading_of(site, value, sources, declared)

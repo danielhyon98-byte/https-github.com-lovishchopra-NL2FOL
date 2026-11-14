@@ -27,7 +27,10 @@ auditor's rules definitional-identity and stated-step read them.
   11560000000000", G and M figures). A premise that gives a conjunct only by the computation it writes on numbers ("a =
   (20 − 0)/4.0" beside "a = 5.0"), by a computation that writes a new figure ("p = 1.60" beside "p × 100 = 160"), or that
   entails it without being equivalent to it ("x = 5" beside "x > 3") is a derivation the engine checks, never a
-  restatement;
+  restatement. Rule ``unstated-scaling`` (round-9 clearance c2, given the figures the claim's sources state): a premise
+  equivalent to the conjunct whose extra figures are numbers one of which no source states ("6000 × vsq = 54096", general
+  knowledge, beside "vsq = 9.016" for the claim "v² = 2 × 9.8 × 0.46 = 9.016") is the conjunct scaled or moved across by
+  the translation's own figures, a restatement: the engine would check the translation's arithmetic, never the claim's;
 * **standing**: a restating premise is data when a check in this process verified it (``verified=True``: a located
   quotation, a task figure the task record states for that quantity) or located the excerpt it cites in a supplied text
   (whether the excerpt states its figures is the grounding check's own finding). It is the writer's own when it has no
@@ -82,7 +85,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Optional
+from typing import Callable, Optional
 
 import z3
 
@@ -289,8 +292,10 @@ class _Checker:
         return self.unsat([{"op": "not", "arg": {"op": "iff", "left": p, "right": k}}], extra) is True
 
 
-def _restates(checker: _Checker, premise: dict, conjunct: dict) -> Optional[str]:
-    """How ``premise`` restates ``conjunct`` ("as written", "by Boolean structure", "by arithmetic"), or None."""
+def _restates(checker: _Checker, premise: dict, conjunct: dict, unstated: Optional[Callable[[Fraction], bool]] = None) -> Optional[str]:
+    """How ``premise`` restates ``conjunct`` ("as written", "by Boolean structure", "by arithmetic"), or None. With
+    ``unstated`` (whether no source states a value) a premise scaled by figures of the translation's own is read too
+    (rule ``unstated-scaling``, :func:`_scaled_by_unstated`)."""
     ck = _key(conjunct)
     parts = _plain_conjuncts(premise)
     if any(_key(p) == ck for p in parts) or _key(premise) == ck:
@@ -303,9 +308,30 @@ def _restates(checker: _Checker, premise: dict, conjunct: dict) -> Optional[str]
     if conjunct.get("op") in _COMPARE or (conjunct.get("op") == "not" and conjunct["arg"].get("op") in _COMPARE):
         figures = _figures(conjunct)
         for part in parts:
-            if _vars(part) == kv and _figures(part) == figures and checker.arithmetic_equivalent(part, conjunct):
+            if _vars(part) != kv:
+                continue
+            written = _figures(part)
+            if written == figures and checker.arithmetic_equivalent(part, conjunct):
                 return "by the arithmetic of the conjunct's own symbols"
+            if unstated is not None and _scaled_by_unstated(written, figures, unstated) and checker.arithmetic_equivalent(part, conjunct):
+                return ("by the arithmetic of the conjunct's own symbols, scaled or moved across with figure(s) no source states "
+                        "(rule unstated-scaling)")
     return None
+
+
+def _scaled_by_unstated(written: frozenset, figures: frozenset, unstated: Callable[[Fraction], bool]) -> bool:
+    """Rule ``unstated-scaling`` (round-9 clearance c2, c2 ph-t15 s2.4: "6000 × vsq = 54096", a general-knowledge premise,
+    proved "vsq = 9.016" for the claim "v² = 2 × 9.8 × 0.46 = 9.016"): the figures a premise writes beyond the conjunct's
+    (``written`` minus ``figures``, as :func:`_figures` reads them) are numbers, not a computation, and one of them is stated
+    by no source (``unstated``: neither the claim, nor another claim of the report, nor a supplied text, nor the task): the
+    premise is the conjunct itself, scaled or with its terms moved across by the translation's own figures, so the engine
+    checks only the translation's arithmetic, never the claim's. A premise whose extra figures some source states ("2x + 3
+    = 7" written on an earlier line, beside "x = 2"; "p = 1.60" beside "p × 100 = 160") is a derivation the engine checks,
+    as before."""
+    extra = written - figures
+    if not extra or not all(isinstance(v, Fraction) for v in extra):
+        return False
+    return any(unstated(v) for v in extra)
 
 
 def _figures(node: dict) -> frozenset:
@@ -416,13 +442,18 @@ def _standing(grounding, expr: dict, located: bool) -> str:
     return "label"
 
 
-def semantic_restatement(problem: Problem, located: frozenset[str] | set[str] = frozenset(), claim_text: Optional[str] = None) -> Optional[Restatement]:
+def semantic_restatement(problem: Problem, located: frozenset[str] | set[str] = frozenset(), claim_text: Optional[str] = None, *,
+                         unstated: Optional[Callable[[Fraction], bool]] = None, prior_texts=()) -> Optional[Restatement]:
     """The full or partial restatement of ``problem``'s conclusion this module's rules find (see the module docstring), or
     None. ``located`` names the premises whose cited excerpt the grounding check located in a supplied text: such a premise
     is presented with its source, so restating it is a transcription check (whether it transcribes its figures is the
     grounding check's own finding), never the claim assumed. With ``claim_text`` (the claim the problem encodes) the rules
-    ``result-asserted`` and ``consequence-asserted`` read it too. The caller sets aside premises that contradict each other
-    and a conclusion that holds alone."""
+    ``result-asserted`` and ``consequence-asserted`` read it too. With ``unstated`` (whether no source of the claim states a
+    value: the claim, the report's other claims, the supplied texts, the task) rule ``unstated-scaling`` reads a premise
+    that is a conjunct scaled by figures of the translation's own (:func:`_scaled_by_unstated`); without it that rule does
+    not apply. ``prior_texts`` (the claim's previous lines of working: the report's claims before it and the claims it cites)
+    lets rule ``previous-line-step`` exempt the input of the step the claim writes from them (:func:`_previous_line_step`).
+    The caller sets aside premises that contradict each other and a conclusion that holds alone."""
     if problem.query != "entailment" or problem.conclusion is None or not problem.premises:
         return None
     checker = _Checker(problem)
@@ -434,7 +465,7 @@ def semantic_restatement(problem: Problem, located: frozenset[str] | set[str] = 
     restated: dict[int, list[tuple[str, str]]] = {}
     for i, k in enumerate(conjuncts):
         for pid, expr, _g in premises:
-            how = _restates(checker, expr, k)
+            how = _restates(checker, expr, k, unstated)
             if how is None and results:
                 how = _result_restates(checker, expr, k, results)
             if how is not None:
@@ -445,7 +476,7 @@ def semantic_restatement(problem: Problem, located: frozenset[str] | set[str] = 
     def standing(pid: str) -> str:
         return _standing(by_id.get(pid), exprs[pid], pid in located)
 
-    restated = _without_exempt(problem, conjuncts, restated, exprs, checker, claim_text)
+    restated = _without_exempt(problem, conjuncts, restated, exprs, checker, claim_text, prior_texts)
     found = _restated(problem, conjuncts, restated, by_id, exprs, standing) if restated else None
     if found is None and claim_text:
         found = _asserted_consequence(problem, claim_text, by_id, exprs, standing, frozenset(located), checker=checker)
@@ -581,10 +612,47 @@ def _stated_step(claim_text: Optional[str], premise: dict, conjuncts: list[dict]
     return all(x in before for x in inputs) and all(r in after for r in results) and not any(r in before for r in results)
 
 
+def _loose(text: str) -> str:
+    """``text`` in :func:`_canon_text`'s form with the multiplication signs and brackets dropped as well, so a relation reads
+    alike however a writer groups or juxtaposes it ("36 − 4k > 0" and the rendering "36-4*k>0"; "x + 1 = (x − 3)/2" and
+    "x+1=x-3/2")."""
+    return _canon_text(text).replace("*", "").replace("(", "").replace(")", "")
+
+
+#: How many claims before a claim are read as its previous lines of working (the transfer auditor's ``PRIOR_LINES``).
+PRIOR_LINES = 3
+
+
+def _previous_line_step(prior_texts, claim_text: Optional[str], premise: dict, conjuncts: list[dict]) -> bool:
+    """Rule ``previous-line-step`` (round-9 clearance c2, second fix pass; the translation-fidelity lens: maa-t15 m2.4 "4k <
+    36" from m2.3 "36 − 4k > 0", and m7.2 "2x + 2 = x − 3" from m7.1 "x + 1 = (x − 3)/2", faithful step checks refused as
+    restatements; the transfer auditor's rule ``stated-input`` exempts the same): whether ``premise`` (IR JSON) is the input of
+    the step the claim writes, written on the claim's previous lines of working (``prior_texts``: the claims before it in the
+    report and the claims it cites) and not in the claim itself, while the claim writes each restated ``conjunct``. Read on the
+    texts as written (:func:`_loose`); a form the reader cannot render exempts nothing, and a claim that writes its input
+    again states no step. The engine then checks the claim's own step from its stated previous line."""
+    if not claim_text or len(claim_text) > _STEP_TEXT_MAX or not conjuncts:
+        return False
+    priors = [_loose(t) for t in prior_texts if t and len(t) <= _STEP_TEXT_MAX]
+    if not priors:
+        return False
+    inputs = [_render(q) for q in _plain_conjuncts(premise)]
+    results = [_render(c) for c in conjuncts]
+    if not inputs or any(x is None for x in inputs + results):
+        return False
+    own = _loose(claim_text)
+    loose_inputs = [_loose(x) for x in inputs]  # type: ignore[arg-type]
+    loose_results = [_loose(r) for r in results]  # type: ignore[arg-type]
+    if any(x in own for x in loose_inputs) or not all(r in own for r in loose_results):
+        return False
+    return all(any(x in p for p in priors) for x in loose_inputs)
+
+
 def _without_exempt(problem: Problem, conjuncts: list[dict], restated: dict[int, list[tuple[str, str]]], exprs: dict[str, dict],
-                    checker: "_Checker", claim_text: Optional[str]) -> dict[int, list[tuple[str, str]]]:
-    """``restated`` without the rows of a premise that is a definitional identity or the claim's stated step input; a
-    premise that restates a conjunct as written is never exempt."""
+                    checker: "_Checker", claim_text: Optional[str], prior_texts=()) -> dict[int, list[tuple[str, str]]]:
+    """``restated`` without the rows of a premise that is a definitional identity, the claim's stated step input, or the
+    input of the step the claim writes from its previous line (``prior_texts``, rule ``previous-line-step``); a premise
+    that restates a conjunct as written is never exempt."""
     if not restated:
         return restated
     ways: dict[str, set[str]] = {}
@@ -596,7 +664,8 @@ def _without_exempt(problem: Problem, conjuncts: list[dict], restated: dict[int,
         if "as written" in kinds:
             continue
         mine = [conjuncts[i] for i, rows in restated.items() if any(p == pid for p, _w in rows)]
-        if _definitional_identity(problem, pid, exprs, checker) or _stated_step(claim_text, exprs[pid], mine):
+        if _definitional_identity(problem, pid, exprs, checker) or _stated_step(claim_text, exprs[pid], mine) \
+                or _previous_line_step(prior_texts, claim_text, exprs[pid], mine):
             exempt.add(pid)
     if not exempt:
         return restated

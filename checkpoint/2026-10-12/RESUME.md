@@ -1,10 +1,30 @@
-# Resume notes (13 Nov 16:15 UTC: weekly window reset at 16:00; hourly routine RE-ENABLED; the continuation phase2-c2c3 = wf_e6995188-011 (task wcuzu8b61) RUNNING: round 9 second fix pass, then round 10). Older sections below are history.
+# Resume notes (14 Nov ~07:5x UTC: phase2-c2c3 = wf_e6995188-011 RUNNING, resumed with the round 9 HOLD REMEDY inserted before round 10's agents; see the first section). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 14 Nov 07:2x-07:5x UTC: ROUND 9 COMMITTED, PUSH CHECK HELD, HOLD REMEDY INSERTED
+- verify:clearance-c2 red (1 failed: overseer test_subproject_layout `python -I` import; the venv has only the translator, as
+  CLAUDE.md documents) -> repair fixed the test (stricter: asserts the fresh interpreter resolves the package under test) ->
+  verify after repair GREEN (25195 passed, 1 skipped, 1 xfailed; harness = records) -> commit be91e89 "Fix the c2 clearance
+  findings" (pushed to origin) -> push-check:c2 HOLD (S/push-check/be91e89....json; copy S/dbg/pushcheck-c2-be91e89.json):
+  critical_open = results-audit bug 13 + adversarial-live bug 10: self-certifying answers on the History and Economics
+  branches pass the overseer-selected fallback (meta_notes.self_report_reading narrower than adapters.markdown.
+  is_self_certification). Not uploaded. readme:c2 (3c9b1a0) documented the hold; the old script then went on to round 10.
+- The old script never carries a push-check hold into the next round (CARRY.c3 empty). Patched (backup
+  S/wf-scripts/phase2-c2c3.js.before-hold-remedy; patch files S/wf-scripts/patch-hold/): holdRemedyC2() runs once after
+  design:c3 and before round 10's agents: fix:hold:c2:<r> + attack:{phrasings,paths,correct-work}:c2-hold:<r> (<= 3 rounds),
+  verify/commit "Fix the c2 clearance findings" (label clearance-c2-hold), push-check lenses + challenger + judge
+  (push-check:c2-hold writes push-check/<sha>.json with supersedes [be91e89 full sha] only if every critical item is resolved),
+  push:c2-hold (presim + event_push), readme:c2-hold. If not superseded: be91e89 stays in HELD_OPEN, the round 10 push check is
+  told to settle it, and the critical item joins CARRY.c3. Always carried into round 10: the push check's non-hold leftovers
+  (STEM repro list, W110/W111, maa-t13 roles, plain-space thousands, CORE-SRC-002 severity, harness mutations). Round 10's commit
+  message bullets are clipped at word boundaries (be91e89's were cut mid-word; it cannot be amended: already on origin).
+- Resume after a restart: Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js, resumeFromRunId: "wf_e6995188-011"}) (same args:
+  none). Decisions still needed from Daniel: D9/D10 (Geography and Language B branches), the release tag (HTTP 403).
 
 ## 13 Nov 16:15 UTC: CONTINUATION LAUNCHED
 - Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js}) with no args -> run wf_e6995188-011, task wcuzu8b61 (script sha256 48809ecf5afc75a1).

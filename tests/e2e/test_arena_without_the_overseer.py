@@ -74,14 +74,20 @@ def test_where_the_overseer_is_not_installed_a_round_runs_and_says_both_of_its_p
     _not_installed(monkeypatch)
     assert ra.overseer_installed() is False
     rd = _round_dir(tmp_path / "without", feedback=True)
-    assert ra.main([str(rd)]) == 0  # never a ModuleNotFoundError that ends the round
+    # rewritten to the stricter rule of the round-9 clearance (c2b, the router fixer's handoff): a pass of the overseer not run because
+    # the overseer is not installed fails the run (exit 1, naming both passes) unless the operator says --without-overseer
+    assert ra.main([str(rd)]) == 1  # never a ModuleNotFoundError that ends the round, and never a silent 0
+    assert ra.WITHOUT_OVERSEER_FAILURE in capsys.readouterr().out
+    assert ra.main([str(rd), "--without-overseer"]) == 0
     printed = capsys.readouterr().out
     out = json.loads((rd / "results.json").read_text())
     assert not out["failures"] and all(r.get("functional") and not r.get("error") for r in out["records"])
     assert _transport(out) == _transport(with_it)  # no transport count depends on the overseer's passes
     assert out["deliveries"] == {"skipped": ra.OVERSEER_NOT_INSTALLED, "tasks": [], "by_mode": {}, "errors": []}
     assert out["revisions"] == {"skipped": ra.OVERSEER_NOT_INSTALLED, "tasks": [], "checks": [], "errors": []}
+    assert out["overseer"] == {"found_beside": out["overseer"]["found_beside"], "without_overseer": True, "passes_not_run": ["deliveries", "revisions"]}
     summary = (rd / "summary.md").read_text()
+    assert "Overseer configuration: replayed without the overseer on purpose (--without-overseer): deliveries, revisions not run." in summary
     assert f"## Delivery decisions\n\n(not run: {ra.OVERSEER_NOT_INSTALLED})" in summary
     assert f"## Specialist revisions\n\n(not run: {ra.OVERSEER_NOT_INSTALLED})" in summary
     assert f"delivery decisions (a separate measure): not run ({ra.OVERSEER_NOT_INSTALLED})" in printed

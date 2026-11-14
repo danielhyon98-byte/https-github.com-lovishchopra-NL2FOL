@@ -40,7 +40,7 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
 from epinoic_logic.api.channel import ChannelEvent, PoolEntry
 from epinoic_logic.api.engine import CapturedResult
@@ -747,6 +747,65 @@ def build_runner(pack: Any, provider: Any, *, agent_id: str, lens: str) -> Any:
     if not isinstance(pack, KnowledgePack):
         raise TypeError("an overseer agent is built only from a KnowledgePack loaded from an exported pack")
     return OverseerAgentRunner(pack, provider, agent_id=agent_id, lens=lens)
+
+
+#: The provider name a recorded arena reply carries (never a live provider's name: the score reports it as such).
+RECORDED_REPLY_PROVIDER = "recorded arena reply"
+
+
+def input_digest(system: str, user: str, prompt_version: str) -> str:
+    """The digest that keys a recorded reply: sha256 of the canonical JSON of the runner's exact input (the system text, the user
+    text, the prompt version), so a reply recorded for one composed input is never served for another."""
+    from epinoic_logic.api.ir import canonical_json, sha256_hex
+    return sha256_hex(canonical_json({"system": system, "user": user, "prompt_version": prompt_version}))
+
+
+def write_runner_input(runner: Any, dossier: dict, out_dir: Path) -> str:
+    """Write ``runner.build_input(dossier)`` for an outside agent to answer: ``<digest>.system.txt``, ``<digest>.user.txt`` and
+    ``<digest>.json`` (the digest and the prompt version) in ``out_dir``. Returns the input digest the reply must be recorded under
+    (``<digest>.reply.txt`` in the same directory, the agent's reply exactly as written)."""
+    system, user = runner.build_input(dossier)
+    digest = input_digest(system, user, runner.prompt_version)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{digest}.system.txt").write_text(system, encoding="utf-8")
+    (out_dir / f"{digest}.user.txt").write_text(user, encoding="utf-8")
+    (out_dir / f"{digest}.json").write_text(json.dumps({"input_sha256": digest, "prompt_version": runner.prompt_version}, sort_keys=True) + "\n",
+                                            encoding="utf-8")
+    return digest
+
+
+class RecordedReplyProvider:
+    """A completion provider for the arena's overseer-agent stage (round-9 clearance c2: every arena verdict was a self-report submitted
+    through the intake, so gate ``deployment_faithful_every_verdict_runner_attested`` failed every round). A workflow agent answers
+    exactly the input the package's runner composes (:func:`write_runner_input`: the pack's system text for the dossier and the
+    rendered dossier block); this provider returns that recorded reply, keyed by the digest of the input it is called with
+    (:func:`input_digest`). The runner then validates the reply and the intake signs it, so the verdict is runner-attested, and its
+    AgentRun names this provider (``recorded arena reply``), never a live provider. A reply recorded for another input is refused (a
+    ``ProviderError``: no review), and so is a missing one: a provider error, never a verdict. No network."""
+
+    name = RECORDED_REPLY_PROVIDER
+
+    def __init__(self, replies: Mapping[str, str]) -> None:
+        self.replies = {str(k): v for k, v in dict(replies).items()}
+        self.calls: list[str] = []
+
+    @classmethod
+    def from_directory(cls, directory: Path) -> "RecordedReplyProvider":
+        """The replies recorded as ``<input digest>.reply.txt`` files in ``directory``."""
+        out = {}
+        for p in sorted(Path(directory).glob("*.reply.txt")):
+            out[p.name[: -len(".reply.txt")]] = p.read_text(encoding="utf-8")
+        return cls(out)
+
+    def complete(self, system: str, user: str, *, prompt_version: str):
+        from epinoic_logic.api.translate import ProviderError, ProviderInfo, ProviderResponse
+        digest = input_digest(system, user, prompt_version)
+        self.calls.append(digest)
+        reply = self.replies.get(digest)
+        if not isinstance(reply, str):
+            raise ProviderError(f"no reply was recorded for this exact input (input sha256 {digest}): a reply recorded for another input is never served")
+        return ProviderResponse(raw_text=reply, info=ProviderInfo(provider_name=self.name, prompt_version=prompt_version, temperature=0.0, latency_ms=0.0))
 
 
 def dossier_of_user_text(user: str) -> dict:

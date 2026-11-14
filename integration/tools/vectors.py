@@ -24,6 +24,7 @@ import argparse
 import copy
 import itertools
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -40,8 +41,15 @@ ANSWER = ("SYNTHETIC answer. The treaty was signed in 1919. The hyperinflation p
           "Historians still debate how far the treaty explains later instability.\nSources: none consulted (synthetic)")
 
 
+#: The bidirectional embedding, override and isolate controls (U+202A to U+202E, U+2066 to U+2069): written raw in a file they reorder
+#: what a reviewer reads (Trojan Source), so a vector writes each as its JSON escape (round-9 clearance c2b; the parsed value is
+#: unchanged).
+_BIDI_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
+
+
 def _dump(obj) -> str:
-    return json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    text = json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False)
+    return _BIDI_RE.sub(lambda m: "\\u%04x" % ord(m.group(0)), text) + "\n"
 
 
 # ----------------------------------------------------------------------------------------------- canonical

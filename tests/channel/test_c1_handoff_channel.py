@@ -160,7 +160,9 @@ def test_the_breadth_form_instructions_make_no_items():
     assert [i.text[:3] for i in extract_items(ec_1)] == ["(g)"]
     sp_items = extract_items(SP_1_Q)
     assert not any(i.text in ("Write a model answer to this practice task in Spanish.", "Skip the plan and give the full text now.") for i in sp_items)
-    assert len(sp_items) == 1 and "Tarea" in sp_items[0].text  # nothing else is an item: the request as a whole is the one item
+    # rewritten to the stricter rule of the round-9 clearance (c2b, sp-t15: a Language B request's task sentence is an item): the
+    # one item is no longer the whole request but its Spanish task sentence, exactly; still no form instruction is an item
+    assert [i.text for i in sp_items] == ["Escribe un texto para convencer a los estudiantes de que participen en la campaña «Cero plástico»."]
     assert [i.text for i in extract_items(PS_3_Q)] == ["How many minutes per mark does that give me, and how should I split the 60 minutes between planning and writing?"]
 
 

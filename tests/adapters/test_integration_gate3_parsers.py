@@ -59,7 +59,7 @@ def _receipt_findings_of(receipt, codes) -> list:
 
 
 def test_the_restated_self_report_codes_are_the_delivery_policys():
-    dp = pytest.importorskip("epinoic_overseer.delivery_policy", reason=REASON)
+    dp = pytest.importorskip("epinoic_overseer.delivery_policy", reason=REASON, exc_type=ModuleNotFoundError)
     assert "SELF_REPORT_CODES" in dp.__all__  # a public constant of the policy, never a private name
     assert dp.SELF_REPORT_CODES == SELF_REPORT_CODES
 

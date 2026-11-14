@@ -27,8 +27,9 @@ from types import MappingProxyType
 from typing import Mapping, Optional
 
 from .boolean import is_boolean_context, parse_boolean, parse_truth_table
-from .chem import latex_to_chem, parse_equation
+from .chem import ELEMENTS, latex_to_chem, parse_equation
 from .datatables import parse_data_tables
+from .layout import TABLE_SEPARATOR_RE
 from .lexer import RELATION_LOOKALIKES, Token, is_sign_error, lex, sign_outside_grammar
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile, profile_for
 from .nodes import BinOp, Neg, Num, Operand, Percent, Quantity, Sym, is_value, render, shape_key, symbols, value_of
@@ -42,6 +43,7 @@ from .relations import (
 )
 from .scope import Binding, Formula, Scope, prescan_names
 from .tolerance import approx_word_in
+from .units import decimal_data_stated, stem_parse_unit as parse_species_unit
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
 
@@ -217,6 +219,11 @@ def build_document(text: str, request_text: Optional[str] = None, profile: "str 
     (rule ``table-data``, :mod:`.datatables`) and the values their prose states too (rule ``supplied-values``, STEM repair 3).
     Repeated calls with the same arguments return the same object."""
     prof = profile_for(profile)
+    if not prof.decimal_data and (decimal_data_stated(request_text or "") or decimal_data_stated(text)):
+        # round-9 clearance (rule data-convention): '1 GB = 1000 MB', '1 MB = 10⁶ bytes' stated in the request or the answer fix the decimal
+        # reading of the multiples of the byte, so '1.8 GB × 1000 MB per GB = 1800 MB' has one reading (it had eight, ST-PARSE-002, and was
+        # left unchecked whatever its value)
+        prof = replace(prof, decimal_data=True)
     return _cached(text, request_text or "", prof, limits, tuple(t for t in data if t and t.strip())[:8])
 
 
@@ -278,13 +285,117 @@ class _Read:
     dots: tuple[int, ...] = ()
 
 
+#: round-9 clearance (rule species-label): a chemical formula with a subscript digit written right after a unit and before an operator, a
+#: relation sign, a closing bracket or the end of the line ('1500 cm³ H₂ × (2 ÷ 3) = 1000 cm³', 'n = 0.400 mol N₂ = …') labels the quantity:
+#: the formula run (element symbols, subscript digits, a state symbol), and what must stand before and after it (looked at in windows)
+_SPECIES_RUN_RE = re.compile(r"(?<![\w₀-₉])(?:[A-Z][a-z]?[₀-₉]{0,3}){1,8}(?:\((?:g|l|s|aq)\))?(?![\w₀-₉(])")
+_SPECIES_UNIT_BEFORE_RE = re.compile(r"\d[ \t]{0,2}(?P<unit>(?:[A-Za-zµμ]{1,4}[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]{0,3}[ \t]?){1,3}?)[ \t]+$")
+_SPECIES_AFTER_RE = re.compile(r"[ \t]*(?:[×÷*/·=+\-)]|\n|$)")
+#: at most so many formulas are read as labels per answer (each is a few lookups in fixed windows)
+_MAX_SPECIES_LABELS = 256
+
+
+def _species_labels(reading: str) -> list[tuple[int, int]]:
+    """Rule ``species-label`` (round-9 clearance): the spans of the chemical formulas that label a quantity right after its unit
+    (``_SPECIES_RUN_RE``), which the chemistry reading blanks so the calculation reads on through them. Before, the formula after the unit
+    ended the maths run, so '1500 cm³ H₂ × (2 ÷ 3) = 1000 cm³' was read as 'NH₃ = 1500 cm³' and a label binding: a wrong value or unit
+    there crossed with no check and no finding. A formula followed by a word ('0.400 mol N₂ gives …') stays as written. Linear: one scan,
+    fixed windows."""
+    out: list[tuple[int, int]] = []
+    for m in _SPECIES_RUN_RE.finditer(reading):
+        if len(out) >= _MAX_SPECIES_LABELS:
+            break
+        token = m.group(0)
+        if not any("₀" <= c <= "₉" for c in token):
+            continue
+        before = _SPECIES_UNIT_BEFORE_RE.search(reading[max(0, m.start() - 24):m.start()])
+        if before is None or not _SPECIES_AFTER_RE.match(reading, m.end(), m.end() + 4):
+            continue
+        unit = parse_species_unit(before.group("unit").strip())
+        if unit is None or unit.unknown:
+            continue
+        out.append((m.start(), m.end()))
+    return out
+
+
+#: round-9 clearance, second pass (rule mark-code): one markscheme code, or a run of them written with no blank between them ('M1', 'A1',
+#: 'R1', 'N2', 'B1', 'AG', 'M1A1', '(A1)'); matched whole against one blank-free token of at most :data:`_MAX_MARK_TOKEN` characters
+_MARK_TOKEN_RE = re.compile(r"\(?(?:[MARNB][1-9]|AG)+\)?")
+_MAX_MARK_TOKEN = 12
+#: the words of a text (counted once each, to tell a markscheme code from a symbol of the same spelling)
+_WORD_RE = re.compile(r"[A-Za-z0-9]+")
+#: what may end the maths before a trailing markscheme code: never an operator or an opening bracket, of which the code would be an operand
+_OPERAND_ENDS = frozenset("+-−×÷*/=<>≤≥≈^(,·")
+
+
+def _mark_codes(reading: str, request_text: str) -> list[tuple[int, int]]:
+    """Rule ``mark-code`` (round-9 clearance, second pass): markscheme codes written after a single blank at the end of a line, after
+    working ('The line through (5, 2) with gradient −3 is y − 2 = −6(x − 5) M1', then 'y = −3x + 17 A1'), are annotations, as they are
+    after two blanks (``layout.MARK_CODE``): their offsets, which the maths runs are found without. Before, the maths run read the code as
+    a factor (−6(x − 5)·M₁ and −3x + 17·A₁), so the step between the two lines was never read and a wrong line crossed with no check and no
+    finding (the mai-t15 slip written in plain text). A letter-and-digit word is a code only when every one of its occurrences in the answer
+    closes a line this way, the request never writes it (a resistor 'R1' it names stays a symbol) and the answer closes at least two lines
+    with codes; it never stands right after an operator or an opening bracket. Linear: each line is read once from its end, in tokens of
+    at most a few characters, and the words of the two texts are counted once."""
+    trailing: list[tuple[int, int, str]] = []
+    n = len(reading)
+    pos = 0
+    while pos <= n and len(trailing) < 4096:
+        end = reading.find("\n", pos)
+        if end < 0:
+            end = n
+        k = end
+        while k > pos and reading[k - 1] in " \t":
+            k -= 1
+        if k > pos and reading[k - 1] in ".;,":
+            k -= 1
+        found: list[tuple[int, int, str]] = []
+        while k > pos:
+            j = k
+            while j > pos and k - j <= _MAX_MARK_TOKEN and not reading[j - 1].isspace():
+                j -= 1
+            if j == k or k - j > _MAX_MARK_TOKEN or j == pos or reading[j - 1] not in " \t":
+                break
+            token = reading[j:k]
+            if _MARK_TOKEN_RE.fullmatch(token) is None:
+                break
+            found.append((j, k, token.strip("()")))
+            b = j
+            while b > pos and reading[b - 1] in " \t":
+                b -= 1
+            k = b
+        if found and k > pos and reading[k - 1] not in _OPERAND_ENDS:
+            trailing.extend(found)
+        pos = end + 1
+    if len(trailing) < 2:
+        return []
+    closing: dict[str, int] = {}
+    for _a, _b, word in trailing:
+        closing[word] = closing.get(word, 0) + 1
+    every: dict[str, int] = {}
+    for m in _WORD_RE.finditer(reading):
+        word = m.group(0)
+        if word in closing:
+            every[word] = every.get(word, 0) + 1
+    asked = {m.group(0) for m in _WORD_RE.finditer(request_text or "") if m.group(0) in closing}
+    keep = [(a, b) for a, b, word in trailing if every.get(word, 0) == closing[word] and word not in asked]
+    return keep if len(keep) >= 2 else []
+
+
 def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str], *, request: bool = False,
-          reading: Optional[str] = None) -> _Read:
+          reading: Optional[str] = None, mark_codes: "list[tuple[int, int]] | tuple[()]" = ()) -> _Read:
     reading = reading_view(text) if reading is None else reading
+    if profile.chemistry and not request and any("₀" <= c <= "₉" for c in reading):
+        # round-9 clearance (rule species-label): a formula labelling a quantity after its unit is no factor of the calculation
+        labels = _species_labels(reading)
+        if labels:
+            reading = blank_ranges(reading, labels)
     # integration gate 3 (rule middle-dot): a middle dot between two digits with no blank ('5·0') is read as a decimal point too: the runs
     # are found with it as one, and the spans that hold one are lexed and parsed again from a view where each such dot is a full stop
     dots = ambiguous_dots(text) if "·" in text else ()
-    spans = find_spans(text, reading, profile=profile, limits=limits, names=names, decimal_dots=dots)
+    # round-9 clearance, second pass (rule mark-code): the runs are found without the markscheme codes that close a line after one blank;
+    # the statements are cut as before (find_spans blanks the codes for the maths only, never as markup)
+    spans = find_spans(text, reading, profile=profile, limits=limits, names=names, decimal_dots=dots, mark_codes=tuple(mark_codes))
     seg_reading = reading  # the statements are cut as before: the prose view blanks the markup itself, and struck text stays a statement
     if spans.emphasis:
         # integration gate 3 (rule emphasis-layout): emphasis markers are layout, never operators: the reading every later step reads
@@ -355,6 +466,10 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 if table is not None:
                     rows = tuple(o.id for o in seg.covering(sp.start, sp.end) if o.id != st.id)  # each row is a statement
                     items.append(MathItem(table=table, cover_ids=rows, **base))
+                elif not request:
+                    # round-9 clearance (rule table-working): the working a table's cells hold is read like a line of working
+                    for cell_item in _table_working(text, reading, sp, seg, order, len(items), profile, limits, names):
+                        items.append(cell_item)
                 cursor = max(cursor, sp.end)
                 continue
             if sp.kind == "chem":
@@ -514,6 +629,14 @@ def _operand_char(view: str, k: int, step: int) -> bool:
             continue
         if c.isdigit() or c in "()[]⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉":
             return True
+        if c == "|":
+            # round-9 clearance: an absolute-value bar beside the sign ('||1|| = 2', '||−3| − 5| = 7': nested bars the reader holds in no
+            # span) is maths; a table's bars are inside its span, so they never reach this rule
+            return True
+        if step < 0 and (c == "…" or view[max(0, j - 2):j + 1] == "..."):
+            # round-9 clearance (rule cut-decimal): an ellipsis right after a digit ends a cut decimal ('7045.59… = 46 379.41…'), maths
+            e = j - (1 if c == "…" else 3)
+            return e >= 0 and view[e].isdigit()
         if not c.isalpha():
             return False
         m = j
@@ -699,6 +822,84 @@ def _inside_brackets(text: str, a: int, b: int) -> bool:
     return depth > 0
 
 
+#: rule table-working (round-9 clearance): arithmetic between figures in a table cell: a times, division, plus or minus sign (a hyphen
+#: only with a space on each side, so a range '10-20' is no subtraction) between a figure or a bracket and a figure, a bracket or a symbol
+_CELL_ARITH_RE = re.compile(r"[\d)]\s*[×÷*/+−]\s*[\d(\w]|[\d)]\s+-\s+[\d(]|\w\s*[×÷*/+−]\s*[\d(]")
+#: a cell that is one value: a sign, a numeral (a power of ten after it), and a per cent sign or a unit of a few characters
+_CELL_VALUE_RE = re.compile(r"^[+\-−]?\s*\d[\d.,]*(?:\s*[×x]\s*10[⁻⁰¹²³⁴⁵⁶⁷⁸⁹^\-−\d{}()]+)?\s*(?:%|[A-Za-zµμΩ°][A-Za-z0-9µμΩ°⁻⁰¹²³⁴⁵⁶⁷⁸⁹/ .\-]{0,23})?$")
+#: two figures joined by a hyphen or a dash and nothing else ('10 - 20', '2019 – 2020'): in a table, a range as likely as a subtraction
+_CELL_RANGE_RE = re.compile(r"^[+\-−]?\d[\d.,]*\s*[-–—‐‒]\s*\d[\d.,]*(?:\s*[A-Za-z%°µμ][^|]{0,20})?$")
+#: a cell that states one value for a symbol ('mid = 3'): read beside a cell of working in its row, whose arithmetic may take it
+_CELL_BINDING_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,11}\s*=\s*[+\-−]?\d[\d.,]*$")
+#: at most this many cells of a table are read as working (a table of a few dozen rows; the rest stays a table)
+_MAX_TABLE_CELLS = 96
+
+
+def _table_working(text: str, reading: str, sp: Span, seg: Segmentation, order: Mapping[str, int], first_index: int, profile: StemProfile,
+                   limits: StemLimits, names: frozenset[str]) -> list[MathItem]:
+    """Rule ``table-working`` (round-9 clearance): a Markdown table that is no truth table had its cells read by nothing, so a calculation
+    laid out in a table crossed with no check and no finding ('| Distilled water | (2.81 − 2.50) ÷ 2.50 × 100 | +16.4% |'). Each row is a
+    statement of its own; in it, a cell that holds a relation sign and arithmetic ('(2.81 − 2.50) ÷ 2.50 × 100 = +16.4%') is read as a
+    line of working, and a cell of arithmetic followed by a cell of one value is read as the arithmetic and its result (that the value is
+    that cell's result is a reading the answer did not state with a relation sign: its check fails at warning severity, ``checks._eq``).
+    Bounded: at most :data:`_MAX_TABLE_CELLS` cells, each within the span bound."""
+    out: list[MathItem] = []
+    rows = [o for o in seg.covering(sp.start, sp.end) if o.kind == "table"]
+    cells_read = 0
+    for ra, rb in sp.rows:
+        if cells_read >= _MAX_TABLE_CELLS:
+            break
+        row_text = reading[ra:rb]
+        if "|" not in row_text or TABLE_SEPARATOR_RE.match(row_text):
+            continue
+        st = next((o for o in rows if o.start < rb and ra < o.end), None)
+        if st is None:
+            continue
+        bars = [ra + k for k, ch in enumerate(row_text) if ch == "|"]
+        cells: list[tuple[int, int]] = []
+        for x, y in zip(bars, bars[1:]):
+            a, b = x + 1, y
+            while a < b and reading[a] in " \t":
+                a += 1
+            while b > a and reading[b - 1] in " \t":
+                b -= 1
+            if b > a:
+                cells.append((a, b))
+        worked = any(("=" in reading[x:y] or "≈" in reading[x:y]) and _CELL_ARITH_RE.search(reading[x:y]) for x, y in cells)
+        for ci, (a, b) in enumerate(cells):
+            cells_read += 1
+            if cells_read > _MAX_TABLE_CELLS:
+                break
+            cell = reading[a:b]
+            if b - a > limits.max_span_chars:
+                continue
+            if not _CELL_ARITH_RE.search(cell) and not (worked and _CELL_BINDING_RE.match(cell)):
+                continue
+            pair: Optional[tuple[int, int]] = None
+            if "=" not in cell and "≈" not in cell:
+                if ci + 1 >= len(cells) or not _CELL_VALUE_RE.match(reading[cells[ci + 1][0]:cells[ci + 1][1]]) or _CELL_RANGE_RE.match(text[a:b]):
+                    continue
+                pair = cells[ci + 1]
+            lx = lex(reading, a, b, mode="plain", orig=text, cs=profile.computer_science, limits=limits, max_tokens=limits.max_tokens_per_span + 1)
+            toks = lx.tokens
+            if pair is not None:
+                lv = lex(reading, pair[0], pair[1], mode="plain", orig=text, cs=profile.computer_science, limits=limits,
+                         max_tokens=limits.max_tokens_per_span + 1)
+                toks = tuple(toks) + (Token("REL", "=", b, pair[0], True),) + tuple(lv.tokens)
+                overflow = lx.overflow or lv.overflow
+            else:
+                overflow = lx.overflow
+            if overflow or not toks or len(toks) > limits.max_tokens_per_span:
+                continue
+            end = pair[1] if pair is not None else b
+            base = dict(index=first_index + len(out), statement_id=st.id, statement_index=order.get(st.id, 0), part=st.part, stmt_kind=st.kind,
+                        span_kind="table_pair" if pair is not None else "table_cell", start=a, end=end, label="", gap_before="",
+                        source="statement", statement_text=reading[st.start:st.end], statement_start=st.start, statement_end=st.end)
+            pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits, mode="plain", lead_label=None))
+            out.append(MathItem(chains=pm.chains, issues=pm.issues, unparsed=pm.unparsed, **base))
+    return out
+
+
 def _lone_value(pm):
     """The value of an inline maths span that holds exactly one value and no relation, else None."""
     if len(pm.chains) != 1 or pm.chains[0].links or len(pm.chains[0].operands) != 1 or len(pm.chains[0].operands[0].readings) != 1:
@@ -786,6 +987,41 @@ def _prose_numbers(reading: str, text: str, st: Statement, spans: SpanSet, profi
     return out
 
 
+#: round-9 clearance (rule bond-data): a bond enthalpy the request states with the bond's notation ('N≡N 945 kJ mol⁻¹', 'H–H: 436'):
+#: two element symbols joined by a bond sign, then the value (anchored at the bond, bounded runs)
+_BOND_VALUE_RE = re.compile(r"(?<![A-Za-z])(?P<a>[A-Z][a-z]?)(?P<s>[=≡–—-])(?P<b>[A-Z][a-z]?)(?![A-Za-z])[ \t]{0,3}(?:[:=,][ \t]{0,3})?"
+                            r"(?P<n>\d{1,6}(?:\.\d{1,4})?)(?![\d.])(?:[ \t]{0,3}(?P<u>kJ[ \t]?mol(?:⁻¹|\^-1|-1)))?")
+_SINGLE_BOND_SIGNS = ("–", "-", "—")
+_MAX_BOND_DATA = 32
+
+
+def _request_bond_bindings(reading: str, scope: Scope) -> list[Binding]:
+    """Rule ``bond-data`` (round-9 clearance): the bond enthalpies the request states with a bond's notation ('Using the average bond
+    enthalpies N≡N 945 kJ mol⁻¹, H–H 436 kJ mol⁻¹'), as request bindings of the bond the parser reads ('N≡N', 'H–H'; a single bond under
+    each of its dashes), so a bond sum the answer substitutes ('Bonds broken: 1 × N≡N + 3 × H–H = 1 × 945 + 3 × 436') is checked against
+    them, a count in it included ('4 × N≡N'); before, the bonds had no value and a wrong count crossed with nothing named. At most
+    :data:`_MAX_BOND_DATA` values; a bond the request already binds is left as it is."""
+    out: list[Binding] = []
+    for m in _BOND_VALUE_RE.finditer(reading[:20000]):
+        if len(out) >= _MAX_BOND_DATA:
+            break
+        a, b = m.group("a"), m.group("b")
+        if a not in ELEMENTS or b not in ELEMENTS:
+            continue
+        scan = scan_number(reading, m.start("n"))
+        if scan is None or scan.number is None or scan.end != m.end("n"):
+            continue
+        signs = _SINGLE_BOND_SIGNS if m.group("s") in _SINGLE_BOND_SIGNS else (m.group("s"),)
+        for sign in signs:
+            name = f"{a}{sign}{b}"
+            if scope.bindings.get(name):
+                continue
+            # the value as a bare number: a bond sum is written per mole of bonds or of reaction, in kJ or kJ mol⁻¹ alike, and the
+            # dimension of the sum is no part of what this reading decides (the counts and the values are)
+            out.append(Binding(name, scan.number.value, scan.number, None, "request", "request", m.start(), m.end()))
+    return out
+
+
 def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str],
                      tables: tuple = ()) -> tuple[RequestReading, Scope]:
     scope = Scope(limits=limits)
@@ -794,6 +1030,9 @@ def _request_reading(request_text: str, profile: StemProfile, limits: StemLimits
     rd = _read(request_text, profile, limits, names, request=True)
     _rels, _findings, req_relations = plan_relations(rd.items, rd.prose_values, scope, RequestReading(), profile, limits=limits, statement_order=rd.order,
                                                      request_mode=True, reading=rd.reading)
+    if profile.chemistry:
+        for b in _request_bond_bindings(rd.reading, scope):
+            scope.add(b)
     bindings = tuple(b for lst in scope.bindings.values() for b in lst)
     quantities: list[tuple] = []
     for item in rd.items:
@@ -1173,7 +1412,8 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
     if request_text.strip() and any(mark in request_text for mark in ("±", "+/-", "∓")):
         # rule given-uncertainty (STEM repair 3): the uncertainties the request itself states, read as a supplied text's are
         request = replace(request, request_uncertainties=_supplied_reading((request_text,), profile, limits, all_names)[3])
-    rd = _read(text, profile, limits, all_names, reading=reading)
+    marks = _mark_codes(reading, request_text) if any(c in reading for c in "MARNB") else []
+    rd = _read(text, profile, limits, all_names, reading=reading, mark_codes=marks)
     reading = rd.reading  # integration gate 3 (rule emphasis-layout): the reading with the emphasis markers blanked
     scope = Scope(limits=limits)
     for b in request.bindings:

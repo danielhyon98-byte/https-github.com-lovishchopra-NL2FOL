@@ -5865,3 +5865,243 @@ test rejects any `Path(__file__)` climb past the sub-project, any `.parent` of a
 installed package (`.gitattributes`, the source-checkout root) now read it from the sub-project, so the suite passes under a
 normal install as under an editable one. The README states that `git subtree split` carries only the commits since the
 move, where the 26 earlier ones live, and how a split that keeps them is made.
+
+## 55. The round-9 clearance (integrated round c2) on the overseer: what changed and why
+
+Round 9 (integrated round c2) and the 54 carried round-8 records named the overseer's part in five classes of fault: false
+circularity and grounding findings on faithful translations (the auditor failed correct answers), a quotation reader that
+took a specialist's own model answer for a quotation, a divergence over the task record, a joint re-check that could not
+see a conflict made only by pooling, and a delivery and feedback path that excluded or steered correct work while letting a
+self-certification or a refuted answer through. Each was reproduced on the recorded round (the probe runs the harness on a
+copy of the round and prints the delivery pass's audit), fixed at its cause, and pinned by a regression test with a control
+(`tests/overseer_tests/test_clearance_c2_overseer.py`). The translator's side of the same records (its E112 gate, the
+channel's model-sentence reading, the formalization binding, the candidate reading, the generic parser's brackets, the
+channel's feedback renderer) belongs to the translator's owner; what it needs is written down in that owner's handoff, and
+nothing here loosens a rule to match the channel.
+
+**Decision 138 (a faithful step check is no circular translation: rules `stated-input` and `stated-evaluation`).** The c2
+translation-fidelity lens judged nine OVS-TRN-006 errors false (mai-t15 m5.1, m9.2, m10.1, m13.1; maa-t15 m7.3, m7.4, m9.2;
+ch-p9b s11.3; ch-t15 s4.1): the restating premise is the input of the step the claim writes ("11x = 45" on the previous line,
+"x = 45/11" in the claim) or the value it evaluates at ("Check: the left side is −5 + 1 = −4"), and the arithmetic reading
+(rule `arithmetic-restatement`) found the two equivalent. Rule `stated-step` read the input only in the claim itself and only
+under the problem's own symbol names, so a translation that names the answer's x `ix` was never exempt. Rule `stated-input`:
+a premise the arithmetic reading ALONE names (never one restating as written, by Boolean structure or in order, never one the
+translator's floor or engine names) is exempt when each of its conjuncts is a relation the answer writes before the step (the
+claim before its step marker, or one of its three previous claims, its previous lines of working), each restated conjunct is a
+relation the claim writes, one renaming of the written symbols onto the problem's symbols fits them all (at most three symbols
+per relation, every permutation tried, at most 256 combinations), and no relation of the input is, as written, one of the
+result. Rule `stated-evaluation`: a premise that only gives symbols values is exempt when the claim writes each restated
+conjunct evaluated at them, side for side (each side exactly the written side's value, read by the engine's own compiler; a
+unit read at its written number). Relations are read by the STEM front end, each link of a chain and each whole chain, as data;
+nothing is evaluated by Python. Controls: ph-t15 s2.4's "6000 vsq = 54096", an intermediate the answer writes nowhere, and the
+c2 anchors 'unit = 1' restating a conjunct as written stay OVS-TRN-006 (the 21 true positives of the round); a claim that
+writes no evaluation, or repeats its input, is not exempt. Measured on c2: the nine are gone; every anchor stays.
+
+**Decision 139 (a figure the task states with its unit is read, a 0 or 1 included; a chemical amount names its substance).**
+Rule `unit-structural`: a 0 or 1 its source states with a unit of measure (a marker the STEM unit reader gives a dimension)
+for the premise's quantity, as the premise states it and as a statement, is read like any other figure (c1 bi-t14 s1.2's
+'area_q = 1' for "60 quadrats, each 1 m²": undecided data, OVS-TRN-011 at most, where it was "a structural figure, never
+data" and OVS-TRN-006); a bare 1, or one with a counted noun, stays structural. Rule `chemical-amounts`: "2 mol NH3" names NH3
+as well as mol, and the marker reader keeps a formula's subscript digits ("2NH₃" names NH₃, compared as "nh3"), so the task's
+"→ 2NH₃(g)" states 2 for c2 ch-t15 s4.1's "the equation as written forms 2 mol NH3" (undecided data, not OVS-TRN-006). Not
+adopted: reading an `arithmetic_fact` with no excerpt in the task material as data (the c1 record's "task-figures" proposal for
+bi-t14 s4.7 and ph-p8b s1.1). Decision 55's rule, pinned by `test_rebuild_merged_translator.py`, keeps an unverified
+`arithmetic_fact` the writer's own however its figures stand (never looser than the translator's engine rule,
+`assumed_grounding`); the record asks both sides to decide a restating premise's standing in one shared function, which is the
+translator's to land (its E112 then withholds such a claim, or both sides read it as data together, the pinned test rewritten
+with it). Until then the receipt and the audit still disagree on those two claims, and the handoff says so.
+
+**Decision 140 (readings of stated figures: rules `task-quotation`, `stated-squares`, `clock-times`, `years-months`,
+`stated-readings`; q222a, q222d, p5060c).** OVS-TRN-005 named 18 quotations of the task's own words (a quotation grounds a fact
+the task states exactly as a supplied text's does: the request is quotable now), 6 squares of stated figures ((√2210/11)² =
+2210/121; 2.95² and 3.05², the squared precision ends of "3.0": read where a text writes a square or a root, bounded like the
+root reading) and the half-month ends and whole months of "4 years 11 months". OVS-TRN-004 named the hour of a clock time
+("09:30" states 9.5), a month by name ("September" states 9) and the ends of a stated precision used as the bounds of that side
+("15.0%" states 14.95 ≤ p ≤ 15.05): a failed `figures_in_excerpt` or `numeric_in_task` check whose missing figures are all such
+readings of its source is accepted. Tightened beside them: the reciprocal and exact-quotient readings need a written division
+("/", "÷", "\frac", "divide", "per", "over", a quotient or a ratio; q222a: 0.2 and 5/7 were traced for "The mass is 5 kg and
+the time is 7 s."), the reciprocals are the first 4,000 written figures in text order (p5060c: 10,000 were built beside the
+cap), and a figure the request or a supplied text writes in words is stated as written (q222d). Every new pattern bounds its
+blank runs and reads each text once.
+
+**Decision 141 (the quotation reader: rules `own-model` and `referring-bracket`).** A quoted span the answer presents as its
+own model, example or suggested wording (a lead from a closed list at the start of its line or sentence: "Model:", "A model
+answer:", "Example answer:", "Rewrite:", "Suggested wording:", "For example, write:", "You could write:") and credited to no
+text quotes no supplied text, as the channel reads it: c2 ec-t15's four `Model: "..."` sentences drew four false OVS-FID-004
+errors and failed the audit. A quotation credited to a text stays FID-004 when no text holds it. A bracketed number right
+after a referring noun ("paragraph [3]", "row [5]") is that reference, never a mark annotation: the response is no longer read
+without it, so a claim the parser cut ("... linked to paragraph.") does not occur in the response (OVS-FID-001), and an
+agent's claim_not_in_response accusation of it is confirmed instead of refuted.
+
+**Decision 142 (the task record is in every translation's scope: rule `task-in-scope`).** The integrity package's
+formalization binding counts only the plan's documents, so a plan with a non-empty scope made every premise grounded in
+`task` an INT-HANDOFF-004 "outside the retrieval scope", which no receipt carries (the channel never runs that binding on its
+translations): five OVS-DIV-001 errors failed c2 ess-p9c. The divergence reads such a finding without `task`; any other
+document outside the scope still diverges.
+
+**Decision 143 (a value a claim checks at is local to it: rule `evaluation-point`).** c2 maa-t15 m5.3 ("Check: at x = 0, g(0)
+= 3 and h(3) = 1 = 0 + 1.") was pooled with m7.1 (solved by x = −5) and charged INT-CONFLICT-001; the false-conflict re-check
+re-ran the same pooled problem and refuted an agent's correct accusation (round-8 bug 21, still open). The re-check now also
+reads apart, per claim, a value its text says it evaluates or checks at ("at", "when", "for", "with", "if", "where" x = v) when
+one of its premises fixes that symbol at that value, with every symbol its premises define from it (g(0) and h(g(0)) are
+evaluated at the point too); CONSISTENT so read is OVS-JOINT-003 (the pooled-only conflict). A point no premise fixes leaves
+the pooling undecided (OVS-JOINT-002), so an accusation is unresolved, never refuted. A real contradiction (two claims stating
+different values, neither as a check at a point) is read as it is.
+
+**Decision 144 (the delivery policy: rules `translation-faults`, `self-certification-gate`, `absolute-refutation`,
+`coverage-gap`, `unchecked-working`).** A translation fault (`OVS-TRN-*`) is the translator's product, not the answer's: when
+the task audit's only faults of an answer are translation faults (no receipt error, no other audit error, no repeated fault,
+not superseded), its exclusion and its AUDIT_FAILED clearance keep it a candidate of the fallback (custody and the receipt
+digest re-checked as `policy.act_decision` re-checks them), and each claim so named has its formal outcome withdrawn (its signed
+result neither refutes nor supports it); the formal path never completes over it and the clearance stays AUDIT_FAILED (c2: five
+of the nine excluded answers were excluded only so). A self-certification (CORE-SELF-001, INT-REQ-014, OVS-FID-005, OVS-FID-009,
+any severity) keeps an answer from every fallback mode (c2 ps-t15's "VERIFIED: all claims checked and confirmed." would have
+travelled under OVERSEER-SELECTED), and so does a self-report no code names alone: the gate reads an ES-META-001 paragraph or
+sentence, a claim the parser roles `other` and a note-led block by the shared self-report readers, a first-person check, and
+assurance or evaluation words where the text names the writer's own answer (`meta_notes.self_report_reading`). ES-META-001 is
+not a gate on its own: the English pack names every meta-text paragraph with it, and all six of the recorded c1 and c2 ones are
+study suggestions or caveats, which the gate frees while the formal path's closed lists do not. A candidate a signed engine result refutes is never delivered, whatever the other
+candidates are (before, a single candidate kept the threshold and its refuted claim only lowered its accuracy). A
+COUNTEREXAMPLE carrying the engine's coverage warning W110 or W111 may show a gap of the translation; the B9 record asks that it refute nothing, but `tests/e2e/test_arena_deliveries.py` (the translator's) pins such a counterexample as "a refuted answer", so this round the refutation stands and the receipt names the warning (rule `coverage-gap`, recorded only); the reading lands with that test's rewrite to a genuine refutation (the handoff). A claim
+whose working the receipt names unchecked (the formal path's `NOT_CHECKED_CODES`) is never accurate on a verdict's silence, and
+a supporting claim so named is scored with the material claims (c2 cs-t15's slip sat in a supporting claim with only
+ST-PARSE-002). The policy version stays `delivery-v1` (the translator's arena test pins it; the rules are named on the receipt).
+
+**Decision 145 (feedback: rule `feedback-hold`).** 22 of the 30 flaws fed back in c2 were false; a correct academic-integrity
+decline was answered "Answer it", and a revision cut material analysis to meet a word bound its analysis met. A candidate flaw
+is now held back (listed on the build result, never sent) when it names only text the parser reads as no claim (claims roled
+`other`), when it is an unaddressed item the answer declines or defers (the channel's own decline reading) or that the coverage
+reads by shared words only, when it is a calculation flaw on a claim an INT-XENC-001 of the same receipt names, when it is an
+INT-SUBJ-004 (a reading the answer did not state), and when it is a word or paragraph flaw on an answer holding text the parser
+reads as no claim (the measure counts it). The channel's renderer (never "Answer it" for a declined item; the measure's
+composition) is the translator's.
+
+**Decision 146 (the harness).** The gold compares each auditor finding with the arena's injected faults only (rule
+`injected-only`: 44 of 185 agent-scorable findings reached the gold, a second finding of one code on one report being dropped);
+the fidelity reference converts only the findings it lists as false, and circular findings on faithful claims, keeps those it
+lists as true and never makes an infrastructure finding scorable (rule `listed-findings-only`: 24 of 38 conversions were
+wrong), and adds every false RECEIPT finding it lists as a `false_finding` fault (rule `receipt-false-findings`); an instruction
+a supplied text addresses to AI assistants is reported apart as reported / not reported, never counted as followed (rule
+`writer-addressed-injection`); a refuted accusation naming a claim a gold fault of another class covers is held for review, not
+counted false (rule `kind-mismatch`); a recorded-reply provider lets the arena's workflow agents answer the runner's exact input
+so their verdicts are runner-attested (`scripts/README.md`); T5 presents only the channel's declined-bound record (q222b); and
+R2's declined-bound check compares the record's unit and bound with the constraint's (p5060b).
+
+## 56. The round-9 clearance's second fix pass (c2b) on the overseer: what changed and why
+
+The second pass re-ran every finding of the round's list on the tree the first pass and the other owners left (12 to 13 Nov). Most
+no longer reproduce (their tests are in `tests/overseer_tests/test_clearance_c2_overseer.py`); the ones below still did, or were
+reproduced anew by a change of another owner, and are fixed at their cause with a regression test and a control in
+`tests/overseer_tests/test_clearance_c2b_overseer.py`. What other owners must change is in that pass's handoff; nothing here
+loosens a rule to match the channel.
+
+**Decision 147 (the self-certification gate reads every block a note lead opens).** The first pass's gate (decision 144) read a
+paragraph only when the parser's bare note lead opened it, and a claim only when the parser roled it `other`. Since round 9 the
+parsers keep a sentence of assurance under a note-word lead as a claim of the answer ("Final note: there is nothing to fix in this
+answer, not a single slip." is a point claim), so it travelled in the fallback. The gate now reads every block a note lead opens, at
+a paragraph's start, a line's start or after a sentence's end (the lead-blocks cutting reader, `meta_notes.lead_starts`), with the
+note-word leads ("Final note:", "One more note:", "A quick note for you:", "Teaching note:"; a closed, bounded pattern) beside the
+parsers' own; a block runs to the next lead of any kind. Measured on the 43 note-led blocks of every recorded answer of rounds 1 to 7,
+c1 and c2: none is named (cs-t15's "Teaching note:" and en-t15's "One note:" included); the narrated checks and evaluations of the
+first pass's list still are.
+
+**Decision 148 (rule `declared-incomplete`).** The c2 STEM-integration lens (critical): the verdicts on green-lit STEM transfers said
+"Not completed: ... STEM formal-check and ST-code review (I98) ... Items inside the scope that passed are not certified; they are simply
+not accused" or "Partial review ... only grep-based inspection", yet every unaccused claim of the transfers they listed counted
+accurate. The validation now reads a verdict's own notes by a closed list of phrases (not completed, incomplete, partial review, not
+certified, "I did not check ...", grep-based, skipped) and records the matched phrase's name (never the agent's words) on the
+assessment (`VerdictAssessment.declared_incomplete`); the delivery policy's accuracy counts such a verdict's `transfers_reviewed` as
+certifying nothing on its silence: its claims are unassessed (with the rule named in the evidence) unless another counted verdict
+reviewed the transfer without such a declaration. Its accusations and engine statements are assessed as ever, and the verdict still
+counts. The reading only ever trusts a verdict less: no wording of an agent's notes can raise an accuracy.
+
+**Decision 149 (rule `false-conflict-gap`).** Previous bug 21 (rounds 7 and 8, open in c2): OVS-JOINT-003 reads apart only what the
+pooled-only rule reads (glosses naming different quantities, a candidate a claim rejects, a value a premise of the claim fixes where
+its text says it evaluates or checks at it), so its silence shows that the named conflict holds under those readings, never that a
+conflict resting on a check, an evaluation point or a supposition the claim states is real; a correct accusation of maa-t15's m5.3
+against m7.1 was refuted "by deterministic check". A `false_conflict` accusation whose named conflict (INT-CONFLICT-001/005 on a
+receipt) holds a claim whose text, as the latest delivered report states it, states a check ("Check:", "To verify, substitute x = 4"),
+an evaluation point ("at x = 0") or a supposition ("Suppose x = 2", "Let x = 3", "for example") is now left unresolved for human
+review when no check confirms it; one whose claims state none of these is refuted as before. The c2 m5.3 case itself is confirmed
+through OVS-JOINT-003 (decision 143); the translator's channel now reads the same evaluation point apart before it charges a conflict
+(INT-CONFLICT-004).
+
+**Decision 150 (rule `task-figures`; decision 55's arithmetic-fact pin corrected).** The merged c1 record (critical): the receipt
+displayed bi-t14 s4.7 ('task-both', "both species were present in 20 quadrats") and ph-p8b s1.1 ('k-task', "combined spring constant
+is 50 N m⁻¹") ENTAILED while the auditor named them OVS-TRN-006, because an `arithmetic_fact` with no located excerpt was the writer's
+own "however the task states its figures", while the translator reads it as data once the task record validates it. The two sides
+now read the premise alike, by the stricter of the two readings: an unverified arithmetic fact that presents its figure as the task's
+(its own label names the task, the question or the request as the source: "(task figure)", "the question gives ...") is data only when
+a deterministic check READS its whole content in the request or the supplied texts, exactly as a task setting's is read (rule
+`same-quantity`: each figure stated there for the quantity the premise names, with its unit, as a statement, never as a target, a
+question or a requirement): undecided data, OVS-TRN-011 at most. The label only selects the task setting's reading, which a
+`task_setting` label already gets; it is never evidence. A bare task-record validation is still no evidence; an arithmetic fact whose
+label names no task source ("the claim restated": decision 55's pinned cases, `test_rebuild_merged_translator.py`, unchanged), a figure
+the request states for another quantity, or nowhere, a relation, Boolean content or a structural figure stated bare stays the writer's
+own, so an invented task figure stays OVS-TRN-006. This revises decision 139's "not adopted": the first pass left the reading to the
+translator's side because decision 55's pinned test forbids it for every unverified arithmetic fact; it is adopted here only for the
+arithmetic facts that name the task as their source, which that test does not hold, so the test stands unchanged and passes, and the
+receipt and the audit no longer disagree on the two claims. Measured on the current tree: c1's s4.7 and s1.1 are OVS-TRN-011 (receipt ENTAILED, audit warning: they agree);
+bi-t14 s1.2 is withheld by the translator (E112); c2's audits change in nothing (no arithmetic fact restates a conclusion there with
+figures the request states).
+
+**Decision 151 (rule `stated-squares` tightened).** The 12 Nov baseline record: the contained run's gate `stem_fault_classes_named`
+failed on the physics-translation probe (0.60 planted for ph-t13's 0.50 Ω, expected OVS-TRN-005): the first pass's reading "a stated
+figure over the square of a stated whole number" traced 0.60 as 2.4/2², the answer writing a square in a unit. That reading now needs
+the figure written under a root sign (√N, \sqrt{N}, sqrt(N): (√2210/11)² = 2210/121, c2 mai-t15), and a negative unit exponent
+("m s⁻²") opens no square reading. The full STEM probe run: gate ok, 677 of 677 counted, none failing.
+
+**Decision 152 (the twofold review, the c4f276c push check).** A merged review with no assessed verdict is noted NOT reviewed, with
+what each planned instance did (decision 133's wording for a source part): "0 verdict(s) assessed ... carried faults confirmed: none"
+read as a clean merged review. A temporary context records the mode it was built in, and the intake never shows a blind dossier a
+context built for an informed review or holding a fault of a kind in `BLIND_HIDDEN_KINDS` (defense in depth: `build` defaults to
+informed; `run_twofold` passes its mode). `test_twofold.py`'s scope test was rewritten to the stricter rule: each context it issues to
+its blind dossier is built in blind mode, and a context built in informed mode is refused. The judgement on `BLIND_HIDDEN_KINDS`:
+`receipt_status_wrong` and `finding_missing` stay visible, by decision 132's criterion: each is decided by re-deriving the receipt from
+content a blind dossier shows (RCPT-002 the status from the receipt's own findings; RCPT-004 and RCPT-008 the channel's rules on the
+journaled request and report; SYN-002 and DIV-001 the ledger and integrity rules on the journaled reports), never by a signature, replay
+or custody comparison, and a finding a receipt missed names a fault of a source claim the synthesis may carry.
+
+**Decision 153 (rule `response-limit` before the auditor's own readers; queued q211b, critical, defence in depth).** The channel
+refuses a response text over the contract's limit (400,000 characters, `max_length` of the response contract) before any reader
+runs on it; the auditor's answer-level readers did not, so a forged transfer could hand them a text of millions of characters (the
+English segmenter reads about 13 microseconds a character). The re-parse of a delivered response (OVS-CUST-006 names the text's
+length and the limit, and the auditor does not re-parse it), the note and lead readers of `meta_notes` and the parser readings of
+`non_material` now refuse such a text unread (`OversizeAnswer`; a block reader names the whole answer unread under the rule). A
+text over the limit is refused, never cut. Every public text entry point of the three modules is swept on the standard hostile
+inputs (one test per module, `test_clearance_c2b_handoff.py`).
+
+**Decision 154 (rule `one-fault-once` in the R2 recount).** The channel raised one INT-SUBJ-003 per error-level branch finding, so
+one misattributed quotation (CORE-SRC-005 and ES-SRC-008 on the same claim and quotation) was two errors; it now raises one per
+fault, naming every code of it (`channel.bus.subject_error_groups`, `SAME_FAULT_FAMILIES`). The recount calls the channel's own
+grouping (never a copy), expects exactly the fault's claims and a message led by `[<branch>] <codes>: `, and names a missing one
+"for the structural findings X, Y (one fault)". The receipt's error-level structural findings and INT-SUBJ-003 messages are
+indexed by their claims once, so a report of thousands of faults is recounted in one pass, as the grouping itself now is.
+
+**Decision 155 (rule `evaded-escalates`).** The c4f276c push check: a revision that weakened a statement the feedback named
+(a calculation turned into an estimate, INT-REV-002 "is made approximate") ended `done`, and consolidation let it supersede the
+answer it revised. Any evaded flaw now escalates the revision (`ESCALATION_REASONS` gains `evaded_after_feedback`, after the
+repeated-flaw check), no further feedback is asked, and consolidation excludes the revision ("a revision that evaded its feedback
+... weakened instead of corrected") and lets it supersede nothing.
+
+**Decision 156 (the coverage-gap reading; decision 144's "recorded only" replaced).** A COUNTEREXAMPLE whose problem carries a
+coverage warning (W110, W111: the encoding left part of the claim out) neither refutes the claim nor confirms it: the delivery
+policy's accuracy reads the claim `unassessed` with the signed result named in the evidence ("does not refute it ... unassessed
+(rule coverage-gap)"), never refuted. The translator's arena test now pins a genuine refutation by a premise that contradicts the
+answer (`tests/e2e/test_arena_deliveries.py`), which this reading waited for.
+
+**Decision 157 (the floor reads the claim's previous lines).** The auditor's translator floor (OVS-TRN-006's circularity floor,
+`translator_semantic_floor`) now passes the translator's `semantic_restatement` the claim's previous lines of working
+(`api.translate.previous_lines`: the three claims before it in the report and the claims it cites), as the translator's pipeline
+now does too: maa-t15 m2.4 ("4k < 36" from m2.3) and m7.2 ("2x + 2 = x − 3" from m7.1) are step checks from their stated previous
+line, not restatements (the floor reads them (None, ()) and the translator ENTAILED), while a premise no previous line states is
+still read by the floor (control).
+
+**Left to other owners or for later (the pass's handoff).** Done by the pass's handoff fixer: the channel's compound part labels
+("(a)(i)", rule nested-parts), ess-p9c's judgement line (a "Judgement:" line is its part's material judgement), the coverage-gap
+reading (decision 156), one INT-SUBJ-003 per fault (decision 154) and the translator's compound units ("kJ m⁻² yr⁻¹" read whole);
+maa-t13's two STEM checks were restored by the STEM owner. Still open: the binding of recorded translations to their supporting
+claims' texts (`run_arena.py`; it changes what the replay serves on the recorded rounds, so the harness owner decides how a refusal
+for a changed supporting text is reported), duplicates for contests no check can decide (the arena workflow plans them), CORE-SRC-002
+at warning (a code-table row, so a new knowledge pack version), and the tampering suite's minors (q222e's secondary codes, re-measured
+identical to 5060a52 and each tampering still detected by its expected codes; p5060a's declining target).

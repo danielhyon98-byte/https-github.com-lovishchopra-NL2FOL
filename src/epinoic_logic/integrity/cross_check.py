@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Optional
 
 from ..engine.errors import NO_VERDICT_CODES
@@ -87,6 +88,34 @@ _GLOSS_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*|[^\W\d_]+(?:['’-][^\W\d_]+)*")
 #: A part label of a question ("part (a)", "(c)", "(ii)", "part b", "question 2(b)"): content of the gloss, never the
 #: article 'a' or the circa 'c' the stop list sets aside, so 'marks allocated to part (a)' and '... part (c)' differ.
 _PART_LABEL_RE = re.compile(r"\((?P<p>[a-z]|[ivx]{1,4}|\d{1,2}[a-z]?)\)|\bpart\s+(?P<q>[a-z]|[ivx]{1,4}|\d{1,2})\b(?!['’])", re.IGNORECASE)
+#: Round 9 (c2, rule same-gloss): synonyms of a direction of change, folded to one stem on both sides of every comparison
+#: ("Kc decreases" and "Kc falls" name one quantity), a small closed table of light stems (``ledger.light_stem``). The two
+#: canonical stems are the two members of the role group "rise fall", so "increases" against "decreases" stays apart.
+_GLOSS_SYNONYMS: dict[str, str] = {w: canon for canon, words in (("fall", "decreas fall fell fallen drop dropp declin sink sank sunk"),
+                                                                  ("rise", "increas rise ris rose risen rising grow grew grown climb climbed"))
+                                   for w in words.split()}
+#: Closed compounds read as their parts ("more surface runoff" and "more rain runs off the surface"), light stems.
+_GLOSS_COMPOUNDS: dict[str, tuple[str, ...]] = {"runoff": ("run", "off"), "run-off": ("run", "off")}
+#: Verbs that only state that the quantity holds ("more surface runoff occurs" is "more surface runoff"), light stems.
+_GLOSS_FILLERS = frozenset({"occur", "occurr", "happen"})
+
+
+def _gloss_stems(tok: str) -> list[str]:
+    """The stems a gloss word contributes (rule same-gloss): a hyphenated compound read as its words ("worst-case" is
+    "worst" and "case", "distilled-water" is "distilled water"), each light-stemmed, a synonym of a direction of change
+    folded (:data:`_GLOSS_SYNONYMS`), a closed compound split (:data:`_GLOSS_COMPOUNDS`), stop words and filler verbs left
+    out (:data:`_GLOSS_STOP`, :data:`_GLOSS_FILLERS`). Words are case-folded by the caller."""
+    from .ledger import light_stem
+    out: list[str] = []
+    for part in (tok.split("-") if "-" in tok else (tok,)):
+        if not part or part in _GLOSS_STOP:
+            continue
+        stem = light_stem(part)
+        for w in _GLOSS_COMPOUNDS.get(stem, (stem,)):
+            w = _GLOSS_SYNONYMS.get(w, w)
+            if w not in _GLOSS_FILLERS:
+                out.append(w)
+    return out
 
 
 def gloss_content(meaning: Optional[str]) -> frozenset[str]:
@@ -94,8 +123,9 @@ def gloss_content(meaning: Optional[str]) -> frozenset[str]:
     and part labels ("(a)", "part c", "(ii)"), without the words that never change the quantity named
     (:data:`_GLOSS_STOP`), in any order. 'pig iron output in 1928 (million tonnes, about 3.3)' and 'pig iron output in
     1928 (about 3.3 million tonnes)' have the same content, as do 'route mileage in 1870' and 'route mileage by 1870';
-    'marks allocated to part (a)' and 'marks allocated to part (c)' do not."""
-    from .ledger import light_stem
+    'marks allocated to part (a)' and 'marks allocated to part (c)' do not. Round 9 (c2): a hyphenated compound counts as its
+    words, synonyms of a direction of change are one word and filler verbs are left out (:func:`_gloss_stems`), so 'Kc
+    decreases' and 'Kc falls', or 'the distilled-water cylinder' and 'distilled water', share their content."""
     out: set[str] = set()
     text = (meaning or "").casefold()
     for m in _PART_LABEL_RE.finditer(text):
@@ -105,7 +135,7 @@ def gloss_content(meaning: Optional[str]) -> frozenset[str]:
         if tok[:1].isdecimal():
             out.add(re.sub(r"(?<=\d),(?=\d{3}\b)", "", tok))
         elif tok not in _GLOSS_STOP:
-            out.add(light_stem(tok))
+            out.update(_gloss_stems(tok))
     return frozenset(out)
 
 
@@ -186,7 +216,7 @@ def _role_groups() -> tuple[frozenset[str], ...]:
     if not _GLOSS_ROLE_GROUPS:
         from .ledger import light_stem
         _GLOSS_ROLE_GROUPS = tuple(frozenset(light_stem(w) for w in g.split()) for g in (
-            "before after", "initial final", "start end", "opening closing", "original new", "old new", "first second third fourth fifth last",
+            "before after", "pre post", "initial final", "start end", "opening closing", "original new", "old new", "first second third fourth fifth last",
             "minimum maximum", "min max", "lower upper", "lowest highest", "input output", "import export", "demand supply", "buyer seller",
             "consumer producer", "increase decrease", "rise fall", "gain loss", "inflow outflow", "income expenditure", "nominal real",
             "gross net", "private public", "domestic foreign", "internal external", "marginal average total", "fixed variable",
@@ -244,38 +274,42 @@ def gloss_reading(meaning: Optional[str]) -> GlossReading:
     toks = list(_GLOSS_TOKEN_RE.finditer(text))
     groups = _role_groups()
     for i, m in enumerate(toks):
-        tok = m.group(0)
-        if tok[:1].isdecimal():
-            fig = re.sub(r"(?<=\d),(?=\d{3}\b)", "", tok)
+        whole = m.group(0)
+        if whole[:1].isdecimal():
+            fig = re.sub(r"(?<=\d),(?=\d{3}\b)", "", whole)
             figures.add(fig)
             content.add(fig)
             continue
-        if tok in _GLOSS_NEGATIONS or tok.endswith(("n't", "n’t")):
-            negated = True
-            continue
-        if tok in _GLOSS_SCALES:
-            scales.add(tok)
-        if tok in _GLOSS_SHIFT_WORDS:
-            shifts.add(tok)
-        unit = _UNIT_FORMS.get(tok)
-        if unit is None and tok in _UNIT_SYMBOLS:
-            before = text[max(0, m.start() - 2):m.start()]
-            prev = toks[i - 1].group(0) if i else ""
-            after = text[m.end():m.end() + 1]
-            if before.endswith("/") or after == "/" or prev in ("in", "per") or prev[:1].isdecimal():
-                unit = tok
-        if unit is not None:
-            units.add(unit)
-            content.add(f"[{unit}]")
-            continue
-        if tok in _GLOSS_STOP:
-            continue
-        stem = light_stem(tok)
-        for g in groups:
-            if stem in g:
-                roles.add(stem)
-                break
-        content.add(stem)
+        # round 9 (c2): a hyphenated compound is read as its words ("worst-case", "distilled-water", "non-renewable")
+        for tok in (whole.split("-") if "-" in whole else (whole,)):
+            if not tok:
+                continue
+            if tok in _GLOSS_NEGATIONS or tok.endswith(("n't", "n’t")):
+                negated = True
+                continue
+            if tok in _GLOSS_SCALES:
+                scales.add(tok)
+            if tok in _GLOSS_SHIFT_WORDS:
+                shifts.add(tok)
+            unit = _UNIT_FORMS.get(tok)
+            if unit is None and tok in _UNIT_SYMBOLS and tok == whole:
+                before = text[max(0, m.start() - 2):m.start()]
+                prev = toks[i - 1].group(0) if i else ""
+                after = text[m.end():m.end() + 1]
+                if before.endswith("/") or after == "/" or prev in ("in", "per") or prev[:1].isdecimal():
+                    unit = tok
+            if unit is not None:
+                units.add(unit)
+                content.add(f"[{unit}]")
+                continue
+            if tok in _GLOSS_STOP:
+                continue
+            for stem in _gloss_stems(tok):
+                for g in groups:
+                    if stem in g:
+                        roles.add(stem)
+                        break
+                content.add(stem)
     content |= labels
     return GlossReading(frozenset(content), frozenset(figures), frozenset(labels), frozenset(units), frozenset(scales), names, frozenset(roles), negated,
                         frozenset(shifts))
@@ -612,6 +646,167 @@ def rename_candidates_apart(problems: list[Problem]) -> tuple[list[Problem], dic
                 table[sym.name] = new
         out.append(_renamed(p, table))
         info[p.claim_id] = [(n, table.get(n, n), tested[n]) for n in sorted(tested)]
+    return out, info
+
+
+# ----------------------------------------------------------------- a value a claim evaluates or checks at (rule evaluation-point)
+# Round 9 (c2, maa-t15): "Check: at x = 0, g(0) = 3 and h(3) = 1 = 0 + 1." was translated with the premise x = 0 ("the check is
+# made at x = 0") on the report-wide unknown x, which m7.1 constrains through the equation to solve ((h∘g)(x) = g⁻¹(x), whose
+# root is x = −5): the pool charged the specialist an error-level contradiction (INT-CONFLICT-001) and demanded its disclosure
+# from the synthesis (INT-CONFLICT-002). A claim that evaluates or checks an expression at a stated value of a variable states
+# what holds AT that point: the point is a hypothetical value, never an assertion about the unknown the other claims solve
+# for. Such a claim's point symbol, and every numeric symbol its own premises define from it ("gx = 2x + 3": g at the point),
+# is renamed apart before pooling, into a copy keyed by the symbol and the value (``<name>_at_<value>``), so two claims that
+# evaluate at the same point still share it and contradict each other there; a contradiction that exists only with the point
+# pooled is INT-CONFLICT-004 (warning, nothing charged and nothing to disclose). The rule reads the translation's own labels
+# (data, never evaluated): a premise that fixes a numeric symbol at a constant, where that premise's label or the
+# conclusion's label states the point in the form "at x = 0" (also "when", "for", "with", "if", "where", "substituting",
+# "testing", "trying", "putting", "setting"), naming the symbol or the value the premise gives. The Overseer's re-check of a
+# named conflict reads the same form in the claim's text (its rule evaluation-point); its independent joint check calls this
+# function, so the receipt and the audit read the pool alike.
+
+#: An evaluation point as a label states it: a lead word, a symbol name and a value ("at x = 0", "when t = −2.5").
+_EVAL_POINT_RE = re.compile(
+    r"\b(?:at|when|for|with|if|where|substitut(?:e|es|ed|ing)|test(?:s|ed|ing)?|try(?:ing)?|tried|putting|setting)[ \t]{1,3}"
+    r"([A-Za-z][A-Za-z0-9_]{0,15})[ \t]{0,3}=[ \t]{0,3}([−-]?)[ \t]{0,2}(\d{1,12}(?:\.\d{1,12})?)(?![\d.])", re.IGNORECASE)
+_NUMERIC_SORTS = frozenset({"Int", "Real"})
+
+
+def _constant_value(node) -> Optional[Fraction]:
+    """The value of a constant node (``int``, ``real`` or the negation of one), or None."""
+    op = getattr(node, "op", None)
+    try:
+        if op in _CONSTANT_OPS:
+            return Fraction(str(node.value))
+        if op == "neg" and getattr(getattr(node, "arg", None), "op", None) in _CONSTANT_OPS:
+            return -Fraction(str(node.arg.value))
+    except (ValueError, ZeroDivisionError):
+        return None
+    return None
+
+
+def _stated_points(text: Optional[str]) -> list[tuple[str, Fraction]]:
+    """``(name, value)`` for every evaluation point ``text`` (a label) states in the form of :data:`_EVAL_POINT_RE`."""
+    out: list[tuple[str, Fraction]] = []
+    for m in _EVAL_POINT_RE.finditer((text or "")[:1000]):
+        try:
+            v = Fraction(m.group(3))
+        except (ValueError, ZeroDivisionError):
+            continue
+        out.append((m.group(1), -v if m.group(2) else v))
+    return out
+
+
+def evaluation_points(problem: Problem) -> dict[str, tuple[str, Fraction]]:
+    """The numeric symbols of ``problem`` that a premise fixes at a value the claim evaluates or checks at (rule
+    ``evaluation-point``), each with the id of that premise and the value: the premise is ``x = c`` for a constant ``c``,
+    and its label or the conclusion's label states the point ("at x = 0"), naming ``x`` (case aside) or, when the name it
+    states is no symbol of the problem, the value ``c`` that only this premise gives one symbol. Data on data: nothing is
+    evaluated."""
+    sorts = {sym.name: sym.sort for sym in problem.symbols}
+    fixed: dict[str, list[tuple[Assertion, Fraction]]] = {}
+    for pr in problem.premises:
+        e = pr.expr
+        if getattr(e, "op", None) != "eq":
+            continue
+        for var, lit in ((e.left, e.right), (e.right, e.left)):
+            v = _constant_value(lit)
+            if getattr(var, "op", None) == "var" and v is not None and sorts.get(var.name) in _NUMERIC_SORTS:
+                fixed.setdefault(var.name, []).append((pr, v))
+    if not fixed:
+        return {}
+    by_lower = {n.casefold(): n for n in sorts}
+    out: dict[str, tuple[str, Fraction]] = {}
+    concl_label = problem.conclusion.label if problem.conclusion is not None else None
+    for name, rows in fixed.items():
+        for pr, value in rows:
+            for stated, v in _stated_points(pr.label) + _stated_points(concl_label):
+                if v != value:
+                    continue
+                named = by_lower.get(stated.casefold())
+                if named == name or (named is None and [n for n, rs in fixed.items() if any(x == value for _p, x in rs)] == [name]):
+                    out.setdefault(name, (pr.id, value))
+                    break
+            if name in out:
+                break
+    return out
+
+
+def _point_tag(value: Fraction) -> str:
+    """A symbol-name tag for a value: 0 -> '0', -5 -> 'm5', 2.5 -> '2p5', 1/3 -> '1d3'."""
+    sign = "m" if value < 0 else ""
+    a = abs(value)
+    if a.denominator == 1:
+        return f"{sign}{a.numerator}"
+    d = a.denominator
+    while d % 2 == 0:
+        d //= 2
+    while d % 5 == 0:
+        d //= 5
+    if d == 1:  # a terminating decimal
+        whole, frac = divmod(a.numerator, a.denominator)
+        digits = ""
+        rest = frac
+        while rest and len(digits) < 12:
+            rest *= 10
+            digits += str(rest // a.denominator)
+            rest %= a.denominator
+        return f"{sign}{whole}p{digits}"
+    return f"{sign}{a.numerator}d{a.denominator}"
+
+
+def rename_evaluation_points_apart(problems: list[Problem]) -> tuple[list[Problem], dict[str, list[tuple[str, str, str]]]]:
+    """The problems with each value a claim evaluates or checks at (:func:`evaluation_points`) renamed apart, together with
+    every numeric symbol the claim's own premises define from it, into a copy keyed by the symbol and the value
+    (``x_at_0``, ``gx_at_0``), so claims evaluating at one point share it; and per such claim ``(name, name used, assigning
+    premise id)``. Problems with no evaluation point are returned unchanged."""
+    taken = {sym.name for p in problems for sym in p.symbols}
+    keyed: dict[tuple[str, str], str] = {}
+    out: list[Problem] = []
+    info: dict[str, list[tuple[str, str, str]]] = {}
+    for p in problems:
+        points = evaluation_points(p)
+        if not points:
+            out.append(p)
+            continue
+        sorts = {sym.name: sym.sort for sym in p.symbols}
+        table: dict[str, str] = {}
+        rows: list[tuple[str, str, str]] = []
+        for name, (aid, value) in sorted(points.items()):
+            tag = _point_tag(value)
+            names = [name]
+            changed = True
+            while changed and len(names) < len(sorts):  # a fixed point over the claim's own premises, bounded by its symbols
+                changed = False
+                for pr in p.premises:
+                    e = pr.expr
+                    if getattr(e, "op", None) != "eq":
+                        continue
+                    for var, rhs in ((e.left, e.right), (e.right, e.left)):
+                        if getattr(var, "op", None) == "var" and sorts.get(var.name) in _NUMERIC_SORTS and var.name not in names and _expr_symbols(rhs) & set(names):
+                            names.append(var.name)
+                            changed = True
+            for n in names:
+                if n in table:
+                    continue
+                key = (n, tag)
+                new = keyed.get(key)
+                if new is None:
+                    new = f"{n[:48]}_at_{tag}"[:64]
+                    k = 1
+                    while new in taken:
+                        k += 1
+                        new = f"{n[:44]}_at_{tag}"[:58] + f"_{k}"
+                    taken.add(new)
+                    keyed[key] = new
+                table[n] = new
+            rows.append((name, table[name], aid))
+        try:
+            out.append(_renamed(p, table))
+        except Exception:  # noqa: BLE001 - a problem that cannot be renamed is pooled as it is
+            out.append(p)
+            continue
+        info[p.claim_id] = rows
     return out, info
 
 
@@ -1003,6 +1198,7 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     over every problem; the findings cite the runs that established them."""
     apart, splits = split_by_gloss(problems)
     apart, candidates = rename_candidates_apart(apart)
+    apart, points = rename_evaluation_points_apart(apart)
     joint, findings, jmap = joint_problem(apart, request_id=request_id, joint_id="cross-report")
     if splits:  # the glossary findings are those of the claims as translated, each saying the symbol was read apart
         _syms, glossary = _merge_symbols(problems, read_apart=True)
@@ -1015,17 +1211,17 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
         attributed = _attribute_contradiction(apart, result, jmap, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key, synthesized_claim_id=None, assumed_readings=frozenset(assumed_readings))
         kept = _without_rounding_only_conflicts(attributed, apart, request_id=request_id, cfg=cfg, signing_key=signing_key)
         findings += kept
-        if (splits or candidates) and any(f.code == "INT-CONFLICT-001" for f in attributed) and not any(
+        if (splits or candidates or points) and any(f.code == "INT-CONFLICT-001" for f in attributed) and not any(
                 f.code in ("INT-CONFLICT-001", "INT-CONFLICT-004", "INT-CONFLICT-005") for f in kept):
             findings += _glossary_only_at_stated_precision(problems, apart, attributed, splits, request_id=request_id, cfg=cfg, signing_key=signing_key,
-                                                           candidates=candidates)
+                                                           candidates=candidates, points=points)
     elif result.status is not S.CONSISTENT:
         findings += _classify_failure(result, jmap, synthesized_claim_id=None, undecided_code="INT-CONFLICT-004")
         findings += _without_unpoolable(problems, result, jmap, request_id=request_id, config=config, signing_key=signing_key, limits=limits,
                                         assumed_readings=assumed_readings)
-    elif splits or candidates:
+    elif splits or candidates or points:
         findings += _glossary_only_contradiction(problems, splits, result, request_id=request_id, cfg=cfg, limits=limits, signing_key=signing_key,
-                                                 candidates=candidates)
+                                                 candidates=candidates, points=points)
     return result, findings
 
 
@@ -1052,7 +1248,8 @@ def _without_unpoolable(problems: list[Problem], result: VerificationResult, jma
 
 def _glossary_only_at_stated_precision(problems: list[Problem], apart: list[Problem], attributed: list[IntegrityFinding],
                                       splits: dict[str, list[tuple[str, list[str], str]]], *, request_id: str, cfg: SolverConfig,
-                                      signing_key: Optional[bytes], candidates: Optional[dict[str, list[tuple[str, str, str]]]] = None) -> list[IntegrityFinding]:
+                                      signing_key: Optional[bytes], candidates: Optional[dict[str, list[tuple[str, str, str]]]] = None,
+                                      points: Optional[dict[str, list[tuple[str, str, str]]]] = None) -> list[IntegrityFinding]:
     """:func:`_glossary_only_contradiction` when every contradiction the pool read apart was charged with exists only at a
     precision no claim states (each INT-CONFLICT-001 dropped by :func:`_without_rounding_only_conflicts`): the claims those
     contradictions named are read at the precision their figures are written to (:func:`at_stated_precision`), in the pool
@@ -1081,12 +1278,13 @@ def _glossary_only_at_stated_precision(problems: list[Problem], apart: list[Prob
     if apart_result.status is not S.CONSISTENT:
         return []
     return _glossary_only_contradiction(relaxed, splits, apart_result, request_id=request_id, cfg=pcfg, limits=PRECISION_LIMITS, signing_key=signing_key,
-                                        candidates=candidates, precision=True)
+                                        candidates=candidates, points=points, precision=True)
 
 
 def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list[tuple[str, list[str], str]]], apart_result: VerificationResult, *,
                                  request_id: str, cfg: SolverConfig, limits: Limits, signing_key: Optional[bytes],
-                                 candidates: Optional[dict[str, list[tuple[str, str, str]]]] = None, precision: bool = False) -> list[IntegrityFinding]:
+                                 candidates: Optional[dict[str, list[tuple[str, str, str]]]] = None, precision: bool = False,
+                                 points: Optional[dict[str, list[tuple[str, str, str]]]] = None) -> list[IntegrityFinding]:
     """INT-CONFLICT-004 (warning) when the claims contradict each other only if a symbol they gloss as different
     quantities is read as one, or only if a candidate value a claim tests and rejects (rule ``candidate``,
     :func:`rename_candidates_apart`) is read as a value of the shared symbol: the pool is consistent with the glosses read
@@ -1103,6 +1301,17 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
     at_precision = ("; decided with the figures of the claims a rounding-only contradiction named read at the precision they are written to, as the "
                     "pool read apart contradicts itself only at a precision no claim states") if precision else ""
     tested = {cid: rows for cid, rows in (candidates or {}).items() if cid in claims}
+    evaluated = {cid: rows for cid, rows in (points or {}).items() if cid in claims}
+    if evaluated and not tested and not any(set(ids) & set(claims) for groups in splits.values() for _n, ids, _g in groups):
+        shown = "; ".join(f"claim {cid!r} evaluates or checks at " + ", ".join(f"the value its premise {aid!r} gives {name!r}" for name, _new, aid in rows)
+                          for cid, rows in sorted(evaluated.items())[:4])
+        return [IntegrityFinding(code="INT-CONFLICT-004", severity="warning",
+                                 message=f"the pooled claims {claims} contradict each other only when a value a claim evaluates or checks at is read as a "
+                                         f"value of the shared symbol ({shown}): what holds at a stated point is no assertion about the unknown the other "
+                                         "claims state, so read as a hypothetical value it is consistent with them (rule evaluation-point); the "
+                                         "contradiction is unattributable and no contradiction is charged to the specialists (an encoding that gives an "
+                                         "evaluation point the shared symbol is a translation fault)" + at_precision,
+                                 claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]
     if tested and not any(set(ids) & set(claims) for groups in splits.values() for _n, ids, _g in groups):
         shown = "; ".join(f"claim {cid!r} tests and rejects " + ", ".join(f"the value its assertion {aid!r} gives {name!r}" for name, _new, aid in rows)
                           for cid, rows in sorted(tested.items())[:4])
@@ -1128,6 +1337,9 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
     tail = f", and the quantities each claim computes with them ({', '.join(context[:8])}{' and more' if len(context) > 8 else ''})," if context else ""
     also = ("; claims " + ", ".join(repr(c) for c in sorted(tested)[:4]) + " also test and reject a candidate value of a shared symbol, read as a "
             "hypothetical (rule candidate)") if tested else ""
+    if evaluated:
+        also += ("; claims " + ", ".join(repr(c) for c in sorted(evaluated)[:4]) + " also evaluate or check at a value of a shared symbol, read as a "
+                 "hypothetical (rule evaluation-point)")
     return [IntegrityFinding(code="INT-CONFLICT-004", severity="warning",
                              message=f"the pooled claims {claims} contradict each other only when symbol(s) {', '.join(clashing[:6])}, glossed as different quantities{tail} are read as one quantity{also}; read apart they are consistent, so the contradiction is unattributable and no contradiction is charged to the specialists (one symbol name for two quantities is a translation fault)" + at_precision,
                              claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]

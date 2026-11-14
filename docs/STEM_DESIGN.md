@@ -4380,3 +4380,245 @@ Tests changed: `tests/stem/test_stem_repair10.py::test_a_cut_value_inside_an_exp
 to a stricter rule as `test_a_cut_value_inside_an_expression_is_decided_never_failed_when_correct`: it pinned ST-UNDEC-001 for every
 cut value inside an expression whatever its value; now the correct lines must hold with no finding (they never fail, as before) and the
 wrong value ('0.333… × 3 = 1.5') must fail. No other test was rewritten, weakened or deleted.
+
+## 40. The round-9 arena's STEM findings (integrated round c2)
+
+The overseer lenses of the integrated round c2 (arena round 9) reported STEM findings on the genuine answers, on the harness's injected
+faults and on their own probes, and the round-8 records still open were carried into the round as reproduced bug records. Each STEM
+finding is reproduced through the hub and fixed at its cause in the STEM front end; findings whose cause lies in another package are
+recorded in the round's handoff, not here. `tests/stem/test_clearance_c2_stem.py` pins every fix through the hub with clean controls
+(correct working that must hold) and negative controls (wrong working that must still be named), runs the round's recorded STEM answers
+and the specialists' revisions of four of them (`tests/fixtures/stem/round9/c2_answers.json`: no INT-SUBJ-001 on any of them, and no
+INT-SUBJ-004 on the five that had false warnings), and bounds every new reading on hostile input of about 20,000 characters (8 CPU
+seconds per input and profile).
+
+### 40.1 False errors on correct work
+
+- **Rule stated-condition** (`relations._with_condition`). An inequality the answer derives from a condition it states on a symbol
+  ('Two distinct real roots need Δ > 0', then '36 − 4k > 0') is the condition carried forward, decided as a step from the condition
+  under the equation that gives the symbol its value; it was decided as a statement true for every k, under another part's k = 5.
+- **Rule part-condition for order relations** (`relations._cls` with the part). A request value stated in another part's question is
+  no value of this part's comparison, as STEM repair 11 already read it for steps and roots. On round 7's maa-t13 the comparisons '0 ≤
+  t' and 't ≤ 3' of part (b), planned only because the request's t = 1 of part (a) made t given, are now a condition on part (b)'s
+  unknown, no longer satisfiability checks (16 formal checks there become 14).
+- **Rule premise-substitution, both sides** (`relations._premise_substitution`). A law substituted with values on both sides
+  ('m₁u₁ + m₂u₂ = (m₁ + m₂)v', then '(1.2 × 10⁴ kg)(3.0 m s⁻¹) + (8.0 × 10³ kg)(0) = (1.2 × 10⁴ kg + 8.0 × 10³ kg)v') aligns both sides
+  with the law, so the unknown v left in the line is the law's own v; it had been an algebra step over a free v (r = 36001).
+- **Rule rest-value** (`relations._rest_velocity`). A velocity of zero put in where the question says the body is brought to rest, or
+  stationary, is read as that part's value, not set against the velocity another part bound.
+- **Rule unit-restatement, scoped** (`relations._unit_restatement`). A chain that restates in another unit the value its own line
+  states ('V = 1.00 cm³ = 1.00 × 10⁻³ dm³') is a conversion of that value; the value set against a restatement is one stated in the
+  same part (or before any part label), never another part's quantity of the same symbol.
+- **Rule evaluation-step** (`relations._evaluation_step`). A line that writes the quantity of the line before with numerals put in
+  ('T² = 4π²r³/(GM)', then 'T² = (39.48)(1.250 × 10²⁰ m³)/(4.2688 × 10¹³ N m² kg⁻¹)') is the law evaluated at those values (a
+  substitution decided with the written precision), not an identity over the law's symbols.
+- **Rule new-law**. A line after a principle line that brings in a law of its own is no step from the principle.
+- **Rules combined-value and carried-value** (`relations._inline_givens`). A coupled mass ('(1.2 × 10⁴ kg + 8.0 × 10³ kg)') and a result
+  the answer carries from an earlier line are no Givens set against the request.
+- **Rule unit-definition** (`relations._defines_unit`). 'This answer reads Mbit as 10⁶ bits' defines a unit; it restates no result.
+- **Rule spaced-dash** (`normalize.reading_view`, `checks._truncated_operand`). An en dash, an em dash or a hyphen with a space on each
+  side between two operands is a minus sign; a dash after a letter withholds the relation (the operand may be cut) and a prose dash
+  keeps its check.
+- **Rule definition-law** (`relations._definition_law`). A data-booklet definition (an amount, a concentration, a molar mass, a density,
+  a dilution) holds at any value, so evaluating it at a value outside the request's data series is no extrapolation: ST-RANGE-001 had
+  named c = n/V at the request's own 250.0 cm³ flask against its 10 to 50 cm³ pipette volumes. A fitted trend past its data is still
+  named.
+
+### 40.2 Injected faults that crossed unnamed
+
+- **Rule substitution-instance** (`relations._formula_instance`, `_instance_substitution`). A law substituted with coefficients the
+  prose states ('Δ = b² − 4ac with a = 1, b = −6, c = k', then 'Δ = (−6)² − 4(1)(k)') sets each value put in against the stated one, a
+  symbolic binding (c = k) kept as a symbol; a completed square ('Complete the square on x² − 6x:', then the identity) is an identity.
+- **Rule data-convention** (`units.py`). The multiples of the bit and of the byte are units, and the convention the request or the
+  answer states for them ('1 GB = 1000 MB') fixes their reading, so '1.8 GB × 1000 MB per GB = 4800 MB' is decided (it had eight
+  readings and no check).
+- **Rule converted-value** (`checks._cnv`). A whole number converted ('1 byte', '2 h') is exact: half a unit of it no longer widens the
+  band, so a wrong factor fails.
+- **Rule species-label** (`document._species_labels`). A formula after a unit labels the quantity ('1500 cm³ H₂ × (2 ÷ 3) = 1000 cm³'),
+  so the line is checked and a wrong unit ('= 1000 cm²') is named.
+- **Rule bond-data** (`document._request_bond_bindings`). The bond enthalpies the request gives ('N≡N 945') bind the bonds, so '4 × N≡N
+  + 3 × H–H = 1 × 945 + 3 × 436' is set against them.
+- **A step after a mark annotation** (`MathItem.ends_statement`). A closing LaTeX delimiter and a mark annotation after a line ('… is
+  $y - 2 = -3(x - 5)$ M1') are layout, so the next line is a step from it.
+- **A mole ratio stated alone**, **a booklet constant put in as a numeral** ('W = mg = 2.0 kg × 9.6 N kg⁻¹'), **a step joined to its
+  law by 'and'** (rule and-step), **a truth table of an output the request defines** (rule request-output) and **a derivation on
+  consecutive lines** are checked.
+- **Rules prose-share (reversed), prose-fold, worded-comparison, prose-change, percentage-points, quotient-share and referent-share**
+  (`relations._prose_relations`). 'makes up 62.5% of the individuals (25 of 40)', 'from 7.0 to 51.2 dm³ min⁻¹, about 7.3 times', 'higher,
+  5.38 against 2.33', 'rose by 200%, from 5.4 m³ s⁻¹ in Storm 1 to 16.2 m³ s⁻¹ in Storm 2', 'from 20.0% to 47.5%, a rise of 27.5
+  percentage points', '(1800 ÷ 1.0 × 10⁴) gives 18%' and 'Of the food eaten, 1080 kJ m⁻² yr⁻¹ (60%)' (the whole being the last value the
+  answer states for those words, a reading: a warning; when it states none, ST-UNDEC-001) are each set against their values.
+- **Rule kelvin-substitution** (`checks._sub_pairs`, `checks._kelvin_candidates`). A temperature the request states in °C, put in as the
+  same number of kelvin ('T = 27 °C', then '× 27 K'), is compared in kelvin, the offset exact: an error when the request binds the
+  symbol, a warning when it states the temperature in words; a change of temperature ('heated by 27 °C') has no offset.
+- **Rule table-working** (`document._table_working`). A Markdown table that is no truth table had its cells read by nothing. In each
+  row, a cell that holds a relation sign and arithmetic is a line of working, and a cell of arithmetic followed by a cell of one value
+  is the arithmetic and its result (a reading: a warning); a cell 'name = value' beside such a cell binds the name for its row (a cell
+  bar before a name opens its relation, `scope._table_border`). Two figures joined by a hyphen or a dash alone may be a range and are set
+  against nothing. At most 96 cells are read.
+- **Rule coordinate-pair** (`parser._pair_parts`, `relations._pair_link`). A relation between two coordinate pairs (or short vectors)
+  of closed components is checked component by component ('((2 + 8)/2, (1 + 3)/2) = (5, 2)'); a pair with a symbol stays outside the
+  encodings.
+- **Rule word-formula-chain** (`spans.clean_before`). A word formula ending in a factor before its working ('percentage yield = actual
+  yield ÷ theoretical yield × 100 = 150 cm³ ÷ 1000 cm³ × 100 = 15.0%') is the label of the working after it; the line had no span.
+- **Rule format-character**. An invisible format character inside a figure is named (ST-PARSE-001); the channel may refuse the
+  response first (INT-REQ-009).
+- **A claim that started inside a word** (`word_formulas`). A word formula's head is marked so the claim text starts where its words
+  start ('Concentration = amount ÷ volume', never 'n = amount ÷ volume').
+
+### 40.3 Relations read in part or dropped with nothing named
+
+A plain space is no thousands separator of the grammar (a thin space is), so a numeral written with one is named, never read in part:
+
+- **Rule cut-label** (`spans._RunFinder.label_cut`). A run that opens with a relation sign whose prose label is the unit of a figure of a
+  longer expression ('6 000 000 bytes ÷ 1500 bytes per packet = 5000 packets', read as 'bytes per packet = 5000 packets') is named
+  ST-PARSE-001.
+- **Rule thousands-value** (`relations._thousands_cut`). A value continued by a group of three digits after a space ('P = 4 000 euros')
+  binds nothing and is named; it had bound P = 4, and the correct 'I = P × 0.05 = 200 euros' after it failed as an error. A Given's
+  value is named by the Given rule as before, and binds nothing either.
+- **Rule cut-decimal in the unread-relation rule** (`document._operand_char`). An ellipsis right after a digit is maths beside a
+  relation sign, so '23 425 − 7045.59… = 46 379.41…' is named like the same line without the ellipsis; so is an absolute-value bar.
+- **Nested absolute values on a line of their own** (`spans._tables_and_data`). A lone line of bars that does not end with a bar is
+  maths ('||−3| − 5| = 7' is checked and fails); it had been read as a one-row table, neither checked nor named.
+- **A label that holds 'to'** (`relations._labelled_line`). 'to' continues working only as the word right before the sign ('simplifies
+  to $= …$'); 'Distance to B $= …$' after 'Distance to A $= … = 5$ km M1' is a labelled line, no longer the next link of the chain
+  before it (a false ST-PARSE-001 on mai-t15).
+
+### 40.4 Tests changed
+
+`tests/stem/test_integration_gate4_stem.py::test_an_invisible_mark_between_numerals_reads_as_a_blank` was rewritten to the stricter rule
+it already applies to the bidirectional controls: the channel now refuses an answer holding an invisible tag character (U+E0041,
+INT-REQ-009, REJECTED, nothing checked or delivered), and the STEM pack's reading of it (no check, the relation named ST-PARSE-001) is
+asserted on the pack. No other test was rewritten, weakened or deleted.
+
+### 40.5 Left for a later round
+
+A coordinate pair written in plain text ('M = ((2 + 8)/2, (1 + 3)/2) = (5, 2)', no LaTeX) has no span and is named by the
+unread-relation rule only; floor and ceiling brackets stay outside the grammar ('⌊log₂ 7⌋ + 1 = 6' is named ST-PARSE-001, not decided); a
+numeral written with a plain thousands space is named, never read; a symbolic step over symbols defined through a chain of formulas
+('E = E_k + E_p = GMm/(2r) − GMm/r', ph-t14) still fails at warning severity on correct work; a bracketed citation at the end of a
+sentence ('paragraph [3].') is still read as a mark annotation (the rule is shared with the generic parser: see the round's handoff).
+
+## 41. The round-9 arena's STEM findings: the second fix pass
+
+The first fix pass of round 9 (section 40) left its edits in the working tree. The second pass re-ran every STEM finding of the round,
+and the round-8 records carried into it, on that tree (through the hub, as the overseer lenses delivered them, and on the recorded
+answers of `tests/fixtures/stem/round8` and `round9`): most no longer reproduce, each with the test of section 40 that pins it. The ones
+that still reproduced in the STEM paths are fixed here at their cause; `tests/stem/test_clearance_c2b_stem.py` pins each with clean and
+negative controls and bounds every new reading on the standard hostile inputs of about 20,000 characters.
+
+### 41.1 Lines and steps read by nothing
+
+- **Rule mark-code** (`document._mark_codes`). A markscheme code written after a single blank at the end of a line of working ('The line
+  through (5, 2) with gradient −3 is y − 2 = −6(x − 5) M1', then 'y = −3x + 17 A1'; codes written with no blank between them, 'M1A1',
+  too) is an annotation, as one after two blanks already was (`layout.MARK_CODE`): the maths runs are found without it. Before, the run read
+  the code as a factor (−6(x − 5)·M₁, −3x + 17·A₁), so the step between the two lines was never read and the round's mai-t15 slip, written in
+  plain text, crossed with no check and no finding. A word spelled like a code is one only when every occurrence of it in the answer closes
+  a line this way, the request never writes it (a resistor 'R1' the question names stays a symbol), it does not stand right after an
+  operator, and the answer closes at least two lines with codes. The codes are blanked in the view the runs are found in only, never in
+  the math view the statements are cut from nor as markup, so no statement, claim text or claim id changes (a first version that blanked
+  them in the reading merged a code after '(3 s.f.)' into the sentence before it on mai-t14 and joined codes after two blanks to their
+  statements, so recorded translations no longer matched their claims; `tests/stem/test_clearance_c2b_stem.py` holds the statements of
+  every recorded STEM answer of rounds 7 to 9 equal with and without the rule). `MathItem.ends_statement` reads codes written with no
+  blank between them as layout too.
+- **Rule inverse-notation** (`relations._inverse_application`). With the code after it no longer read as a unit, maa-t15's 'Then x = (y −
+  3)/2, so', 'g⁻¹(x) = (x − 3)/2' was decided as an algebra step from the line before (the grammar reads g⁻¹(x) as the product g⁻¹·x) and
+  failed for a renaming of the variable. A line whose head applies the inverse of a function the text defines (the answer's or the
+  request's function letters, a letter the answer applies to a bracket, or one the request writes glued to a bracket) states the inverse's
+  definition: a new relation, never a step. The rearrangement before it stays a step, so a wrong one is still named.
+- **Rule evaluation-step, any binding state** (`relations._evaluation_step`). X3a (carried from round 8) held with every symbol of the law
+  stated, but with only r stated, or none, the line 'T² = (39.48)(1.250 × 10²⁰ m³)/(4.2688 × 10¹³ N m² kg⁻¹)' after 'T² = 4π²r³/(GM)' was
+  still an exact algebra step and failed at error severity (r = 77109375000/667). When the numeral line does not stand symbol by symbol
+  opposite the law (4π² written 39.48, GM written 4.2688 × 10¹³), it is the law evaluated at those values whatever is bound: a symbol with
+  no stated value takes a booklet reading or is named undecided (ST-UNDEC-002), never left free in an exact step. A line that does stand
+  symbol by symbol opposite the law is still read by rule premise-substitution.
+
+### 41.2 Injected faults that crossed unnamed
+
+- **Rule converted-value, its stated side** (`checks._cnv`). A whole number with no trailing zero converted ('2 h', '3 min') is exact
+  (section 40), so it limits no figure of the whole number stated for it: every written digit of that number counts. '2 h = 7000 s' and '3
+  min = 200 s' held (the stated value's trailing zeros were read as not significant, a band of 500 s and 50 s); both fail now, and '2 h =
+  7200 s', '1 km = 1000 m' and '1 day = 86400 s' hold. A converted value written with trailing zeros of its own ('100 km h⁻¹ = 30 m s⁻¹')
+  still limits them, as before.
+- **Rule mole-consequence** (`relations._mole_consequences`). An amount of one species the prose says gives, forms, yields, needs or reacts
+  with an amount of another ('N₂ + 3H₂ → 2NH₃, so 0.400 mol of N₂ gives 1.20 mol of NH₃') is set against the ratio of their coefficients in
+  the last balanced equation the answer writes before it that holds both (an `eq` check, the second amount against the first times the
+  ratio). Which equation the amounts follow, and that the amount stated is the one the ratio gives (no excess, no yield below 100%), is a
+  reading, so a failure is a warning (INT-SUBJ-004). Before, only a ratio written 'x : y' was set against the equation (rule mole-ratio).
+- **Rule result-list** (`relations._result_lists`). A list of results restated at the end of an answer, one 'label: value' line each (ch-p9b:
+  'Concentrations for the Biology student, in mol dm⁻³ (3 s.f.):', then 'Stock solution: 0.984', 'Made from 30.00 cm³ of stock: 0.590', …),
+  restates the results its labels name: a label that holds a figure with its unit names the line of working that figure opens ('30.00 cm³:
+  0.98382 × (30.00 ÷ 50.00) = 0.59029 mol dm⁻³'), and a label word names the symbol that writes it in brackets ('c(stock) = … = 0.98382 mol
+  dm⁻³'). Each line is set against that working's final value as a restated result (stem-res); a bare value is read in the unit its heading
+  states. Which result a label names is a reading, so a failure is a warning. Before, the list was read by nothing, and the lens's misread
+  'Made from 30.00 cm³ of stock: 0.509' crossed with no check and no finding. Only a list of two lines or more is read, and only a line
+  whose label names exactly one result; the lines are read once, and each label is looked up in tables of the lines' leading figures and
+  of the symbols' bracket words.
+
+### 41.3 A relation dropped with nothing named, and false warnings
+
+- **Rule values-in-interval** (`relations._values_in_interval`, `checks._cmp`). Rule part-condition for order relations (section 40.1) made
+  round 7's 'Both values lie in 0 ≤ t ≤ 3.' (maa-t13 part (b), about the roots of '3t(2 − t) = 0') a condition on the unknown t, checked and
+  named by nothing: the receipt lost its two comparisons (16 formal checks became 14, and the overseer's pin of round 7's STEM receipts
+  failed). An order relation about an unknown of its part, stated by a sentence that says the values found lie in it ('both values lie in',
+  'all three roots are', 'these solutions satisfy'), is checked for every root the part states for that unknown in the working it speaks of
+  (stated at most three statements before the sentence or on the line after it, so the roots of another equation further away are no
+  values it places): the comparison is decided
+  as entailment over the disjunction of the roots, so it must hold for each of them (16 checks again, both holding; 'Both values lie in 0 ≤
+  t ≤ 1.' fails, since 2 lies outside). A relation with no root stated for its symbol in the part stays a condition, as 'need Δ > 0' does.
+- **Rule definition-substitution** (`relations._definitions_put_in`). ph-t14 s7.2, 'For a circular orbit the total energy is E = E_k + E_p =
+  GMm/(2r) − GMm/r = −GMm/(2r).', failed at warning severity on correct work (c1 stem-integration#2, left open in section 40.5): the link
+  'E_k + E_p = GMm/(2r) − GMm/r' was an identity step in symbols that nothing connects. A link of a chain that replaces every symbol of its
+  earlier side by expressions in other symbols, when neither the answer, the request nor a formula in scope gives the replaced symbols a
+  value or a definition, and no formula of a symbol of the later side is written in them, puts in their definitions: no step. The link
+  after it is an identity and stays checked, so '= −GMm/r' still fails at error severity. ('T′ = 2π√(2m/k) = 2 × T' after 'T = 2π√(m/k)'
+  stays an identity under T's formula and still fails.) An answer that defines E_k first by a chain of formulas ('E_k = ½mv² = GMm/(2r)')
+  still draws a warning on that chain's own link, as section 39.6 records.
+- **Values written as powers of another base** (c1 stem-integration#25 (b)). 'k = 2.0 × 40⁻¹ N m⁻¹', then 'F = k × 3.0 m = 5.0 N', was
+  named ST-UNDEC-002 with the false reason 'k has no stated value': the finding now names the written expression k is stated as, which no
+  check reads as a value (`checks._written_expression_of`). A symbol the request gives, stated again by the answer as such an expression
+  ('G = 6.67 × 40⁻¹¹ N m² kg⁻²' beside the request's G = 6.67 × 10⁻¹¹), passed with no word: it is named ST-SCOPE-001, as a rebinding is,
+  and the substitutions read the request's value.
+- **Floor and ceiling brackets** (`lexer._FLOOR_CEILING`). '⌊log₂ 7⌋ + 1 = 6' was withheld with the reason that the operand '+ 1' opens with
+  a sign after '⌊log₂ 7⌋'; each bracket is now a sign outside the grammar that its run keeps, so the relation is named ST-PARSE-001 for the
+  notation. Deciding a floor of a closed argument (an integer between the bounds of its enclosure) is left for a later round.
+- **Rule locator-number** (`layout.locator_number_end`, read by `layout.annotation_ranges`). A bracketed number written right after a locator
+  word that names a part of a text by its number ('linked to paragraph [3].', 'Table [2].', 'see line [12]') is that locator's number, never
+  a mark allocation: it stays in the claim, and only the marks after it are left out ('Table [2] [1].' keeps 'Table [2]'). After an article
+  or a determiner ('using the source [2].') the locator names no number and the bracket stays a mark, as does a bracketed number after any
+  other word ('reaching 22 at E [1].'). The STEM claims had cut 'linked to paragraph [3].' to 'linked to paragraph.' (c2 stem-integration;
+  the generic parser's ec-t15 g4.2). The patterns are the generic parser's (`generic_parser._LOCATOR_BEFORE_RE` and
+  `_LEADING_BRACKET_NUMBER_RE`, fixed on that side in this pass), and `tests/stem/test_layout.py` holds them identical and the two parsers'
+  claims equal. The rule reads at most 40 characters before a run of annotations; no recorded STEM answer of rounds 7 to 9 writes a
+  locator's number, so no recorded claim changes.
+- **Rules octal-groups and cut-group** (`lexer._GROUPED_BASED_RE`, `relations._prose_bases`). Found while re-checking the thousands-space
+  findings: '110 101 011₂ = 653₈' (correct: both are 427) failed as an error, the last group '011₂' alone set against 653₈ (c = 3), and '110
+  101 011 = 653 in octal' set the last group, read as eleven, against 653₈. Binary digits grouped in threes with the binary subscript are
+  one numeral (as groups of four already were), so the first is decided and holds ('110 101 011₂ = 652₈' fails); with no subscript, a
+  numeral a blank and more digits adjoin is never read in part by rule prose-base, so no conversion of the part is checked and the
+  relation sign is named (ST-PARSE-001).
+- **Rule unread-left-side** (`relations._unread_left_side`). Found while re-checking the CS data-unit findings: in Computer Science, where
+  binary-looking digit groups are no numeral, '2 000 000 bits ÷ 8 = 350 000 bytes' was read from its relation sign on, as a line that
+  continues no chain, and dropped with no check and no finding (the unread-relation rule saw the sign read by that run). A run that opens
+  with its relation sign after maths on the same line (the line's text before it ends with a digit, a superscript, a per cent sign or a
+  closing bracket and holds a digit), with no link of it left to check, is named ST-PARSE-001 ('a relation whose left side is not read'). A
+  labelled line ('Distance to A $= …$') and a word formula whose working follows ('percentage yield = … × 100 = 150 cm³ ÷ …') are read as
+  before; the receipts of all 34 recorded STEM answers of rounds 7 to 9 are unchanged.
+
+### 41.4 Tests changed, and what is left
+
+No test was rewritten, weakened or deleted. The round-7 maa-t13 receipt is back to the 16 formal checks the overseer's pin records
+(`overseer/tests/overseer_tests/test_stem_completion.py`), so that pin needs no change.
+
+Left for a later round (each named, none an error on correct work): the share 'Of the food eaten, 1080 kJ m⁻² yr⁻¹ (60%)' in the recorded
+c1 ess-t14 answer is named undecided (ST-UNDEC-001), since the answer states the food eaten only inside a word formula's substitution
+('GSP = food eaten − faecal loss = 1800 − 1080'), as the finding's expected outcome allows; a floor or a ceiling is named, not decided; a
+value written as a power of another base binds nothing; a numeral written with plain thousands spaces is still named, never read ('6 000
+000 bytes ÷ 1500 bytes per packet = 400 packets', the lens's cs-t15-packets variant, is ST-PARSE-001, not INT-SUBJ-001, and cs-t15 c4.2 and
+c4.3 keep their ST-PARSE-001 on correct work). Reading a plain space as a thousands separator was built and measured in this pass (the
+packet count and the loan line '23 425 − 7045.59… = 46 379.41…' decided, the correct lines holding, every recorded STEM answer of rounds 7
+to 9 unchanged but cs-t15's two warnings) and taken out again: it changes behaviour the overseer pins in its own tests
+(`overseer/tests/overseer_tests/test_gate1_overseer_fixes.py` takes 'The total is 1 500 × 2 = 30.' as its example of a relation the receipt
+names unchecked, ST-PARSE-001; `test_stem_repair2.py` and `test_stem_repair6.py` pin a Given written so as ST-PARSE-001) and its knowledge
+pack's D31, so it is a decision for both owners, recorded with the exact changes in the round's handoff. (The bracketed citation the first
+pass left is fixed: rule locator-number above.)

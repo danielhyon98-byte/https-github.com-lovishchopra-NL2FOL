@@ -2,7 +2,7 @@
   "schema": "epinoic.combinator.output-format.v1",
   "instruction_pack": {
     "name": "combinator-instructions",
-    "version": "1.2"
+    "version": "1.3"
   },
   "output": {
     "keys": [
@@ -14,7 +14,7 @@
       "claims"
     ],
     "claims": "1 to 512 synthesized claims, each exactly {text, source_claim_ids, certainty, transformation}",
-    "dropped": "every source claim left out, each {source_claim_ids, reason}: a note, a self-certification, a decline or a question included; a reason is a sentence in words",
+    "dropped": "every source claim left out, each {source_claim_ids, reason}: a note, a self-certification, a word count or a question included, never a decline or a deferral of the work the student asked for (it is carried); a reason is a sentence in words",
     "conflicts": "every set of source claims that really contradict each other, each {claim_ids (two distinct ids at least), description in words}; the key is left out when nothing contradicts"
   },
   "claim": {
@@ -49,9 +49,10 @@
     "never add content no source claim states (INT-LEDGER-005, INT-LEDGER-023)",
     "keep the qualifiers and hedges of a source claim ('may have', 'probably', 'only', 'usually', 'about', 'at least', 'from memory'); never turn a minority into a majority (INT-LEDGER-026, INT-LEDGER-027)",
     "credit a view or a quotation only to the specialist or the text it came from: never to the other specialist, never to both when only one says it, never to a text the claim is only about (INT-LEDGER-025, INT-LEDGER-026)",
-    "never carry a note, a self-certification, a decline or a question back as a claim: list it in dropped; a source claim whose role is 'other' is a note, never cited in claims; never put a verification label ('Verified:', 'Checked:', '(verified)', '(Z3: proved)', '[OK]', '(proven)') on a claim, and write a source claim that carries one without it, as 'narrowed' (INT-LEDGER-029)",
+    "never carry a note, a self-certification, a word count or a question back as a claim: list it in dropped; a source claim whose role is 'other' is a note, never cited in claims, except a decline or a deferral of the work the student asked for (the next rule); never put a verification label ('Verified:', 'Checked:', '(verified)', '(Z3: proved)', '[OK]', '(proven)') on a claim, and write a source claim that carries one without it, as 'narrowed' (INT-LEDGER-029)",
+    "never hide work that was not done: a decline or a deferral of the work the student asked for ('I can't write your introduction or your ethical safeguards, because the proposal must be your own work', 'I cannot answer part (c)', 'Reply \"approve\" and I will write the full evaluation', 'Shall I write the full answer?') reaches the student: carry it, whatever its role, as a synthesized claim of its own that cites only that source claim, its text copied exactly, transformation 'carried', the certainty the source states; never drop, merge, reword or shorten it, and never make it a statement about the subject (a synthesis that leaves out a decline is named, INT-LEDGER-019)",
     "never merge or silently resolve contradicting source claims: keep each as its own claim and list the contradiction in conflicts (INT-CONFLICT-002); list a conflict only for claims that really contradict each other, never an invented one (a conflict the hub finds no contradiction for is named as the combinator's own statement, INT-CONFLICT-006)",
-    "list every source claim left out in dropped, with its reason in a sentence: a transformation word or a word for the drop itself ('dropped', 'omitted') is no reason (INT-LEDGER-002, INT-LEDGER-006)",
+    "list every source claim left out in dropped, with its reason in a sentence, and never a decline or a deferral (it is carried): a transformation word or a word for the drop itself ('dropped', 'omitted') is no reason (INT-LEDGER-002, INT-LEDGER-006)",
     "every text, reason and description holds at least one visible character and no control character other than a tab or a line break, and no bidirectional embedding, override or isolate: anything else is refused before the synthesis leaves the combinator (KIT-CB-002)",
     "write exactly one JSON object with the keys claims, dropped and conflicts, and nothing else"
   ]

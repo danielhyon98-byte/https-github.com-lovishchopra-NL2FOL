@@ -636,6 +636,39 @@ OVS-RCPT-004 too. A cut under the module budget, or under a smaller one the plan
 undecided that the receipt decided, are OVS-RES-008 (a warning, never an accusation). Tests:
 `tests/overseer_tests/test_gate4_shadow_budget.py`.
 
+**After the round-9 clearance** (integrated round c2; design section 55, decisions 138 to 146): a faithful step check is no
+circular translation (rules `stated-input`, the premise is a relation the answer writes on its previous lines of working or
+before the claim's step marker, under one renaming of the written symbols onto the problem's; and `stated-evaluation`, the
+claim writes the conclusion evaluated at the values the premise gives), while an intermediate the answer writes nowhere and
+an anchor restating a conjunct as written stay OVS-TRN-006; a 0 or 1 the task states with a unit is read as data (rule
+`unit-structural`) and "2NH₃" names NH3 as "2 mol NH3" does (rule `chemical-amounts`); OVS-TRN-005 reads quotations of the
+task, the squares of stated figures where a square or root is written and durations in years and months, and OVS-TRN-004
+clock times, month names and stated-precision bounds (rules `task-quotation`, `stated-squares`, `years-months`,
+`clock-times`, `stated-readings`), while the reciprocal and quotient readings need a written division and a figure in words is
+stated; a model answer in quotation marks quotes no supplied text (rule `own-model`) and "paragraph [3]" is never read as a
+mark annotation (rule `referring-bracket`); the task record is in every translation's scope (rule `task-in-scope`); a value a
+claim checks at is read apart before a conflict is charged (rule `evaluation-point`, OVS-JOINT-003); the delivery policy keeps
+an answer whose only audit faults are translation faults a candidate (rule `translation-faults`), never delivers a
+self-certification (a self-report no code names included: a first-person check, or "nothing to fix in this answer" in a note)
+or a refuted candidate in the fallback, names a W110/W111 warning on a refutation (recorded only) and never
+counts unchecked working accurate on silence; feedback holds back flaws that do not hold on the receipt's own terms (rule
+`feedback-hold`); and the harness keeps every auditor finding in the gold, converts only listed false findings, scores
+supplied-text injections apart and offers a recorded-reply transport so arena verdicts are runner-attested. Tests:
+`tests/overseer_tests/test_clearance_c2_overseer.py`.
+
+**The round-9 clearance's second fix pass** (c2b; design section 56, decisions 147 to 152): the fallback's self-certification
+gate reads every block a note lead opens, "Final note:" and "One note:" included, whatever the parser made of it (the parsers keep
+an assurance under such a lead as a claim of the answer); a verdict whose own notes declare its review incomplete ("Not completed:
+...", "Partial review ...") certifies nothing on its silence (rule `declared-incomplete`, read only to trust a verdict less); a
+false-conflict accusation of a conflict resting on a check, an evaluation point or a supposition the claim states is left
+unresolved, never refuted by a re-check that could not read the value apart (rule `false-conflict-gap`); an unverified
+arithmetic fact that names the task as its figure's source and whose figures the request states for the quantity it names is
+undecided data, as a task setting's is (rule `task-figures`: OVS-TRN-011 at most, so the audit agrees with a receipt that displays c1
+bi-t14 s4.7 or ph-p8b s1.1 ENTAILED; an invented task figure, or an arithmetic fact that names no task source, stays OVS-TRN-006); the quotient-over-a-square reading needs the root of its figure written and a
+negative unit exponent opens no square reading (a planted 0.60 is named OVS-TRN-005 again); the merged review of a combined
+answer with no assessed verdict is noted NOT reviewed; and the intake never shows a blind dossier a context built for an informed
+review. Tests: `tests/overseer_tests/test_clearance_c2b_overseer.py`.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and

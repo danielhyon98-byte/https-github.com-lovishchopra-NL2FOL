@@ -244,7 +244,7 @@
   ```
   Expect `failed` 0 there too (record the counts; it took about an hour on a four-core host).
   The constraints file (`integration/constraints.txt`) pins every distribution to the version the suite was measured with,
-  the solver included (`z3-solver==5.1.0.0`): `pyproject.toml` allows any `z3-solver>=4.13`, and a later solver decides some
+  the solver included (`z3-solver==5.1.0.0`): `pyproject.toml` declares the accepted series (`z3-solver>=5.1.0,<5.2`, since the round-9 clearance), and a later solver decides some
   nonlinear problems differently within the same budget (integration gate 2), so an install without it is not the
   measured environment. Record the solver version the second command prints with the counts.
 - **Expect:** `failed` is 0 (record the counts); the solver version is inside `COMPATIBILITY.json`

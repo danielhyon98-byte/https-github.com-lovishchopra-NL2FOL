@@ -56,6 +56,17 @@ python scripts/mutate_auditor.py --out OUT/mutation
 PYTHONPATH=scripts python -m pytest -q -p pytest_attach <translator checkout>/tests   # from overseer/: the translator's suite, every channel audited
 ```
 
+**Runner-attested arena verdicts (round-9 clearance c2).** The arena's overseer agents are workflow agents, so their verdicts were
+self-reports submitted through `VerdictIntake` (gate `deployment_faithful_every_verdict_runner_attested` failed every round). The
+harness now offers a recorded-reply transport (`ovs_harness.RecordedReplyProvider`): for each issued dossier,
+`ovs_harness.write_runner_input(runner, dossier, DIR)` writes exactly what the package's runner sends (`<digest>.system.txt`, the pack's
+composition for the dossier, and `<digest>.user.txt`, the rendered dossier block) under the digest of that input; the workflow agent
+answers it and its reply is saved, unedited, as `DIR/<digest>.reply.txt`; then
+`OverseerAgentRunner(pack, RecordedReplyProvider.from_directory(DIR), agent_id=..., lens=...).run(dossier, intake)` validates the reply and
+the intake signs it with attestation `runner`. The run names the provider `recorded arena reply`, never a live provider. A reply recorded
+for another input is never served, and a missing reply is a provider error (no review), never a verdict
+(`tests/overseer_tests/test_clearance_c2_overseer.py`).
+
 `ROUNDS` is the directory that holds the recorded rounds (`r1`, `r1-adv`, `r2` ... `r7`). The tampering suite, the STEM
 probes and the dossier export use each round only when present. `run_contained.py` fails its gate `requested_rounds_present`
 when a round it was asked for (the default set r2 to r5 and r7, or each `--round`) is not found, so "every gate passes"

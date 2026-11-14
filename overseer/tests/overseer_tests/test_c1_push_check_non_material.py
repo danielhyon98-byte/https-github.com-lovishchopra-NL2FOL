@@ -153,7 +153,8 @@ def test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_lab
     them with the label rule's reason last.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; its assertions are unchanged: the
+    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the
     old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     _rc, _report, decision, _audit = _deliver(EN_T14)
@@ -453,8 +454,9 @@ def test_a_genuine_note_is_refused_by_the_label_rule_alone_on_the_real_path(monk
     the formal path's ONLY reason (every other condition holds, as before); where it pinned the reasons of a refusal it pins
     them with the label rule's reason last.
 
-    Renamed after the re-review of the c1 landing (from ``test_a_genuine_note_keeps_the_label_on_the_real_path``), its
-    assertions unchanged: the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
+    Renamed after the re-review of the c1 landing (from ``test_a_genuine_note_keeps_the_label_on_the_real_path``), the rename left its
+    assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
     condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     for text in (EN_T14 + "\n\n" + note, EN_T14.replace(P4_END, P4_END + " " + note)):

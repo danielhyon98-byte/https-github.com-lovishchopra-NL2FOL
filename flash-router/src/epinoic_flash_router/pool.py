@@ -29,7 +29,10 @@ P1 to P7, with no decision record.
 
 The plan is advice. The overseer validates it as untrusted data and runs it only when it is at or above the overseer's
 own minimum-oversight floor; a re-tuned file that plans less (fewer reviewers for an escalated dossier, a combined answer
-not N_FOLD) is refused there and the floor plan runs. Pure and deterministic: no network, no clock, no randomness, no
+not N_FOLD) is refused there and the floor plan runs. Before anything is planned the request is checked
+(:func:`~epinoic_flash_router.contract.check_pool_request`): one this router does not read is refused with
+:class:`~epinoic_flash_router.contract.RequestError` naming the member and the rule, and what planning a request that
+passes raises is a fault of the router's own code. Pure and deterministic: no network, no clock, no randomness, no
 file read; the same request and the same data give the same plan.
 """
 from __future__ import annotations
@@ -37,6 +40,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Mapping, Optional
 
+from .contract import RequestError, check_pool_request
 from .decision import decide, n_fold_decision
 from .rules import DEFAULT, DataSet, canonical
 
@@ -89,14 +93,20 @@ def _read(item: Mapping[str, Any]) -> dict:
 def pool_plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str], data: Optional[DataSet] = None) -> dict:
     """The pool plan for one batch (a parsed ``pool-routing-request.v1`` object), under this router's ``identity`` and
     ``data`` (the package's own data by default). A pool port 1.1 request gets a 1.1 plan (rules P1 to P7); a 1.2 request
-    a 1.2 plan with every dossier's decision and N_FOLD for every combined answer, which needs the decision maker's data."""
+    a 1.2 plan with every dossier's decision and N_FOLD for every combined answer, which needs the decision maker's data.
+    :class:`RequestError` (a ``ValueError``) for a request this router does not read (``contract.check_pool_request``: a
+    version it does not answer, 1.2 without the decision maker's data, a member the planner reads out of its type or
+    range), before anything is planned: what planning a request that passes it raises is a fault of the router's own
+    code."""
     data = DEFAULT if data is None else data
+    # the request's canonical text, as UTF-8 (what its digest is taken of), once it is a request this router reads
+    request_text = check_pool_request(request, versions=POOL_PORT_VERSIONS, decision=data.decision is not None)
     version = request["port_version"]
     if version not in POOL_PORT_VERSIONS:
-        raise ValueError(f"this router reads pool port versions {', '.join(POOL_PORT_VERSIONS)}, not {version!r}")
+        raise RequestError(f"port_version: this router reads pool port versions {', '.join(POOL_PORT_VERSIONS)}")
     v12 = version == "1.2"
     if v12 and data.decision is None:
-        raise ValueError("pool port 1.2 needs the flash decision maker's data (rules/3): this data directory plans pool port 1.1 only")
+        raise RequestError("pool port 1.2 needs the flash decision maker's data (rules/3): this data directory plans pool port 1.1 only")
     pool = data.pool
     reviewers, baseline, weight = int(pool["escalated_reviewers"]), int(pool["baseline_reviewers"]), int(pool["record_weight"])
     items = list(request["items"])
@@ -210,7 +220,7 @@ def pool_plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str], da
         if v12:
             entry["decision"] = _decision(it, entry, layout.get(iid), data=data, maximum=maximum)
         assignments.append(entry)
-    request_sha256 = hashlib.sha256(canonical(request).encode("utf-8")).hexdigest()
+    request_sha256 = hashlib.sha256(request_text).hexdigest()
     plan_id = "pool-plan-" + hashlib.sha256(canonical({"request_sha256": request_sha256, "router": dict(identity)}).encode("utf-8")).hexdigest()[:32]
     estimated: Optional[dict] = None
     if v12 and assignments:

@@ -147,9 +147,12 @@ it.
 - `certainty` is never stronger than the weakest cited source (INT-LEDGER-003); figures, units, marks, dates and
   quotations are kept exactly as the source states them (a figure restated in another unit or era is INT-LEDGER-023), and
   so are qualifiers, a frequency ("usually") or a bound ("at least") included (INT-LEDGER-026); a note, a
-  self-certification, a decline or a question is never carried back as a claim (a source claim whose `role` is `other` is
-  a note and is never cited in `claims`), and no verification label ("Verified:", "(checked)", "(Z3: proved)", "[OK]") is
-  put on one (INT-LEDGER-029); a synthesized claim cites each source claim once (the combinator's runner refuses a
+  self-certification, a word count or a question is never carried back as a claim (a source claim whose `role` is `other`
+  is a note and is never cited in `claims`), except a decline or a deferral of the work the student asked for, which is
+  carried word for word as a synthesized claim of its own (`carried`, citing only that claim, whatever its role: rule 7
+  since pack 1.3; a synthesis that leaves out a decline or a deferral is INT-LEDGER-019, rule framing-content), and no
+  verification label ("Verified:", "(checked)", "(Z3: proved)", "[OK]") is put on one (INT-LEDGER-029); a synthesized
+  claim cites each source claim once (the combinator's runner refuses a
   repeated citation, KIT-CB-002); every source claim left out goes in `dropped` with a reason in words (a transformation
   word or "dropped" is no reason, INT-LEDGER-006); a contradiction is disclosed in `conflicts`, never merged
   (INT-CONFLICT-002 for formalized claims; a contradiction between claims in prose is named only through the figures a
@@ -173,11 +176,22 @@ round or leaves the record without a receipt. As written means the citations too
 hub unchanged, so a citation of a claim no delivered report holds is named by the hub (INT-LEDGER-001), and the relayed
 synthesis lists the report of every delivered member of the group in `source_report_ids`, whichever member's file holds
 the output. The harness adds only what the format leaves to it: the synthesized claim ids (`s0`, `s1`, ...; prefixed with
-the task id when the group has one file per member), the student-facing text (the claims' texts joined), a left-out
+the task id when the group has one file per member), the student-facing text, a left-out
 `certainty` or `transformation` (relayed as `established` and `paraphrased`, the defaults since round 1; the hub still
 names a certainty stronger than a cited source, INT-LEDGER-003) and, for a claim that carries no `evidence_refs`, the
 references of its cited material sources whose excerpts its text reproduces word for word, read from every delivered
 report of the group (`evidence_refs_copied` on the record).
+
+The student-facing text is composed from the synthesized claims' texts exactly as the deployed combinator port composes
+it (`student_facing_text`): with the port's own composer when the port has one (`PORT_TEXT_COMPOSER`,
+`combinator_port.student_facing_text`), else as the claims' texts joined by a space, which is how
+`combinator_port.synthesis_payload` writes it today. The harness never composes a text of its own, so the arena relays
+the text production would relay. Arena round 9 (c2, ll-t15) showed what the join does when a combinator carries a
+quotation claim beside the sentence that quotes it: the student reads the quotation twice, once as a stray fragment. The
+hub names such a synthesis (INT-LEDGER-017, rule duplicated-content). Rendering the quotation only inside the sentence
+that quotes it is a change of the port's composer: made in the harness alone, it would show the arena a text that
+production never sends. The harness follows the port's composer with no change of its own
+(`test_the_arena_composes_the_student_facing_text_as_the_port_does`).
 
 Integration gate, round 1 (combinator faults): the harness kept only the cited ids the file's own member's report held
 whenever one of them did. An invented citation beside a real one vanished before the hub saw it (no INT-LEDGER-001 on an
@@ -323,7 +337,16 @@ Every STEM injection moves the leading significant digit of one figure by 3, the
 moved such an exponent's first decimal digit instead (`10^(−8.5)`), because a change of the leading digit is a factor of
 exactly 10³ that the SI reading of a stated unit absorbed; that raised the count while the recorded fault still passed.
 It is withdrawn: the injection is the base one, and the checks name it at its cause (`docs/STEM_DESIGN.md`, section 33,
-items 1 and 7, and 33.3). The marker leaves a part label out ("(b) "), as every claim does.
+items 1 and 7, and 33.3). The marker leaves a part label out ("(b) "), as every claim does, and a list marker opening the line ("- ", "* ", "3) "; round-9 clearance c2b: the breadth answer cs-2's "- 181 − 128 = 53" gave the marker "- 181 − 128 = 83", which no delivered claim holds, so the INT-SUBJ-001 naming c1.2 was counted a miss).
+
+The code that must name a quotation injection depends on what the task supplies (`run_arena.quotation_expectation`): a
+task with a supplied text of its own refutes an invented or altered quotation (INT-REQ-003); without any supplied text a
+quotation is unverifiable (CORE-SRC-003), except an altered quotation whose every word the request holds
+(`run_arena.alters_request_words`): the request's own words are a text a quotation can alter, and the channel refutes the
+alteration against them (round-8 clearance c1, ps-t14), so it must be named INT-REQ-003, never only CORE-SRC-003 (round-9
+clearance c2b: maa-t15's quoted label 'at least one blue' is a mention for the core pack now, so the alteration draws no
+CORE-SRC-003, while the channel still names it INT-REQ-003, an altered quotation of the request; c1's ps-t14 and c2's
+ps-p9a read the same way and keep their counts).
 
 ## Qualified runs
 
@@ -381,12 +404,31 @@ and r7's hi-p7c is excluded only for its own INT-SUBJ-001. results.json carries 
 - per task: the mode, the label, the time to decision, the translation and overseer times, the formal path's reasons
   and claims, every candidate with its accuracy and whether it was chosen, the chosen answer, the signed receipt's id
   and whether it verifies, and whether the pass's receipt equals the genuine record's (status and codes);
-- the pass's errors and its wall time.
+- the pass's errors and its wall time;
+- what the pass exercised of the overseer-selected fallback (`fallback_exercised`, `decided_on_established_accuracy`,
+  `overseer_selected`, `withheld_by_cause`, and `withheld_why` on each withheld task), and, when it exercised nothing,
+  why (`fallback_not_exercised`). A decision counts as an exercise only when a verdict of the overseer agents was
+  counted. A stage that ran with no counted verdict (every run failed) is listed under
+  `overseer_stage_without_counted_verdict`, whatever cause its label states.
 
-summary.md has a "Delivery decisions" table with one row per task. The command line configures no overseer agent,
-because the harness calls no model, and a replay calls no fidelity reviewer. So no formal path completes, and an answer
-is withheld with its reasons. `run_round(round_dir, delivery_overseer={"pack": ..., "provider_factory": ...})` configures
-overseer agents (tests only: scripted providers).
+summary.md has a "Delivery decisions" table with one row per task, and a line on the fallback. The command line
+configures no overseer agent by default, because the harness calls no model, and a replay calls no fidelity reviewer.
+So no formal path completes, an answer is withheld with its reasons, and the line says the fallback and its threshold
+were not exercised. Arena round 9 (c2) had all 22 decisions withheld for that reason alone, and nothing said so.
+
+`--overseer-provider MODULE:FACTORY` configures the overseer agents. FACTORY maps an agent id to a completion
+provider. It is the operator's own code, imported by its dotted name, never text from a round. The agents are built from
+the exported pack: `--overseer-pack ZIP`, or by default the installed pack exported to a temporary directory and loaded
+from its zip, as the deployed policy loads it. Their verdicts go through the overseer package's runner and verdict
+intake, so every verdict the pass counts is runner-attested. With the option, the same pass also runs without overseer
+agents. results.json then carries `deliveries` (with the agents), `deliveries_baseline` (without them) and
+`delivery_comparison` (each task's two modes and the tasks the agents changed); summary.md shows "Delivery decisions
+without overseer agents (the withheld baseline)" after the configured section. A malformed name, a module that cannot
+be imported, a factory that is not callable or a pack file that does not exist is refused before any pass runs (exit
+status 2). A pack that does not load is the configured pass's own error, named in results.json. The harness imports the
+overseer only inside its delivery pass, which loads the pack (`tests/integration/test_overseer_subproject.py`).
+`run_round(round_dir, delivery_overseer={"pack": ..., "provider_factory": ..., "label"?: ...}, delivery_baseline=True)`
+does the same from Python. The tests use scripted providers that read the dossier as data and call no model.
 
 ## Specialist revisions
 
@@ -394,9 +436,15 @@ overseer agents (tests only: scripted providers).
 `feedback/<task>.json` for every genuine answer, standalone and peer-dependent (never a synthesis). An answer whose receipt
 and task audit hold no allowlisted flaw gets no feedback (`no_actionable_flaw`): the counted negative control. A round's
 `tasks.json` may set `revision_rounds` per task (round 8: 1), which `group_plan` puts in the plan's budget; without it the
-plan is the one it was. The pipeline then makes one cheapest-tier call per issued file and records
-`revisions/<task>.json` (`task_id`, `agent_id`, `feedback_sha256`, the digest of the message the specialist read,
-`response_text`, and the call's model, effort, knowledge-base version, bundle digest, times and tokens).
+plan is the one it was. `revision_feedback.py <round> --revision-rounds N --all` issues the feedback under N rounds and
+records N in tasks.json first, for every covered task. A task that already records another budget is refused (exit
+status 2) before anything is written. Every feedback file also records the budget it was issued under: `max_rounds`,
+and the signed block's. The pipeline then makes one cheapest-tier call per issued file and records
+`revisions/<task>.json` (`task_id`, `agent_id`, `feedback_sha256`, `response_text`, and the call's model, effort,
+knowledge-base version, bundle digest, times and tokens). `feedback_sha256` is the digest of the message the
+specialist read: the feedback file's `rendered_sha256`. A revision file without it is flagged
+(`UNRECORDED_READ_FLAG`) and is not delivered, and gate `feedback_as_read` fails: no replay can show that its specialist
+read the feedback as issued. Round 9's 15 revision files lacked it.
 
 When the round holds `feedback/`, `run_arena.py` runs a revision pass of its own after the delivery pass: it replays the
 genuine traffic again, re-issues every request and compares it with the recorded file (`recorded_feedback_checks`: the
@@ -410,11 +458,26 @@ gates (feedback as read, no revision without a request, no OVS-FB-001, the shado
 persisting errors withheld and escalated). The pass adds no record and moves no transport count: the headline rate
 excludes it. No fixture is served in it (no claim outcome is ever fed back, so the flaws do not depend on one).
 
+Each request is re-issued under the budget its recorded feedback was issued under (`replay_budgets`): the signed block's
+`max_rounds`, else the file's own. The round's setting is used when it agrees. Each check names its budget and where
+the budget came from (`budget`: `round` or `feedback`, with the round's other setting as `round_budget`), and
+summary.md lists them. Arena round 9 (c2) issued its feedback under one round while its tasks.json recorded none. The
+replay re-issued every request under the default of 2 rounds, and `feedback_as_read` failed for all 15 revisions on
+`max_rounds` and the rendered digest, which is configuration, not custody. The exercise's check copied each feedback
+file's digest into its revision file by hand. Replayed on that copy at the round's own code, all 15 requests are now
+re-issued byte for byte and the gate passes.
+
+A file in `feedback/` or `revisions/` whose name is no task of the round and that carries no `task_id` (an exercise's own
+`summary.json`, say) is no feedback or revision file. It is listed under `ignored_files` and never compared. A feedback
+or revision file that is not JSON is a named difference or error, never an exception. `run_arena.py
+--fail-on-revision-gates` exits with status 1 when the revision pass ran and a gate failed or it recorded an error, so a
+feedback exercise whose specialists cannot be shown to have read the feedback as issued fails.
+
 ## Tests
 
 ```
 python -I -m pytest -q tests/e2e/test_arena_revisions.py   # the specialist revisions: feedback files, the revision pass, the headline unchanged, feedback as read, the round's budget
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), and the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py)
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py), the revision budgets and the digest of what a specialist read (round 9), the overseer-selected fallback with --overseer-provider beside the withheld baseline (round 9), the student-facing text composed as the combinator port composes it, and no raw bidirectional control in the harness owner's files (round 9)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/e2e/test_arena_without_the_overseer.py   # a round where the overseer is not installed: both of its passes recorded as not run (default suite)

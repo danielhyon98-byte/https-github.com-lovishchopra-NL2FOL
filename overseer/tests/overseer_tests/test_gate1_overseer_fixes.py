@@ -189,7 +189,8 @@ def test_a_stem_relation_not_checked_never_travels_under_the_formal_label(extra,
 def test_control_an_answer_whose_working_is_all_checked_is_refused_by_the_label_rule_alone():
     """Renamed after the pre-commit review of the c1 landing from
     ``test_control_an_answer_whose_working_is_all_checked_is_still_formally_checked``, whose name stated the opposite of what
-    it asserts since rule ``formal-label-withheld``; its assertions are unchanged.
+    it asserts since rule ``formal-label-withheld``; its assertions were changed to the stricter rule (see below; the round-9 clearance
+    corrected this docstring, which said they were unchanged).
 
     Rewritten to the stricter rule after attack round 5 (rule ``unverified-claims``): the fixture's answer held a supporting
     evidence claim (``p1.0``) that no signed engine result decides, and FORMALLY CHECKED now needs every claim of the answer to
@@ -241,7 +242,8 @@ def test_an_answer_carrying_a_self_report_never_travels_under_the_formal_label(s
 def test_control_the_same_answer_without_the_self_report_is_refused_by_the_label_rule_alone():
     """Renamed after the pre-commit review of the c1 landing from
     ``test_control_the_same_answer_without_the_self_report_is_formally_checked``, whose name stated the opposite of what it
-    asserts since rule ``formal-label-withheld``; its assertions are unchanged.
+    asserts since rule ``formal-label-withheld``; its assertions were changed to the stricter rule (see below; the round-9 clearance
+    corrected this docstring, which said they were unchanged).
 
     Rewritten to the stricter rule after attack round 5 (rule ``unverified-claims``): the fixture's answer held a supporting
     evidence claim (``p1.0``) that no signed engine result decides, and FORMALLY CHECKED now needs every claim of the answer to

@@ -662,7 +662,8 @@ def test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without
     them followed by the label rule's reason.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_with_every_claim_clean_the_label_is_formally_checked_only_without_an_assurance``; its assertions are unchanged:
+    ``test_with_every_claim_clean_the_label_is_formally_checked_only_without_an_assurance``; the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here):
     the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     _rc, _report, decision, _audit = _deliver(EN_T14 + ("\n\n" + note if note else ""))

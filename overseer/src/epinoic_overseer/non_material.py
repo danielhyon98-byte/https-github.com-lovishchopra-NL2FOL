@@ -99,8 +99,8 @@ from typing import Any, Iterable, Optional, Sequence
 from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS
 from epinoic_logic.api.stem import ANNOTATION_ONLY_LINEAR_RE, MARK_ALLOC, MARK_CODE, PART_LEAD_RE, TABLE_SEPARATOR_RE, annotation_ranges
 from .meta_notes import (
-    MAX_LEAD_BLOCKS, _ignorable, answer_paragraphs, hides_text, lead_region_end, lead_starts, normalised_answer, read_meta_paragraph, read_source_list,
-    reader_text,
+    MAX_LEAD_BLOCKS, RESPONSE_LIMIT_RULE, RESPONSE_MAX_CHARS, OversizeAnswer, _ignorable, answer_paragraphs, hides_text, lead_region_end, lead_starts,
+    normalised_answer, read_meta_paragraph, read_source_list, reader_text, require_response_limit,
 )
 
 __all__ = ["NON_MATERIAL_RULE", "LAYOUT_RULE", "MAX_BLOCKS", "ParserUnit", "LayoutReading", "TextBlock", "english_units", "report_units",
@@ -173,7 +173,9 @@ class _Unread(Exception):
 # ============================================================================================ the parser's reading
 def english_units(text: str) -> list[ParserUnit]:
     """The English parser's own segmentation and sentence roles (``segment``): every sentence of every paragraph in order,
-    a claim when its role is not ``other``."""
+    a claim when its role is not ``other``. An answer over the contract's response limit raises
+    :class:`~.meta_notes.OversizeAnswer` before it is segmented (rule ``response-limit``)."""
+    require_response_limit(text)
     from epinoic_logic.api.adapters import segment
     return [ParserUnit(s.text, s.role != "other") for p in segment(text) for s in p.sentences]
 
@@ -187,7 +189,10 @@ def report_units(report: Any) -> list[ParserUnit]:
 def parser_units(text: str, parser: Any, **kwargs: Any) -> list[ParserUnit]:
     """The reading of the answer ``text`` by the branch parser ``parser`` (the channel's arguments in ``kwargs``): the
     English parser by :func:`english_units` (an answer whose report would fold claims into its tail is refused: the tail is
-    no claim), every other parser by its ``parse_response`` (:func:`report_units`). Raises when the parser cannot read it."""
+    no claim), every other parser by its ``parse_response`` (:func:`report_units`). Raises when the parser cannot read it, and
+    raises :class:`~.meta_notes.OversizeAnswer` before any parser runs on an answer over the contract's response limit (rule
+    ``response-limit``)."""
+    require_response_limit(text)
     from epinoic_logic.api.adapters import TAIL_CLAIM_ID
     from epinoic_logic.api.branches import EnglishParserWrapper as _EnglishParserWrapper
     if isinstance(parser, _EnglishParserWrapper):
@@ -283,7 +288,10 @@ def claim_key(text: str) -> str:
 def parser_claims(text: str, parser: Any, **kwargs: Any) -> list[tuple[str, str, str]]:
     """The claims the branch parser ``parser`` reads in the answer ``text`` with the channel's arguments ``kwargs`` (rule
     ``unverified-claims`` of the delivery policy): ``(claim_id, role, claim_text)`` for every claim of its ``parse_response``
-    with a role other than ``other``, whatever its materiality. Raises when the parser cannot read the answer."""
+    with a role other than ``other``, whatever its materiality. Raises when the parser cannot read the answer, and raises
+    :class:`~.meta_notes.OversizeAnswer` before the parser runs on an answer over the contract's response limit (rule
+    ``response-limit``)."""
+    require_response_limit(text)
     report = parser.parse_response(text, **kwargs)
     return [(str(c.claim_id), str(c.claim_role), str(c.claim_text)) for c in list(report.claims) if c.claim_role != "other"]
 
@@ -505,8 +513,10 @@ def non_material_blocks(text: str, units: Sequence[ParserUnit], *, grounding: It
     (``grounding``: the words of the supplied texts' titles and authors, for rule ``source-list``; ``task_wording``: the
     task as the request carried it, for rule ``layout``; ``held``: the claims of the journaled report, :func:`held_claims`,
     when a claim covers its text only if the report holds it). A block of layout marks only is read as layout. Raises
-    :class:`_Unread` when the reading cannot be laid on the answer and ``OverflowError`` past :data:`MAX_BLOCKS` blocks that
-    need a reader."""
+    :class:`_Unread` when the reading cannot be laid on the answer, ``OverflowError`` past :data:`MAX_BLOCKS` blocks that
+    need a reader, and :class:`~.meta_notes.OversizeAnswer` on an answer over the contract's response limit, before it is cut
+    (rule ``response-limit``)."""
+    require_response_limit(text)
     ground = frozenset(grounding)
     pieces = task_wordings(task_wording)  # read once for the answer, never once per block
     norm = normalised_answer(text)
@@ -571,6 +581,8 @@ def unread_non_material_blocks(text: str, units: Sequence[ParserUnit], *, ground
     except Exception as exc:  # noqa: BLE001 - a reading that fails frees nothing
         if isinstance(exc, OverflowError):
             why = "more than the bound of blocks"
+        elif isinstance(exc, OversizeAnswer):
+            why = f"the answer is over the contract's limit of {RESPONSE_MAX_CHARS} characters, unread (rule {RESPONSE_LIMIT_RULE})"
         elif isinstance(exc, _Unread):
             why = f"the parser's reading could not be laid on the answer: {exc}"
         else:

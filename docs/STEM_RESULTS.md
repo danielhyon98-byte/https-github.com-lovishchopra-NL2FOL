@@ -815,3 +815,65 @@ recorded STEM answers (`tests/fixtures/stem/round8/c1_answers.json`):
   its test ('0.333… × 3 = 1' named undecided; now decided and holding). Both are handed to the overseer's owner with the exact change.
 
 Measured 2026-11-02. These are replays of recorded answers: no specialist was called.
+
+### 10.16 The round-9 arena's STEM findings, measured on the recorded round
+
+The fixes of `docs/STEM_DESIGN.md` section 40, measured on fresh copies of the integrated round c2 (arena round 9) and c1 (arena round 8)
+and on the round's recorded STEM answers (`tests/fixtures/stem/round9/c2_answers.json`):
+
+- False errors on correct work: the four false INT-SUBJ-001 on three of the genuine STEM answers (ph-t15 twice, maa-t15, ch-p9b) and the
+  one on the specialist's revision of cs-t15 are gone; no recorded STEM answer of the round or revision carries INT-SUBJ-001, in the
+  tests or in the harness run, and the false INT-SUBJ-004 on ph-t15, its revision and cs-t15, and the two false ST-RANGE-001 on ch-p9b,
+  are gone too.
+- Injected faults: the harness counts 188 of 188 functional transmissions on c2 (180 before the fixes): the eight STEM mutations that
+  crossed (ch-t15 wrong unit and substitution, cs-t15 slip and substitution, maa-t15 slip and substitution, mai-t15 slip and the
+  midpoint substitution) are each named. On c1 the count stays 203 of 203.
+- The lens's own STEM variants: of 37 fault variants, 35 are named (the Celsius-for-kelvin substitution, the mole ratio stated alone,
+  the booklet constants put in as numerals, the species label after a unit, the bond count, the reversed share, the fold, the
+  worded comparison, the percent yield after a word formula among them); the two left are a packet count written with plain
+  thousands spaces, now named ST-PARSE-001 (a plain space is no thousands separator of the grammar), and a slip inside the tolerance
+  band. All 28 clean variants hold with no error.
+- Bounds: every new reading is linear and capped; on 29 hostile shapes of about 20,000 characters under five profiles the slowest
+  document with its checks took about 2.4 s of CPU on a machine other runs kept loaded (the test bound is 8 s).
+- The default suite: 23,947 passed, 22 skipped, 45 deselected, 1 xfailed and 10 failed, run while the other fixers of the round were
+  editing their own paths. One failure follows from this clearance: the overseer test that pins round 7's STEM check counts expects 16
+  formal checks on maa-t13 and gets 14 (two satisfiability comparisons of part (b), planned only because part (a)'s question gives t a value, are no
+  longer planned, rule part-condition for order relations); it is handed to the overseer's owner with the exact change. Of the other nine,
+  eight pass when re-run (six round-6 push-check tests during another fixer's edit, and two timing bounds on the loaded machine), and
+  one is a test of the overseer's own round-9 clearance, outside the STEM paths.
+
+Measured 2026-11-09. These are replays of recorded answers: no specialist was called.
+
+### 10.17 The round-9 second fix pass, measured on the recorded rounds
+
+The fixes of `docs/STEM_DESIGN.md` section 41, measured on fresh copies of the integrated rounds c2 (arena round 9) and c1 (arena round 8)
+with the whole working tree of the second fix pass, and on the recorded STEM answers of rounds 7, 8 and 9:
+
+- Every STEM finding of the round's list, and the round-8 records carried into it, was re-run on the tree the first pass left. The
+  ones that still reproduced in the STEM paths are fixed: the mai-t15 slip written in plain text with its markscheme codes ('… = −6(x − 5)
+  M1', then 'y = −3x + 17 A1') is INT-SUBJ-001 (it had no check and no finding); X3a with only r stated, or none, is no error (ST-UNDEC-002
+  names the symbol with no value); '2 h = 7000 s' and '3 min = 200 s' fail; 'so 0.400 mol of N₂ gives 1.20 mol of NH₃' and the misread
+  'Made from 30.00 cm³ of stock: 0.509' are named (warnings: readings); ph-t14 s7.2 has no INT-SUBJ-004; a value written as a power of
+  another base and floor brackets are named truthfully.
+- Harness: c2 188 of 188 functional transmissions and c1 203 of 203, as before the second pass; translation fixtures served 356 of 371 on
+  c2 and 451 of 469 on c1, as before (no claim text changed: the statements of every recorded STEM answer of rounds 7 to 9 are the same
+  with and without rule mark-code); no genuine STEM record carries INT-SUBJ-001. The receipts that changed only gain holding checks or lose
+  false findings: ch-p9b 24 → 29 formal checks (rule result-list, each holding), maa-t15 29 → 30 (its inverse-function line no longer
+  withheld; the false ST-PARSE-001 on m6.2 is gone), ph-t14 31 → 30 (the failing step on s7.2's first link, and its INT-SUBJ-004, are
+  gone). Round 7's maa-t13 has the 16 formal checks the overseer pins again (rule values-in-interval).
+- Bounds: every new reading reads each line once and is capped; `tests/stem/test_clearance_c2b_stem.py` runs the twelve standard hostile
+  shapes and twelve shapes of the new rules (about 20,000 characters each) under four profiles within 8 s of CPU per document with its
+  checks, and the new entry points within 2 s per shape.
+- Resumed after the container restart of the same day: every finding of the list was re-run on the tree (the 14 recorded round-9 STEM
+  answers and revisions and the 11 round-8 answers carry no INT-SUBJ-001; the false warnings and errors the list names on them are gone).
+  Fixed in the resumed pass: rule locator-number (a bracketed citation keeps its number in the STEM claims, as in the generic parser's),
+  rules octal-groups and cut-group (found while re-checking: binary digits grouped in threes, '110 101 011₂ = 653₈', had failed correct
+  work as an error) and rule unread-left-side ('2 000 000 bits ÷ 8 = 350 000 bytes' in Computer Science had been dropped with nothing
+  named). The receipts of all 34 recorded STEM answers of rounds 7 to 9 are identical, check for check and finding for finding, with and
+  without these rules. Harness on fresh copies: c2 188 of 188 and c1 203 of 203, every record identical to the run at
+  the start of the resumed pass; fixtures served 356 of 371 (c2) and 451 of 469 (c1), as before. A reader of numerals written with plain
+  thousands spaces was built and measured (the lens's packet count '6 000 000 bytes ÷ 1500 bytes per packet = 400 packets' and the loan
+  line '23 425 − 7045.59… = 46 379.41…' decided, cs-t15's two false ST-PARSE-001 gone, every other recorded receipt unchanged) and taken
+  out again: it changes a behaviour the overseer's own tests pin, so it is handed to both owners (docs/STEM_DESIGN.md 41.4).
+
+Measured 2026-11-13. These are replays of recorded answers: no specialist was called.

@@ -41,7 +41,8 @@ the label will need when it returns, not a label any answer receives now.
   candidate answer (every answer to the input the channel delivered; with duplicated instances the consolidation's
   groups order them) the policy computes an ACCURACY: the share of its material claims that the validated verdicts
   confirm accurate. A claim counts as accurate only when at least one counted verdict examined its transfer
-  (``transfers_reviewed``) and pins down no fault on it, no counted verdict accuses it in a way a check confirmed or
+  (``transfers_reviewed``; a verdict whose own notes declare its review incomplete examines nothing by its silence, rule
+  ``declared-incomplete``) and pins down no fault on it, no counted verdict accuses it in a way a check confirmed or
   left unresolved, no deterministic check (an error-level receipt or task-audit finding) names it, and no signed engine
   result refutes it. A verdict that contradicts a signed engine result (an engine statement refuted, or an accusation
   refuted by a signed result) is rejected: none of its reviews counts. A claim refuted by a signed engine result
@@ -49,13 +50,23 @@ the label will need when it returns, not a label any answer receives now.
   inaccurate; an unassessed claim is never accurate. The candidate with the highest accuracy is delivered only when that
   accuracy is ABOVE ``min_selected_accuracy`` (default 0.90, strictly greater; the founder's threshold is a floor an
   operator may raise, never lower); ties go to the consolidation's canonical choice. A candidate whose material claim a
-  signed engine result refutes is never delivered while another candidate has none, and, stricter than the founder's
-  rule, a candidate a deterministic check faults is never delivered while another candidate has no such fault. A
-  candidate must also pass the integrity gates: delivered by the channel, not excluded by the consolidation (an
-  error-level finding on its receipt or in the task audit, a clearance not passed, a repeated fault: the consolidation's
-  own rule that an excluded answer is never delivered), a clearance the router may act on at the moment of selection,
-  and a journaled payload that carries its envelope's digest. A translation that failed (invalid, unsupported,
-  ambiguous, undecided, not attempted) is a warning on the receipt, never an exclusion: it is what the fallback is for.
+  signed engine result refutes is never delivered, whatever the other candidates are (rule ``absolute-refutation``,
+  round-9 clearance c2: before it, a single candidate kept the threshold and a refuted claim only lowered its accuracy),
+  and, stricter than the founder's rule, a candidate a deterministic check faults is never delivered while another
+  candidate has no such fault. A candidate must also pass the integrity gates: delivered by the channel, not excluded by
+  the consolidation (an error-level finding on its receipt or in the task audit, a clearance not passed, a repeated fault:
+  the consolidation's own rule that an excluded answer is never delivered), a clearance the router may act on at the
+  moment of selection, no self-certification (rule ``self-certification-gate``: CORE-SELF-001, INT-REQ-014, OVS-FID-005,
+  OVS-FID-009 at any severity), and a journaled payload that carries its envelope's digest. A translation that failed
+  (invalid, unsupported, ambiguous, undecided, not attempted) is a warning on the receipt, never an exclusion: it is what
+  the fallback is for. So is a translation the transfer audit faults (rule ``translation-faults``, round-9 clearance c2:
+  an ``OVS-TRN-*`` error is a fault of the translator's product, not of the answer): when the task audit's only faults of
+  an answer are such findings, its exclusion and its AUDIT_FAILED clearance keep it a candidate (custody re-checked as
+  the router's rule re-checks it), and each claim so named has its formal outcome withdrawn in the accuracy. A
+  COUNTEREXAMPLE that carries the engine's coverage warning W110 or W111 (perhaps a gap of the translation) still refutes
+  its claim; the receipt names the warning (rule ``coverage-gap``, recorded only this round). A claim whose working the
+  receipt names unchecked is never accurate on a verdict's silence; a supporting claim so named is scored with the
+  material claims (rule ``unchecked-working``).
 * ``not_checked``: only when the operator configured ``on_overseer_timeout="deliver_canonical_not_checked"`` and the
   overseer stage could not establish any accuracy (its own ``overseer_budget_s`` ran out, it failed, or no overseer
   agent is configured): the consolidation's canonical answer, when it passes the integrity gates, labelled NOT CHECKED.
@@ -113,12 +124,13 @@ from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
 from .meta_notes import (
-    LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, glued_note_lead, self_report_findings, source_list_grounding,
-    unread_lead_blocks,
+    LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, glued_note_lead, self_certifying_meta, self_report_findings, self_reporting_note_blocks,
+    self_reporting_notes, source_list_grounding, unread_lead_blocks,
 )
 from .non_material import NON_MATERIAL_RULE, claim_key, held_claims, parser_claims, parser_units, unread_non_material_blocks
-from .policy import MAX_PENDING_WAIT_MS, act_decision
+from .policy import MAX_PENDING_WAIT_MS, act_decision, receipt_digest
 from .pool import OverseerPool, PoolConfig
+from .validate import DECLARED_INCOMPLETE_RULE
 from .view import RESPONSE_KINDS, OverseerView, Transfer
 
 __all__ = [
@@ -128,7 +140,8 @@ __all__ = [
     "CandidateAssessment", "VerdictStanding", "OverseerStage", "Fallback", "DeliveryReceipt", "DeliveredAnswer", "DeliveryDecision",
     "DeliverySession", "DeliveryPolicy", "sign_delivery_receipt", "verify_delivery_receipt", "delivery_receipt_digest", "verify_delivered_answer",
     "accuracy_above", "is_fallback_label_honest", "NOT_CHECKED_CODES", "SELF_REPORT_CODES", "SELF_REPORT_AUDIT_CODES", "UNVERIFIED_CLAIMS_RULE",
-    "FORMAL_LABEL_RULE", "FORMAL_LABEL_REASON",
+    "FORMAL_LABEL_RULE", "FORMAL_LABEL_REASON", "TRANSLATION_FAULTS_RULE", "SELF_CERTIFICATION_RULE", "SELF_CERTIFICATION_CODES",
+    "COVERAGE_GAP_DIAGNOSTICS", "UNCHECKED_WORKING_RULE", "is_translation_fault",
 ]
 
 DELIVERY_CONTRACT = "delivery_receipt/1.0"
@@ -766,6 +779,46 @@ NOT_CHECKED_CODES: frozenset = frozenset({"ST-PARSE-001", "ST-PARSE-002", "ST-UN
 #: this rule) refuses an assurance the parser reads as a claim: every claim must carry a positive signed engine outcome.
 SELF_REPORT_CODES: frozenset = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
 SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+#: Rule ``translation-faults`` (round-9 clearance c2, the c2 lenses: 9 of 22 answers were excluded by the task audit, five of them
+#: only because the audit named a translation of one of their claims): the transfer audit's findings about a TRANSLATION of a claim
+#: (``OVS-TRN-*``: the translator's product, not the specialist's answer nor its transfer) withdraw that claim's formal outcome (its
+#: signed result neither refutes nor supports it in the accuracy) and keep the answer a candidate of the fallback, as a translation
+#: that failed (invalid, unsupported, ambiguous) already does. The transfer's clearance is still AUDIT_FAILED and the formal path never
+#: completes over it; a fault of the answer or of its transfer (any other error-level code, a repeated fault, custody) still excludes it.
+TRANSLATION_FAULTS_RULE = "translation-faults"
+_TRANSLATION_FAULT_PREFIX = "OVS-TRN-"
+#: Rule ``self-certification-gate`` (round-9 clearance c2, c2 ps-t15 "VERIFIED: all claims checked and confirmed."): a self-certification
+#: (CORE-SELF-001), a check result credited to the system or a peer that no check established (INT-REQ-014), or a self-report the task
+#: audit names as delivered content (OVS-FID-005, OVS-FID-009), at any severity, keeps the answer from every fallback mode: an
+#: OVERSEER-SELECTED or NOT CHECKED delivery never contains a claim that it was checked or verified.
+SELF_CERTIFICATION_RULE = "self-certification-gate"
+SELF_CERTIFICATION_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014"})
+#: The English pack's meta-text code. It names every meta-text paragraph, a study suggestion or a caveat about an unseen image
+#: included (all six of the recorded c1 and c2 answers are such notes), so the gate reads its paragraph
+#: (:func:`.meta_notes.self_certifying_meta`): a sentence-level one, or a paragraph a self-report reader names (narration, a
+#: meta sentence, self-certification vocabulary, a verification label, an assurance or an evaluation word: "I checked every
+#: quotation against the text: all accurate.", "Final note: there is nothing to fix in this answer, not a single slip."), keeps
+#: the answer from the fallback; so does a claim the parser roles ``other`` that a self-report reader names
+#: (:func:`.meta_notes.self_reporting_notes`), and a block of the answer as written that a note lead opens and a self-report reader
+#: names with its word lists (:func:`.meta_notes.self_reporting_note_blocks`: "NB: I can't see the image. Nothing above needs
+#: fixing."). The writer's own word count is no certification; a genuine study suggestion or caveat names nothing.
+_META_CODES: frozenset = frozenset({"ES-META-001"})
+#: Rule ``coverage-gap`` (round-9 clearance c2; read since its second fix pass, c2b): the engine's advisory coverage warnings on a
+#: COUNTEREXAMPLE (W110: it only reassigns a figure the problem never asserts; W111: it only reassigns conclusion symbols no premise
+#: mentions). Such a counterexample may show a gap of the translation, not that the claim is false (c2 ch-p9b s5.3, lit-t15 p1-point):
+#: the fallback reads the claim as UNASSESSED with the warning as its evidence, never ``refuted_by_signed_result`` (an unassessed claim
+#: is never accurate either). The translator's arena test that pinned such a counterexample as "the refuted answer" was rewritten to a
+#: genuine refutation in the same change (``tests/e2e/test_arena_deliveries.py``, ``_refuted``).
+COVERAGE_GAP_DIAGNOSTICS = frozenset({"W110", "W111"})
+#: Rule ``unchecked-working`` in the fallback (round-9 clearance c2, the c2 adversarial lens: cs-t15's slip "4800 MB" sat in c3.2 with only
+#: ST-PARSE-002): a claim whose working the receipt names unchecked (:data:`NOT_CHECKED_CODES`) is never accurate on a verdict's silence,
+#: and a supporting claim so named is scored with the material claims.
+UNCHECKED_WORKING_RULE = "unchecked-working"
+
+
+def is_translation_fault(code: str) -> bool:
+    """Whether an audit code is a finding about a translation of a claim (rule ``translation-faults``)."""
+    return str(code).startswith(_TRANSLATION_FAULT_PREFIX)
 
 
 def _lead_block_refusals(view: OverseerView, t: Transfer) -> list[str]:
@@ -951,7 +1004,7 @@ def _claim_formal(c: ClaimRecord, o: Optional[ClaimVerificationOutcome], report:
                 result_id=ver.result_id if ver is not None else None, finished_s=finished)
     if display in REFUTING_STATUSES and authentic and ver is not None and ver.status is display:
         return ClaimFormal(**base, outcome="refuted", reasons=[f"the signed engine result {ver.result_id} is {display.value}: the claim's "
-                                                                  "encoding does not hold as stated"] + err_reasons)
+                                                                  "encoding does not hold as stated"] + _coverage_note(ver) + err_reasons)
     reasons: list[str] = []
     if o.translation.status is not TranslationStatus.TRANSLATED:
         reasons.append(f"translation {o.translation.status.value}")
@@ -1034,6 +1087,21 @@ def _touches(ids: Mapping[str, Sequence[str]], claim_reports: Mapping[str, Seque
     return names_transfer
 
 
+def _coverage_note(ver: Any) -> list[str]:
+    """Rule ``coverage-gap``: the evidence an unassessed claim carries when its signed COUNTEREXAMPLE holds a coverage warning."""
+    gap = _coverage_gap(ver)
+    return [f"its coverage warning(s) {_listed(sorted(gap))}: the counterexample may show a gap of the translation, not that the claim is "
+            "false, so it neither refutes the claim nor confirms it: unassessed (rule coverage-gap)"] if gap else []
+
+
+def _coverage_gap(ver: Any) -> set[str]:
+    """Rule ``coverage-gap``: the engine's coverage warnings (:data:`COVERAGE_GAP_DIAGNOSTICS`) a signed result carries."""
+    try:
+        return {d.code for d in (ver.diagnostics or []) if d.code in COVERAGE_GAP_DIAGNOSTICS}
+    except AttributeError:
+        return set()
+
+
 def _signed_refutation(view: OverseerView, result_id: Optional[str]) -> bool:
     """Whether ``result_id`` names a signed engine result of this channel's store whose signature verified when it was
     stored and whose status is definitive: an error-level check citing it is a refutation by a signed engine result (a
@@ -1050,19 +1118,32 @@ def _signed_refutation(view: OverseerView, result_id: Optional[str]) -> bool:
 
 
 def _assess_claim(t: Transfer, c: ClaimRecord, *, reviewed_by: list[str], counted: list[Any], all_assessed: list[Any], audit: Any,
-                  keyring: KeyRing, view: OverseerView) -> ClaimAccuracy:
+                  keyring: KeyRing, view: OverseerView, incomplete_by: Sequence[str] = ()) -> ClaimAccuracy:
     report, receipt = t.report, t.receipt
     assert report is not None and receipt is not None
     evidence: list[str] = []
     refuted = False
     faulted = False
+    # rule translation-faults (round-9 clearance c2): the transfer audit's error-level findings about a translation of this claim
+    # withdraw its formal outcome (its signed result neither refutes nor supports it) and fault nothing of the answer
+    named = [f for f in _audit_findings_naming(audit, t.message_id or "")
+             if f.severity == "error" and c.claim_id in f.claim_ids and (not f.report_ids or report.report_id in f.report_ids)]
+    trn = sorted({f.code for f in named if is_translation_fault(f.code)})
+    if trn:
+        evidence.append(f"the transfer audit names its translation ({_listed(trn)}, error): its formal outcome is withdrawn, a fault of the "
+                        f"translation, not of the answer (rule {TRANSLATION_FAULTS_RULE})")
     # signed engine results: the claim's displayed verdict, and error-level checks citing a signed result
     o = next((x for x in receipt.outcomes if x.claim_id == c.claim_id), None)
-    if o is not None and o.verification is not None:
+    gap_note: list[str] = []
+    if o is not None and o.verification is not None and not trn:
         display, _release, authentic = _rederive(c, o, report, _task_record(view, t), keyring)
         if display in REFUTING_STATUSES and authentic and o.verification.status is display:
-            refuted = True
-            evidence.append(f"refuted by the signed engine result {o.verification.result_id} ({display.value})")
+            gap_note = _coverage_note(o.verification) if display is S.COUNTEREXAMPLE else []
+            if gap_note:  # rule coverage-gap: a counterexample that may only show a gap of the translation refutes nothing
+                evidence.append(f"the signed engine result {o.verification.result_id} ({display.value}) does not refute it: " + gap_note[0])
+            else:
+                refuted = True
+                evidence.append(f"refuted by the signed engine result {o.verification.result_id} ({display.value})")
     for f in _error_findings_naming(receipt, report.report_id, c.claim_id):
         if _signed_refutation(view, getattr(f, "formal_result_id", None)):
             refuted = True
@@ -1070,8 +1151,8 @@ def _assess_claim(t: Transfer, c: ClaimRecord, *, reviewed_by: list[str], counte
         else:
             faulted = True
             evidence.append(f"faulted by a deterministic check: the receipt's {f.code} (error)")
-    for f in _audit_findings_naming(audit, t.message_id or ""):
-        if f.severity == "error" and c.claim_id in f.claim_ids and (not f.report_ids or report.report_id in f.report_ids):
+    for f in named:
+        if not is_translation_fault(f.code):
             faulted = True
             evidence.append(f"faulted by the transfer audit: {f.code} (error)")
     # validated accusations (every assessed verdict: a check's confirmation stands whoever accused; only counted verdicts
@@ -1097,14 +1178,42 @@ def _assess_claim(t: Transfer, c: ClaimRecord, *, reviewed_by: list[str], counte
         return ClaimAccuracy(claim_id=c.claim_id, assessment="inaccurate", refuted_by_signed_result=refuted, faulted_by_check=faulted, evidence=evidence)
     if contested:
         return ClaimAccuracy(claim_id=c.claim_id, assessment="contested", evidence=evidence)
+    if gap_note:  # rule coverage-gap: never accurate on a verdict's silence while its own signed result leaves it open
+        return ClaimAccuracy(claim_id=c.claim_id, assessment="unassessed", evidence=evidence)
     if not reviewed_by:
-        return ClaimAccuracy(claim_id=c.claim_id, assessment="unassessed", evidence=evidence + ["no counted overseer verdict examined this transfer"])
+        why = ["no counted overseer verdict examined this transfer"]
+        if incomplete_by:
+            why = [f"the counted verdict(s) of {_listed(list(incomplete_by))} list this transfer but declare their review incomplete: their silence "
+                   f"certifies nothing (rule {DECLARED_INCOMPLETE_RULE})"]
+        return ClaimAccuracy(claim_id=c.claim_id, assessment="unassessed", evidence=evidence + why)
+    # rule unchecked-working (round-9 clearance c2): a claim whose working the receipt names unchecked is never accurate on a verdict's
+    # silence; only a counted verdict's engine statement the stored result agrees with, on this claim's own result, assesses it
+    unchecked = sorted({f.code for f in _receipt_findings_of(receipt, NOT_CHECKED_CODES) if c.claim_id in list(getattr(f, "claim_ids", []) or [])})
+    if unchecked:
+        rid = o.verification.result_id if (o is not None and o.verification is not None) else None
+        stated = rid is not None and any(e.outcome == "agrees" and e.result_id == rid for va in counted for e in va.engine_statements)
+        if not stated:
+            return ClaimAccuracy(claim_id=c.claim_id, assessment="unassessed", evidence=evidence + [
+                f"the receipt names its working unchecked ({_listed(unchecked)}) and no counted verdict states an engine result for it: a verdict's "
+                f"silence assesses no unchecked working (rule {UNCHECKED_WORKING_RULE})"])
     support = []
-    if o is not None and o.verification is not None and o.display_status in (S.ENTAILED, S.CONSISTENT, S.SATISFIABLE):
+    if not trn and o is not None and o.verification is not None and o.display_status in (S.ENTAILED, S.CONSISTENT, S.SATISFIABLE):
         support.append(f"its encoding's signed engine result {o.verification.result_id} is {o.display_status.value} (encoding only)")
-    return ClaimAccuracy(claim_id=c.claim_id, assessment="accurate", evidence=[
+    return ClaimAccuracy(claim_id=c.claim_id, assessment="accurate", evidence=evidence + [
         f"examined by the counted verdict(s) of {_listed(reviewed_by)}: no fault pinned down on it, no check names it in an error, no signed "
         "engine result refutes it (advisory review, not a verification)"] + support)
+
+
+def _unchecked_supporting(t: Transfer, mats: Sequence[ClaimRecord]) -> list[ClaimRecord]:
+    """Rule ``unchecked-working`` (round-9 clearance c2): the supporting claims of ``t`` (role other than ``other``, not material) whose
+    working the receipt names unchecked (:data:`NOT_CHECKED_CODES`): scored with the material claims, since the working of a STEM answer
+    usually sits in them."""
+    report, receipt = t.report, t.receipt
+    if report is None or receipt is None:
+        return []
+    named = {cid for f in _receipt_findings_of(receipt, NOT_CHECKED_CODES) for cid in list(getattr(f, "claim_ids", []) or [])}
+    material = {c.claim_id for c in mats}
+    return [c for c in report.claims if c.claim_role != "other" and c.claim_id not in material and c.claim_id in named]
 
 
 # ============================================================================================ the session and the policy
@@ -1305,17 +1414,58 @@ class DeliveryPolicy:
     def _clearance(self, session: DeliverySession, t: Transfer, receipts: Mapping[str, Any]) -> tuple[Optional[str], Optional[str]]:
         """``(state, refusal)``: the transfer's clearance at this moment and why the router may not act on it (None when it
         may). The receipt checked is the router's copy when given, else the channel's."""
+        state, refusal, _cl, _rc = self._clearance_parts(session, t, receipts)
+        return state, refusal
+
+    def _clearance_parts(self, session: DeliverySession, t: Transfer, receipts: Mapping[str, Any]) -> tuple[Optional[str], Optional[str], Any, Any]:
+        """:meth:`_clearance` with the clearance and the receipt it was issued for."""
         rc = receipts.get(t.message_id or "")
         if rc is None:
             rc = next((r for r in session.channel.receipts if r.message_id == t.message_id), None)
         if rc is None:
-            return None, "no receipt of the answer is held"
+            return None, "no receipt of the answer is held", None, None
         try:
             cl = session.hub.clearance(session.task_key, t.message_id, receipt=rc, wait_ms=self.config.clearance_wait_ms)
             dec = act_decision(rc, cl, auditor=session.hub.auditor)
         except Exception as exc:
-            return None, f"the clearance could not be obtained ({type(exc).__name__})"
-        return cl.state, (None if dec.allowed else f"the router may not act on it: {_cut(dec.reason, 300)}")
+            return None, f"the clearance could not be obtained ({type(exc).__name__})", None, rc
+        return cl.state, (None if dec.allowed else f"the router may not act on it: {_cut(dec.reason, 300)}"), cl, rc
+
+    @staticmethod
+    def _custody_holds(session: DeliverySession, cl: Any, rc: Any) -> Optional[str]:
+        """Rule ``translation-faults``: why a transfer the audit failed only for its translations may still not be delivered (None when
+        it may): every condition of ``policy.act_decision`` but the state, re-checked now: the receipt the router holds is the one the
+        clearance was issued for, and custody of the transfer and its dependencies holds against the live channel."""
+        if cl is None or rc is None:
+            return "no clearance of the answer could be obtained"
+        digest = receipt_digest(rc)
+        if digest is None or cl.receipt_sha256 is None or digest != cl.receipt_sha256:
+            return "the receipt differs from the receipt the clearance was issued for (edited after issue or after clearance)"
+        if cl.presented_receipt_sha256 is not None and digest != cl.presented_receipt_sha256:
+            return "the receipt differs from the receipt presented for clearance"
+        try:
+            faults = session.hub.auditor._release_custody(cl.channel_uid, cl.message_id)
+        except Exception as exc:  # noqa: BLE001 - custody that cannot be re-checked is never presumed
+            return f"custody could not be re-checked ({type(exc).__name__})"
+        if faults:
+            return f"custody re-checked at the decision: {sorted(set(faults))} (the transfer or one it depends on was altered)"
+        return None
+
+    @staticmethod
+    def _translation_only(t: Transfer, audit: Any, ex: Any = None) -> bool:
+        """Rule ``translation-faults``: whether the only faults the task audit and the consolidation hold against the answer ``t`` are
+        faults of translations of its claims (``OVS-TRN-*`` errors): delivered by the channel with its report, no error-level receipt
+        finding, no repeated fault, not superseded, and at least one translation fault, every other error-level audit finding naming it
+        an agent code (which never changes a clearance)."""
+        if t.status == "REJECTED" or not t.delivered or t.report is None or t.receipt is None or t.withheld is not None:
+            return False
+        if any(f.severity == "error" for f in t.receipt.findings) or any(sf.severity == "error" for sf in t.receipt.structural_findings):
+            return False
+        if ex is not None and (ex.repeated or any(r.startswith("superseded by") for r in ex.reasons)
+                               or not ex.codes or not all(is_translation_fault(c) for c in ex.codes)):
+            return False
+        errors = [f for f in _audit_findings_naming(audit, t.message_id or "") if f.severity == "error"]
+        return bool(errors) and all(is_translation_fault(f.code) for f in errors)
 
     def _formal(self, session: DeliverySession, view: OverseerView, answers: list[Transfer], consolidation: Optional[ConsolidatedResponse],
                 cons_error: Optional[str], audit: Any, receipts: Mapping[str, Any], keyring: KeyRing) -> tuple[FormalPath, Optional[Transfer]]:
@@ -1492,21 +1642,44 @@ class DeliveryPolicy:
             out.setdefault(t.message_id or "", (3, n, t.seq, None, False))
         return out
 
-    def _integrity(self, session: DeliverySession, t: Transfer, consolidation: Optional[ConsolidatedResponse], receipts: Mapping[str, Any]) -> list[str]:
+    def _integrity(self, session: DeliverySession, t: Transfer, consolidation: Optional[ConsolidatedResponse], receipts: Mapping[str, Any],
+                   audit: Any = None) -> list[str]:
         """Why ``t`` may not be delivered whatever its accuracy (empty when it may): the consolidation excludes it (an
         error-level finding on its receipt or in the task audit, a clearance not passed, a repeated fault), or the
-        router may not act on its clearance now; its payload digest must be its envelope's."""
+        router may not act on its clearance now; its payload digest must be its envelope's. Rule ``translation-faults``
+        (round-9 clearance c2): an exclusion, and a clearance AUDIT_FAILED, whose only faults are the task audit's findings about
+        translations of its claims keep the answer a candidate (custody re-checked as the router's own rule re-checks it); those
+        claims' formal outcomes are withdrawn in the accuracy. Rule ``self-certification-gate``: an answer that certifies itself, or
+        relays a check result no check established, is never delivered by the fallback."""
         out: list[str] = []
+        translation_only = self._translation_only(t, audit) if audit is not None else False
         if consolidation is not None:
             ex = next((e for e in consolidation.excluded if e.message_id == t.message_id), None)
             if ex is not None and ex.repeated:
                 out.append("it repeats a fault of an earlier answer (OVS-REP-001): never delivered")
-            if ex is not None:
+            if ex is not None and not (audit is not None and self._translation_only(t, audit, ex)):
                 out.append(f"the consolidation excludes it ({_cut('; '.join(ex.reasons), 300)}"
                            + (f"; codes {_listed(ex.codes)}" if ex.codes else "") + "): an excluded answer is never delivered")
-        state, refusal = self._clearance(session, t, receipts)
+        state, refusal, cl, rc = self._clearance_parts(session, t, receipts)
         if refusal:
-            out.append(f"clearance {state}: {refusal}")
+            if state == "AUDIT_FAILED" and translation_only:
+                why = self._custody_holds(session, cl, rc)
+                if why is not None:
+                    out.append(f"clearance {state}: {why}")
+            else:
+                out.append(f"clearance {state}: {refusal}")
+        certs = _receipt_findings_of(t.receipt, SELF_CERTIFICATION_CODES) if t.receipt is not None else []
+        try:  # an ES-META-001 or a set-aside claim a self-report reader names (fail closed: a reader that fails withholds)
+            certs += self_certifying_meta(_receipt_findings_of(t.receipt, _META_CODES), t.report) if t.receipt is not None else []
+            notes = [f"claim {cid}" for cid in self_reporting_notes(t.report)]
+            notes += self_reporting_note_blocks(getattr(t.report, "original_response", None) if t.report is not None else None)
+        except Exception as exc:  # noqa: BLE001
+            notes = [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
+        audit_self = [f for f in _audit_findings_naming(audit, t.message_id or "") if f.code in SELF_REPORT_AUDIT_CODES]
+        if certs or audit_self or notes:
+            named = "; ".join(x for x in (_code_claims([*certs, *audit_self]) if certs or audit_self else "", _listed(notes) if notes else "") if x)
+            out.append(f"it carries a self-certification or a relayed check result no check established ({_cut(named, 300)}): "
+                       f"a fallback delivery never contains a claim that it was checked or verified (rule {SELF_CERTIFICATION_RULE})")
         try:
             if t.payload is None or t.envelope is None or payload_hash(t.payload) != t.envelope.get("payload_sha256"):
                 out.append("its journaled payload does not carry its envelope's digest")
@@ -1522,15 +1695,21 @@ class DeliveryPolicy:
         order = sorted(candidates, key=lambda t: rank.get(t.message_id or "", (9, 0, t.seq, None, False))[:3])
         for pos, t in enumerate(order):
             assert t.report is not None and t.receipt is not None
-            reviewed_by = sorted({va.agent_id for va in counted if t.message_id in va.transfers_reviewed})
+            # rule declared-incomplete (round-9 clearance c2b): a counted verdict whose own notes declare its review incomplete certifies
+            # nothing on its silence; its accusations and engine statements still count
+            listing = [va for va in counted if t.message_id in va.transfers_reviewed]
+            reviewed_by = sorted({va.agent_id for va in listing if not getattr(va, "declared_incomplete", None)})
+            incomplete_by = sorted({va.agent_id for va in listing if getattr(va, "declared_incomplete", None)} - set(reviewed_by))
             mats = material_claims(t.report)
-            claims = [_assess_claim(t, c, reviewed_by=reviewed_by, counted=counted, all_assessed=assessed, audit=audit, keyring=keyring, view=view) for c in mats]
+            scored = list(mats) + _unchecked_supporting(t, mats)  # rule unchecked-working: unchecked supporting working is scored too
+            claims = [_assess_claim(t, c, reviewed_by=reviewed_by, counted=counted, all_assessed=assessed, audit=audit, keyring=keyring, view=view,
+                                    incomplete_by=incomplete_by) for c in scored]
             accurate = sum(1 for c in claims if c.assessment == "accurate")
             total = len(claims)
             answer_level = _answer_level_errors(t.receipt, [c.claim_id for c in mats])
             refuted = any(c.refuted_by_signed_result for c in claims)
             faulted = refuted or any(c.faulted_by_check for c in claims) or bool(answer_level)
-            integrity = self._integrity(session, t, consolidation, receipts)
+            integrity = self._integrity(session, t, consolidation, receipts, audit)
             r = rank.get(t.message_id or "", (9, 0, t.seq, None, False))
             out.append(CandidateAssessment(
                 message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=t.sender_agent_id, report_id=t.report_id, seq=t.seq, group_id=r[3],
@@ -1540,18 +1719,22 @@ class DeliveryPolicy:
         return out
 
     def _select(self, cands: list[CandidateAssessment]) -> tuple[Optional[CandidateAssessment], list[str], str]:
-        """The deterministic selection (module docstring): integrity gates, the refutation rule, the stricter fault rule,
-        then the highest accuracy, ties to the canonical rank; delivered only above the threshold."""
+        """The deterministic selection (module docstring): integrity gates, the refutation rule (absolute since the round-9
+        clearance: a refuted candidate is never delivered), the stricter fault rule, then the highest accuracy, ties to the canonical
+        rank; delivered only above the threshold."""
         thr = self.config.min_selected_accuracy
         notes: list[str] = [f"{c.message_id} ({c.agent_id}): accuracy {c.accuracy_fraction}" + (" (refuted by a signed engine result)" if c.refuted else "")
                             + (" (faulted by a deterministic check)" if c.faulted and not c.refuted else "")
                             + ("" if c.deliverable else f" (not deliverable: {_cut('; '.join(c.integrity_reasons), 300)})") for c in cands]
         pool = [c for c in cands if c.deliverable]
-        if any(not c.refuted for c in cands):
-            dropped = [c.message_id for c in pool if c.refuted]
-            pool = [c for c in pool if not c.refuted]
-            if dropped:
-                notes.append(f"never delivered while another candidate has no refuted claim: {_listed(dropped)} (a signed engine result refutes a material claim)")
+        # rule absolute-refutation (round-9 clearance c2): a candidate a signed engine result refutes is never delivered, whatever the others
+        dropped = [c.message_id for c in pool if c.refuted]
+        pool = [c for c in pool if not c.refuted]
+        if dropped and any(not c.refuted for c in cands):
+            notes.append(f"never delivered while another candidate has no refuted claim: {_listed(dropped)} (a signed engine result refutes a material claim)")
+        elif dropped:
+            notes.append(f"never delivered: {_listed(dropped)} (a signed engine result refutes a material claim, and no candidate is free of one; rule "
+                         "absolute-refutation)")
         if any(not c.faulted for c in cands):
             dropped = [c.message_id for c in pool if c.faulted]
             pool = [c for c in pool if not c.faulted]
@@ -1585,9 +1768,9 @@ class DeliveryPolicy:
                                  f"(consolidation {consolidation.status if consolidation is not None else 'missing'}): withheld")
             elif not cand.deliverable:
                 selection.append(f"the canonical answer {cand.message_id} is not deliverable ({_cut('; '.join(cand.integrity_reasons), 300)}): withheld")
-            elif cand.refuted and any(not c.refuted for c in assessments):
-                selection.append(f"the canonical answer {cand.message_id} has a material claim a signed engine result refutes while another candidate has "
-                                 "none: withheld")
+            elif cand.refuted:
+                selection.append(f"the canonical answer {cand.message_id} has a material claim a signed engine result refutes: withheld (rule "
+                                 "absolute-refutation)")
             elif cand.faulted and any(not c.faulted for c in assessments):
                 selection.append(f"the canonical answer {cand.message_id} carries a fault a deterministic check names while another candidate has none: "
                                  "withheld")

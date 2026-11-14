@@ -1,0 +1,6677 @@
+{
+ "description": "Recorded material of the round-9 clearance (integrated rounds c1 and c2), copied verbatim for the core fixer's second-pass regression tests (tests/translate/test_c2b_clearance_core_translate.py, tests/channel/test_c2b_clearance_core.py): the specialist files the c2 core material lacks, and the recorded translations of the claims the tests name. Scope: every result on this material proves a property of the encoding and of this code only.",
+ "c2": {
+  "specialists": {
+   "ll-p9a": {
+    "task_id": "ll-p9a",
+    "group": "p9a",
+    "peer_of": "ps-p9a",
+    "subject": "English A: Language and Literature",
+    "agent_id": "english-a-lang-lit-specialist",
+    "kb": "english-a-lang-lit",
+    "task_type": "analytical_paragraph",
+    "question": "I'm an SL Language and Literature student (the course first assessed in 2021; my exams are in May 2027). Paper 1 practice: the unseen text below is the second email of the Kestrel Playhouse's membership campaign, in the version sent to people who had answered its survey. Guiding question: How does the text use language and structure to persuade its readers to become Friends of the theatre? You have received the Psychology specialist's explanation of the techniques used in this campaign through the hub; it is supplied to you as the document peer:ps-p9a. Write one analytical paragraph of no more than 350 words, quoting exactly from the email; where you draw on the Psychology specialist's explanation, quote it exactly and attribute it to the Psychology specialist.",
+    "supplied_texts": [
+     {
+      "document_id": "doc-kestrel",
+      "title": "Become a Friend of the Kestrel (email to survey respondents, supplied text)",
+      "author": "The Kestrel Playhouse (practice text; the theatre, the town and the people are fictional)",
+      "text": "From: Friends of the Kestrel <friends@kestrelplayhouse.example>\nSubject: Jordan, you told us what you love. Here's how to keep it.\n\nDear Jordan,\n\nTwo weeks ago you answered our one-question survey, and you told us your favourite night at the Kestrel is \"the panto, every December, without fail\". Thank you. We read every single answer — all 1,200 of them.\n\nHere is something you may not know. Ticket sales cover only 61p of every pound it costs to put a show on our stage. The rest comes from people like you.\n\nThat's why we're asking you to take one more small step: become a Friend of the Kestrel for £4 a month.\n\nAs a Friend, you'll get:\n• priority booking for the panto, before tickets go on general sale\n• 10% off every ticket, all year\n• a free programme for every show (we've already put one aside with your name on it)\n\n912 people in Callowfield are already Friends. Some of them have sat in the same seats since our doors opened in 1928. Some joined last month. All of them decided that a town without a theatre is a quieter, smaller place.\n\n£4 a month is £48 a year — less than a family ticket to the panto you love. And if you join before 30 November, your first month is on us.\n\nYou've already told us what the Kestrel means to you. Now help us keep it.\n\n[ Become a Friend today ]\n\nWith thanks,\nHelen Okonjo\nArtistic Director, The Kestrel Playhouse\n\nP.S. Your free programme is waiting at the box office. Just give your name.\n\nYou are receiving this email because you joined our mailing list. Unsubscribe | Privacy"
+     }
+    ],
+    "response_text": "Model paragraph for practice, not for submission.\n\nThe email persuades by presenting Jordan's earlier answer as the first step of a commitment, so that the £4 request reads as a continuation rather than a new demand. The subject line and the closing sentences frame the whole appeal as a matter of memory: \"Jordan, you told us what you love. Here's how to keep it.\" The repeated \"told us\" makes Jordan's words the theatre's record, and the repeated verb \"keep\" turns affection into a task that the reader can carry out by joining. The phrase \"one more small step\" makes the same point through structure: the ask presupposes a step already taken, and the email's bookends, opening on what Jordan said and closing with \"Now help us keep it.\", enclose the money request within that earlier exchange. The price is reduced in the same way. The monthly figure, \"£4 a month\", comes first, and the annual total, \"£48 a year\", follows beside \"less than a family ticket to the panto you love.\" The annual sum is stated rather than hidden, but the comparison does not measure cost against that sum; it chooses a reference point in which the sum looks small, and it pairs the request with the panto the email says Jordan loves. Through these choices the email makes agreeing feel consistent and modest rather than large. The Psychology specialist explains this sequence as one in which \"a small agreement becomes a commitment that people then want to keep consistent\", and the repeated \"keep\" seems to dramatise that idea. The email itself never names such a mechanism, so the sense of commitment is built by its wording rather than stated.\n\nNote: I have not used the study the Psychology specialist cites, as I cannot check it here. Two of its quotations do not match the email: it gives \"912 people in Callowfield were already Friends\", where the email reads \"912 people in Callowfield are already Friends\", and \"reminded survey respondents of the answer they had given\" comes from the Psychology scenario, not from the email.\n\nSources: Kestrel email (supplied text); Psychology specialist's explanation (supplied text)"
+   },
+   "ess-t15": {
+    "task_id": "ess-t15",
+    "subject": "Environmental Systems and Societies",
+    "agent_id": "ess-specialist",
+    "kb": "ess",
+    "task_type": "data_based_question",
+    "question": "I'm an ESS SL student (the course first assessed in 2026; my exams are in May 2027). Paper 2 Section A data-based practice question. Students caught ground beetles in pitfall traps in two woodlands over one week in June (practice data written for this exercise). Woodland A, mixed broadleaf woodland: species 1, 12 individuals; species 2, 9; species 3, 7; species 4, 6; species 5, 4; species 6, 2. Woodland B, conifer plantation: species 1, 25 individuals; species 2, 8; species 3, 4; species 4, 2; species 5, 1. (a) Calculate Simpson's reciprocal index, D = N(N − 1) ÷ Σn(n − 1), for each woodland. [3] (b) Compare the biodiversity of the two woodlands, referring to species richness, evenness and your values of D. [3] (c) Suggest two reasons why the conifer plantation supports fewer ground-beetle species than the broadleaf woodland. [2] (d) Outline one limitation of using pitfall traps to compare the two woodlands. [1] (e) The plantation will be felled and left to regenerate naturally. Outline how its community could change over the next 50 years. [2] Show your working.",
+    "supplied_texts": [],
+    "response_text": "(a) Simpson's reciprocal index has no unit for either woodland.\n\nMethod: N(N − 1) = 40 × 39 = 1560 for both woodlands, because N = 40 in each. [1]\n\nWoodland A\nN = 12 + 9 + 7 + 6 + 4 + 2 = 40\nΣn(n − 1) = (12 × 11) + (9 × 8) + (7 × 6) + (6 × 5) + (4 × 3) + (2 × 1) = 132 + 72 + 42 + 30 + 12 + 2 = 290\nD = 1560 ÷ 290 = 5.379…, so D = 5.38 (3 s.f.) [1]\n\nWoodland B\nN = 25 + 8 + 4 + 2 + 1 = 40\nΣn(n − 1) = (25 × 24) + (8 × 7) + (4 × 3) + (2 × 1) + (1 × 0) = 600 + 56 + 12 + 2 + 0 = 670\nD = 1560 ÷ 670 = 2.328…, so D = 2.33 (3 s.f.) [1]\n\n(b) Woodland A has greater species richness than Woodland B, with 6 species against 5 [1].\n\nWoodland A is also more even. Its most common species makes up 30% of its individuals (12 of 40), whereas species 1 makes up 62.5% of Woodland B's individuals (25 of 40), so most of Woodland B's beetles belong to one species [1].\n\nWoodland A's D value is higher, 5.38 against 2.33, so Woodland A has greater biodiversity, because D combines richness and evenness [1].\n\n(c) 1. A conifer plantation is usually planted with one or a few tree species under a uniform canopy. This probably gives beetles fewer kinds of food and shelter, so fewer species can find a niche [1].\n\n2. Dense conifer shade probably reduces ground vegetation and gives a less varied leaf litter, removing the feeding and hiding sites that many beetle species use [1].\n\n(d) Pitfall traps catch only beetles that move about on the ground, so species that live mainly in the canopy or fly are missed, and the species counts for each woodland may be incomplete [1].\n\n(e) After felling, the plantation would regenerate by secondary succession, because soil remains after the disturbance [1]. Over 50 years, grasses and herbs, then shrubs and young trees, would colonise the site; as the canopy closes, shade, leaf litter and habitat variety would increase, so the beetle community would probably shift from species of open ground towards woodland species [1].\n\nThe [1] tags are illustrative mark points, not the official markscheme; any mark is provisional until your teacher or the IB awards it.\n\nNext step: write your own answer to part (b) and send it for feedback.\n\nSources: your question and its data (supplied text)"
+   }
+  },
+  "translations": {
+   "ch-t15": {
+    "s4.1": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ch-t15-s4_1",
+      "request_id": "req-ch-t15",
+      "claim_id": "s4.1",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "c_nh3",
+        "sort": "Int",
+        "meaning": "stoichiometric coefficient of NH3 in the equation",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "p_cnh3",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "c_nh3"
+         },
+         "right": {
+          "op": "int",
+          "value": "2"
+         }
+        },
+        "label": "the equation as written forms 2 mol NH3",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "coefficient in the equation given in the question"
+        },
+        "materiality": "supporting"
+       }
+      ],
+      "conclusion": {
+       "id": "c_s41",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "var",
+           "name": "c_nh3"
+          },
+          {
+           "op": "int",
+           "value": "3"
+          }
+         ]
+        },
+        "right": {
+         "op": "int",
+         "value": "6"
+        }
+       },
+       "label": "the reaction as written forms 2 mol NH3, which contains 6 N-H bonds",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Coefficient 2 of NH3 times three N-H bonds each.",
+      "glossary": [
+       {
+        "symbol": "c_nh3",
+        "meaning": "stoichiometric coefficient of NH3 in the equation",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "s8.3": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ch-t15-s8_3",
+      "request_id": "req-ch-t15",
+      "claim_id": "s8.3",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "h2_vol",
+        "sort": "Int",
+        "meaning": "volume of hydrogen mixed (cm3)",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       },
+       {
+        "name": "h2_lim",
+        "sort": "Bool",
+        "meaning": "hydrogen is the limiting reactant",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established",
+         "source_refs": []
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "t_h2_vol",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "h2_vol"
+         },
+         "right": {
+          "op": "int",
+          "value": "1500"
+         }
+        },
+        "label": "the question gives volume of hydrogen mixed (cm3) as 1500",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "p_lim",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "gt",
+          "left": {
+           "op": "int",
+           "value": "1800"
+          },
+          "right": {
+           "op": "var",
+           "name": "h2_vol"
+          }
+         },
+         "right": {
+          "op": "var",
+          "name": "h2_lim"
+         }
+        },
+        "label": "if the hydrogen needed (1800 cm3) exceeds the hydrogen available, hydrogen is limiting",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established",
+         "source_refs": []
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "c_s83",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "gt",
+          "left": {
+           "op": "int",
+           "value": "1800"
+          },
+          "right": {
+           "op": "var",
+           "name": "h2_vol"
+          }
+         },
+         {
+          "op": "var",
+          "name": "h2_lim"
+         }
+        ]
+       },
+       "label": "only 1500 cm3 of H2 is available, so hydrogen is the limiting reactant",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Required 1800 cm3 against available 1500 cm3.",
+      "glossary": [
+       {
+        "symbol": "h2_vol",
+        "meaning": "volume of hydrogen mixed (cm3)",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       },
+       {
+        "symbol": "h2_lim",
+        "meaning": "hydrogen is the limiting reactant",
+        "grounding": {
+         "kind": "specialist_inference",
+         "certainty": "established",
+         "source_refs": []
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "cs-t15": {
+    "c6.6": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "cs-c6-6",
+      "request_id": "req-cs-t15",
+      "claim_id": "c6.6",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "frame_with_next_hop_mac",
+        "sort": "Bool",
+        "meaning": "each packet is placed in a frame with the next device's MAC address",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "frame_sent_over_link",
+        "sort": "Bool",
+        "meaning": "the frame is sent over the cable or wireless link",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "gk-frame",
+        "expr": {
+         "op": "var",
+         "name": "frame_with_next_hop_mac"
+        },
+        "label": "each packet is placed in a frame with the MAC address of the next device",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "link-send",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "frame_with_next_hop_mac"
+         },
+         "right": {
+          "op": "var",
+          "name": "frame_sent_over_link"
+         }
+        },
+        "label": "the framed packet is sent over the link",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "frame_with_next_hop_mac"
+         },
+         {
+          "op": "var",
+          "name": "frame_sent_over_link"
+         }
+        ]
+       },
+       "label": "each packet is framed with the next hop's MAC address and sent over the link",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The framing with the next hop's MAC address is general knowledge; sending over the link is the claim's step.",
+      "glossary": [
+       {
+        "symbol": "frame_with_next_hop_mac",
+        "meaning": "each packet is placed in a frame with the next device's MAC address",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "frame_sent_over_link",
+        "meaning": "the frame is sent over the cable or wireless link",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "ph-t15": {
+    "s7.4": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ph-t15-s7.4",
+      "request_id": "req-ph-t15",
+      "claim_id": "s7.4",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "couple_inelastic",
+        "sort": "Bool",
+        "meaning": "the wagons couple together after the collision",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: the two wagons couple together"
+        }
+       },
+       {
+        "name": "ke_to_internal",
+        "sort": "Bool",
+        "meaning": "part of the kinetic energy becomes internal energy, sound and deformation in the coupling",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "total_energy_conserved",
+        "sort": "Bool",
+        "meaning": "the total energy is conserved",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "e_before",
+        "sort": "Real",
+        "meaning": "kinetic energy before collision, J",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "e_after",
+        "sort": "Real",
+        "meaning": "kinetic energy after collision, J",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "v_coupled",
+        "sort": "Real",
+        "meaning": "speed of the coupled wagons just after collision, m/s",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "from momentum conservation"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "s74-in",
+        "expr": {
+         "op": "var",
+         "name": "couple_inelastic"
+        },
+        "label": "the wagons couple together",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "s74-link",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "couple_inelastic"
+         },
+         "right": {
+          "op": "var",
+          "name": "ke_to_internal"
+         }
+        },
+        "label": "coupling is inelastic, so part of the kinetic energy goes to internal energy and sound",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "s74-cons",
+        "expr": {
+         "op": "var",
+         "name": "total_energy_conserved"
+        },
+        "label": "total energy is still conserved",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "s74-eb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "e_before"
+         },
+         "right": {
+          "op": "real",
+          "value": "54000"
+         }
+        },
+        "label": "E_k before is 54000 J",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "s74-ea",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "e_after"
+         },
+         "right": {
+          "op": "real",
+          "value": "32400"
+         }
+        },
+        "label": "E_k after is 32400 J",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "s74-concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "lt",
+          "left": {
+           "op": "var",
+           "name": "e_after"
+          },
+          "right": {
+           "op": "var",
+           "name": "e_before"
+          }
+         },
+         {
+          "op": "var",
+          "name": "total_energy_conserved"
+         }
+        ]
+       },
+       "label": "the kinetic energy after the collision is less, while total energy is still conserved",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The loss of kinetic energy in the inelastic coupling is checked numerically (32400 < 54000 J) and the conservation of total energy is general knowledge. The link from coupling to internal energy is recorded as a probable general-knowledge step; the conclusion's 'so' is carried by the numbers.",
+      "glossary": [
+       {
+        "symbol": "couple_inelastic",
+        "meaning": "the wagons couple together after the collision",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: the two wagons couple together"
+        }
+       },
+       {
+        "symbol": "ke_to_internal",
+        "meaning": "part of the kinetic energy becomes internal energy, sound and deformation in the coupling",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "total_energy_conserved",
+        "meaning": "the total energy is conserved",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "ess-p9c": {
+    "s7.3": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "p9c-s7-3",
+      "request_id": "req-p9c",
+      "claim_id": "s7.3",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "same_peak_rain_time",
+        "sort": "Bool",
+        "meaning": "both storms had peak rainfall at 09:30",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "peer:ge-p9c",
+           "excerpt": "Both storms had peak rainfall at 09:30, so the difference in timing comes from the catchment itself."
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "drains_faster_than_soil",
+        "sort": "Bool",
+        "meaning": "drains and sewers move water off roofs and roads faster than soil would",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "timing_from_catchment",
+        "sort": "Bool",
+        "meaning": "the difference in timing comes from the catchment itself",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "q-same",
+        "expr": {
+         "op": "var",
+         "name": "same_peak_rain_time"
+        },
+        "label": "both storms had peak rainfall at 09:30, so the difference in timing comes from the catchment itself",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "peer:ge-p9c",
+           "excerpt": "Both storms had peak rainfall at 09:30, so the difference in timing comes from the catchment itself."
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "gk-drains",
+        "expr": {
+         "op": "var",
+         "name": "drains_faster_than_soil"
+        },
+        "label": "drains and sewers move water off roofs and roads faster than soil would",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "link-timing",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "same_peak_rain_time"
+           },
+           {
+            "op": "var",
+            "name": "drains_faster_than_soil"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "timing_from_catchment"
+         }
+        },
+        "label": "with equal rain timing and faster drains, the timing difference comes from the catchment",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "var",
+        "name": "timing_from_catchment"
+       },
+       "label": "the timing difference comes from the catchment",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The quoted equal rain timing and the general fact about drains are premises; the timing difference from the catchment is the specialist's inference.",
+      "glossary": [
+       {
+        "symbol": "same_peak_rain_time",
+        "meaning": "both storms had peak rainfall at 09:30",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "peer:ge-p9c",
+           "excerpt": "Both storms had peak rainfall at 09:30, so the difference in timing comes from the catchment itself."
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "drains_faster_than_soil",
+        "meaning": "drains and sewers move water off roofs and roads faster than soil would",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "timing_from_catchment",
+        "meaning": "the difference in timing comes from the catchment itself",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "bm-t15": {
+    "g7.3@business-management-specialist": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "bm-g7-3",
+      "request_id": "req-bm-t15",
+      "claim_id": "g7.3@business-management-specialist",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "ev_b",
+        "sort": "Real",
+        "meaning": "expected value of option B",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "cost_b",
+        "sort": "Real",
+        "meaning": "cost of option B ($25,000)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow",
+           "excerpt": "Cost: $25,000."
+          }
+         ],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "fig-ev-b",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ev_b"
+         },
+         "right": {
+          "op": "real",
+          "value": "59000"
+         }
+        },
+        "label": "expected value of option B is $59,000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "fig-cost-b",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cost_b"
+         },
+         "right": {
+          "op": "real",
+          "value": "25000"
+         }
+        },
+        "label": "option B costs $25,000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow",
+           "excerpt": "Cost: $25,000."
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "sub",
+         "left": {
+          "op": "var",
+          "name": "ev_b"
+         },
+         "right": {
+          "op": "var",
+          "name": "cost_b"
+         }
+        },
+        "right": {
+         "op": "real",
+         "value": "34000"
+        }
+       },
+       "label": "net gain of option B is $34,000",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Net gain is expected value minus cost: 59,000 minus 25,000.",
+      "glossary": [
+       {
+        "symbol": "ev_b",
+        "meaning": "expected value of option B",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "cost_b",
+        "meaning": "cost of option B ($25,000)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow",
+           "excerpt": "Cost: $25,000."
+          }
+         ],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "g5.1@business-management-specialist": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "bm-g5-1",
+      "request_id": "req-bm-t15",
+      "claim_id": "g5.1@business-management-specialist",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "rev_slower_than_market",
+        "sort": "Bool",
+        "meaning": "Pellow's revenue growth is below the market growth",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow"
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "share_fell",
+        "sort": "Bool",
+        "meaning": "Pellow's market share fell from 15.0% to 13.2%",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "def-rev-slower",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "rev_slower_than_market"
+         },
+         "right": {
+          "op": "gt",
+          "left": {
+           "op": "mul",
+           "args": [
+            {
+             "op": "div",
+             "left": {
+              "op": "sub",
+              "left": {
+               "op": "real",
+               "value": "1500000"
+              },
+              "right": {
+               "op": "real",
+               "value": "1200000"
+              }
+             },
+             "right": {
+              "op": "real",
+              "value": "1200000"
+             }
+            },
+            {
+             "op": "real",
+             "value": "100"
+            }
+           ]
+          },
+          "right": {
+           "op": "mul",
+           "args": [
+            {
+             "op": "div",
+             "left": {
+              "op": "sub",
+              "left": {
+               "op": "real",
+               "value": "198000"
+              },
+              "right": {
+               "op": "real",
+               "value": "180000"
+              }
+             },
+             "right": {
+              "op": "real",
+              "value": "180000"
+             }
+            },
+            {
+             "op": "real",
+             "value": "100"
+            }
+           ]
+          }
+         }
+        },
+        "label": "Pellow's revenue growth is less than the market's growth",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow"
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "link-share-fell",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "rev_slower_than_market"
+         },
+         "right": {
+          "op": "var",
+          "name": "share_fell"
+         }
+        },
+        "label": "revenue growing more slowly than the market lowers its share",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "and",
+          "args": [
+           {
+            "op": "ge",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "sub",
+                "left": {
+                 "op": "real",
+                 "value": "198000"
+                },
+                "right": {
+                 "op": "real",
+                 "value": "180000"
+                }
+               },
+               "right": {
+                "op": "real",
+                "value": "180000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "9.95"
+            }
+           },
+           {
+            "op": "lt",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "sub",
+                "left": {
+                 "op": "real",
+                 "value": "198000"
+                },
+                "right": {
+                 "op": "real",
+                 "value": "180000"
+                }
+               },
+               "right": {
+                "op": "real",
+                "value": "180000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "10.05"
+            }
+           }
+          ]
+         },
+         {
+          "op": "and",
+          "args": [
+           {
+            "op": "ge",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "sub",
+                "left": {
+                 "op": "real",
+                 "value": "1500000"
+                },
+                "right": {
+                 "op": "real",
+                 "value": "1200000"
+                }
+               },
+               "right": {
+                "op": "real",
+                "value": "1200000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "24.95"
+            }
+           },
+           {
+            "op": "lt",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "sub",
+                "left": {
+                 "op": "real",
+                 "value": "1500000"
+                },
+                "right": {
+                 "op": "real",
+                 "value": "1200000"
+                }
+               },
+               "right": {
+                "op": "real",
+                "value": "1200000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "25.05"
+            }
+           }
+          ]
+         },
+         {
+          "op": "and",
+          "args": [
+           {
+            "op": "ge",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "real",
+                "value": "180000"
+               },
+               "right": {
+                "op": "real",
+                "value": "1200000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "14.95"
+            }
+           },
+           {
+            "op": "lt",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "real",
+                "value": "180000"
+               },
+               "right": {
+                "op": "real",
+                "value": "1200000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "15.05"
+            }
+           }
+          ]
+         },
+         {
+          "op": "and",
+          "args": [
+           {
+            "op": "ge",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "real",
+                "value": "198000"
+               },
+               "right": {
+                "op": "real",
+                "value": "1500000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "13.15"
+            }
+           },
+           {
+            "op": "lt",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "div",
+               "left": {
+                "op": "real",
+                "value": "198000"
+               },
+               "right": {
+                "op": "real",
+                "value": "1500000"
+               }
+              },
+              {
+               "op": "real",
+               "value": "100"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "13.25"
+            }
+           }
+          ]
+         },
+         {
+          "op": "var",
+          "name": "share_fell"
+         }
+        ]
+       },
+       "label": "claim conclusion",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The claim's 'so' is encoded as a specialist inference from revenue growth 10.0 percent below market growth 25.0 percent to a fall in share. The figures 10.0, 25.0, 15.0 and 13.2 are arithmetic from table 1.",
+      "glossary": [
+       {
+        "symbol": "rev_slower_than_market",
+        "meaning": "Pellow's revenue growth is below the market growth",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-pellow"
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "share_fell",
+        "meaning": "Pellow's market share fell from 15.0% to 13.2%",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "maa-t15": {
+    "m2.4": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "maa-t15-m2.4",
+      "request_id": "req-maa-t15",
+      "claim_id": "m2.4",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "k",
+        "sort": "Real",
+        "meaning": "the constant k in f(x) = x² − 6x + k",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: f(x) = x² − 6x + k"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "m24-prev",
+        "expr": {
+         "op": "gt",
+         "left": {
+          "op": "sub",
+          "left": {
+           "op": "real",
+           "value": "36"
+          },
+          "right": {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "4"
+            },
+            {
+             "op": "var",
+             "name": "k"
+            }
+           ]
+          }
+         },
+         "right": {
+          "op": "real",
+          "value": "0"
+         }
+        },
+        "label": "36 − 4k > 0 (from 2.3)",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "m24-concl",
+       "expr": {
+        "op": "lt",
+        "left": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "4"
+          },
+          {
+           "op": "var",
+           "name": "k"
+          }
+         ]
+        },
+        "right": {
+         "op": "real",
+         "value": "36"
+        }
+       },
+       "label": "4k < 36",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Rearranging 36 − 4k > 0 to 4k < 36 is an exact step.",
+      "glossary": [
+       {
+        "symbol": "k",
+        "meaning": "the constant k in f(x) = x² − 6x + k",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: f(x) = x² − 6x + k"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "m7.2": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "maa-t15-m7.2",
+      "request_id": "req-maa-t15",
+      "claim_id": "m7.2",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "x",
+        "sort": "Real",
+        "meaning": "the free real variable of the functions g and h",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: g(x), h(x) defined on the reals"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "q7-eq1",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "x"
+           },
+           {
+            "op": "real",
+            "value": "1"
+           }
+          ]
+         },
+         "right": {
+          "op": "div",
+          "left": {
+           "op": "sub",
+           "left": {
+            "op": "var",
+            "name": "x"
+           },
+           "right": {
+            "op": "real",
+            "value": "3"
+           }
+          },
+          "right": {
+           "op": "real",
+           "value": "2"
+          }
+         }
+        },
+        "label": "x + 1 = (x − 3)/2 (from 7.1)",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "m7.2-concl",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "add",
+         "args": [
+          {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "2"
+            },
+            {
+             "op": "var",
+             "name": "x"
+            }
+           ]
+          },
+          {
+           "op": "real",
+           "value": "2"
+          }
+         ]
+        },
+        "right": {
+         "op": "sub",
+         "left": {
+          "op": "var",
+          "name": "x"
+         },
+         "right": {
+          "op": "real",
+          "value": "3"
+         }
+        }
+       },
+       "label": "2x + 2 = x − 3",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Multiplying by 2 gives 2x + 2 = x − 3.",
+      "glossary": [
+       {
+        "symbol": "x",
+        "meaning": "the free real variable of the functions g and h",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "question: g(x), h(x) defined on the reals"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "ll-p9a": {
+    "p2-s10": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ll-p9a-p2-s10",
+      "request_id": "req-p9a",
+      "claim_id": "p2-s10",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "email_no_mechanism",
+        "sort": "Bool",
+        "meaning": "the email never names a commitment or consistency mechanism",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-kestrel",
+           "excerpt": "one more small step"
+          }
+         ],
+         "certainty": "established",
+         "note": "checked against the whole email; the email contains neither 'commitment' nor 'consistent'"
+        }
+       },
+       {
+        "name": "built_by_wording",
+        "sort": "Bool",
+        "meaning": "the sense of commitment is built by the email's wording rather than stated",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "s10-nomech",
+        "expr": {
+         "op": "var",
+         "name": "email_no_mechanism"
+        },
+        "label": "the email never names a commitment or consistency mechanism",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-kestrel",
+           "excerpt": "one more small step"
+          }
+         ],
+         "certainty": "established",
+         "note": "checked against the whole email; the email contains neither 'commitment' nor 'consistent'"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "s10-link",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "email_no_mechanism"
+         },
+         "right": {
+          "op": "var",
+          "name": "built_by_wording"
+         }
+        },
+        "label": "because the email never names the mechanism, its commitment sense comes from wording",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "s10-concl",
+       "expr": {
+        "op": "var",
+        "name": "built_by_wording"
+       },
+       "label": "the sense of commitment is built by wording rather than stated",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "A checkable fact about the email (no mechanism named) and the specialist's inference that the sense of commitment therefore comes from wording.",
+      "glossary": [
+       {
+        "symbol": "email_no_mechanism",
+        "meaning": "the email never names a commitment or consistency mechanism",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-kestrel",
+           "excerpt": "one more small step"
+          }
+         ],
+         "certainty": "established",
+         "note": "checked against the whole email; the email contains neither 'commitment' nor 'consistent'"
+        }
+       },
+       {
+        "symbol": "built_by_wording",
+        "meaning": "the sense of commitment is built by the email's wording rather than stated",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "ess-t15": {
+    "s6.2": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ess-s6-2",
+      "request_id": "req-ess-t15",
+      "claim_id": "s6.2",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "top_a_pct",
+        "sort": "Real",
+        "meaning": "share of woodland A's individuals in its most common species, percent",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "top_b_pct",
+        "sort": "Real",
+        "meaning": "share of woodland B's individuals in species 1, percent",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "most_b_one_species",
+        "sort": "Bool",
+        "meaning": "most of woodland B's beetles belong to one species",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "def-top-a",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "top_a_pct"
+         },
+         "right": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "div",
+            "left": {
+             "op": "real",
+             "value": "12"
+            },
+            "right": {
+             "op": "real",
+             "value": "40"
+            }
+           },
+           {
+            "op": "real",
+            "value": "100"
+           }
+          ]
+         }
+        },
+        "label": "12 of 40 is 30 percent",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [
+          {
+           "document_id": "task",
+           "excerpt": "species 1, 12 individuals"
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "def-top-b",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "top_b_pct"
+         },
+         "right": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "div",
+            "left": {
+             "op": "real",
+             "value": "25"
+            },
+            "right": {
+             "op": "real",
+             "value": "40"
+            }
+           },
+           {
+            "op": "real",
+            "value": "100"
+           }
+          ]
+         }
+        },
+        "label": "25 of 40 is 62.5 percent",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [
+          {
+           "document_id": "task",
+           "excerpt": "species 1, 25 individuals"
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "link-most-one",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "gt",
+          "left": {
+           "op": "var",
+           "name": "top_b_pct"
+          },
+          "right": {
+           "op": "real",
+           "value": "50"
+          }
+         },
+         "right": {
+          "op": "var",
+          "name": "most_b_one_species"
+         }
+        },
+        "label": "a species making over half of the individuals means most belong to one species",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "top_a_pct"
+          },
+          "right": {
+           "op": "real",
+           "value": "30"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "top_b_pct"
+          },
+          "right": {
+           "op": "real",
+           "value": "62.5"
+          }
+         },
+         {
+          "op": "var",
+          "name": "most_b_one_species"
+         }
+        ]
+       },
+       "label": "A's top species is 30 percent, B's species 1 is 62.5 percent, so most of B belongs to one species",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The percentages are exact fractions of the stated counts. That most of B's beetles belong to one species is the specialist's step from a share above half.",
+      "glossary": [
+       {
+        "symbol": "top_a_pct",
+        "meaning": "share of woodland A's individuals in its most common species, percent",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "top_b_pct",
+        "meaning": "share of woodland B's individuals in species 1, percent",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "most_b_one_species",
+        "meaning": "most of woodland B's beetles belong to one species",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "ge-p9c": {
+    "g4.5@geography-specialist": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "ge-p9c-g4_5",
+      "request_id": "req-p9c",
+      "claim_id": "g4.5@geography-specialist",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "q2",
+        "sort": "Real",
+        "meaning": "peak discharge in Storm 2 (m3 s-1)",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "t_q2",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "q2"
+         },
+         "right": {
+          "op": "real",
+          "value": "16.2"
+         }
+        },
+        "label": "the question gives peak discharge in Storm 2 (m3 s-1) as 16.2",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        },
+        "materiality": "supporting"
+       }
+      ],
+      "conclusion": {
+       "id": "c_g45",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "10.8"
+          },
+          {
+           "op": "real",
+           "value": "1.5"
+          }
+         ]
+        },
+        "right": {
+         "op": "var",
+         "name": "q2"
+        }
+       },
+       "label": "the calculated discharge agrees with the recorded peak of 16.2 m3 s-1 at 14:00 in Storm 2",
+       "grounding": null,
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Calculated discharge equals the recorded Storm 2 peak.",
+      "glossary": [
+       {
+        "symbol": "q2",
+        "meaning": "peak discharge in Storm 2 (m3 s-1)",
+        "grounding": {
+         "kind": "task_setting",
+         "certainty": "established",
+         "source_refs": [],
+         "note": "given in the question"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   }
+  }
+ },
+ "c1": {
+  "specialists": {
+   "bm-t14": {
+    "task_id": "bm-t14",
+    "subject": "Business Management",
+    "agent_id": "business-management-specialist",
+    "kb": "business-management",
+    "task_type": "marking_feedback",
+    "question": "I'm an SL Business Management student (the guide first assessed in 2024; my exams are in May 2027). My teacher set this Paper 2 practice question on the supplied case of Tessellate Tiles: '(a) Prepare a cash-flow forecast for Tessellate Tiles for January to March 2026. [5] (b) Calculate the current ratio and the acid-test ratio at 31 December 2025. [4] (c) Explain one way in which Tessellate Tiles could improve its cash flow in February 2026. [2]' My answer is pasted below. Please mark it out of 11 and tell me where I lost marks.",
+    "supplied_texts": [
+     {
+      "document_id": "doc-tessellate",
+      "title": "Tessellate Tiles (case study, supplied text)",
+      "author": "Task data",
+      "text": "Tessellate Tiles (fictional case written for this exercise)\n\nTessellate Tiles is a small workshop that makes hand-glazed ceramic tiles. Most customers pay in cash when they collect their order. Trade customers buy on credit and pay one month after the sale.\n\nCash flow information, January to March 2026\nOpening cash balance on 1 January 2026: $4,500\nCash sales: January $9,000; February $7,500; March $11,000\nCredit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000\nRaw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100\nWages: $4,000 per month\nRent: $1,500 per month\nLoan repayment: $600 per month\nDeposit on a new kiln: $3,000, paid in February\n\nExtract from the balance sheet at 31 December 2025\nCash: $4,500\nDebtors: $3,000\nStock: $6,200\nCreditors: $5,000\nShort-term loans: $2,000"
+     },
+     {
+      "document_id": "doc-tessellate-student",
+      "title": "My answer (student work, supplied text)",
+      "author": "Student",
+      "text": "(a) Cash-flow forecast for Tessellate Tiles, January to March 2026 ($)\n\n                     January   February    March\nOpening balance        4,500      6,400    2,500\nCash sales             9,000      7,500   11,000\nCredit sales           4,000      2,500    5,000\nTotal cash inflow     13,000     10,000   16,000\nRaw materials          5,200      4,800    6,100\nWages                  4,000      4,000    4,000\nRent                   1,500      1,500    1,500\nLoan repayment           600        600      600\nKiln deposit               0      3,000        0\nTotal cash outflow    11,100     13,900   12,200\nNet cash flow          1,900     -3,900    3,800\nClosing balance        6,400      2,500    6,300\n\n(b) Current ratio = current assets / current liabilities = 13,700 / 7,000 = 1.96\nAcid-test ratio = (current assets - debtors) / current liabilities = (13,700 - 3,000) / 7,000 = 1.53\n\n(c) Tessellate Tiles should increase its prices so that more money comes in. This would improve its cash flow in February."
+     }
+    ],
+    "response_text": "Provisional total: 6 out of 11 (range 5–7) against an illustrative scheme, not the official markscheme; only your teacher and the IB award real marks. The split between the parts is my estimate, so the total is less certain than the individual errors listed below.\n\nQuestion (a) — prepare — [5]\nWhat the question wants: a cash-flow forecast for January to March 2026 showing each month's receipts and payments, opening and closing balances, and credit sales received one month after the sale.\nWhat earned credit: the layout is right, with months as columns and inflow and outflow totals, net cash flow and closing balance in order. The opening balance of $4,500 is correct, the cash sales for all three months are correct (\"Cash sales 9,000 7,500 11,000\"), and the raw materials, wages, rent, loan repayments and kiln deposit are correct. Each opening balance is the previous month's closing balance, so the later rows follow your own figures.\nProvisional mark: 3 out of 5 (range 2–3) against an illustrative scheme, not the official markscheme.\nBiggest gap: credit receipts use the same month's credit sales (4,000, 2,500 and 5,000). The $3,000 of debtors at 31 December 2025 are December's credit sales, received in January, so this error changes every credit receipt and every closing balance.\nAlso: January's total cash outflow is $11,300 (5,200 + 4,000 + 1,500 + 600), not $11,100.\nFix it: (1) Credit sales are received one month after the sale, so January's credit receipts are December's $3,000; work out February and March the same way. (2) Re-add each total column. (3) Check the forecast: opening balance plus total inflows minus total outflows must equal the March closing balance.\nModel: corrected closing balances are January $5,200, February $2,800 and March $4,100.\n\nQuestion (b) — calculate — [4]\nWhat the question wants: the current ratio and the acid-test ratio at 31 December 2025, each as formula, substitution and result.\nWhat earned credit: the current ratio is fully correct (\"13,700 / 7,000 = 1.96\"). Current assets of $13,700 (cash 4,500, debtors 3,000, stock 6,200) and current liabilities of $7,000 (creditors 5,000, short-term loans 2,000) are both right.\nProvisional mark: 2 out of 4 (range 2–3) against an illustrative scheme, not the official markscheme.\nBiggest gap: the acid-test ratio removes debtors ($3,000) instead of stock ($6,200). Stock is the least liquid current asset, so the acid-test removes it; debtors are collected within about a month and count as liquid.\nFix it: (1) Write the formula in words before substituting: (current assets − stock) ÷ current liabilities. (2) Check the result: the acid-test ratio is lower than the current ratio by stock ÷ current liabilities, here 6,200 ÷ 7,000 = 0.89. (3) Give the result to two decimal places, as you did for the current ratio.\nModel: acid-test ratio = (current assets − stock) ÷ current liabilities = (13,700 − 6,200) ÷ 7,000 = 1.07.\n\nQuestion (c) — explain — [2]\nWhat the question wants: one way to improve Tessellate's cash flow in February 2026, explained as a chain of cause and effect and applied to its February figures.\nWhat earned credit: the point is clear (\"increase its prices\") and the basic mechanism is given (\"so that more money comes in\").\nProvisional mark: 1 out of 2 against an illustrative scheme, not the official markscheme.\nBiggest gap: the explanation is not applied, because it uses no February figure. February's cash sales are $7,500, and the corrected forecast shows a net outflow of $2,400, caused by the $3,000 kiln deposit. The answer also states the effect as certain, but the case gives no evidence on how customers would respond to higher prices.\nFix it: (1) Use one February figure, such as the $7,500 of cash sales or the $2,400 net outflow. (2) Show the chain: the price rise, then more cash per sale from the date it takes effect, then how much of the February gap it covers. (3) State the limit: customers may buy less, and the case does not say how much.\nModel: a 5% rise in February's cash sales of $7,500 would add $375, which covers only part of the $2,400 net outflow, and only if customers keep buying at the higher price.\n\nPattern summary:\n1. Timing: a credit sale is received a month later, and each flow belongs to the month in which the cash moves.\n2. Formulae: write the formula in words before substituting; the acid-test ratio removes stock.\n3. Application: an explanation for a given month needs that month's figures.\n\nNext practice task: move the $3,000 kiln deposit to March, recalculate the closing balances for all three months, and say which month then has the lowest closing balance and what it is. (For checking: March, $4,100.)\n\nSources: none consulted (no retrieval in this session)"
+   },
+   "en-t14": {
+    "task_id": "en-t14",
+    "subject": "English A: Literature",
+    "agent_id": "english-specialist-specialist",
+    "kb": "english-specialist",
+    "task_type": "analytical_paragraph",
+    "question": "I'm an SL English A: Literature student preparing for Paper 1 (the course first assessed in 2021; my exams are in May 2027). Write one analytical paragraph on how the writer uses the tuning of the piano to present the family's feelings about Femi's absence. Use quotations from the extract, including its spoken words. Keep to about 250 words.",
+    "supplied_texts": [
+     {
+      "document_id": "doc-tuner",
+      "title": "The Tuner (prose extract, supplied text)",
+      "author": "Anonymous",
+      "text": "Mr Abara arrived at ten, as he had every spring for eleven years, and stood in the hall with his case held in front of him like a doctor's bag. The house smelled of furniture polish, and of something underneath the polish that had not been aired.\n\n'Just the A,' my mother said. 'It's only the A that's gone.'\n\nIt was not only the A. I had heard the whole piano go, one key at a time, the way a house goes cold: first the rooms nobody uses, then the hall, then the kitchen where everyone sits. Nobody had played it since Femi left in September. The lid had stayed up, because closing it would have meant deciding something.\n\nMr Abara struck the A. The note came out with a wobble in it, two strings that would not agree, and he tilted his head towards the sound as if it had spoken quietly and he wanted to be polite. He struck it again. He turned the pin a little, and then a little less.\n\n'They drift,' he said, to the piano rather than to us. 'Nothing is broken. They just stop listening to each other.'\n\nMy mother stood in the doorway with her arms folded and did not come in.\n\nWhen he had finished, he played the A one last time. It was clean. It went through the house, into the kitchen and up the stairs to the room with the posters still on the wall, and nobody said anything until it had stopped.\n\n'Same time next year,' said Mr Abara.\n\n'Yes,' said my mother. 'Same time.' Then, as he reached the gate, she called after him: 'He'll want it in tune. When he comes back.'"
+     }
+    ],
+    "response_text": "The writer uses the tuning of the piano to present a family that treats Femi's absence as a small, repairable fault.\n\nThe mother's words, \"Just the A\" and \"It's only the A that's gone\", reduce the loss to a single note, and the word \"only\" returns in the narrator's correction, \"It was not only the A.\" Conventionally, \"only\" limits a claim to one item, so the mother's wording makes the loss seem contained. Against that account, the piano has gone \"one key at a time\", the way a house goes cold, from \"the rooms nobody uses\" to \"the kitchen where everyone sits\". The lid, left up because \"closing it would have meant deciding something\", suggests that the household avoids a decision that would acknowledge the loss.\n\nThe phrase \"two strings that would not agree\" and the tuner's diagnosis, \"They just stop listening to each other\", give the instrument a will of its own, a personification that moves the family's breakdown into the piano. Conventionally, listening means attending to another's voice, so the family, like its piano, has stopped attending to one another. The clean note travels \"up the stairs to the room with the posters still on the wall\", most likely Femi's room, and \"nobody said anything until it had stopped\". The silence suggests a family that listens to the note but not to each other.\n\nThe mother's last words, \"He'll want it in tune. When he comes back\", turn the repair into a hope of return. The tuning therefore suggests a family that mixes denial with hope, keeping the piano in order so that Femi's absence can seem temporary.\n\nNext step: write your own paragraph on the same two strands and paste it here for feedback.\n\nSources: The Tuner extract (supplied text)"
+   },
+   "cs-t14": {
+    "task_id": "cs-t14",
+    "subject": "Computer Science",
+    "agent_id": "computer-science-specialist",
+    "kb": "computer-science",
+    "task_type": "worked_solution",
+    "question": "I'm a Computer Science HL student (the course first assessed in May 2027; my exams are in May 2027). Paper 1 Section A practice on A1.2, data representation and computer logic. A web designer stores each colour as a 24-bit RGB value written in hexadecimal, such as #3FA9C4, where 3F is the red component, A9 the green component and C4 the blue component. (a) Convert the red component 3F and the blue component C4 into 8-bit binary and into denary. [3] (b) A banner image is 1600 pixels wide and 400 pixels high, with a colour depth of 24 bits. Calculate its uncompressed file size in bytes and in megabytes, where 1 MB = 1,000,000 bytes. [3] (c) The banner is saved again with a colour depth of 8 bits. State how many different colours can then be represented, and calculate the percentage reduction in the uncompressed file size. [2] (d) A logic circuit has inputs A, B and C and output X = (A AND B) OR (NOT A AND C). Construct the truth table for X. [3] (e) Use Boolean algebra to show that NOT (A OR B) OR (A AND NOT B) simplifies to NOT B. [3] Show your working.",
+    "supplied_texts": [],
+    "response_text": "(a) [3]\n\nRed component 3F₁₆\n\nBinary: 3 = 0011 and F = 1111, so 3F₁₆ = 0011 1111₂\n\nDenary: (3 × 16) + 15 = 63, so 3F₁₆ = 63₁₀\n\nBlue component C4₁₆\n\nBinary: C = 1100 and 4 = 0100, so C4₁₆ = 1100 0100₂\n\nDenary: (12 × 16) + 4 = 196, so C4₁₆ = 196₁₀\n\nCheck: 0011 1111₂ = 32 + 16 + 8 + 4 + 2 + 1 = 63, and 1100 0100₂ = 128 + 64 + 4 = 196.\n\n(b) [3]\n\nPixels: 1,600 × 400 = 640,000\n\nBits: 640,000 × 24 = 15,360,000 bits\n\nBytes: 15,360,000 ÷ 8 = 1,920,000 bytes\n\nMegabytes: 1,920,000 ÷ 1,000,000 = 1.92 MB (using the question's convention, 1 MB = 1,000,000 bytes)\n\n(c) [2]\n\nColours: 2⁸ = 256 different colours\n\nSize at 8 bits: 640,000 × 8 = 5,120,000 bits = 640,000 bytes\n\nReduction: (1,920,000 − 640,000) ÷ 1,920,000 × 100 = 1,280,000 ÷ 1,920,000 × 100 = 66.7%\n\nAssumption: the uncompressed size counts pixel data only, with no palette or file header.\n\n(d) [3]\n\nInputs A, B and C are listed in binary counting order. The columns NOT A, A AND B and NOT A AND C are the sub-expressions of X = (A AND B) OR (NOT A AND C).\n\n| A | B | C | NOT A | A AND B | NOT A AND C | X |\n|---|---|---|---|---|---|---|\n| 0 | 0 | 0 | 1 | 0 | 0 | 0 |\n| 0 | 0 | 1 | 1 | 0 | 1 | 1 |\n| 0 | 1 | 0 | 1 | 0 | 0 | 0 |\n| 0 | 1 | 1 | 1 | 0 | 1 | 1 |\n| 1 | 0 | 0 | 0 | 0 | 0 | 0 |\n| 1 | 0 | 1 | 0 | 0 | 0 | 0 |\n| 1 | 1 | 0 | 0 | 1 | 0 | 1 |\n| 1 | 1 | 1 | 0 | 1 | 0 | 1 |\n\nX is 1 in the rows 001, 011, 110 and 111. Check: when A = 0, NOT A = 1 and A AND B = 0, so X = C; when A = 1, NOT A = 0, so X = A AND B = B.\n\n(e) [3]\n\nNOT (A OR B) OR (A AND NOT B)\n\n= (NOT A AND NOT B) OR (A AND NOT B), by De Morgan's law: NOT (A OR B) = NOT A AND NOT B\n\n= (NOT B AND NOT A) OR (NOT B AND A), by the commutative law: reorder the two AND terms\n\n= NOT B AND (NOT A OR A), by the distributive law: factor out NOT B\n\n= NOT B AND 1, by the complement law: NOT A OR A = 1\n\n= NOT B, by the identity law: NOT B AND 1 = NOT B\n\nCheck: for A, B = 00, 01, 10 and 11, the original expression gives 1, 0, 1, 0, and NOT B gives 1, 0, 1, 0.\n\nNext step: build the truth table for NOT (A OR B) OR (A AND NOT B) and compare its output column with the NOT B column.\n\nSources: none consulted (no retrieval in this session)"
+   }
+  },
+  "translations": {
+   "bm-t14": {
+    "g6.1@business-management-specialist": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "bm-g6.1",
+      "request_id": "req-bm-t14",
+      "claim_id": "g6.1@business-management-specialist",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "ccl2_feb",
+        "sort": "Int",
+        "meaning": "February closing balance with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "ccl2_mar",
+        "sort": "Int",
+        "meaning": "March closing balance with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "ccl_feb",
+        "sort": "Int",
+        "meaning": "correct closing balance, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "ccl_jan",
+        "sort": "Int",
+        "meaning": "correct closing balance, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "ccl_mar",
+        "sort": "Int",
+        "meaning": "correct closing balance, March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cin_feb",
+        "sort": "Int",
+        "meaning": "correct total cash inflow, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cin_jan",
+        "sort": "Int",
+        "meaning": "correct total cash inflow, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cin_mar",
+        "sort": "Int",
+        "meaning": "correct total cash inflow, March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cnet_feb",
+        "sort": "Int",
+        "meaning": "correct net cash flow, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cnet_feb_nk",
+        "sort": "Int",
+        "meaning": "February net cash flow without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cout_feb",
+        "sort": "Int",
+        "meaning": "correct total cash outflow, February, with the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cout_feb_nk",
+        "sort": "Int",
+        "meaning": "February cash outflow without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cout_jan",
+        "sort": "Int",
+        "meaning": "correct total cash outflow, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cout_mar_k",
+        "sort": "Int",
+        "meaning": "March cash outflow with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cout_mar_nk",
+        "sort": "Int",
+        "meaning": "correct total cash outflow, March, without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cr_dec",
+        "sort": "Int",
+        "meaning": "credit sales in December 2025 ($), received in January",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cr_feb",
+        "sort": "Int",
+        "meaning": "credit sales in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cr_jan",
+        "sort": "Int",
+        "meaning": "credit sales in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cr_mar",
+        "sort": "Int",
+        "meaning": "credit sales in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cr_rc_feb",
+        "sort": "Int",
+        "meaning": "credit receipts in February on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cr_rc_jan",
+        "sort": "Int",
+        "meaning": "credit receipts in January on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cr_rc_mar",
+        "sort": "Int",
+        "meaning": "credit receipts in March on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "name": "cs_feb",
+        "sort": "Int",
+        "meaning": "cash sales in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cs_jan",
+        "sort": "Int",
+        "meaning": "cash sales in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "cs_mar",
+        "sort": "Int",
+        "meaning": "cash sales in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "kiln",
+        "sort": "Int",
+        "meaning": "deposit on a new kiln ($), paid in February",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Deposit on a new kiln: $3,000, paid in February"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "loan",
+        "sort": "Int",
+        "meaning": "loan repayment each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Loan repayment: $600 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "open_jan",
+        "sort": "Int",
+        "meaning": "opening cash balance on 1 January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Opening cash balance on 1 January 2026: $4,500"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "rent",
+        "sort": "Int",
+        "meaning": "rent paid each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Rent: $1,500 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "rm_feb",
+        "sort": "Int",
+        "meaning": "raw materials paid in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "rm_jan",
+        "sort": "Int",
+        "meaning": "raw materials paid in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "rm_mar",
+        "sort": "Int",
+        "meaning": "raw materials paid in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "name": "timing_rule",
+        "sort": "Bool",
+        "meaning": "credit customers pay one month after the sale (supplied rule)",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Trade customers buy on credit and pay one month after the sale."
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "wages",
+        "sort": "Int",
+        "meaning": "wages paid each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Wages: $4,000 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "tr_rule",
+        "expr": {
+         "op": "var",
+         "name": "timing_rule"
+        },
+        "label": "credit customers pay one month after the sale",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Trade customers buy on credit and pay one month after the sale."
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tr_jan",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "timing_rule"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "cr_rc_jan"
+          },
+          "right": {
+           "op": "var",
+           "name": "cr_dec"
+          }
+         }
+        },
+        "label": "January credit receipts are December's credit sales",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate"
+          }
+         ],
+         "certainty": "established",
+         "note": "timing rule applied"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tr_feb",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "timing_rule"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "cr_rc_feb"
+          },
+          "right": {
+           "op": "var",
+           "name": "cr_jan"
+          }
+         }
+        },
+        "label": "February credit receipts are January's credit sales",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate"
+          }
+         ],
+         "certainty": "established",
+         "note": "timing rule applied"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tr_mar",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "var",
+          "name": "timing_rule"
+         },
+         "right": {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "cr_rc_mar"
+          },
+          "right": {
+           "op": "var",
+           "name": "cr_feb"
+          }
+         }
+        },
+        "label": "March credit receipts are February's credit sales",
+        "grounding": {
+         "kind": "supplied_text",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate"
+          }
+         ],
+         "certainty": "established",
+         "note": "timing rule applied"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cin_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cin_jan"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "cs_jan"
+           },
+           {
+            "op": "var",
+            "name": "cr_rc_jan"
+           }
+          ]
+         }
+        },
+        "label": "correct inflow, January, is cash sales plus credit receipts",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cin_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cin_feb"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "cs_feb"
+           },
+           {
+            "op": "var",
+            "name": "cr_rc_feb"
+           }
+          ]
+         }
+        },
+        "label": "correct inflow, February",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cin_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cin_mar"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "cs_mar"
+           },
+           {
+            "op": "var",
+            "name": "cr_rc_mar"
+           }
+          ]
+         }
+        },
+        "label": "correct inflow, March",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cout_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cout_jan"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "rm_jan"
+           },
+           {
+            "op": "var",
+            "name": "wages"
+           },
+           {
+            "op": "var",
+            "name": "rent"
+           },
+           {
+            "op": "var",
+            "name": "loan"
+           }
+          ]
+         }
+        },
+        "label": "correct outflow, January, is raw materials, wages, rent and loan repayment",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cout_feb_nk",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cout_feb_nk"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "rm_feb"
+           },
+           {
+            "op": "var",
+            "name": "wages"
+           },
+           {
+            "op": "var",
+            "name": "rent"
+           },
+           {
+            "op": "var",
+            "name": "loan"
+           }
+          ]
+         }
+        },
+        "label": "February outflow without the kiln deposit",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cout_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cout_feb"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "cout_feb_nk"
+           },
+           {
+            "op": "var",
+            "name": "kiln"
+           }
+          ]
+         }
+        },
+        "label": "correct outflow, February, adds the kiln deposit",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cout_mar_nk",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cout_mar_nk"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "rm_mar"
+           },
+           {
+            "op": "var",
+            "name": "wages"
+           },
+           {
+            "op": "var",
+            "name": "rent"
+           },
+           {
+            "op": "var",
+            "name": "loan"
+           }
+          ]
+         }
+        },
+        "label": "March outflow without the kiln deposit",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cout_mar_k",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cout_mar_k"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "var",
+            "name": "cout_mar_nk"
+           },
+           {
+            "op": "var",
+            "name": "kiln"
+           }
+          ]
+         }
+        },
+        "label": "March outflow with the kiln deposit moved to March",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cl_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ccl_jan"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "add",
+           "args": [
+            {
+             "op": "var",
+             "name": "open_jan"
+            },
+            {
+             "op": "var",
+             "name": "cin_jan"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_jan"
+          }
+         }
+        },
+        "label": "correct closing balance, January",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cl_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ccl_feb"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "add",
+           "args": [
+            {
+             "op": "var",
+             "name": "ccl_jan"
+            },
+            {
+             "op": "var",
+             "name": "cin_feb"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_feb"
+          }
+         }
+        },
+        "label": "correct closing balance, February",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cl_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ccl_mar"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "add",
+           "args": [
+            {
+             "op": "var",
+             "name": "ccl_feb"
+            },
+            {
+             "op": "var",
+             "name": "cin_mar"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_mar_nk"
+          }
+         }
+        },
+        "label": "correct closing balance, March",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cl2_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ccl2_feb"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "add",
+           "args": [
+            {
+             "op": "var",
+             "name": "ccl_jan"
+            },
+            {
+             "op": "var",
+             "name": "cin_feb"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_feb_nk"
+          }
+         }
+        },
+        "label": "February closing balance if the kiln deposit is paid in March",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_cl2_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ccl2_mar"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "add",
+           "args": [
+            {
+             "op": "var",
+             "name": "ccl2_feb"
+            },
+            {
+             "op": "var",
+             "name": "cin_mar"
+            }
+           ]
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_mar_k"
+          }
+         }
+        },
+        "label": "March closing balance if the kiln deposit is paid in March",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_net_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cnet_feb"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "var",
+           "name": "cin_feb"
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_feb"
+          }
+         }
+        },
+        "label": "correct net cash flow, February",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "fl_net_feb_nk",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cnet_feb_nk"
+         },
+         "right": {
+          "op": "sub",
+          "left": {
+           "op": "var",
+           "name": "cin_feb"
+          },
+          "right": {
+           "op": "var",
+           "name": "cout_feb_nk"
+          }
+         }
+        },
+        "label": "February net cash flow without the kiln deposit",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_open_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "open_jan"
+         },
+         "right": {
+          "op": "int",
+          "value": "4500"
+         }
+        },
+        "label": "opening cash balance on 1 January 2026 ($) is 4500",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Opening cash balance on 1 January 2026: $4,500"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cs_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cs_jan"
+         },
+         "right": {
+          "op": "int",
+          "value": "9000"
+         }
+        },
+        "label": "cash sales in January 2026 ($) is 9000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cs_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cs_feb"
+         },
+         "right": {
+          "op": "int",
+          "value": "7500"
+         }
+        },
+        "label": "cash sales in February 2026 ($) is 7500",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cs_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cs_mar"
+         },
+         "right": {
+          "op": "int",
+          "value": "11000"
+         }
+        },
+        "label": "cash sales in March 2026 ($) is 11000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cr_dec",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cr_dec"
+         },
+         "right": {
+          "op": "int",
+          "value": "3000"
+         }
+        },
+        "label": "credit sales in December 2025 ($), received in January is 3000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cr_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cr_jan"
+         },
+         "right": {
+          "op": "int",
+          "value": "4000"
+         }
+        },
+        "label": "credit sales in January 2026 ($) is 4000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cr_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cr_feb"
+         },
+         "right": {
+          "op": "int",
+          "value": "2500"
+         }
+        },
+        "label": "credit sales in February 2026 ($) is 2500",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_cr_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "cr_mar"
+         },
+         "right": {
+          "op": "int",
+          "value": "5000"
+         }
+        },
+        "label": "credit sales in March 2026 ($) is 5000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_rm_jan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "rm_jan"
+         },
+         "right": {
+          "op": "int",
+          "value": "5200"
+         }
+        },
+        "label": "raw materials paid in January 2026 ($) is 5200",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_rm_feb",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "rm_feb"
+         },
+         "right": {
+          "op": "int",
+          "value": "4800"
+         }
+        },
+        "label": "raw materials paid in February 2026 ($) is 4800",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_rm_mar",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "rm_mar"
+         },
+         "right": {
+          "op": "int",
+          "value": "6100"
+         }
+        },
+        "label": "raw materials paid in March 2026 ($) is 6100",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_wages",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "wages"
+         },
+         "right": {
+          "op": "int",
+          "value": "4000"
+         }
+        },
+        "label": "wages paid each month ($) is 4000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Wages: $4,000 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_rent",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "rent"
+         },
+         "right": {
+          "op": "int",
+          "value": "1500"
+         }
+        },
+        "label": "rent paid each month ($) is 1500",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Rent: $1,500 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_loan",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "loan"
+         },
+         "right": {
+          "op": "int",
+          "value": "600"
+         }
+        },
+        "label": "loan repayment each month ($) is 600",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Loan repayment: $600 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "f_kiln",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "kiln"
+         },
+         "right": {
+          "op": "int",
+          "value": "3000"
+         }
+        },
+        "label": "deposit on a new kiln ($), paid in February is 3000",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Deposit on a new kiln: $3,000, paid in February"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "ccl2_mar"
+          },
+          "right": {
+           "op": "int",
+           "value": "4100"
+          }
+         },
+         {
+          "op": "lt",
+          "left": {
+           "op": "var",
+           "name": "ccl2_mar"
+          },
+          "right": {
+           "op": "var",
+           "name": "ccl_jan"
+          }
+         },
+         {
+          "op": "lt",
+          "left": {
+           "op": "var",
+           "name": "ccl2_mar"
+          },
+          "right": {
+           "op": "var",
+           "name": "ccl2_feb"
+          }
+         }
+        ]
+       },
+       "label": "with the kiln deposit moved to March, March has the lowest closing balance, $4,100",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Read as the practice task's model answer: moving the 3,000 kiln deposit to March leaves January's closing balance at 5,200, February's at 5,800 (no deposit that month) and March's at 4,100, so March has the lowest closing balance, 4,100.",
+      "glossary": [
+       {
+        "symbol": "ccl2_feb",
+        "meaning": "February closing balance with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "ccl2_mar",
+        "meaning": "March closing balance with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "ccl_feb",
+        "meaning": "correct closing balance, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "ccl_jan",
+        "meaning": "correct closing balance, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "ccl_mar",
+        "meaning": "correct closing balance, March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cin_feb",
+        "meaning": "correct total cash inflow, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cin_jan",
+        "meaning": "correct total cash inflow, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cin_mar",
+        "meaning": "correct total cash inflow, March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cnet_feb",
+        "meaning": "correct net cash flow, February ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cnet_feb_nk",
+        "meaning": "February net cash flow without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cout_feb",
+        "meaning": "correct total cash outflow, February, with the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cout_feb_nk",
+        "meaning": "February cash outflow without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cout_jan",
+        "meaning": "correct total cash outflow, January ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cout_mar_k",
+        "meaning": "March cash outflow with the kiln deposit moved to March ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cout_mar_nk",
+        "meaning": "correct total cash outflow, March, without the kiln deposit ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cr_dec",
+        "meaning": "credit sales in December 2025 ($), received in January",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cr_feb",
+        "meaning": "credit sales in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cr_jan",
+        "meaning": "credit sales in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cr_mar",
+        "meaning": "credit sales in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Credit sales: December 2025 $3,000; January $4,000; February $2,500; March $5,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cr_rc_feb",
+        "meaning": "credit receipts in February on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cr_rc_jan",
+        "meaning": "credit receipts in January on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cr_rc_mar",
+        "meaning": "credit receipts in March on the correct timing ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "computed from the figures the task states, or from the student's figures, by the stated arithmetic"
+        }
+       },
+       {
+        "symbol": "cs_feb",
+        "meaning": "cash sales in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cs_jan",
+        "meaning": "cash sales in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "cs_mar",
+        "meaning": "cash sales in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Cash sales: January $9,000; February $7,500; March $11,000"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "kiln",
+        "meaning": "deposit on a new kiln ($), paid in February",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Deposit on a new kiln: $3,000, paid in February"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "loan",
+        "meaning": "loan repayment each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Loan repayment: $600 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "open_jan",
+        "meaning": "opening cash balance on 1 January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Opening cash balance on 1 January 2026: $4,500"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "rent",
+        "meaning": "rent paid each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Rent: $1,500 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "rm_feb",
+        "meaning": "raw materials paid in February 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "rm_jan",
+        "meaning": "raw materials paid in January 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "rm_mar",
+        "meaning": "raw materials paid in March 2026 ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Raw materials (clay and glaze), paid in the month of purchase: January $5,200; February $4,800; March $6,100"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       },
+       {
+        "symbol": "timing_rule",
+        "meaning": "credit customers pay one month after the sale (supplied rule)",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Trade customers buy on credit and pay one month after the sale."
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "wages",
+        "meaning": "wages paid each month ($)",
+        "grounding": {
+         "kind": "arithmetic_fact",
+         "source_refs": [
+          {
+           "document_id": "doc-tessellate",
+           "excerpt": "Wages: $4,000 per month"
+          }
+         ],
+         "certainty": "established",
+         "note": "figure stated in the supplied case"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "en-t14": {
+    "p2-point": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "en-t14-p2-point",
+      "request_id": "req-en-t14",
+      "claim_id": "p2-point",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "mum_just_a",
+        "sort": "Bool",
+        "meaning": "the mother says 'Just the A'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "Just the A"
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "mum_only_a",
+        "sort": "Bool",
+        "meaning": "the mother says 'It's only the A that's gone'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "It's only the A that's gone"
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "narr_not_only",
+        "sort": "Bool",
+        "meaning": "the narrator's correction reads 'It was not only the A.'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "It was not only the A."
+          }
+         ],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "single_note",
+        "sort": "Bool",
+        "meaning": "the mother's words reduce the loss to a single note",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "only_limits_one",
+        "sort": "Bool",
+        "meaning": "conventionally, 'only' limits a claim to one item",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "probable"
+        }
+       },
+       {
+        "name": "loss_contained",
+        "sort": "Bool",
+        "meaning": "the mother's wording makes the loss seem contained",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "ev-just",
+        "expr": {
+         "op": "var",
+         "name": "mum_just_a"
+        },
+        "label": "the mother says 'Just the A'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "Just the A"
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "ev-only",
+        "expr": {
+         "op": "var",
+         "name": "mum_only_a"
+        },
+        "label": "the mother says 'It's only the A that's gone'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "It's only the A that's gone"
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "ev-not-only",
+        "expr": {
+         "op": "var",
+         "name": "narr_not_only"
+        },
+        "label": "the narrator's correction keeps the word 'only': 'It was not only the A.'",
+        "grounding": {
+         "kind": "quotation",
+         "source_refs": [
+          {
+           "document_id": "doc-tuner",
+           "excerpt": "It was not only the A."
+          }
+         ],
+         "certainty": "established"
+        },
+        "materiality": "supporting"
+       },
+       {
+        "id": "link-single",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "mum_just_a"
+           },
+           {
+            "op": "var",
+            "name": "mum_only_a"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "single_note"
+         }
+        },
+        "label": "the mother's words 'Just the A' and 'It's only the A that's gone' reduce the loss to a single note",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "gk-only",
+        "expr": {
+         "op": "var",
+         "name": "only_limits_one"
+        },
+        "label": "conventionally, 'only' limits a claim to one item",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "link-contained",
+        "expr": {
+         "op": "implies",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "var",
+            "name": "single_note"
+           },
+           {
+            "op": "var",
+            "name": "only_limits_one"
+           }
+          ]
+         },
+         "right": {
+          "op": "var",
+          "name": "loss_contained"
+         }
+        },
+        "label": "a loss reduced to a single note, with 'only' limiting a claim to one item, is made to seem contained",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "probable"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "point",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "var",
+          "name": "single_note"
+         },
+         {
+          "op": "var",
+          "name": "loss_contained"
+         }
+        ]
+       },
+       "label": "the mother's words reduce the loss to a single note, and the mother's wording makes the loss seem contained",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "probable"
+       },
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "The claim has two steps. The mother's sayings 'Just the A' and 'It's only the A that's gone' together reduce the loss to a single note (one interpretive link from both quotations). Then the convention that 'only' limits a claim to one item, and the 'so' of the claim, make the loss seem contained. The narrator's correction 'It was not only the A.' is kept as supporting evidence for the recurrence of 'only' but is not an input to either link. The conclusion is the claim's two stated results, the single-note reduction and the containment, both checked. Supporting claims p2-q05 to p2-q07 and p2-s02 (the piano going quiet room by room) and p2-s03 (the lid) concern other points and are not used by this claim's text; p2-s03 is encoded as its own claim.",
+      "glossary": [
+       {
+        "symbol": "mum_just_a",
+        "meaning": "the mother says 'Just the A'",
+        "grounding": null
+       },
+       {
+        "symbol": "mum_only_a",
+        "meaning": "the mother says 'It's only the A that's gone'",
+        "grounding": null
+       },
+       {
+        "symbol": "narr_not_only",
+        "meaning": "the narrator's correction reads 'It was not only the A.'",
+        "grounding": null
+       },
+       {
+        "symbol": "single_note",
+        "meaning": "the mother's words reduce the loss to a single note",
+        "grounding": null
+       },
+       {
+        "symbol": "only_limits_one",
+        "meaning": "conventionally, 'only' limits a claim to one item",
+        "grounding": null
+       },
+       {
+        "symbol": "loss_contained",
+        "meaning": "the mother's wording makes the loss seem contained",
+        "grounding": null
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   },
+   "cs-t14": {
+    "c16.1": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "cs-c16.1",
+      "request_id": "req-cs-t14",
+      "claim_id": "c16.1",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "tt0_a",
+        "sort": "Bool",
+        "meaning": "row 0 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt0_b",
+        "sort": "Bool",
+        "meaning": "row 0 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt0_c",
+        "sort": "Bool",
+        "meaning": "row 0 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt0_idx",
+        "sort": "Int",
+        "meaning": "row 0 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt1_a",
+        "sort": "Bool",
+        "meaning": "row 1 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt1_b",
+        "sort": "Bool",
+        "meaning": "row 1 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt1_c",
+        "sort": "Bool",
+        "meaning": "row 1 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt1_idx",
+        "sort": "Int",
+        "meaning": "row 1 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt2_a",
+        "sort": "Bool",
+        "meaning": "row 2 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt2_b",
+        "sort": "Bool",
+        "meaning": "row 2 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt2_c",
+        "sort": "Bool",
+        "meaning": "row 2 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt2_idx",
+        "sort": "Int",
+        "meaning": "row 2 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt3_a",
+        "sort": "Bool",
+        "meaning": "row 3 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt3_b",
+        "sort": "Bool",
+        "meaning": "row 3 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt3_c",
+        "sort": "Bool",
+        "meaning": "row 3 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt3_idx",
+        "sort": "Int",
+        "meaning": "row 3 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt4_a",
+        "sort": "Bool",
+        "meaning": "row 4 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt4_b",
+        "sort": "Bool",
+        "meaning": "row 4 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt4_c",
+        "sort": "Bool",
+        "meaning": "row 4 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt4_idx",
+        "sort": "Int",
+        "meaning": "row 4 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt5_a",
+        "sort": "Bool",
+        "meaning": "row 5 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt5_b",
+        "sort": "Bool",
+        "meaning": "row 5 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt5_c",
+        "sort": "Bool",
+        "meaning": "row 5 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt5_idx",
+        "sort": "Int",
+        "meaning": "row 5 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt6_a",
+        "sort": "Bool",
+        "meaning": "row 6 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt6_b",
+        "sort": "Bool",
+        "meaning": "row 6 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt6_c",
+        "sort": "Bool",
+        "meaning": "row 6 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt6_idx",
+        "sort": "Int",
+        "meaning": "row 6 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt7_a",
+        "sort": "Bool",
+        "meaning": "row 7 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt7_b",
+        "sort": "Bool",
+        "meaning": "row 7 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt7_c",
+        "sort": "Bool",
+        "meaning": "row 7 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "name": "tt7_idx",
+        "sort": "Int",
+        "meaning": "row 7 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "tt0_ia",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt0_a"
+         }
+        },
+        "label": "row 0 lists A = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt0_ib",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt0_b"
+         }
+        },
+        "label": "row 0 lists B = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt0_ic",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt0_c"
+         }
+        },
+        "label": "row 0 lists C = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt0_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt0_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt0_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt0_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt0_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 0 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt1_ia",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt1_a"
+         }
+        },
+        "label": "row 1 lists A = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt1_ib",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt1_b"
+         }
+        },
+        "label": "row 1 lists B = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt1_ic",
+        "expr": {
+         "op": "var",
+         "name": "tt1_c"
+        },
+        "label": "row 1 lists C = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt1_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt1_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt1_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt1_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt1_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 1 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt2_ia",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt2_a"
+         }
+        },
+        "label": "row 2 lists A = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt2_ib",
+        "expr": {
+         "op": "var",
+         "name": "tt2_b"
+        },
+        "label": "row 2 lists B = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt2_ic",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt2_c"
+         }
+        },
+        "label": "row 2 lists C = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt2_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt2_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt2_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt2_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt2_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 2 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt3_ia",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt3_a"
+         }
+        },
+        "label": "row 3 lists A = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt3_ib",
+        "expr": {
+         "op": "var",
+         "name": "tt3_b"
+        },
+        "label": "row 3 lists B = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt3_ic",
+        "expr": {
+         "op": "var",
+         "name": "tt3_c"
+        },
+        "label": "row 3 lists C = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt3_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt3_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt3_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt3_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt3_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 3 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt4_ia",
+        "expr": {
+         "op": "var",
+         "name": "tt4_a"
+        },
+        "label": "row 4 lists A = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt4_ib",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt4_b"
+         }
+        },
+        "label": "row 4 lists B = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt4_ic",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt4_c"
+         }
+        },
+        "label": "row 4 lists C = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt4_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt4_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt4_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt4_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt4_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 4 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt5_ia",
+        "expr": {
+         "op": "var",
+         "name": "tt5_a"
+        },
+        "label": "row 5 lists A = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt5_ib",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt5_b"
+         }
+        },
+        "label": "row 5 lists B = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt5_ic",
+        "expr": {
+         "op": "var",
+         "name": "tt5_c"
+        },
+        "label": "row 5 lists C = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt5_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt5_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt5_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt5_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt5_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 5 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt6_ia",
+        "expr": {
+         "op": "var",
+         "name": "tt6_a"
+        },
+        "label": "row 6 lists A = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt6_ib",
+        "expr": {
+         "op": "var",
+         "name": "tt6_b"
+        },
+        "label": "row 6 lists B = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt6_ic",
+        "expr": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "tt6_c"
+         }
+        },
+        "label": "row 6 lists C = 0",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt6_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt6_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt6_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt6_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt6_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 6 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt7_ia",
+        "expr": {
+         "op": "var",
+         "name": "tt7_a"
+        },
+        "label": "row 7 lists A = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt7_ib",
+        "expr": {
+         "op": "var",
+         "name": "tt7_b"
+        },
+        "label": "row 7 lists B = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt7_ic",
+        "expr": {
+         "op": "var",
+         "name": "tt7_c"
+        },
+        "label": "row 7 lists C = 1",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "tt7_ix",
+        "expr": {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "tt7_idx"
+         },
+         "right": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "4"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt7_a"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "int",
+              "value": "2"
+             },
+             {
+              "op": "ite",
+              "cond": {
+               "op": "var",
+               "name": "tt7_b"
+              },
+              "then": {
+               "op": "int",
+               "value": "1"
+              },
+              "otherwise": {
+               "op": "int",
+               "value": "0"
+              }
+             }
+            ]
+           },
+           {
+            "op": "ite",
+            "cond": {
+             "op": "var",
+             "name": "tt7_c"
+            },
+            "then": {
+             "op": "int",
+             "value": "1"
+            },
+            "otherwise": {
+             "op": "int",
+             "value": "0"
+            }
+           }
+          ]
+         }
+        },
+        "label": "row 7 read as a binary number",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt0_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "0"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt1_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "1"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt2_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "2"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt3_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "3"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt4_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "4"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt5_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "5"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt6_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "6"
+          }
+         },
+         {
+          "op": "eq",
+          "left": {
+           "op": "var",
+           "name": "tt7_idx"
+          },
+          "right": {
+           "op": "int",
+           "value": "7"
+          }
+         }
+        ]
+       },
+       "label": "inputs A, B and C are listed in binary counting order",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Read as the layout claim: the eight rows of the table list A, B and C in binary counting order, so the row with position r (counting from 0) reads as the binary number r. The table cells are the specialist's own entries, encoded as its inputs.",
+      "glossary": [
+       {
+        "symbol": "tt0_a",
+        "meaning": "row 0 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt0_b",
+        "meaning": "row 0 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt0_c",
+        "meaning": "row 0 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt0_idx",
+        "meaning": "row 0 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt1_a",
+        "meaning": "row 1 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt1_b",
+        "meaning": "row 1 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt1_c",
+        "meaning": "row 1 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt1_idx",
+        "meaning": "row 1 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt2_a",
+        "meaning": "row 2 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt2_b",
+        "meaning": "row 2 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt2_c",
+        "meaning": "row 2 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt2_idx",
+        "meaning": "row 2 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt3_a",
+        "meaning": "row 3 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt3_b",
+        "meaning": "row 3 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt3_c",
+        "meaning": "row 3 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt3_idx",
+        "meaning": "row 3 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt4_a",
+        "meaning": "row 4 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt4_b",
+        "meaning": "row 4 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt4_c",
+        "meaning": "row 4 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt4_idx",
+        "meaning": "row 4 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt5_a",
+        "meaning": "row 5 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt5_b",
+        "meaning": "row 5 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt5_c",
+        "meaning": "row 5 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt5_idx",
+        "meaning": "row 5 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt6_a",
+        "meaning": "row 6 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt6_b",
+        "meaning": "row 6 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt6_c",
+        "meaning": "row 6 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt6_idx",
+        "meaning": "row 6 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt7_a",
+        "meaning": "row 7 of the truth table: input A",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt7_b",
+        "meaning": "row 7 of the truth table: input B",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt7_c",
+        "meaning": "row 7 of the truth table: input C",
+        "grounding": {
+         "kind": "specialist_inference",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       },
+       {
+        "symbol": "tt7_idx",
+        "meaning": "row 7 read as a binary number 4A + 2B + C",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    },
+    "c25.1": {
+     "problem": {
+      "ir_version": "1.0",
+      "problem_id": "cs-c25.1",
+      "request_id": "req-cs-t14",
+      "claim_id": "c25.1",
+      "query": "entailment",
+      "symbols": [
+       {
+        "name": "cs_orig",
+        "sort": "Bool",
+        "meaning": "the expression NOT (A OR B) OR (A AND NOT B)",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "expression stated with part (e) of the question"
+        }
+       },
+       {
+        "name": "gen_a",
+        "sort": "Bool",
+        "meaning": "Boolean input A of the logic circuit",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "inputs A, B and C stated with the question"
+        }
+       },
+       {
+        "name": "gen_b",
+        "sort": "Bool",
+        "meaning": "Boolean input B of the logic circuit",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "inputs A, B and C stated with the question"
+        }
+       }
+      ],
+      "premises": [
+       {
+        "id": "chain0",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "var",
+          "name": "cs_orig"
+         },
+         "right": {
+          "op": "or",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "or",
+             "args": [
+              {
+               "op": "var",
+               "name": "gen_a"
+              },
+              {
+               "op": "var",
+               "name": "gen_b"
+              }
+             ]
+            }
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "var",
+              "name": "gen_a"
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        },
+        "label": "the expression NOT (A OR B) OR (A AND NOT B) to be simplified",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "expression stated with part (e) of the question"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "chain1",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "or",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "or",
+             "args": [
+              {
+               "op": "var",
+               "name": "gen_a"
+              },
+              {
+               "op": "var",
+               "name": "gen_b"
+              }
+             ]
+            }
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "var",
+              "name": "gen_a"
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         "right": {
+          "op": "or",
+          "args": [
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "var",
+              "name": "gen_a"
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        },
+        "label": "De Morgan's law: NOT (A OR B) = NOT A AND NOT B",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "De Morgan's law"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "chain2",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "or",
+          "args": [
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "var",
+              "name": "gen_a"
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         "right": {
+          "op": "or",
+          "args": [
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             }
+            ]
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             },
+             {
+              "op": "var",
+              "name": "gen_a"
+             }
+            ]
+           }
+          ]
+         }
+        },
+        "label": "the commutative law: reorder the two AND terms",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "commutative law"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "chain3",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "or",
+          "args": [
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             },
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             }
+            ]
+           },
+           {
+            "op": "and",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_b"
+              }
+             },
+             {
+              "op": "var",
+              "name": "gen_a"
+             }
+            ]
+           }
+          ]
+         },
+         "right": {
+          "op": "and",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "var",
+             "name": "gen_b"
+            }
+           },
+           {
+            "op": "or",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             },
+             {
+              "op": "var",
+              "name": "gen_a"
+             }
+            ]
+           }
+          ]
+         }
+        },
+        "label": "the distributive law: factor out NOT B",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "distributive law"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "chain4",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "var",
+             "name": "gen_b"
+            }
+           },
+           {
+            "op": "or",
+            "args": [
+             {
+              "op": "not",
+              "arg": {
+               "op": "var",
+               "name": "gen_a"
+              }
+             },
+             {
+              "op": "var",
+              "name": "gen_a"
+             }
+            ]
+           }
+          ]
+         },
+         "right": {
+          "op": "and",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "var",
+             "name": "gen_b"
+            }
+           },
+           {
+            "op": "bool",
+            "value": true
+           }
+          ]
+         }
+        },
+        "label": "the complement law: NOT A OR A = 1",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "Boolean complement law"
+        },
+        "materiality": "material"
+       },
+       {
+        "id": "chain5",
+        "expr": {
+         "op": "iff",
+         "left": {
+          "op": "and",
+          "args": [
+           {
+            "op": "not",
+            "arg": {
+             "op": "var",
+             "name": "gen_b"
+            }
+           },
+           {
+            "op": "bool",
+            "value": true
+           }
+          ]
+         },
+         "right": {
+          "op": "not",
+          "arg": {
+           "op": "var",
+           "name": "gen_b"
+          }
+         }
+        },
+        "label": "the identity law: NOT B AND 1 = NOT B",
+        "grounding": {
+         "kind": "general_knowledge",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "Boolean identity law"
+        },
+        "materiality": "material"
+       }
+      ],
+      "conclusion": {
+       "id": "concl",
+       "expr": {
+        "op": "iff",
+        "left": {
+         "op": "var",
+         "name": "cs_orig"
+        },
+        "right": {
+         "op": "not",
+         "arg": {
+          "op": "var",
+          "name": "gen_b"
+         }
+        }
+       },
+       "label": "NOT (A OR B) OR (A AND NOT B) is equivalent to NOT B",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     },
+     "interpretation": {
+      "reading": "Read as the specialist's check of part (e): the chain of Boolean steps (De Morgan, commutative, distributive, complement, identity) shows the original expression is equivalent to NOT B, and the four input rows give 1, 0, 1, 0 for both.",
+      "glossary": [
+       {
+        "symbol": "cs_orig",
+        "meaning": "the expression NOT (A OR B) OR (A AND NOT B)",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "expression stated with part (e) of the question"
+        }
+       },
+       {
+        "symbol": "gen_a",
+        "meaning": "Boolean input A of the logic circuit",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "inputs A, B and C stated with the question"
+        }
+       },
+       {
+        "symbol": "gen_b",
+        "meaning": "Boolean input B of the logic circuit",
+        "grounding": {
+         "kind": "task_setting",
+         "source_refs": [],
+         "certainty": "established",
+         "note": "inputs A, B and C stated with the question"
+        }
+       }
+      ],
+      "ambiguity_flags": []
+     },
+     "ambiguous": false,
+     "unsupported_reason": null
+    }
+   }
+  }
+ }
+}

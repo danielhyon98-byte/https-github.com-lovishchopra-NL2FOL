@@ -197,6 +197,59 @@ _SMALL_BEFORE_NOUN_RE = re.compile(rf"(?<!\bthe )(?<!\bthese )(?<!\bthose )(?<!\
 _SMALL_VALUES = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 
 
+# --- Spanish number words (round 9, c2, sp-t15: 'tres de la madrugada' carried as 'dos de la madrugada' drew no figure
+# finding, while the same change in digits is INT-LEDGER-023). A course language's cardinals are figures as English ones
+# are: the words from twelve up (and 'once' after a quantity word, as 'once' is an English word) wherever they stand, and the
+# small ones (una, uno, dos to diez) as the English reader reads 'two' to 'ten': after a word of quantity or an hour's
+# article ('las tres', 'a la una', 'hasta las dos', 'más de cinco'), so the article 'una' of prose is never a figure.
+_ES_SMALL = {"una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11}
+_ES_WORDS = {"doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciséis": 16, "dieciseis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
+             "veinte": 20, "veintiuno": 21, "veintiuna": 21, "veintidós": 22, "veintidos": 22, "veintitrés": 23, "veintitres": 23, "veinticuatro": 24,
+             "veinticinco": 25, "veintiséis": 26, "veintiseis": 26, "veintisiete": 27, "veintiocho": 28, "veintinueve": 29, "treinta": 30, "cuarenta": 40,
+             "cincuenta": 50, "sesenta": 60, "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100, "ciento": 100, "doscientos": 200, "doscientas": 200,
+             "trescientos": 300, "trescientas": 300, "cuatrocientos": 400, "cuatrocientas": 400, "quinientos": 500, "quinientas": 500, "seiscientos": 600,
+             "seiscientas": 600, "setecientos": 700, "setecientas": 700, "ochocientos": 800, "ochocientas": 800, "novecientos": 900, "novecientas": 900,
+             "mil": 1000}
+_ES_QUANTITY_PRE = r"(?:(?:a|hasta|desde|de|entre)\s{1,3})?(?:la|las)|unos|unas|casi|solo|sólo|hasta|desde|entre|aproximadamente|(?:más|menos)\s{1,3}de|cerca\s{1,3}de"
+_ES_ANY = _alt(sorted({**_ES_SMALL, **_ES_WORDS}, key=len, reverse=True))
+_ES_NUMBER_RE = re.compile(
+    rf"(?<![\w-])(?:(?:{_ES_QUANTITY_PRE})\s{{1,3}}(?P<small>(?-i:{_alt(_ES_SMALL)}))(?![\w-])"
+    rf"|(?P<big>(?:(?-i:{_alt(_ES_SMALL)})\s{{1,3}}(?=(?-i:mil)\b))?(?-i:{_alt(sorted(_ES_WORDS, key=len, reverse=True))})"
+    rf"(?:\s{{1,3}}(?:y\s{{1,3}})?(?-i:{_ES_ANY})){{0,5}}))(?![\w-])", re.IGNORECASE)
+
+
+def _spanish_value(words: str) -> int:
+    """The value of a run of Spanish number words ("dos mil trescientos cuarenta y cinco" = 2345)."""
+    total, part = 0, 0
+    for tok in words.casefold().split():
+        if tok == "y":
+            continue
+        if tok == "mil":
+            total += (part or 1) * 1000
+            part = 0
+            continue
+        part += _ES_SMALL.get(tok) or _ES_WORDS.get(tok, 0)
+    return total + part
+
+
+def _spanish_word_figures(text: str) -> list[tuple[int, int, str]]:
+    """``(start, end, value)`` for every figure written in Spanish words in ``text`` (:data:`_ES_NUMBER_RE`): one pass, each
+    run bounded."""
+    if not text or not _ES_HINT_RE.search(text):
+        return []
+    out: list[tuple[int, int, str]] = []
+    for m in _ES_NUMBER_RE.finditer(text):
+        if m.group("small"):
+            out.append((m.start("small"), m.end("small"), str(_ES_SMALL[m.group("small").casefold()])))
+        else:
+            out.append((m.start("big"), m.end("big"), str(_spanish_value(m.group("big")))))
+    return out
+
+
+#: Whether a text may hold a Spanish number word at all (one cheap search before the full pattern).
+_ES_HINT_RE = re.compile(rf"(?<![\w-])(?:{_ES_ANY})(?![\w-])", re.IGNORECASE)
+
+
 def _word_figures(text: str, *, pairing: bool = False) -> list[tuple[int, int, str, Optional[str], str]]:
     """``(start, end, mantissa, scale or None, surface)`` for every figure written in words in ``text``. Small number
     words (two to ten) count after a word of comparison or measure ("under nine"); with ``pairing`` also before a plural
@@ -3546,6 +3599,11 @@ def _read_figures(text: str) -> tuple[_Figure, ...]:
         out.append(_Figure(mantissa, scale, " ".join(surface.split())))
         spans.append((start, end))
     masked = _blank_union(masked, spans)
+    spans = []
+    for start, end, value in _spanish_word_figures(masked):  # round 9 (c2): a course language's number words are figures too
+        out.append(_Figure(value, None, " ".join(masked[start:end].split())))
+        spans.append((start, end))
+    masked = _blank_union(masked, spans)
     for m in _FIGURE_RE.finditer(masked):
         tok = m.group(0)
         if tok.endswith("s"):  # a decade ("1840s", "1840's"): one date, never scaled
@@ -4703,6 +4761,24 @@ def _reproduces(text: str, note: str) -> bool:
     return re.search(r"(?<!\w)" + re.escape(words) + r"(?!\w)", _norm(_QUOTE_MARKS_RE.sub('"', text or ""))) is not None
 
 
+def _carries_withheld_work(sc, cited: list[str], notes: dict[str, ClaimRecord]) -> bool:
+    """``sc`` carries, word for word and alone, a note that declines or defers the work the student asked for: the channel's
+    reading of a withheld deliverable (``channel.bus.withheld_deliverable``, the reading it records on the specialist's receipt
+    as INT-REQ-004 'declined, not answered' or 'pending, not answered') reads the note, ``sc`` cites that note only, under
+    ``carried``, and its text is the note's (quotation marks, spacing and case aside). Rule 7 of the combinator's instructions
+    asks for exactly that claim, so that the student still learns that the work was withheld and why (round 9, integrated
+    round c2, ps-t15): it is a note for the student, never content and never a self-report. Any other form (the decline
+    reworded, narrowed, merged or cited beside content, under any other transformation) is still a note carried back as a
+    claim, and a verification label on it is still named."""
+    if sc.transformation != "carried" or len(sc.source_claim_ids) != 1 or len(cited) != 1 or cited[0] not in notes:
+        return False
+    note = notes[cited[0]].claim_text or ""
+    if _norm(_QUOTE_MARKS_RE.sub('"', note)) != _norm(_QUOTE_MARKS_RE.sub('"', sc.text or "")):
+        return False
+    from ..channel.bus import withheld_deliverable  # the channel's own reading; imported here, as the channel imports this module
+    return withheld_deliverable(note) is not None
+
+
 def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, ClaimRecord]] = None,
                           notes: Optional[dict[str, ClaimRecord]] = None, flagged: Optional[dict[str, ClaimRecord]] = None) -> list[IntegrityFinding]:
     """INT-LEDGER-029: a synthesized claim, or a sentence of the student-facing text, that states a verification status of
@@ -4716,11 +4792,14 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
 
     A note the delivery already read is named whatever its wording, so the hub never depends on its vocabulary for it
     (``sources``, ``notes`` and ``flagged`` from :func:`report_notes`): a synthesized claim made only from notes (claims
-    roled 'other': "Z3: proved.", "Accuracy: 100%.", "I cannot answer the second part of the question.", "Would you like me
-    to say more?", "Word count: 45."), under any transformation label, carries a note back as a claim; one that cites a
+    roled 'other': "Z3: proved.", "Accuracy: 100%.", "I have not answered the second part of the question.", "Would you like
+    me to say more?", "Word count: 45."), under any transformation label, carries a note back as a claim; one that cites a
     note or a flagged self-report beside content and reproduces its words carries the note with the content. A note that
     qualifies (a from-memory label, an unverified item: :data:`_DISCLAIMER_RE`) may stay with the claims it qualifies, so
-    its words beside content are never named."""
+    its words beside content are never named. One form is no note carried back (round-9 clearance c2b, rule 7 of the
+    combinator's instructions): a decline or a deferral of the requested work the channel reads (``withheld_deliverable``:
+    "I cannot answer the second part of the question.") carried word for word, alone, as ``carried`` is a note for the
+    student (:func:`_carries_withheld_work`); any other form of it is still named."""
     f: list[IntegrityFinding] = []
     named: set[str] = set()
     sources, notes, flagged = sources or {}, notes or {}, flagged or {}
@@ -4745,7 +4824,9 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
             parts.append(what)
         cited = [cid for cid in dict.fromkeys(sc.source_claim_ids) if cid in sources]
         note_ids = [cid for cid in cited if cid in notes]
-        if cited and len(note_ids) == len(cited):
+        if _carries_withheld_work(sc, cited, notes):
+            pass  # rule 7 of the combinator's instructions: a decline or a deferral of the requested work, carried word for word for the student
+        elif cited and len(note_ids) == len(cited):
             parts.append(f"{'it' if parts else 'synthesized claim (' + repr(sc.transformation) + ', ' + sc.materiality + ')'} is made only from notes of the "
                          f"specialists {note_ids[:8]}: claims the delivery read as notes (role 'other': a self-report, a verification label, a word count, a "
                          "decline, a question, a task note, a heading or a line of a feedback layout such as its provisional marks, or another "
@@ -4977,7 +5058,14 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         lost = [c.claim_id for c in material_sources if any((r.document_id, r.locator) not in have for r in c.source_refs)]
         if lost:
             f.append(IntegrityFinding(code="INT-LEDGER-004", severity="error", message=f"evidence references of material source claims {lost} were not preserved in the '{sc.transformation}' claim", claim_ids=[sc.claim_id] + lost, document_ids=sorted({r.document_id for c in material_sources if c.claim_id in lost for r in c.source_refs})))
-        altered = sorted({c.claim_id for c in known for r in c.source_refs if (r.document_id, r.locator) in have and r.excerpt and have[(r.document_id, r.locator)].excerpt and _norm(r.excerpt) != _norm(have[(r.document_id, r.locator)].excerpt)})
+        # the excerpts under one (document, locator) compared as a set (round 9, c2, the p9b synthesis: five locator-less
+        # excerpts of one document carried verbatim were compared, each, with the last one only)
+        excerpts_at: dict[tuple[str, Optional[str]], set[str]] = {}
+        for r in sc.evidence_refs:
+            if r.excerpt:
+                excerpts_at.setdefault((r.document_id, r.locator), set()).add(_norm(r.excerpt))
+        altered = sorted({c.claim_id for c in known for r in c.source_refs if r.excerpt and excerpts_at.get((r.document_id, r.locator))
+                          and _norm(r.excerpt) not in excerpts_at[(r.document_id, r.locator)]})
         if altered:
             f.append(IntegrityFinding(code="INT-LEDGER-020", severity="warning", message=f"evidence excerpt differs from the source's under the same (document, locator) for source claims {altered}", claim_ids=[sc.claim_id] + altered, document_ids=sorted({r.document_id for c in known if c.claim_id in altered for r in c.source_refs})))
         bad_refs = [d for cid, d in ref_problems if cid == sc.claim_id]
@@ -5122,6 +5210,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             f.append(IntegrityFinding(code="INT-LEDGER-012", severity="error", message=f"ledger entry '{entry.transformation}' says {not_cited} went into synthesized claim {target.claim_id!r}, but that claim does not cite them; the sources are NOT accounted for", claim_ids=not_cited + [target.claim_id], agent_ids=[synthesis.combinator_agent_id]))
         accounted.update(s for s in entry_ids if s in target.source_claim_ids)
 
+    f += framing_content_findings(synthesis, reports, colliding)
     unaccounted_supporting: dict[str, list[str]] = {}
     for cid, c in sources.items():
         if cid in accounted:
@@ -5204,6 +5293,210 @@ def text_outside_claims(text: str, claim_texts: list[str]) -> list[str]:
     return [x for x in out if x]
 
 
+#: A list marker at a claim boundary of the joined text: "(3) ", "3) ", "3. " at the text's start, after a line break, or
+#: after a sentence or clause mark (a closing quotation mark or bracket allowed after it) and one space, as rule
+#: text-composition reads a claim's marker (:data:`_CLAIM_MARKER_PREFIX`); a number anywhere else is content.
+_MARKER_AT_BOUNDARY_RE = re.compile(r"(?:^|(?<=\n)|(?<=[.!?:;] )|(?<=[.!?:;][\"'”’)\]] ))(?P<marker>\(?\d{1,2}[.)])[ \t]{1,3}")
+#: The most markers one joined text is read for (a synthesis holds at most 512 claims, so a text with more markers than this
+#: is no list of its claims; the markers beyond it stay figures).
+_MAX_BOUNDARY_MARKERS = 4096
+
+
+def without_claim_markers(text: str, claim_texts: list[str]) -> str:
+    """``text`` with the list marker blanked wherever a synthesized claim starts inside it (round 9, c2: the hi-t15
+    synthesis, exactly its claims joined, was charged INT-LEDGER-023 for the marker '3' of "... timing. 3) Replace ...", a
+    marker the claim's own figure reader sets aside while the text's reader, which strips markers at line starts only,
+    read it as a figure). Each marker at a claim boundary of the text (:data:`_MARKER_AT_BOUNDARY_RE`) is blanked when one
+    of the claims' words (its own marker set aside) starts right after it, the claim's own marker or one the text adds, so
+    list markers are read the same way in the claims and in the text. Linear in the text: one pass over its markers, each
+    looked up by the first twelve characters after it (or by the length of a shorter claim), at most
+    :data:`_MAX_BOUNDARY_MARKERS` of them."""
+    if not text or not claim_texts:
+        return text or ""
+    heads: dict[str, list[str]] = {}
+    short: dict[int, set[str]] = {}
+    for c in claim_texts:
+        core = _strip_list_markers(c or "").strip()
+        if len(core) >= 12:
+            bucket = heads.setdefault(core[:12], [])
+            if core not in bucket:
+                bucket.append(core)
+        elif core:
+            short.setdefault(len(core), set()).add(core)
+    if not heads and not short:
+        return text
+    spans: list[tuple[int, int]] = []
+    for k, m in enumerate(_MARKER_AT_BOUNDARY_RE.finditer(text)):
+        if k >= _MAX_BOUNDARY_MARKERS:
+            break
+        end = m.end()
+        hit = any(text.startswith(core, end) for core in heads.get(text[end:end + 12], ()))
+        if not hit:
+            hit = any(text[end:end + n] in cores for n, cores in short.items())
+        if hit:
+            spans.append((m.start("marker"), m.end()))
+    if not spans:
+        return text
+    return _blank_union(text, spans)
+
+
+# --- content a synthesis may not leave out whatever its role (round 9, c2) -------------------------------------------------
+# The parsers role a decline of the requested deliverable, a step of a numbered fix list or a framing note as no material
+# claim on some branches, and a synthesis that left one out was accepted with no finding while the student-facing answer
+# misrepresented the specialist's: the ps-t15 relay never says the requested proposal is withheld or why; the ec-t15 "Fix
+# it" list runs 1), 3), 4); the cs-t15 synthesis states "each point below is a similarity" and then a difference whose
+# teaching note it dropped. Whatever the role the parser gave such a claim, leaving it out is named (INT-LEDGER-019, warning).
+
+#: The number of a step of a numbered list a claim opens with ("1) ...", "(2) ...", "3. ..."), after a short lead label
+#: ("Fix it: 1) Name ...").
+_STEP_NUMBER_RE = re.compile(r"^\s{0,3}(?:[^\W\d_][^.!?:\n]{0,40}:[ \t]{1,3})?\(?(\d{1,2})[.)][ \t]")
+#: A note that tells the reader how to take the claim after it when a condition holds ("Teaching note: if your paper asks you
+#: to contrast them, add the differences."): the claim after it depends on it.
+_FRAMING_NOTE_RE = re.compile(r"^\s{0,3}(?:[^\W\d_][^.!?:\n]{0,30}:[ \t]{1,3})?(?:if|when|where)\b[^.!?\n]{1,200}?,[ \t]{1,3}"
+                              r"(?:add|include|write|give|state|list|use|mention|keep|leave)\b", re.IGNORECASE)
+
+
+def framing_content_findings(synthesis: Synthesis, reports: list[SpecialistReport], colliding: Iterable[str] = ()) -> list[IntegrityFinding]:
+    """INT-LEDGER-019 (warning) for each source claim the synthesis leaves out (cites in no synthesized claim) that it may not
+    leave out whatever role the parser gave it: a decline of a requested deliverable, or a deferral of it to the student's reply
+    (``channel.bus.withheld_deliverable``, as the receipt records them: the answer no longer says the item is withheld and why,
+    or pending and what the student must do; round-9 clearance c2b: a left-out deferral was named by nothing); a step of a numbered list whose earlier and later steps the
+    synthesis carries (the list the student reads has a gap); a framing note right before a claim the synthesis carries, which
+    tells the reader how to take that claim (the claim reaches the student without it). A material claim is left to the
+    material rules (INT-LEDGER-019 when dropped, INT-LEDGER-002 when unaccounted). Linear in the claims."""
+    from ..channel.bus import withheld_deliverable  # a decline (adapters.markdown.declined_deliverable) or a deferral, as the receipt records them
+    cited = {cid for sc in synthesis.claims for cid in sc.source_claim_ids}
+    skip = set(colliding)
+    listed = set(synthesis.source_report_ids)
+    out: list[IntegrityFinding] = []
+    for r in reports:
+        if r.report_id not in listed:
+            continue
+        claims = list(r.claims)
+        number: dict[int, int] = {i: int(m.group(1)) for i, c in enumerate(claims) if (m := _STEP_NUMBER_RE.match(c.claim_text or "")) is not None}
+        # a numbered list: steps numbered 1, 2, 3, ... in order (claims between them allowed)
+        lists: list[list[int]] = []
+        for i, n in number.items():
+            if n == 1:
+                lists.append([i])
+            elif lists and number[lists[-1][-1]] + 1 == n:
+                lists[-1].append(i)
+        gap_of: dict[int, list[int]] = {}
+        for members in lists:
+            carried = [k for k, i in enumerate(members) if claims[i].claim_id in cited]
+            if not carried:
+                continue
+            for k, i in enumerate(members):
+                if claims[i].claim_id not in cited and carried[0] < k < carried[-1]:
+                    gap_of[i] = members
+        for i, c in enumerate(claims):
+            if c.claim_id in cited or c.claim_id in skip or c.materiality == "material":
+                continue
+            why = None
+            text = c.claim_text or ""
+            withheld = withheld_deliverable(text)
+            if withheld is not None and withheld[0] == "declined":
+                why = ("it declines a requested deliverable and says why, so the student-facing answer no longer says that the item is withheld "
+                       "or why")
+            elif withheld is not None:
+                why = ("it defers a requested deliverable to the student's reply, so the student-facing answer no longer says that the item is "
+                       "pending or what the student must do to receive it")
+            elif i in gap_of:
+                shown = ", ".join(f"{number[j]})" for j in gap_of[i] if claims[j].claim_id in cited)
+                why = f"it is step {number[i]}) of a numbered list whose steps {shown} the synthesis carries, so the list the student reads has a gap"
+            elif c.claim_role == "other" and i + 1 < len(claims) and claims[i + 1].claim_id in cited and _FRAMING_NOTE_RE.match(text):
+                why = (f"it is a note that tells the reader how to take the claim after it ({claims[i + 1].claim_id}), which the synthesis carries "
+                       "without it")
+            if why is not None:
+                out.append(IntegrityFinding(code="INT-LEDGER-019", severity="warning",
+                                            message=f"source claim {c.claim_id} ({c.claim_role}, {c.materiality}) was left out of the synthesis although {why}: "
+                                                    "the student-facing answer misrepresents the specialist's (rule framing-content)",
+                                            claim_ids=[c.claim_id], report_ids=[r.report_id], agent_ids=[synthesis.combinator_agent_id]))
+    return out
+
+
+#: A claim that is a quotation and nothing else: its text opens and closes with quotation marks (a final stop aside).
+_WHOLE_QUOTATION_RE = re.compile(r"^\s{0,3}[\"“‘'«][^\n]{4,3990}[\"”’'»][\s.!?;:]{0,3}$")
+
+
+def quotation_holders(claim_texts: list[str]) -> dict[int, list[int]]:
+    """For each synthesized claim that is a quotation and nothing else (:data:`_WHOLE_QUOTATION_RE`) of three words or more,
+    the indexes of the OTHER claims whose text holds its words (normalised, quotation marks aside), before or after it
+    (round 9, c2, ll-t15: an evidence claim carried beside the sentence that quotes it); claims no other claim holds are left
+    out. A working line the answer itself repeats ("k < 9" before "So the required values are k < 9.") is no quotation. One
+    search per quotation claim over the claims joined (C-level, bounded by the contract: 512 claims)."""
+    normed = [_norm(_QUOTE_MARKS_RE.sub('"', t or "")) for t in claim_texts]
+    joined = "\x00".join(normed)
+    starts, at = [], 0
+    for t in normed:
+        starts.append(at)
+        at += len(t) + 1
+    out: dict[int, list[int]] = {}
+    for i, t in enumerate(claim_texts):
+        a = normed[i].strip(' .!?;:"')
+        if not a or len(a.split()) < 3 or not _WHOLE_QUOTATION_RE.match(t or ""):
+            continue
+        held: list[int] = []
+        pos = joined.find(a)
+        while pos >= 0:
+            j = bisect_right(starts, pos) - 1
+            if j != i and normed[j].strip(' .!?;:"') != a and (not held or held[-1] != j):
+                held.append(j)
+            pos = joined.find(a, max(pos + 1, starts[j] + len(normed[j])))  # one claim counts once: go on after it
+        if held:
+            out[i] = held
+    return out
+
+
+def quotations_held_verbatim(claim_texts: list[str]) -> set[int]:
+    """The indexes of the synthesized claims that are a quotation and nothing else (:data:`_WHOLE_QUOTATION_RE`, any length) whose
+    whole text, as the presence check of INT-LEDGER-017 reads it (blanks collapsed, case folded, its quotation marks kept), occurs
+    inside the text of ANOTHER claim of the synthesis, before or after it, that is not the same quotation: the claims the combinator
+    port renders only inside the sentence that quotes them (``integration.combinator_port.student_facing_text``), so every claim's
+    text still occurs in the student-facing text and the text stays a composition of its claims. One search per quotation claim,
+    forward over the claims joined (each claim visited once per search)."""
+    normed = [_norm(t or "") for t in claim_texts]
+    joined = "\x00".join(normed)
+    starts, at = [], 0
+    for t in normed:
+        starts.append(at)
+        at += len(t) + 1
+    out: set[int] = set()
+    for i, t in enumerate(claim_texts):
+        q = normed[i]
+        if not q or not _WHOLE_QUOTATION_RE.match(t or ""):
+            continue
+        pos = joined.find(q)
+        while pos >= 0:
+            j = bisect_right(starts, pos) - 1
+            if j != i and normed[j] != q:
+                out.add(i)
+                break
+            pos = joined.find(q, starts[j] + len(normed[j]) + 1)
+    return out
+
+
+def contained_claims(claim_texts: list[str], text: Optional[str] = None) -> list[int]:
+    """Rule ``duplicated-content`` (round 9, c2, ll-t15; read on the student-facing text since the second fix pass, c2b): the indexes
+    of the quotation claims (:func:`quotation_holders`) whose words the student-facing ``text`` states more often than the other
+    claims that hold them do, so the student reads the quotation twice, once as a stray fragment. A text composed as the
+    combinator port composes it (``integration.combinator_port.student_facing_text``: a quotation claim another claim holds is
+    rendered only inside that claim) draws nothing; a text that joins every claim (``text`` None: the claims joined by a space)
+    names every such claim, whichever claim holds it (before or after it, not only the next). A quotation of fewer than three
+    words is not counted (a short one may recur legitimately). Bounded searches (C-level) per quotation claim."""
+    holders = quotation_holders(claim_texts)
+    if not holders:
+        return []
+    normed = [_norm(_QUOTE_MARKS_RE.sub('"', t or "")) for t in claim_texts]
+    body = _norm(_QUOTE_MARKS_RE.sub('"', " ".join(claim_texts) if text is None else text))
+    out: list[int] = []
+    for i, held in holders.items():
+        a = normed[i].strip(' .!?;:"')
+        if body.count(a) > sum(normed[j].count(a) for j in held):
+            out.append(i)
+    return sorted(out)
+
+
 def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
@@ -5219,7 +5512,9 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     sentence in the text, with every claim faithful, miscommunicates to the student)."""
     f: list[IntegrityFinding] = []
     claim_keys = set().union(*(fig.keys for c in synthesis.claims for fig in _figures(c.text))) if synthesis.claims else set()
-    stated = _sorted_tokens({fig.label for fig in _figures(synthesis.text) if not (fig.keys & claim_keys)})
+    # the text's figures with the list markers that open its claims set aside, as the claims' own figure reader sets them aside
+    unmarked = without_claim_markers(synthesis.text, [c.text for c in synthesis.claims])
+    stated = _sorted_tokens({fig.label for fig in _figures(unmarked) if not (fig.keys & claim_keys)})
     if stated:
         f.append(IntegrityFinding(code="INT-LEDGER-023", severity="error", message=f"the student-facing text states figures or dates {stated} that no synthesized claim states "
                                   "under any spelling: a changed or introduced figure or date in what the student reads", claim_ids=[synthesis.synthesis_id],
@@ -5228,6 +5523,16 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
     if absent:
         f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {absent} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=absent, agent_ids=[synthesis.combinator_agent_id]))
+    texts = [c.text for c in synthesis.claims]
+    contained = contained_claims(texts, synthesis.text)
+    if contained:
+        holders = quotation_holders(texts)
+        pairs = [(synthesis.claims[i].claim_id, synthesis.claims[holders[i][0]].claim_id) for i in contained]
+        f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning",
+                                  message=f"synthesized claims {[a for a, _b in pairs][:12]} are each wholly contained in another synthesized claim "
+                                          f"({', '.join(f'{a} in {b}' for a, b in pairs[:6])}), and the student-facing text states their words outside it too, "
+                                          "once as a stray fragment, so the ledger does not describe what the student reads (rule duplicated-content)",
+                                  claim_ids=[x for p in pairs for x in p][:64], agent_ids=[synthesis.combinator_agent_id]))
     extra = text_outside_claims(synthesis.text, [c.text for c in synthesis.claims])
     if extra:
         shown = "; ".join(repr(x[:80]) for x in extra[:3]) + (f" (and {len(extra) - 3} more)" if len(extra) > 3 else "")

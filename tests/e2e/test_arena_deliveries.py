@@ -146,8 +146,19 @@ def test_with_overseer_agents_the_round_reports_the_candidates_and_the_chosen_on
     assert "| overseer_selected |" in row and "history-specialist 2/2" in row and row.split("|")[7].strip() == "history-specialist"
 
 
+def _refuted(claim_id: str) -> dict:
+    """A GENUINE refutation of the History claim (round-9 clearance c2b, the overseer's handoff 3): the fixture's encoding with a
+    premise that denies the census figure ("London had nowhere near a million inhabitants"), so the COUNTEREXAMPLE constrains every
+    conclusion symbol and carries no coverage warning (W110/W111); the plain fixture leaves ``near_million`` constrained by no premise
+    (W111), a counterexample the delivery policy reads as a gap of the translation (rule coverage-gap), never as a refutation."""
+    fx = _fixture(claim_id)
+    fx["problem"]["premises"].append({"id": "pr_not_million", "expr": {"op": "not", "arg": {"op": "var", "name": "near_million"}},
+                                      "label": "London had nowhere near a million inhabitants", "grounding": _GK, "materiality": "material"})
+    return fx
+
+
 def test_a_refuted_answer_is_withheld_with_its_score(tmp_path, pack):
-    out = _with_overseer(tmp_path / "x", {"claims": {"h1.1": _fixture("h1.1")}}, pack)  # COUNTEREXAMPLE: the census is not a premise
+    out = _with_overseer(tmp_path / "x", {"claims": {"h1.1": _refuted("h1.1")}}, pack)  # COUNTEREXAMPLE: the encoding denies the census figure
     [t] = out["deliveries"]["tasks"]
     [c] = t["candidates"]
     assert t["mode"] == "withheld" and c["refuted"] and c["accuracy_fraction"] == "1/2" and c["above_threshold"] is False
@@ -171,7 +182,7 @@ def test_the_pass_never_goes_through_a_replaced_verifier(tmp_path, monkeypatch):
         calls.append(claim.claim_id)
         return None  # the round's own pass gets no outcome at all
     monkeypatch.setattr(ra, "verify_claim", replaced)
-    out = _round(tmp_path / "hook", {"claims": {"h1.1": _fixture("h1.1")}})
+    out = _round(tmp_path / "hook", {"claims": {"h1.1": _refuted("h1.1")}})
     [genuine] = [r for r in out["records"] if r["variant"] == "genuine"]
     assert "h1.1" in calls and genuine["outcomes"] == []
     [t] = out["deliveries"]["tasks"]

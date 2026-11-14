@@ -274,6 +274,16 @@ def _relation_positions(text: str) -> Iterator[int]:
             yield k
 
 
+def _table_border(text: str, j: int) -> bool:
+    """The bar at ``j`` is a cell border of a Markdown table row: its line opens with a bar and holds at least three (bounded look-around)."""
+    a = text.rfind("\n", max(0, j - 400), j) + 1 if j > 0 else 0
+    if a == 0 and j > 400:
+        return False
+    b = text.find("\n", j, j + 400)
+    line = text[a:b if b >= 0 else min(len(text), j + 400)]
+    return line.lstrip().startswith("|") and line.count("|") >= 3
+
+
 def _name_before(text: str, k: int) -> str:
     """The symbol name right before the relation sign at ``k`` when it opens the relation, else ''."""
     j = k - 1
@@ -332,7 +342,9 @@ def _name_before(text: str, k: int) -> str:
         j -= 1
     if j >= 0:
         ch = text[j]
-        if ch in _BLOCKING:
+        if ch == "|" and _table_border(text, j):
+            pass  # round-9 clearance (rule table-working): a cell border of a table row opens the cell's relation ('| mid = 3 |')
+        elif ch in _BLOCKING:
             return ""
         if "a" <= ch <= "z" or "A" <= ch <= "Z":
             m = j

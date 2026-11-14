@@ -1,9 +1,12 @@
 """The flash router operated as a separate sub-agent: the command-line runner (``python -m epinoic_flash_router_cli``,
 the ``epinoic-flash-router`` script) over the router port. A routing request on standard input, the plan on standard
 output, the same text as the in-process API (``epinoic_flash_router.port``), deterministic; ``--data`` runs it over an
-edited copy of its data; a bad data directory and an unreadable request are named exit statuses, never a plan."""
+edited copy of its data; a bad data directory (2), a request the router does not read (3) and a fault of the router's
+own code (4) are distinct named exit statuses, never a plan and never a traceback, so a fault of the router never reads
+as bad input (round 9's push check of c4f276c: every exception was exit 2 or 3)."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -14,7 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_flash_router import port, rules
+from epinoic_flash_router import contract, port, rules
+from epinoic_flash_router_cli.__main__ import main as runner_main
 
 PROJECT = Path(__file__).resolve().parents[2]
 POOL_REQUEST = {"schema": "epinoic.integration.pool-routing-request.v1", "protocol": "epinoic.integration.v1", "port_version": "1.1",
@@ -71,23 +75,119 @@ _VECTOR = json.loads((PROJECT / "tests" / "vectors" / "router-port" / "risky-dup
 _REPEATED_KEY = {**_VECTOR, "outputs": _VECTOR["outputs"] * 2}  # one transfer key twice: out of the router port's contract
 
 
-@pytest.mark.parametrize("op,stdin,named", [
-    ("plan", "[" * _DEEP, "RecursionError"),                                         # the finding's case: a nested JSON array
-    ("pool-plan", "[" * _DEEP, "RecursionError"),
-    ("plan", '{"a":' * _DEEP, "RecursionError"),                                    # a nested JSON object
-    ("pool-plan", json.dumps({**POOL_REQUEST, "limits": {**POOL_REQUEST["limits"], "per_instance_quota": 0}}), "ZeroDivisionError"),
+_MAX = contract.MAX_SAFE_INTEGER
+
+
+@pytest.mark.parametrize("op,stdin,reason", [
+    ("plan", "[" * _DEEP, "the request is nested too deep to decode"),                # the finding's case: a nested JSON array
+    ("pool-plan", "[" * _DEEP, "the request is nested too deep to decode"),
+    ("plan", '{"a":' * _DEEP, "the request is nested too deep to decode"),           # a nested JSON object
+    ("pool-plan", json.dumps({**POOL_REQUEST, "limits": {**POOL_REQUEST["limits"], "per_instance_quota": 0}}),
+     f"limits.per_instance_quota is an integer from 1 to {_MAX}"),                     # a zero quota (the planner divided by it)
     ("pool-plan", json.dumps({**POOL_REQUEST, "port_version": "1.2",
                               "items": [{**POOL_REQUEST["items"][0], "features": {"transfers": 1, "chars": 1, "stem": False, "translations": 0}}]})
-     .replace('"chars": 1,', '"chars": Infinity,'), "OverflowError"),           # a number out of range (JSON's Infinity)
-    ("plan", json.dumps(_REPEATED_KEY), "ValueError"),                               # one transfer key twice (port rule 1)
+     .replace('"chars": 1,', '"chars": Infinity,'), "the request holds Infinity, which is not JSON"),  # a number out of range
+    ("plan", json.dumps(_REPEATED_KEY),
+     "the routing request names one transfer key twice: every transfer is one output of the request"),  # port rule 1
 ])
-def test_an_input_the_runner_cannot_read_is_exit_3_with_its_reason_never_a_traceback(op, stdin, named):
-    """The documented statuses are 0, 2 and 3, with the reason on standard error and never a traceback: a request nested
-    too deep to decode (RecursionError, which the runner did not catch: exit 1 with a traceback), and every other exception
-    a request makes the pure planner raise, is exit 3 naming its type."""
+def test_an_input_the_runner_cannot_read_is_exit_3_with_its_reason_never_a_traceback(op, stdin, reason, monkeypatch):
+    """The documented statuses are 0, 2, 3 and 4, with the reason on standard error and never a traceback: a request
+    nested too deep to decode (RecursionError, which the runner did not catch: exit 1 with a traceback), a zero quota, a
+    number out of range and a transfer key named twice are exit 3, the input's.
+
+    Rewritten to a stricter rule in round 9's second fix pass (push check of c4f276c: the runner read every exception as
+    bad input, so a fault of its own code looked like one): the same six inputs, the same exit 3 with nothing on standard
+    output and exactly one line on standard error, which must now name the router's own refusal (RequestError, with the
+    member and the rule) instead of whatever the planner happened to raise on the input (RecursionError,
+    ZeroDivisionError, OverflowError, ValueError); and in process the request is refused with that reason, a
+    ValueError, before anything is planned (a planner reached here fails the test). A fault of the router's own code is
+    exit 4 (the tests below)."""
     proc = _run(op, stdin=stdin)
     assert (proc.returncode, proc.stdout) == (3, ""), proc.stderr[-2000:]
-    assert proc.stderr == f"epinoic-flash-router: the input is not a request this router reads ({named})\n", proc.stderr[-2000:]
+    assert proc.stderr == f"epinoic-flash-router: the input is not a request this router reads (RequestError: {reason})\n", proc.stderr[-2000:]
+
+    def planned(*args, **kwargs):
+        raise AssertionError("planned a request the router does not read")
+    from epinoic_flash_router import planner, pool
+    monkeypatch.setattr(planner, "_readings", planned)
+    monkeypatch.setattr(pool, "_escalated", planned)
+    with pytest.raises(port.RequestError) as exc:
+        (port.plan if op == "plan" else port.pool_plan)(stdin)
+    assert str(exc.value) == reason and isinstance(exc.value, ValueError)
+
+
+def _in_process(argv: list[str], stdin: str, monkeypatch, capsys) -> tuple[int, str, str]:
+    """The runner's ``main`` in this process (its standard input ``stdin``): its status, standard output and error."""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    status = runner_main(argv)
+    out, err = capsys.readouterr()
+    return status, out, err
+
+
+_FAILED = "epinoic-flash-router: the router failed {doing} ({name}): a fault in the router's own code, not in the input or the data\n"
+#: Exceptions a fault of the router's own code raises (ValueError among them: only RequestError is the input's).
+_FAULTS = (AttributeError, KeyError, TypeError, ValueError, IndexError, ZeroDivisionError, OverflowError, RecursionError, AssertionError)
+
+
+@pytest.mark.parametrize("fault", _FAULTS, ids=lambda f: f.__name__)
+def test_a_fault_of_the_router_s_own_code_planning_a_request_it_reads_is_exit_4_never_3(fault, monkeypatch, capsys):
+    """Round 9's push check of c4f276c: the runner mapped every exception to exit 2 or 3, so a planner bug looked like bad
+    input. A request the router reads (it passed the checks) that the planner then fails on is exit 4, named by its
+    exception type only, with nothing on standard output; the same request with the planner intact is planned (exit 0)."""
+    def bug(*args, **kwargs):
+        raise fault("a fault in the router's own code")
+    for op, stdin, target in (("plan", json.dumps(_VECTOR), "plan_for"), ("pool-plan", json.dumps(POOL_REQUEST), "pool_plan_for")):
+        status, out, _err = _in_process([op], stdin, monkeypatch, capsys)
+        assert (status, json.loads(out)["origin"]) == (0, "router"), "the request is one the router reads"
+        with monkeypatch.context() as m:
+            m.setattr(port, target, bug)
+            status, out, err = _in_process([op], stdin, m, capsys)
+        assert (status, out) == (4, ""), err
+        assert err == _FAILED.format(doing="planning a request it reads", name=fault.__name__)
+
+
+@pytest.mark.parametrize("fault", [f for f in _FAULTS if not issubclass(f, (ValueError, RecursionError))], ids=lambda f: f.__name__)
+def test_a_fault_of_the_router_s_own_code_loading_or_answering_is_exit_4_never_2(fault, monkeypatch, capsys):
+    """The loader refuses bad data with ValueError (its own refusals and JSON's), a file it cannot read is an OSError and a
+    file nested too deep a RecursionError: those are exit 2, the data's. Any other exception while the router is imported
+    and loads its data, or while it writes a hello or its identity, is a fault of its own code: exit 4, never 2."""
+    def bug(*args, **kwargs):
+        raise fault("a fault in the router's own code")
+    with monkeypatch.context() as m:
+        m.setattr(port.FlashRouter, "__init__", bug)
+        status, out, err = _in_process(["pool-plan"], json.dumps(POOL_REQUEST), m, capsys)
+    assert (status, out, err) == (4, "", _FAILED.format(doing="loading its code or its data", name=fault.__name__))
+    for op, method in (("hello", "hello"), ("pool-hello", "pool_hello")):
+        with monkeypatch.context() as m:
+            m.setattr(port.FlashRouter, method, bug)
+            status, out, err = _in_process([op], "", m, capsys)
+        assert (status, out, err) == (4, "", _FAILED.format(doing=f"writing its {op}", name=fault.__name__))
+
+
+def test_a_planner_bug_in_a_copy_of_the_router_is_exit_4_with_no_traceback_and_its_input_checks_still_hold(tmp_path):
+    """The same in a process of its own, with a real fault edited into a copy of the router's planner (a member read as an
+    attribute): exit 4 and one named line on standard error, no traceback; the copy still refuses an input it does not
+    read with exit 3 (the checks run before the planner) and still answers its hello."""
+    src = tmp_path / "src"
+    shutil.copytree(PROJECT / "src" / "epinoic_flash_router", src / "epinoic_flash_router", ignore=shutil.ignore_patterns("__pycache__"))
+    planner_py = src / "epinoic_flash_router" / "planner.py"
+    text = planner_py.read_text(encoding="utf-8")
+    sound = 'profile = "standard" if "standard" in limits["profiles"] else limits["profiles"][0]'
+    assert text.count(sound) == 1
+    planner_py.write_text(text.replace(sound, "profile = limits.profile  # the fault: a JSON object has no attribute"), encoding="utf-8")
+    env = {"PYTHONPATH": os.pathsep.join([str(src), str(PROJECT / "src")]), "PATH": os.environ.get("PATH", "")}
+
+    def run(*args: str, stdin: str = "") -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "epinoic_flash_router_cli", *args], input=stdin, capture_output=True, text=True, env=env,
+                              timeout=60, cwd=PROJECT)
+    proc = run("plan", stdin=json.dumps(_VECTOR))
+    assert (proc.returncode, proc.stdout) == (4, ""), proc.stderr[-2000:]
+    assert proc.stderr == _FAILED.format(doing="planning a request it reads", name="AttributeError") and "Traceback" not in proc.stderr
+    refused = run("plan", stdin=json.dumps({**_VECTOR, "limits": {**_VECTOR["limits"], "profiles": []}}))
+    assert (refused.returncode, refused.stdout) == (3, "")
+    assert refused.stderr == ("epinoic-flash-router: the input is not a request this router reads (RequestError: limits.profiles is a list "
+                              "of at least one of standard, fast)\n")
+    assert run("hello").returncode == 0 and run("pool-plan", stdin=json.dumps(POOL_REQUEST)).returncode == 0
 
 
 def test_a_data_directory_nested_too_deep_to_decode_is_exit_2_never_a_traceback(tmp_path):

@@ -30,6 +30,9 @@
 """
 from __future__ import annotations
 
+import json
+import re
+from fractions import Fraction
 from typing import Optional
 
 from epinoic_logic.api.engine import VerificationStatus as S
@@ -49,6 +52,14 @@ from .synthesis import named_conflict_sets
 #: Rule ``pooled-only-conflict`` (module docstring, step 4): a named conflict that exists only through pooling one name for two
 #: quantities or for a rejected candidate is a false conflict.
 POOLED_ONLY_RULE = "pooled-only-conflict"
+#: Rule ``evaluation-point`` (round-9 clearance c2, the c2 lenses: maa-t15 m5.3 "Check: at x = 0, g(0) = 3 and h(3) = 1 = 0 + 1." was
+#: pooled with m7.1 "x + 1 = (x − 3)/2", whose solution is −5, and charged INT-CONFLICT-001 at error level): a value at which a claim
+#: evaluates or checks an expression ("at x = 0", "when x = 2", "for x = 3", "with x = 1") is local to that claim, like a candidate it
+#: rejects: the symbol it fixes is read apart in that claim before a conflict is charged. Read from the claim's text by one bounded pattern.
+EVALUATION_POINT_RULE = "evaluation-point"
+_EVAL_POINT_RE = re.compile(r"\b(?:at|when|for|with|if|where)[ \t]{1,3}([A-Za-z][A-Za-z0-9_]{0,15})[ \t]{0,3}=[ \t]{0,3}([−-]?)[ \t]{0,2}(\d{1,12}(?:\.\d{1,12})?)(?![\d.])",
+                            re.IGNORECASE)
+_IR_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 __all__ = ["check_pool", "check_live_pool", "independent_joint", "JointOutcome", "derived_pool", "PooledClaim"]
 
@@ -318,15 +329,156 @@ def _false_conflicts(ctx: CheckContext, named) -> None:
                         claim_ids=sorted(claims), message_ids=mids, report_ids=rids, agent_ids=aids, formal_result_id=apart_id or res_id)
 
 
+def evaluation_points(text: Optional[str]) -> list[tuple[str, Fraction]]:
+    """Rule ``evaluation-point``: ``(symbol, value)`` for every value at which ``text`` says it evaluates or checks ("at x = 0")."""
+    out: list[tuple[str, Fraction]] = []
+    for m in _EVAL_POINT_RE.finditer((text or "")[:4000]):
+        try:
+            v = Fraction(m.group(3))
+        except (ValueError, ZeroDivisionError):
+            continue
+        out.append((m.group(1), -v if m.group(2) else v))
+    return out
+
+
+def _literal_value(node) -> Optional[Fraction]:
+    if isinstance(node, dict) and node.get("op") in ("int", "real"):
+        try:
+            return Fraction(str(node.get("value")))
+        except (ValueError, ZeroDivisionError):
+            return None
+    if isinstance(node, dict) and node.get("op") == "neg":
+        inner = _literal_value(node.get("arg"))
+        return -inner if inner is not None else None
+    return None
+
+
+def _mentions(node, names: set) -> bool:
+    """Whether ``node`` (IR JSON) mentions a symbol of ``names`` (iteratively)."""
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, dict):
+            if n.get("op") == "var" and n.get("name") in names:
+                return True
+            stack.extend(v for k, v in n.items() if k != "value")
+        elif isinstance(n, list):
+            stack.extend(n)
+    return False
+
+
+def _renamed_symbol(node, old: str, new: str):
+    if isinstance(node, dict):
+        if node.get("op") == "var" and node.get("name") == old:
+            return {**node, "name": new}
+        return {k: (_renamed_symbol(v, old, new) if k != "value" else v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_renamed_symbol(v, old, new) for v in node]
+    return node
+
+
+def rename_points_apart(probs: list, texts: list[Optional[str]]) -> tuple[list, dict[str, list[str]], list[str]]:
+    """Rule ``evaluation-point`` (:data:`EVALUATION_POINT_RULE`): ``(problems, renamed, unread)``. Each problem whose claim text
+    (``texts``, aligned with ``probs``) says it evaluates or checks at ``x = v`` and that holds a premise fixing a numeric symbol at
+    that value (``x = v``: the symbol of that name, or, when the text's name is not a symbol of the problem, the one symbol the
+    problem fixes at ``v``) has that symbol renamed apart in that problem only (``renamed``: claim id -> symbols); ``unread`` names
+    the claims whose text states an evaluation point that no premise of theirs fixes (the pooling is then undecided). Data only:
+    each problem is copied as JSON, renamed, and validated again as an IR problem."""
+    from epinoic_logic.api.ir import Problem
+    out, renamed, unread = [], {}, []
+    for k, prob in enumerate(probs):
+        points = evaluation_points(texts[k] if k < len(texts) else None)
+        if not points:
+            out.append(prob)
+            continue
+        try:
+            data = json.loads(prob.model_dump_json(exclude_none=True))
+            sorts = {s["name"]: s.get("sort") for s in data.get("symbols") or []}
+            fixed: dict[str, set] = {}
+            for pr in data.get("premises") or []:
+                e = pr.get("expr") or {}
+                if e.get("op") != "eq":
+                    continue
+                for var, lit in ((e.get("left"), e.get("right")), (e.get("right"), e.get("left"))):
+                    v = _literal_value(lit)
+                    if isinstance(var, dict) and var.get("op") == "var" and v is not None and sorts.get(var.get("name")) in ("Int", "Real"):
+                        fixed.setdefault(str(var["name"]), set()).add(v)
+            names = []
+            for name, value in points:
+                hits = [n for n, vs in fixed.items() if value in vs and n == name]
+                if not hits:
+                    by_value = [n for n, vs in fixed.items() if value in vs]
+                    hits = by_value if len(by_value) == 1 else []
+                if not hits:
+                    unread.append(str(prob.claim_id))
+                names += [n for n in hits if n not in names]
+            if not names:
+                out.append(prob)
+                continue
+            # every numeric symbol the claim's own premises define from an evaluated one is evaluated at that point too ("gx = 2x + 3"
+            # beside "x = 0": g(0)), so it is read apart with it; a fixed point of the premises, bounded by the problem's symbols
+            changed = True
+            while changed and len(names) < len(sorts):
+                changed = False
+                for pr in data.get("premises") or []:
+                    e = pr.get("expr") or {}
+                    if e.get("op") != "eq":
+                        continue
+                    for var, rhs in ((e.get("left"), e.get("right")), (e.get("right"), e.get("left"))):
+                        if not (isinstance(var, dict) and var.get("op") == "var" and sorts.get(var.get("name")) in ("Int", "Real")):
+                            continue
+                        y = str(var["name"])
+                        if y not in names and _mentions(rhs, set(names)):
+                            names.append(y)
+                            changed = True
+            taken = set(sorts)
+            for n in names:
+                new = f"{n}_at{k}"[:60]
+                i = 0
+                while new in taken or not _IR_NAME_RE.match(new):
+                    i += 1
+                    new = f"at{k}_{i}"
+                taken.add(new)
+                data = _renamed_symbol(data, n, new)
+                for sym in data.get("symbols") or []:
+                    if sym.get("name") == n:
+                        sym["name"] = new
+            out.append(Problem.model_validate(data))
+            renamed[str(prob.claim_id)] = names
+        except Exception:  # noqa: BLE001 - a problem that cannot be read apart is pooled as it is (and its pooling is undecided)
+            unread.append(str(prob.claim_id))
+            out.append(prob)
+    return out, renamed, sorted(set(unread))
+
+
+def _claim_texts(ctx: CheckContext, claim_ids, upto_seq: int) -> dict[str, str]:
+    """The text of each claim id as the latest delivered report holding it, up to ``upto_seq``, states it."""
+    wanted = set(claim_ids)
+    out: dict[str, str] = {}
+    for t in ctx.view.transfers:
+        if t.seq > upto_seq:
+            break
+        rep = getattr(t, "report", None)
+        if rep is None or t.kind not in REPORT_KINDS:
+            continue
+        for c in rep.claims:
+            if c.claim_id in wanted:
+                out[c.claim_id] = c.claim_text
+    return out
+
+
 def _apart_recheck(ctx: CheckContext, probs: list, *, request_id: str, cfg, seq: int) -> tuple[Optional[str], Optional[str], str]:
     """Rule ``pooled-only-conflict``: ``(result id, status, what was read apart)`` of the auditor's run of ``probs`` pooled
-    with its symbols read apart (glosses naming different quantities, candidates a claim rejects); ``what`` is empty when
-    nothing is read apart (the run is then not made). Memoised in the store like every auditor run."""
+    with its symbols read apart (glosses naming different quantities, candidates a claim rejects, and, rule ``evaluation-point``,
+    a value a claim evaluates or checks at); ``what`` is empty when nothing is read apart (the run is then not made). Memoised in
+    the store like every auditor run."""
     try:
         apart, splits = split_by_gloss(list(probs))
         candidates: dict = {}
         if _rename_candidates_apart is not None:
             apart, candidates = _rename_candidates_apart(apart)
+        texts = _claim_texts(ctx, [p.claim_id for p in apart], seq)
+        apart, points, unread = rename_points_apart(apart, [texts.get(p.claim_id) for p in apart])
     except Exception as exc:  # noqa: BLE001 - a reading that fails cannot clear a conflict: undecided
         return None, None, f"the symbols (the reading failed: {type(exc).__name__})"
     parts = []
@@ -335,6 +487,12 @@ def _apart_recheck(ctx: CheckContext, probs: list, *, request_id: str, cfg, seq:
     if candidates:
         named = sorted({n for v in candidates.values() for n, _new, _aid in v})
         parts.append("the candidate value(s) of " + ", ".join(named[:6]) + " that claim(s) " + ", ".join(sorted(candidates)[:6]) + " test and reject")
+    if points:
+        parts.append("the value(s) of " + ", ".join(sorted({n for v in points.values() for n in v})[:6]) + " that claim(s) "
+                     + ", ".join(sorted(points)[:6]) + f" evaluate or check at (rule {EVALUATION_POINT_RULE})")
+    if unread and not parts:
+        # a claim says it evaluates at a value no premise of its own fixes: whether the conflict exists only through pooling is undecided
+        return None, None, f"the evaluation point(s) of claim(s) {', '.join(unread[:6])} (no premise fixes them; rule {EVALUATION_POINT_RULE})"
     if not parts:
         return None, None, ""
     how = " and ".join(parts)

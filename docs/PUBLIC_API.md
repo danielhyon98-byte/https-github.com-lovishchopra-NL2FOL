@@ -69,7 +69,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `verify` | `epinoic_logic.engine.runner` | `verify` |
 | `verify_signature` | `epinoic_logic.engine.provenance` | `verify_signature` |
 
-## `epinoic_logic.api.channel` (86 names)
+## `epinoic_logic.api.channel` (88 names)
 
 | public name | internal module | internal name |
 |---|---|---|
@@ -107,6 +107,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `RevisionFlaw` | `epinoic_logic.channel.contracts` | `RevisionFlaw` |
 | `RevisionKeep` | `epinoic_logic.channel.contracts` | `RevisionKeep` |
 | `RevisionRequest` | `epinoic_logic.channel.contracts` | `RevisionRequest` |
+| `SAME_FAULT_FAMILIES` | `epinoic_logic.channel.bus` | `SAME_FAULT_FAMILIES` |
 | `SCOPE_TAIL` | `epinoic_logic.channel.bus` | `_SCOPE_TAIL` |
 | `STEM_CHECK_BUDGET_S` | `epinoic_logic.channel.bus` | `STEM_CHECK_BUDGET_S` |
 | `TaskRequest` | `epinoic_logic.channel.contracts` | `TaskRequest` |
@@ -156,6 +157,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `revision_signable_text` | `epinoic_logic.channel.feedback` | `signable_text` |
 | `sanitise` | `epinoic_logic.channel.feedback` | `sanitise` |
 | `snapshot_event` | `epinoic_logic.channel.events` | `snapshot_event` |
+| `subject_error_groups` | `epinoic_logic.channel.bus` | `subject_error_groups` |
 | `weakened` | `epinoic_logic.channel.feedback` | `weakened` |
 | `withheld_deliverable` | `epinoic_logic.channel.bus` | `withheld_deliverable` |
 | `word_bound_severity` | `epinoic_logic.channel.request_parser` | `word_bound_severity` |
@@ -198,7 +200,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `verify_report_digest` | `epinoic_logic.integrity.contracts` | `verify_report_digest` |
 | `words_as_digits` | `epinoic_logic.integrity.ledger` | `_words_as_digits` |
 
-## `epinoic_logic.api.translate` (37 names)
+## `epinoic_logic.api.translate` (38 names)
 
 | public name | internal module | internal name |
 |---|---|---|
@@ -232,6 +234,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `locate_quotation` | `epinoic_logic.translate.grounding` | `locate_quotation` |
 | `outcome_diagnosis` | `epinoic_logic.translate.outcome` | `outcome_diagnosis` |
 | `parse_json_object` | `epinoic_logic.translate.parsing` | `parse_json_object` |
+| `previous_lines` | `epinoic_logic.translate.pipeline` | `previous_lines` |
 | `report_diagnostics` | `epinoic_logic.translate.diag_core` | `report_diagnostics` |
 | `resolve_profile` | `epinoic_logic.translate.subjects` | `resolve_profile` |
 | `review_currency` | `epinoic_logic.translate.review` | `review_currency` |

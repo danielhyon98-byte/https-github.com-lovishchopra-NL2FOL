@@ -33,6 +33,29 @@ the runner did not exist.
   null`, and checks the whole message against the contract again. Its text is canonical JSON, so the translator's
   `dump(check_output(text))` is byte for byte the same text.
 
+## Notes, and the work a specialist withheld
+
+A specialist's answer carries notes besides its claims (the delivery roles them `other`): a self-certification, a
+verification label, a word count, a heading, a question to the student. They are remarks about the answer, never claims
+of it, and the instructions tell the agent to leave them out (rule 6). One kind of note is different: a decline or a
+deferral of the work the student asked for ("I can't write your introduction ..., because the proposal must be your own
+work.", "Reply 'approve' and I will write the full evaluation."). Dropping it changes what the student is told: the
+synthesis then reads as if the requested work were done, or as if nothing had been asked. Since pack 1.3 the agent
+carries it for the student (rule 7): word for word, as a synthesized claim of its own citing only that source claim,
+`carried`, with the source's certainty; never dropped, merged or reworded. It stays a note: it adds no content, and
+nothing the combinator writes presents it as checked. Arena round 9 (integrated round c2, ps-t15) is the case that
+showed it, under pack 1.2, whose rule 6 listed a decline among the notes to leave out.
+
+The runner does not enforce rule 7 (it checks the contract, never faithfulness). The hub judges it: it names a
+synthesis that leaves out a decline (`INT-LEDGER-019`, rule framing-content), and it still names the decline carried in
+any other form than rule 7's (reworded, merged with a claim, under a verification label, under another transformation,
+shortened: `INT-LEDGER-029`). The two items this package recorded as strict xfails landed on its side in the round-9
+clearance's second fix pass (c2b; the translator's ledger): a decline carried word for word, alone, as `carried` is a note
+for the student, never a note carried back as a claim (no `INT-LEDGER-029`); and a synthesis that leaves out a deferral the
+specialist's receipt records (`INT-REQ-004`, "the item is pending, not answered") is named (`INT-LEDGER-019`): the round-8
+clearance c1's ps-p8d synthesis left out "Reply "approve" and I will write the full evaluation within 500 words." and was
+accepted with no finding before it. The tests that pin both are plain tests now.
+
 ## Refusals
 
 A refusal is a message of the contract too (`combinator-refusal.v1`): a closed `reason`, the one `KIT-CB` code of that

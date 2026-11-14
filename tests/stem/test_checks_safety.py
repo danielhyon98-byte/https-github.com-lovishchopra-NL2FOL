@@ -270,7 +270,7 @@ ADVERSARIAL = [
     ("depth-500", "x = " + "(" * 500 + "1" + ")" * 500 + " = 1", "mathematics_aa"),
     ("depth-500-roots", "x = " + "√(" * 500 + "2" + ")" * 500 + " = 1", "mathematics_aa"),
     ("confusables", "с = 3.0 × 10⁸ and x = 1Ο + 2 = 3 and ａ = 5 and ℎ = 6.63 × 10⁻³⁴", "physics"),
-    ("control", "x = 1\x00 + 2 = 3 and y = 2‮ + 3 = 5", "physics"),
+    ("control", "x = 1\x00 + 2 = 3 and y = 2\u202e + 3 = 5", "physics"),
     ("relation-storm", " = ".join(["1.0"] * 200), "physics"),
     ("long-sum", "P = " + " + ".join(["1.5 W"] * 300) + " = 450 W", "physics"),
     ("e-storm", "x = 1e1e1e = 2 and y = 1E-99999 = 0", "physics"),
