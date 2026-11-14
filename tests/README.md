@@ -1246,7 +1246,8 @@ The push check held be91e89. The remedy is commit bef76adb (bef76adb36d82db26ca0
 items and left 17 undone. After the last round, 35 attack findings were still open. The harness verified it: r1 30/30,
 r1-adv 150/151, r2 46/46, r3 46/46, r4 46/46, r5 46/46, r6 46/46, r7 177/177, c1 203/203, c2 188/188.
 
-**The hold was not cleared.** The push check held bef76adb as well. The remedy was not uploaded.
+**The hold was not cleared.** The push check held bef76adb as well. The remedy commit is nevertheless on the remote
+branch: it was there before this note was pushed, so the push check did not stop its upload.
 
 Why it still holds:
 
