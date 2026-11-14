@@ -917,6 +917,14 @@ _CERTAINTY_RANK = {"possible": 0, "probable": 1, "established": 2}
 
 
 _RELATION_RE = re.compile(r"\d[^=≈<>]{0,80}(?:=|≈)|(?:=|≈)\s*[−-]?\d")
+#: How an INT-REV-002 on a claim a flaw named words each way :func:`weakened` finds (the overseer's outcome reads "is made
+#: approximate", "is turned into a range" and "certainty of claims" as weakening, so an evaded flaw is never read as fixed).
+_EVASION_WORDING = {
+    "made approximate": "is made approximate (an exact figure)",
+    "turned into a range": "is turned into a range (an exact figure)",
+    "hedged": "is hedged (a hedge added, or the certainty of claims lowered)",
+    "its relation dropped": "is no longer stated as a calculation (its relation dropped)",
+}
 
 
 def weakened(old: ClaimRecord, new: ClaimRecord) -> list[str]:
@@ -995,9 +1003,19 @@ def preservation_findings(original: SpecialistReport, revised: SpecialistReport,
     # a figure that restates the stated result of a calculation a flaw names follows that correction: it may change with it
     corrected_values = {n for f in block.flaws if f.flaw_class == "correctness" and f.basis != "advisory"
                         for n in (_numeric(f.params.get("stated", "")),) if n is not None}
+    # A claim a flaw names may change: that is the correction. It may not be weakened instead (an exact figure made
+    # approximate or turned into a range, a hedge added or its certainty lowered, its calculation's relation dropped): the
+    # flaw then disappears because the statement no longer says what was checked, and the outcome of the revision reads it
+    # as evaded, never fixed (push check of c4f276c: such a revision carried no INT-REV-002 at all, so nothing named the
+    # flagged figure made approximate).
+    evaded: dict[str, list[str]] = {}
     for c in original.claims:
         m_id = match.get(c.claim_id) if c.claim_role != "other" else match_claims([c], new_all).get(c.claim_id)
-        if m_id is None or c.claim_id in named:
+        if m_id is None:
+            continue
+        if c.claim_id in named:
+            for how in weakened(c, by_id[m_id]):
+                evaded.setdefault(how, []).extend([c.claim_id] + ([m_id] if m_id != c.claim_id else []))
             continue
         m = by_id[m_id]
         pair = [c.claim_id] + ([m_id] if m_id != c.claim_id else [])
@@ -1028,6 +1046,9 @@ def preservation_findings(original: SpecialistReport, revised: SpecialistReport,
         out.append((f"a definition or assumption of claims {dedupe(asserted)[:8]} is turned into an assertion in its revision", dedupe(asserted)))
     if noted:
         out.append((f"a note of claims {dedupe(noted)[:8]} is turned into content in its revision", dedupe(noted)))
+    for how, ids in evaded.items():
+        out.append((f"claims {dedupe(ids)[:8]} that the revision request named are weakened instead of corrected: the statement the flaw names "
+                    f"{_EVASION_WORDING[how]} in its revision", dedupe(ids)))
     known = _figure_keys([original.original_response, request.user_input, *(t.text for t in request.supplied_texts),
                           *(v for f in block.flaws for v in f.params.values()), *(e.detail for f in block.flaws for e in f.evidence)])
     if stem:

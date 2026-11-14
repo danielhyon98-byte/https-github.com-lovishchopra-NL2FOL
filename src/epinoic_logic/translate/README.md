@@ -329,3 +329,56 @@ a premise in one translation and unsupported in another). No check depends on wh
 pipeline produced always records its provider, and one that records none is reported unless the operator declared its
 translator hand-built. The signed task audit records each translation (claim text, proposed IR, validation outcome, signed
 result). Nothing in this package changed for it: the checks only read what the pipeline already records.
+
+**Round-9 clearance (integrated round c2).** A task-authority premise that only gives a symbol the structural value 0 or 1 (the
+"one equals one" anchors) is never validated by a 0 or a 1 found anywhere in the task material: only a located excerpt verifies it
+(`grounding._check_authority`), so an anchor restating a conclusion conjunct is the writer's own and the claim is E112 instead of
+ENTAILED on an invented premise listed as task data. A conclusion literal that is a fraction no finite decimal writes and no source
+states (`pipeline.introduced_conclusion_figures`: "-20800/943" for a written "(294.0 − 377.2) ÷ 377.2 × 100") is an
+introduced figure (AMBIGUOUS_TRANSLATION): the engine would check the translation's computation, not the claim's. Step 4c's
+semantic rule reads one more restatement, given the figures the claim, the report's other claims, the supplied texts and the task
+state (`pipeline.unstated_values`; rule `unstated-scaling` in `restatement`): a premise equivalent to a conclusion conjunct whose
+extra figures are numbers one of which no source states ("6000 × vsq = 54096", general knowledge, beside "vsq = 9.016" for the
+claim "v² = 2 × 9.8 × 0.46 = 9.016") is the conjunct scaled by the translation's own figures, so the claim is E112, as the transfer
+auditor's rule arithmetic-restatement reads it; a premise whose extra figures a source states stays a derivation. A claim that writes a
+calculation before an '=' none of whose operand figures (two at least, domain values apart) a literal or interval of the encoding
+encodes, while the encoding checks figures of its own, none of which the claim states, and computes nothing on numbers (its figures
+are results asserted as values, taken from elsewhere), carries the `unencoded_calculation` flag (`pipeline.unencoded_calculation`; AMBIGUOUS_TRANSLATION): "(1.2 × 10⁴ kg)(3.0 m s⁻¹) +
+(8.0 × 10³ kg)(0) = ..." encoded as "36000 = 20000 × v", the next line's figures, would never have the engine compute the written
+calculation. An encoding that computes the calculation from the figures its operands come from ("$90,000 + $16,000" as 0.6 × 150000 +
+0.4 × 40000; a symbol a premise gives or bounds by a figure counts as a figure: "12 × mass_c" beside "mass_c = 12.01", "0.2 × s3"
+beside "1.7320 < s3 < 1.7321") is untouched. A claim that draws
+its consequence categorically (", so Kc falls") encoded with a link "A implies B" as its conclusion carries the
+`conditional_conclusion` flag (`pipeline.conditional_conclusion`). The figure reader (`quantities.figures_in`) reads a LaTeX
+fraction of two whole numbers ("\frac{45}{11}" is 45/11), a clock time ("09:30" is also 9.5 hours) and a month named in full
+("September" is also month 9; "May" only beside a day or a year).
+
+**Round-9 clearance, second fix pass.** `fidelity` compares an encoding with the claim it encodes and names a mismatch as an
+ambiguity flag, so the engine's verdict is never displayed as a verdict on the claim (AMBIGUOUS_TRANSLATION, the reason named):
+`UNENCODED_SUPPORT` (a COUNTEREXAMPLE that turns only on conclusion atoms no premise mentions, while a supporting claim the
+encoding encodes nothing of states them: lit-t15 p1-point's "the speaker holds the mother's words" from p1-s04), `neighbour_content`
+(a claim that states figures of its own, whose conclusion checks none of them but checks figures only report claims it does not cite
+state, its supporting claims and the earlier lines of its own paragraph aside: ch-t15 s4.1's bond count of s3.2, bm-t14 g6.1's answer
+key of g6.2), `qualifier_not_encoded` (a bracketed qualifier, no reference, example, label, quotation, figure or abbreviation,
+none of whose words the encoding holds: cs-t15 c6.6's "(the switch or router)"), `reason_unconnected` (the claim's stated reason
+encoded but connected to no conclusion symbol while premises decide the conclusion: ph-t15 s7.4) and `reported_conclusion` (a
+conclusion the claim writes only inside a quotation it credits to another source with a reporting verb, concluded as the
+writer's own inference: ess-p9c s7.3) and `values_not_encoded` (the claim lists, after a result word, at least three values its
+check gives, years, code numerals and number words apart, and no literal, interval or, for truth values, truth value of the
+conclusion encodes any of them: c1 cs-t14 c25.1's "the original expression gives 1, 0, 1, 0, and NOT B gives 1, 0, 1, 0", encoded
+as the identity its supporting chain derives, so wrong values would have been ENTAILED as well). The precision readers
+(`precision._stated_figures`) read no figure inside a mark annotation ("[10]", "[2 marks]"): bm-t15 g5.1's "10.0%" was read as the
+task's mark "[10]", a figure given exactly, and its faithful interval rejected (exactness). `restatement` holds rule `previous-line-step`
+(the input of the step a claim writes from its previous lines of working, `pipeline.previous_lines`: the report's three claims before
+it and the claims it cites write the premise, the claim itself does not and writes the result), which reads maa-t15 m2.4 and m7.2 as
+step checks; the pipeline does not pass those lines yet, because the transfer auditor's floor (rule circularity-agreement) re-runs
+step 4c without them and never exempts what it names, so the two change together and the receipts keep agreeing with the audit. The literal
+content check refutes a located excerpt cited for a negative fact ("the email never names a commitment ... mechanism") when the
+excerpt's clause holds none of the literal's words, and reads a short quotation someone says ("the mother says 'Only this'",
+straight single marks, a verb of saying) as the words it names, never a placeholder. `partial_encoding` reads the reading's
+sentence that says something is not encoded and fires only when it names a part of the claim (a content word or a figure it
+shares with the claim) and no sources line, support listing, framing label, heading, disclaimer or other claim. The worked-result
+reader (`diag_figures.worked_results`) reads the member after a result sign of an anchored calculation as that calculation's
+values ("= $40,000 + $15,000 + $4,000 = $59,000"), so EVD-FIG-001 no longer names a figure the answer's own working gives; and
+EVD-LACK-001 no longer names a general-knowledge premise that only states the conventional meaning of a word the claim quotes from a
+supplied text.

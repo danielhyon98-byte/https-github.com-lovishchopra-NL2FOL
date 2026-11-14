@@ -176,21 +176,22 @@ from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, Sup
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
 from ..markdown import (
-    find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution, is_sources_block,
-    is_self_certification, mask_json_spans, parser_quotation_spans, split_note_clauses, undelimited_quote_span, undelimited_quote_spans,
+    NOTE_WORD_LEAD_RE, find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
+    is_sources_block, is_self_certification, mask_json_spans, meta_note_form, note_word_paragraph, parser_quotation_spans, split_note_clauses, undelimited_quote_span,
+    undelimited_quote_spans,
 )
 from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
     "segment", "split_sentences", "find_quotations", "strip_quotations", "parse_response", "LINK_SIGNPOSTS", "LINK_LEADS",
-    "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
+    "is_meta_block", "is_list_block", "is_meta_sentence", "is_note_only", "is_note_block", "documents_named", "is_peer_document", "text_under_analysis", "META_LABEL_RE", "META_NARRATION_RE",
     "TAIL_CLAIM_ID", "excerpt_located", "long_elision_of", "FEEDBACK_LABEL_RE", "is_feedback_label", "FEEDBACK_JUDGEMENT_RE", "feedback_item",
 ]
 
 AGENT_ID = "english-specialist"
 DEFAULT_SUBJECT = "English A: Literature"
-ParagraphKind = Literal["thesis", "body", "conclusion", "meta", "list", "sources"]
+ParagraphKind = Literal["thesis", "body", "conclusion", "meta", "list", "sources", "note"]
 
 LINK_SIGNPOSTS: tuple[str, ...] = ("Effectively", "Thus", "Ultimately", "Therefore", "Consequently", "Hence")
 #: Sentence leads that draw the paragraph's strands together ("Read together, the clear air ... suggest that ..."): a link
@@ -617,6 +618,26 @@ def is_feedback_label(sentence: str) -> bool:
     return FEEDBACK_LABEL_RE.match(strip_quotations(sentence).strip()) is not None
 
 
+def is_note_block(block: str) -> bool:
+    """True for a block that is a note about the answer, the student or the task as a whole, read by what it says rather than by a
+    closed list of leads (round 9, c2: en-t15's "Assumption: you are taking SL ..." was read as the thesis and its "One note: the
+    extract contains a bracketed note ..." as a body paragraph, lit-t15's "One correction for your planning: ..." and ll-p9a's "Model
+    paragraph for practice, not for submission." likewise): a quotation-free block opened by the word "note" under a determiner, an
+    adjective or an addressee ("One note:", "Teaching note:", ``markdown.NOTE_WORD_LEAD_RE``) whose every later sentence continues the
+    note (``markdown.note_word_paragraph``: "I have ignored it and worked only from the story itself."); or a block whose first sentence is a note about the student, the task or the answer's form
+    (``markdown.meta_note_form``: "Assumption: you are taking SL ...", "One correction for your planning: ...", "Model paragraph for
+    practice, not for submission.") and whose every sentence is a note. Such a block is no paragraph of the argument: kind ``note``,
+    its sentences ``other`` (never the thesis, a point or a link), no body paragraph for the structural checks; a self-certification
+    inside it is still named (ES-META-001). A block of JSON, or one whose every sentence is meta-text, is :func:`is_meta_block`'s."""
+    s = block.strip()
+    if not s or len(s) > 4000 or is_json_block(s):
+        return False
+    if NOTE_WORD_LEAD_RE.match(strip_quotations(s[:400])) is not None:
+        return note_word_paragraph(s) and not _block_quotations(s)
+    sentences = split_sentences(s)
+    return bool(sentences) and meta_note_form(sentences[0]) is not None and all(is_note_only(x) for x in sentences)
+
+
 def is_meta_block(block: str) -> bool:
     """True for a pasted JSON block, a block whose every sentence is meta-text, a
     quotation-free block whose every sentence is a note about the text (from-memory label,
@@ -711,6 +732,10 @@ def segment(text: str) -> tuple[Paragraph, ...]:
             # bases ask for, one claim of role 'other' (its id the paragraph's 'point', as when it was read as a body paragraph), no body
             # paragraph and no meta-text finding (c1 bug 4)
             units.append(("sources", block))
+        elif is_note_block(block) and not any(is_meta_sentence(x) for x in split_sentences(block)):
+            # a note about the answer, the student or the task ("One note: ...", "Assumption: you are taking SL ...", "Model paragraph for
+            # practice, not for submission."): no paragraph of the argument, never the thesis (round 9, c2)
+            units.append(("note", block))
         elif is_meta_block(block):
             units.append(("meta", block))
         elif is_list_block(block):
@@ -727,6 +752,10 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         if kind == "body":
             kind = next(prose_kinds)
         raw_sentences = _list_sentences(block) if kind == "list" else [" ".join(block.split())] if kind == "sources" else split_sentences(block)
+        if kind == "note":
+            paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(
+                Sentence(index=j, text=s, role="other", quotations=find_quotations(s)) for j, s in enumerate(raw_sentences, start=1))))
+            continue
         sentences: list[Sentence] = []
         argued = 0  # sentences that are neither meta nor a note: the first of them is the point
         in_fixes = False  # a list of fixes is open ("Fix it: 1. ...", "2. ...") until another labelled line
@@ -1102,7 +1131,7 @@ def parse_response(
         quotation_count = 0
         for sentence in para.sentences:
             sid = f"p{para.index}-s{sentence.index:02d}{suffix}"
-            if para.is_prose and sentence.role == "other":
+            if (para.is_prose or para.kind == "note") and sentence.role == "other":
                 # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference;
                 # a note that relays a quoted label ("That account marks its figures as "from memory"") keeps its quotation as
                 # an evidence claim the hub checks, attached to nothing: a label supports no claim

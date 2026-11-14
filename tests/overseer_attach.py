@@ -4,7 +4,7 @@ The overseer is a separate sub-project (``overseer/``, package ``epinoic_oversee
 translator never imports it, and after the documented split the translator is a project of its own whose suite runs
 with at most the overseer installed as a package. A translator test that attaches the overseer (a transfer audit, the
 delivery policy, the overseer's table of the codes the translator raises) reaches it only through this module, or, for a
-public module of the overseer this module does not name, with ``pytest.importorskip(<module>, reason=REASON)`` inside
+public module of the overseer this module does not name, with ``pytest.importorskip(<module>, reason=REASON, exc_type=ModuleNotFoundError)`` inside
 the test that needs it:
 
 * every function here imports the package with ``pytest.importorskip`` first (:func:`overseer`), so a test that needs
@@ -58,7 +58,7 @@ HAND_BUILT_TRANSLATORS = ("test", "harness")
 
 def overseer() -> ModuleType:
     """The overseer package, or SKIP the calling test where it is not installed."""
-    return pytest.importorskip("epinoic_overseer", reason=REASON)
+    return pytest.importorskip("epinoic_overseer", reason=REASON, exc_type=ModuleNotFoundError)
 
 
 def overseer_module(name: str) -> ModuleType:
@@ -66,7 +66,7 @@ def overseer_module(name: str) -> ModuleType:
     not installed. Any other name is refused: the tests never reach a private or test module of the overseer."""
     if name not in PUBLIC_MODULES:
         raise ValueError(f"not a public module of the overseer this module reads: {name!r}")
-    return pytest.importorskip(name, reason=REASON)
+    return pytest.importorskip(name, reason=REASON, exc_type=ModuleNotFoundError)
 
 
 def make_keyring() -> Any:

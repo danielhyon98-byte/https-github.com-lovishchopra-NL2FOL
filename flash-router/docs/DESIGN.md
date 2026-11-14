@@ -109,6 +109,15 @@ no `split_to_fit`: the record is where a transfer one instance cannot read whole
 version carries the code (a port change, agreed with its owner). A request naming one transfer key twice, which the
 router port refuses, is refused here too (port rule 1): every transfer is one entry, and the N_FOLD decision is made once.
 
+Before either planner plans anything it checks the request (`contract.check_routing_request`, `contract.check_pool_request`;
+the port decodes the text with `contract.decode`): JSON text with no `NaN` or `Infinity`, no member named twice and no
+string it cannot write as UTF-8, and every member the planner reads of the type and range the router port gives it, each
+count at most 2^53 - 1. A request it does not read is refused with `RequestError` (a `ValueError`) naming the member and
+the rule; once a request passes, the planners cannot fail on it (a property test over requests mutated from ones in
+contract holds it), so what they raise is a fault of the router's own code. The checks are no stricter than the port:
+only the members the planners read are checked, each by a rule the port's own validation of that member implies, so
+every request in contract is planned byte for byte as before.
+
 ## 5. Rules and cost data as versioned data files
 
 `src/epinoic_flash_router/data/MANIFEST.json` names the current files and records every file's version, release and
@@ -189,10 +198,15 @@ access at plan time; the data are read once, at load, from the data directory on
 data give the same plan text, in any process (the tests run it under two hash seeds). The runner
 (`python -m epinoic_flash_router_cli`) is a separate small package so that the router package stays pure: it reads the
 request from standard input and writes the answer to standard output, nothing else. Its exit statuses are 0 with the
-answer, 2 when the data cannot be loaded and 3 when the request cannot be read or planned, each with its reason on
-standard error and never a traceback: since 0.4.0 whatever loading the data raises is 2 and whatever reading or planning
-the request raises is 3 (before it, a request nested too deep to decode raised `RecursionError` past the runner, exit 1
-with a traceback; so did a zero quota and a data file nested too deep). The callers never run this runner (their own
+answer, 2 when the data cannot be loaded (`OSError`, `ValueError`, `RecursionError`: a file that cannot be read, is not
+JSON or not the shape the planners read, or is nested too deep), 3 when the input is not a request this router reads
+(standard input that is not text, or a `RequestError` with its reason) and 4 when the router itself fails (any other
+exception while its code is imported and its data loaded, while it writes a hello or its identity, or while it plans a
+request it reads: a fault of its own code, named by its exception type only), each with its reason on standard error and
+never a traceback. Since 0.4.0 there is no traceback (before it, a request nested too deep to decode raised
+`RecursionError` past the runner, exit 1 with a traceback; so did a zero quota and a data file nested too deep); until
+round 9's second fix pass whatever loading the data raised was 2 and whatever reading or planning the request raised was
+3, so a fault of the router's own code read as bad data or bad input. The callers never run this runner (their own
 process runner maps any failure to `KIT-RT-016`), so this concerns an operator and the tests.
 
 ## 8. What is deferred

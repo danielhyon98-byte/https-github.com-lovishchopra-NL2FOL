@@ -439,12 +439,17 @@ def test_the_context_is_scoped_to_its_channel_task_and_request_and_refused_anywh
     hub, plan, ch, lay, assessed = _keeps_context(pack)
     other_hub, _p2, other_ch = _combined()
     try:
-        ctx = TemporaryContext.build(lay, assessed)
+        # round-9 clearance c2b (stricter): each context is built in the blind dossier's own mode, and a context built for an informed
+        # review is refused for a blind dossier (the c4f276c push check: the intake did not read the context's mode)
+        ctx = TemporaryContext.build(lay, assessed, mode="blind")
         intake = hub.auditor.hub_operations._review_intake(hub)
         view = hub.auditor.view(ch.channel_uid)
         merged = part_view(view, lay.merged_seqs)
         pid = PackIdentity(name=pack.identity.name, version=pack.identity.version, sha256=pack.identity.sha256)
         kw = dict(agent_id="overseer-pool-9", lens="general", mode="blind", pack=pid, review=review_scope("merged", 2))
+        with pytest.raises(IntakeRefused) as e0:
+            intake.issue(merged, temporary_context=TemporaryContext.build(lay, assessed), **{**kw, "agent_id": "overseer-pool-10"})
+        assert e0.value.reason == "temporary_context" and "informed" in str(e0.value)
         d = intake.issue(merged, temporary_context=ctx, **kw)
         assert d["temporary_context"]["context_sha256"] == ctx.digest and d["review"] == {"method": "N_FOLD", "role": "merged", "of": 2}
         # another channel: refused
@@ -455,12 +460,12 @@ def test_the_context_is_scoped_to_its_channel_task_and_request_and_refused_anywh
         assert e1.value.reason == "temporary_context"
         # another task or request: a context built for another scope never reaches this dossier
         import dataclasses
-        elsewhere = TemporaryContext.build(dataclasses.replace(lay, request_id="req-other"), assessed)
+        elsewhere = TemporaryContext.build(dataclasses.replace(lay, request_id="req-other"), assessed, mode="blind")
         with pytest.raises(IntakeRefused) as e2:
             intake.issue(merged, temporary_context=elsewhere, **{**kw, "agent_id": "overseer-pool-7"})
         assert e2.value.reason == "temporary_context"
         # an edited record does not hash to its digest: refused; a discarded one: refused
-        edited = TemporaryContext.build(lay, assessed)
+        edited = TemporaryContext.build(lay, assessed, mode="blind")
         edited._record["sources"][0]["confirmed"] = []
         with pytest.raises(IntakeRefused) as e3:
             intake.issue(merged, temporary_context=edited, **{**kw, "agent_id": "overseer-pool-6"})
@@ -471,7 +476,7 @@ def test_the_context_is_scoped_to_its_channel_task_and_request_and_refused_anywh
         assert e4.value.reason == "temporary_context" and ctx.record == {} and ctx.faulted() == {} and ctx.digest
         # a temporary context only in a merged review, a merged review only with one
         with pytest.raises(IntakeRefused) as e5:
-            intake.issue(merged, temporary_context=TemporaryContext.build(lay, assessed), **{**kw, "agent_id": "overseer-pool-4",
+            intake.issue(merged, temporary_context=TemporaryContext.build(lay, assessed, mode="blind"), **{**kw, "agent_id": "overseer-pool-4",
                                                                                             "review": review_scope("source", 2, 1)})
         assert e5.value.reason == "review"
         with pytest.raises(IntakeRefused) as e6:

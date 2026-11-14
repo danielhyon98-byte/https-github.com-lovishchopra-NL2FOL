@@ -4,8 +4,16 @@
 > `overseer/`, package `epinoic_overseer`); the figures are as measured.
 
 For Bruno. This page describes the integrated prototype as it stands after arena round 8 (the integrated round `c1`)
-and the fixes of its clearance, committed as `f2329df`. Every figure below is a measured result taken from the
-repository's own records (`tests/README.md`, `docs/ARENA_RESULTS.md`, `docs/STEM_RESULTS.md`,
+and the fixes of its clearance. Three commits carry that clearance:
+
+- `f2329df` holds its fixes. The independent push check held this commit, so it was never uploaded on its own.
+- `32a5c0e` is the follow-up. It narrows the note rule that the push check held `f2329df` on, and it withholds the
+  FORMALLY CHECKED label for every answer (rule `formal-label-withheld`).
+- `5060a52` fixes three regressions of those fixes that the publisher's simulation of `32a5c0e` found (section 4).
+
+The architecture step after round 8 is on this tree too (`ab44c8a`, `b570339`, `f3d338a`, `c4f276c`). The page says so
+where it changes a command or a figure. Every figure below names the commit it was measured on. Every figure is a
+measured result taken from the repository's own records (`tests/README.md`, `docs/ARENA_RESULTS.md`, `docs/STEM_RESULTS.md`,
 `docs/OVERSEER_RESULTS.md`, `docs/DELIVERY.md`, the commit messages they cite), from the round's harness summary and
 overseer reports, or from a replay of the round on this tree; each says which. Nothing here is deployed, and no live
 model provider was called by any test, replay or harness run reported here.
@@ -43,8 +51,9 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
      accounts for its sources. The router acts on a transfer only when the auditor's clearance allows it
      (`policy.may_act`).
    - **The overseer agents** are model-based reviewers. They are built only from the package's code and an exportable,
-     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 1.5; round 8 ran with 1.4, which is
-     pinned beside it. Each agent gets a dossier and returns a verdict, which is validated against the journal and the
+     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 2.1 (the architecture step added 2.0 and
+     2.1); round 8 ran with 1.4, and its clearance installed 1.5. Each of them stays pinned beside 2.1. Each agent gets
+     a dossier and returns a verdict, which is validated against the journal and the
      signed results. A verdict is advisory: only an accusation that a deterministic check confirms reaches the router,
      and no agent changes a clearance.
 4. **Consolidation and the self-duplicating overseer pool.** When several agents answer one input (duplicated instances
@@ -84,8 +93,9 @@ together with the v4 master prompts and knowledge bases. Round 8 used the connec
 
 ## 2. Using it (commands checked on this tree)
 
-All commands run from the repository root, in the installed environment. Each was run once on this tree before this
-page was written, except the install and the full suite, whose figure comes from the clearance commit.
+All commands run from the repository root, in the installed environment. Each was run once on `f2329df`'s tree when
+this page was first written, except the install and the full suite, whose figures come from the commit messages, and
+the pack export, which was checked again on `f3d338a`'s tree.
 
 **Install.**
 
@@ -102,13 +112,24 @@ For an integration-kit install, pin the solver the suite was measured with:
 python -m pytest -q -p no:cacheprovider
 ```
 
-- The last full run, recorded in the clearance commit `f2329df`, gave 18,395 passed, 12 skipped and 45 deselected in
-  55 min 55 s.
+- Full runs, each recorded in the message of the commit it was measured on:
+
+  | Commit | Passed | Failed | Skipped | Recorded rounds supplied | Time |
+  | --- | --- | --- | --- | --- | --- |
+  | `f2329df` | 18,395 | 0 | 12 | no | 55 min 55 s |
+  | `32a5c0e` | 22,503 | 0 | 12 | no | 1 h 16 min 20 s |
+  | `5060a52` | 22,721 | 0 | 0 | yes | 1 h 18 min 30 s |
+  | `c4f276c` (the architecture fixes after round 8, the last commit before round 9) | 23,051, and 1 expected failure | 0 | 0 | yes | 1 h 32 min 17 s |
+
+  Each run also deselected 45 tests. The 12 tests skipped at `f2329df` and `32a5c0e` need the recorded rounds, and
+  neither run supplied them. Neither verification ran the overseer's contained run either, and that is how the three
+  regressions that `5060a52` fixes stayed hidden.
 - The 45 deselected are the stress tests. They are not run, by the founder's instruction: never use `-m stress` or
   `scripts/arena/stress_arena.py`.
-- The 12 skipped tests need the recorded arena rounds. To run them, set `EPINOIC_ARENA_ROUNDS=<directory holding the
-  recorded rounds>`; the tests copy the rounds first and never write to them.
-- For a quick check, the delivery policy and engine subset
+- Without the recorded arena rounds, the tests that need them are skipped. To run them, set
+  `EPINOIC_ARENA_ROUNDS=<directory holding the recorded rounds>`; the tests copy the rounds first and never write to
+  them.
+- For a quick check (measured on `f2329df`'s tree), the delivery policy and engine subset
   (`overseer/tests/overseer_tests/test_delivery_policy.py overseer/tests/overseer_tests/test_delivery_fallback.py tests/engine`) gave 1,114 passed in
   34 s.
 
@@ -137,7 +158,8 @@ curl -H "Authorization: Bearer $EPINOIC_SERVICE_TOKEN" -H "Content-Type: applica
   (`linear`, `nonlinear` or `joint`). It returns the signed result.
 - The other routes are `/v1/results/verify-signature`, `/v1/results/release-check` and `/v1/outcomes`
   (`src/epinoic_logic/service/README.md`).
-- Checked here with throwaway local values: `/healthz` gave 200, and `/v1/verify` gave `ENTAILED` with a signature.
+- Checked on `f2329df`'s tree with throwaway local values: `/healthz` gave 200, and `/v1/verify` gave `ENTAILED` with a
+  signature.
 - `EPINOIC_PROFILE=integration` serves the integration protocol's checks service instead (`integration/README.md`).
 
 **Replay an arena round.** The recorded rounds are kept outside the repository and are read-only. Always replay a copy:
@@ -163,7 +185,7 @@ python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.1.zip
 
 - The export writes the master prompt, nine numbered documents, a README for whoever deploys it, the dossier and
   verdict schemas, and a manifest.
-- Checked here: pack 2.1 (integration step 2: the review of a specialist's revision request, beside architecture step
+- Checked on `f3d338a`'s tree: pack 2.1 (integration step 2: the review of a specialist's revision request, beside architecture step
   3's twofold review of a combined answer), digest `a60727fce80a4190f59a8a0e21bf0c69cb759bab4a04876d81c88095ea21ebb5`,
   which is the digest pinned in `overseer/src/epinoic_overseer/pack.py` and in the service (`integration/overseer_port.py`).
   `--verify` on the zip returned `ok`. Pack 2.0 (`c2be21ab…`) and pack 1.5, the round-8 pack (`cac995dc…`), stay pinned
@@ -184,7 +206,7 @@ The measures below are separate, and each has its own denominator. They are neve
 ### 3.1 The overseer lenses (each lens's own question)
 
 Five independent lenses judged the round, each on its own question. Their rates come from each lens's report; the
-clearance commit `f2329df` records the five rates in its message. A lens rate is not a transport rate, although the
+first clearance commit, `f2329df`, records the five rates in its message. A lens rate is not a transport rate, although the
 lens files name the field `infrastructure_functional_rate`.
 
 | Lens | What it judges | Rate | Findings (major / minor) | Flagged critical by the lens | Earlier findings the lens re-checked: fixed / still open (as the lens reports) |
@@ -209,10 +231,12 @@ not judge whether a finding is true, whether a translation is faithful or whethe
 | --- | --- | --- |
 | As recorded (the round's own run, 289.4 s) | 192 of 203 | `docs/OVERSEER_RESULTS.md` section 35, `docs/STEM_RESULTS.md` 10.15 |
 | After the STEM fixes of the clearance, mid-clearance | 201 of 203 | same |
-| At `f2329df` | 203 of 203 | commit message; replay on this tree (section 3.8) |
+| At `f2329df` | 203 of 203 | its commit message; the replay on its tree (section 3.8) |
+| At `32a5c0e` and at `5060a52` | 203 of 203 | each commit's message |
+| At `c4f276c` (after the architecture step) | 203 of 203 | its commit message |
 
-- Every recorded earlier round is unchanged at `f2329df`: r1 30/30, r1-adv 150/151 (the planted empty answer stays
-  rejected), r2 to r6 46/46 each, r7 177/177.
+- Every recorded earlier round is unchanged at each of these four commits (each commit's message): r1 30/30, r1-adv
+  150/151 (the planted empty answer stays rejected), r2 to r6 46/46 each, r7 177/177.
 - The replay at `f2329df` puts no error-level finding on any of its 48 genuine replies, relays and syntheses. On the
   recorded run, the lenses named false errors (section 3.1).
 
@@ -302,6 +326,8 @@ threshold.
   withholding is the policy's default.
 - **The overseer-selected fallback above 90% was not exercised in round 8.** The round's overseer agents were not
   connected to the delivery pass.
+- **At `32a5c0e`** (its commit message): all 24 decisions are still withheld, with the mode, the delivered flag and the
+  label unchanged. 22 receipts name rule `formal-label-withheld`; the other 2 answers have no deliverable.
 - **What the results audit checked.** Every label passed `is_fallback_label_honest`, and every delivery receipt
   verified.
 - **What blocked delivery on the recorded run.** 15 of the 24 candidates were excluded from any delivery, 13 of them by
@@ -311,11 +337,11 @@ threshold.
   other answer is withheld for an unresolved claim: an ambiguous, unsupported or invalid translation, or an ungrounded
   dependency with no fidelity review.
 
-### 3.8 The replay of round 8 on this tree
+### 3.8 The replay of round 8 on `f2329df`'s tree
 
-This replay was run to check the figures above against this tree: a fresh copy of the recorded round,
-`run_arena.py <copy>`, with no model called. It is one run on a shared development machine, not a stress or latency
-measurement.
+This replay was run on `f2329df`'s tree, when this page was first written, to check the figures above. It used a fresh
+copy of the recorded round and `run_arena.py <copy>`, with no model called. It is one run on a shared development
+machine, not a stress or latency measurement.
 
 | Measure | Value |
 | --- | --- |
@@ -374,9 +400,11 @@ not re-scored against the corrected gold.
 The agents also found faults that the scorer credits to no one: five STEM faults the hub missed, two false hub findings,
 and the dropped Questions 2 and 3 of a Mathematics AA answer.
 
-## 4. What the round-8 clearance fixed (commit `f2329df`)
+## 4. What the round-8 clearance fixed (commits `f2329df`, `32a5c0e` and `5060a52`)
 
-Each fix has a regression test with a clean control.
+Each fix has a regression test with a clean control. `f2329df` holds the fixes listed under STEM, Overseer and
+Harness, and the first form of the note rule. `32a5c0e` narrows that rule and adds rules 6c and 6d (under Delivery
+policy). `5060a52` fixes the three regressions listed last.
 
 - **STEM** (`docs/STEM_DESIGN.md` section 39, `docs/STEM_RESULTS.md` 10.15).
   - The 14 false INT-SUBJ-001 on correct work are gone. Causes fixed include a symbolic step's own definitions, a
@@ -397,33 +425,69 @@ Each fix has a regression test with a clean control.
     reads it as a study suggestion, an inability to see or open a named source, or content not checked. The clearance
     commit `f2329df` read a bare note as a note whenever it held a limitation word such as "not" or "only", and the
     independent push check held it on this rule: it let an assurance written as a note ("Note: there is nothing to fix
-    in this answer, not a single slip.") travel under the label. The follow-up commit narrows the rule to that closed
+    in this answer, not a single slip.") travel under the label. The follow-up commit `32a5c0e` narrows the rule to that closed
     allowlist, read from the block's first character. It refuses the label for any block that opens with a note or
     sources lead and is read neither as a note nor as a pure source list (rules `lead-blocks` and
     `source-list`), and for any text the branch's parser reads as no claim unless a closed reader reads it whole as a
     note, a source list or a bare layout label (rules `non-material-text` and `layout`). Every claim must carry a
     positive signed engine outcome (rule `unverified-claims`, 6c), and the label is withheld for every answer in this
-    release (rule `formal-label-withheld`, 6d). Every one of these rules can only remove the label.
+    release (rule `formal-label-withheld`, 6d). Every one of these rules can only remove the label. A refusal-only rule
+    that raises refuses the label, with a reason that names the rule and the exception type. The fallback still decides
+    the mode; before `32a5c0e`, the whole decision was withheld.
 - **Harness** (`docs/ARENA_RESULTS.md`, "Round 8 clearance").
   - The replay now passes the task record to the translator as production does.
   - Fixtures can be bound to their claim text.
   - Retries that a recording cannot exercise are named.
   - Syntheses are stamped when they are relayed.
+- **The three regressions fixed in `5060a52`.** The publisher's simulation of `32a5c0e` found them. Each one was hidden
+  because no verification of `f2329df` or `32a5c0e` supplied the recorded rounds or ran the overseer's contained run.
+  The fix is ported onto the sub-project layout of `ab44c8a`.
+  - The re-keyed round-7 overseer test still expected OVS-TRN-006 on mai-t13 m1.1 and m7.1. The translator's semantic
+    circularity gate now withholds both encodings at translation (E112), so the test asserts that withholding first.
+  - Rule `declined-bound` accepted a declined answer's stated word count without a recount. The auditor now recounts
+    first, and raises OVS-FORM-003 naming MEASURED when the stated count differs (design Decision 111).
+  - Rule `derived-figures` traced a planted figure through values that the request or a supplied text only implies. So
+    two STEM probes (units-translation and units-translation-prefix) were no longer named. Figures are now taken only
+    as written.
+  - With the recorded rounds supplied, the contained run of `5060a52` passes all 14 of its gates: 355 of 355
+    tamperings are detected, the 16 controls are clean, the 677 STEM probes leave no probe class failing, and rounds r2 to r5
+    stay at 46/46 and r7 at 177/177. The publisher's run of `32a5c0e` had detected 353 of 355 tamperings, with two
+    probe classes failing.
 
 **Tests rewritten to a stricter rule (none weakened or deleted).**
 - One STEM test: a cut decimal inside an expression is now decided, and must fail when wrong.
 - Two overseer tests that pinned the old reading of cut decimals: the formal-check count of r7's mai-t13 went from 13
   to 15, and the D32 sentence changed.
+- At `32a5c0e`: five end-to-end tests (287 cases) passed whatever the 6b rules did. They now require the named rule's
+  own reason. 17 test functions were renamed to say what they check, with their cases unchanged.
+- At `5060a52`: the re-keyed round-7 overseer test asserts the withholding first and keeps its old pins on the encodings
+  delivered past the gate. A new test checks its pins against the shipped record without the recorded rounds.
 
-Each rewritten test says so in its docstring.
+Each rewritten test says so in its docstring, and `tests/README.md` lists them.
 
-**Left open by the clearance** (from its commit message and the design sections):
-- The channel-wide naming of bidirectional controls for every subject.
-- Share forms and quotation warnings on the non-STEM branches.
+**Left open by the clearance** (from the fixers' notes in `f2329df`'s message and the design sections):
+- The channel-wide naming of bidirectional controls for every subject. The clearance's handoff fixer closed this in the
+  same commit: the channel refuses such a response for every subject (INT-REQ-009, rule bidi-text; `tests/README.md`).
+- Share forms and quotation warnings on the non-STEM branches. The handoff fixer added prose shares to those branches in
+  the same commit (`tests/README.md`).
 - One false INT-SUBJ-004 warning on correct work (ph-t14 s7.2).
 - "So mgh = ½mv² and v² = gh" read as one statement.
 - The non-STEM findings of other owners: Economics scale words, quotation crediting and marks.
-- `tests/README.md` has yet to record the rewritten tests.
+
+Left open by `32a5c0e` for round 9 (the label stays off until then):
+- a label policy that holds under attack, after which the label returns;
+- assurances the parser reads as claims (quoted or fullwidth notes, plain-prose assurances), which rules 6c and 6d
+  refuse for now;
+- Unicode tag characters inside claims;
+- the English segmenter, which is quadratic on unpaired closing quotes;
+- the integration kit's per-claim text "Formally checked: in its logic encoding ...", which must never be shown as an
+  answer-level label.
+
+Left open by `5060a52` (minor):
+- the reciprocal reading still does not require a written division;
+- tampering T5's fallback takes any not-applicable record, not only declined-bound ones;
+- rule task-and-supplied no longer traces figures written in words;
+- three tamperings lost a secondary code (T4 OVS-RCPT-008, T22a OVS-JOINT-002, T23v OVS-TRN-005).
 
 Carried from the integration gate:
 - The synthesis ledger's work bounds are spent in claim order, so a padded synthesis can carry a changed date past the
@@ -487,15 +551,21 @@ arena's result digests differ from that path's on the two simulation items whose
   - No lens has reached 0.98 in any round from 1 to 8. Round 8's five lenses gave 0.1921, 0.3962, 0.7561, 0.1474 and
     0.9424.
   - The transport count of 203 of 203 is a different measure. It does not say the findings are true.
-  - Round 8's lenses have not re-judged the clearance's fixes. Round 9's lenses will.
-- **Rounds 9 and 10** have not run.
+  - Round 9's five lenses (integrated round c2, run on `c4f276c`) judged the tree after the clearance and the
+    architecture step. None reached 0.98: adversarial live 0.7729, translation fidelity 0.8356, communication fidelity
+    0.6503, results audit 0.3138, STEM integration 0.1939. Each lens answers its own question, as in section 3.1.
+- **Round 9's fix stage.** This page does not report its measures; `tests/README.md` records them. **Round 10** has
+  not run.
 - **Live-model accuracy.** No live translation provider or overseer model was called by any test, replay or harness run.
   - The round's specialists and overseer agents were agent sessions. Their verdicts were self-reported, not produced by
     the package's runner, so the runner gate fails.
   - Translation fidelity on the current code is not measured.
   - The overseer agents' gates for contradictions, false accusations and injection-following are not measured for any
     deployed model.
-  - The overseer-selected fallback above 90% has never delivered an answer in an arena round.
+  - The overseer-selected fallback above 90% has never delivered an answer in an arena round. Since round 9's fixes, the
+    harness can run its delivery pass with overseer agents (`run_arena.py --overseer-provider`). The agents then go
+    through the package's runner, and the decisions are reported beside the withheld baseline. No round has been
+    replayed that way yet.
   - The cheapest tier's fit to the knowledge pack is untested.
 - **Stress and load.** No stress iteration has run since the round-2 fix round, by instruction. The only load test
   planned is the multi-agent scalability test of the Scaling phase.

@@ -984,9 +984,10 @@ _NEAR_TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*|\d+(?:[.,]\d+)*")
 
 
 def _fold_word(w: str) -> str:
-    """A word as :func:`nearest_text` compares it: case and diacritics folded, no thousands separator."""
+    """A word as :func:`nearest_text` compares it: case and diacritics folded, no thousands separator, a typographic apostrophe
+    read as a straight one ('Halvoria’s' and "Halvoria's" are one word)."""
     import unicodedata
-    return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch)).replace(",", "")
+    return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch)).replace(",", "").replace("’", "'")
 
 
 @functools.lru_cache(maxsize=64)
@@ -998,11 +999,75 @@ def folded_vocabulary(text: str) -> frozenset[str]:
     return frozenset(_fold_word(w) for w in _NEAR_TOKEN_RE.findall(text))
 
 
+#: The aligned reading of :func:`nearest_text` (round 9, c2): a quotation of :data:`_ALIGN_MIN_TOKENS` to :data:`_ALIGN_MAX_TOKENS`
+#: words and figures is compared with the windows of the text of its own length that hold one of its three rarest words at the
+#: same place, at most :data:`_ALIGN_MAX_WINDOWS` windows per text (a longer quotation, or one whose rarest words are all that
+#: common in the text, is compared as a bag of words only, as before; the bounds keep the reading linear in the text).
+_ALIGN_MIN_TOKENS = 4
+_ALIGN_MAX_TOKENS = 48
+_ALIGN_MAX_WINDOWS = 256
+
+
+@functools.lru_cache(maxsize=64)
+def _folded_positions(text: str) -> tuple[tuple[str, ...], dict[str, tuple[int, ...]]]:
+    """The folded words and figures of ``text`` in order (:func:`_fold_word`) and, for each, where it stands; read once per text."""
+    tokens = tuple(_fold_word(w) for w in _NEAR_TOKEN_RE.findall(text))
+    where: dict[str, list[int]] = {}
+    for i, w in enumerate(tokens):
+        where.setdefault(w, []).append(i)
+    return tokens, {w: tuple(ps) for w, ps in where.items()}
+
+
+@functools.lru_cache(maxsize=1024)
+def _aligned_changes(folded: tuple[str, ...], text: str) -> Optional[tuple[int, ...]]:
+    """The places of the words of a quotation (``folded``: its words and figures folded) that differ from the text's window of
+    its own length that differs least, when that window differs in one or two places and agrees in at least three, two of them a
+    word of four letters or more or a figure, and in at least twice as many places as it differs ('into the market' for the
+    text's 'into the shop', 'export sales rose' for 'export sales fell', «entre vecinos y turistas» for «entre vecinos y
+    visitantes»); ``()`` when a window holds the words exactly; ``None`` when no window qualifies or the reading is out of
+    bounds. With at most two places differing, one of any three of the quotation's words that the text holds stands at its
+    place in the window, so the windows tried are those of its three rarest such words."""
+    k = len(folded)
+    if not _ALIGN_MIN_TOKENS <= k <= _ALIGN_MAX_TOKENS:
+        return None
+    tokens, where = _folded_positions(text)
+    held = [i for i, w in enumerate(folded) if w in where]
+    if len(held) < 3 or len(tokens) < k:
+        return None
+    anchors = sorted(held, key=lambda i: len(where[folded[i]]))[:3]
+    if sum(len(where[folded[i]]) for i in anchors) > _ALIGN_MAX_WINDOWS:
+        return None
+    best: Optional[list[int]] = None
+    for start in sorted({p - i for i in anchors for p in where[folded[i]] if 0 <= p - i <= len(tokens) - k}):
+        differ: list[int] = []
+        for j in range(k):
+            if tokens[start + j] != folded[j]:
+                differ.append(j)
+                if len(differ) > 2:
+                    break
+        if len(differ) <= 2 and (best is None or len(differ) < len(best)):
+            best = differ
+            if not differ:
+                return ()
+    if best is None:
+        return None
+    agree = [folded[j] for j in range(k) if j not in best]
+    if len(agree) < max(3, 2 * len(best)) or sum(1 for w in agree if len(w) >= 4 or w[:1].isdigit()) < 2:
+        return None
+    return tuple(best)
+
+
 def nearest_text(excerpt: str, docs: Mapping[str, SuppliedText]) -> tuple[Optional[str], list[str]]:
     """The supplied text that holds the most of ``excerpt``'s words (as words, case and diacritics folded), with the words
     of the excerpt it does not hold; a non-relayed text before a relayed specialist's report on a tie, then the order
     given. ``(None, [])`` when no text was supplied. Used to name the text an altered quotation was taken from ("could
-    mean that shely has been hurt": all its words but 'shely'). Each text's words are read once (:func:`folded_vocabulary`)."""
+    mean that shely has been hurt": all its words but 'shely'). Each text's words are read once (:func:`folded_vocabulary`).
+
+    When the best text holds every word of the excerpt somewhere, the words that differ from the text's aligned window are
+    named instead (:func:`_aligned_changes`, round 9, c2): a word changed to another word the text uses elsewhere ('new
+    customers into the market' where the text says 'into the shop' and uses 'market' in another sentence) or two words of the
+    request changed ('all readers' for 'survey respondents') is an altered quotation like a word the text never uses; a text
+    of the order given whose aligned window differs in one or two places is named before the others."""
     fold = _fold_word
     # figures are words of the comparison too (c1: 'its lowest level since 2019' where the text says 2020 is a quotation with one figure
     # altered, not one whose every word occurs); a thousands separator is no part of a figure's value ('1,000' and '1000')
@@ -1010,12 +1075,23 @@ def nearest_text(excerpt: str, docs: Mapping[str, SuppliedText]) -> tuple[Option
     if not docs or not words:
         return (next(iter(docs), None), []) if docs else (None, [])
     best: Optional[tuple[int, int, int, str, list[str]]] = None
+    complete: list[str] = []
     for order, (doc_id, doc) in enumerate(docs.items()):
         vocab = folded_vocabulary(doc.text)
         missing = [w for w in words if fold(w) not in vocab]
+        if not missing:
+            complete.append(doc_id)
         key = (len(words) - len(missing), 0 if not is_peer_text(doc) else -1, -order)
         if best is None or key > best[:3]:
             best = (*key, doc_id, missing)
+    if complete and not best[4]:
+        folded = tuple(fold(w) for w in words)
+        for doc_id in complete:
+            changed = _aligned_changes(folded, docs[doc_id].text)
+            if changed == ():
+                return doc_id, []  # the words stand in this text in order: nothing to name
+            if changed:
+                return doc_id, list(dict.fromkeys(f"'{words[j]}'" for j in changed))
     return best[3], list(dict.fromkeys(f"'{w}'" for w in best[4]))
 
 

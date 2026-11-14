@@ -1503,6 +1503,18 @@ def _check_authority(assertion: Assertion, grounding: Grounding, literals: list[
         checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="relation_in_source" if relation else "numeric_in_task",  # type: ignore[arg-type]
                                      verified=verified, document_id=doc_id, detail=detail[:2000]))
         return grounding.model_copy(update={"verified": verified})
+    if not relation and literals and all(abs(lit.value) in (0, 1) and lit.required == "eq" for lit in literals):
+        # round 9 (c2, the 'unit = 1' anchors): a premise that only gives a symbol the structural value 0 or 1 ("one equals one")
+        # is never validated by a 0 or a 1 found anywhere in the task (task characters 96-97 of a p9b request validated it),
+        # since nearly every text holds one: only a located excerpt that states it verifies it. Unvalidated, its standing is
+        # the writer's own for the circularity rules (a task label on a structural figure), so a conclusion conjunct it
+        # restates is E112, never ENTAILED on an invented premise listed as task data.
+        checks.append(GroundingCheck(target_id=assertion.id, kind=kind, method="numeric_in_task", verified=None, document_id=doc_id,  # type: ignore[arg-type]
+                                     detail=(f"the kind {kind} claims the task's authority for a structural figure "
+                                             f"({', '.join(lit.written for lit in literals[:4])}) that the premise cites no located excerpt for: a 0 or a 1 "
+                                             f"occurs in almost any text, so one found in the task material ({searched}) is no evidence that the task states "
+                                             f"this premise; its authority is unvalidated{no_task}")[:2000]))
+        return grounding.model_copy(update={"verified": None})
     verified, check, missing = _figures_check(assertion.id, kind, literals, sources, doc_id, "numeric_in_task", f"the task material ({searched})")
     if verified is True:
         if relation:
@@ -2861,28 +2873,41 @@ _NAMED_PRONOUNS = frozenset({"i", "me", "my", "we", "us", "our", "you", "your", 
                              "them", "their", "one", "thou", "thee", "thy"})
 
 
-#: A span a meaning or label quotes in double marks (straight or curly) or in paired curly single marks.
-_MEANING_QUOTE_RE = re.compile(r"[\"“”«»]([^\"“”«»\n]{1,120})[\"“”«»]|‘([^‘’\n]{1,120})’")
+#: A span a meaning or label quotes in double marks (straight or curly), in paired curly single marks, or (round 9, c2,
+#: second fix pass: "the mother says 'Only this'") in straight single marks that open after no letter and close before none
+#: (an apostrophe inside a word, "mother's", opens nothing).
+_MEANING_QUOTE_RE = re.compile(r"[\"“”«»]([^\"“”«»\n]{1,120})[\"“”«»]|‘([^‘’\n]{1,120})’|(?<![^\W\d_])'([^'\n]{1,120})'(?![^\W\d_])")
+#: Verbs of saying: a meaning that holds the quoted words right after one is about the words someone says ("the mother says
+#: Only this", "she replies all of it"), round 9, c2, second fix pass (c1 translation-fidelity #15).
+_SPEECH_VERBS = frozenset({"says", "say", "said", "saying", "writes", "write", "wrote", "written", "asks", "ask", "asked", "replies", "reply",
+                           "replied", "answers", "answer", "answered", "tells", "told", "shouts", "shouted", "whispers", "whispered", "calls",
+                           "called", "cries", "cried", "insists", "insisted", "repeats", "repeated", "speaks", "spoke", "utters", "uttered"})
 
 
 def _names_words(text: str, quoted: str) -> bool:
-    """Whether ``text`` (a literal's meaning or label) is about the words ``quoted`` themselves: it quotes them, holds them
-    right after a noun of :data:`_NAMING_WORDS` ("the word we", "the formula it was the"), or holds the one pronoun they are
-    right after a verb of :data:`_NAMING_VERBS` ("uses she for Mrs Reed"). Bounded: the first 600 characters."""
+    """Whether ``text`` (a literal's meaning or label) is about the words ``quoted`` themselves: it quotes them (straight single
+    marks too), holds them right after a noun of :data:`_NAMING_WORDS` ("the word we", "the formula it was the") or a verb of
+    saying (:data:`_SPEECH_VERBS`: "the mother says Only this"), or holds the one pronoun they are right after a verb of
+    :data:`_NAMING_VERBS` ("uses she for Mrs Reed"). Bounded: the first 600 characters."""
     qt = lexis.tokens(quoted)
     if not qt or not text:
         return False
     text = text[:600]
     for m in _MEANING_QUOTE_RE.finditer(text):
-        if lexis.tokens(m.group(1) or m.group(2) or "") == qt:
+        if lexis.tokens(m.group(1) or m.group(2) or m.group(3) or "") == qt:
             return True
     mt = lexis.tokens(text)
     n = len(qt)
     pronoun = n == 1 and qt[0] in _NAMED_PRONOUNS
-    return any(mt[i:i + n] == qt and (mt[i - 1] in _NAMING_WORDS or (pronoun and mt[i - 1] in _NAMING_VERBS))
+    return any(mt[i:i + n] == qt and (mt[i - 1] in _NAMING_WORDS or mt[i - 1] in _SPEECH_VERBS or (pronoun and mt[i - 1] in _NAMING_VERBS))
                for i in range(1, len(mt) - n + 1))
 
 
+#: A literal that states an absence in the text: a negation, then within a few words a verb of naming, mentioning or stating
+#: ("the email never names a commitment mechanism", "the article does not mention the cost", "the poem makes no reference to").
+_ABSENCE_RE = re.compile(r"\b(?:never|not|no|nowhere|without)\b[^.;\n]{0,60}?\b(?:names?|named|naming|mentions?|mentioned|says?|said|states?|"
+                         r"stated|refers?|referred|reference|cites?|cited|includes?|included|lists?|listed|admits?|admitted|acknowledges?|"
+                         r"acknowledged|addresses|addressed|discusses|discussed|explains?|explained)\b", re.IGNORECASE)
 #: A capital letter a quotation names after another word ("Just the A", "an F", "grade B"): a letter grade or label, which is
 #: content of the quotation, never the article "a" (round-8 clearance c1, en-t14 p2-point).
 _LETTER_NAME_RE = re.compile(r"(?<=[^\W\d_][ \t])[A-Z](?![\w'’])")
@@ -2970,6 +2995,14 @@ def _literal_in_spans(assertion: Assertion, kind: str, spans: list[tuple[SourceT
                 if _LETTER_NAME_RE.search(quoted):
                     return None  # a letter named in the quotation ("Just the A", a grade) is content, never a placeholder (round-8 clearance c1)
                 found = (2, "the excerpt holds no content word (a placeholder)", where)
+            elif negative and _ABSENCE_RE.search(meaning[:600]) and not any(w & clause_roots for w, _f in readings):
+                # round 9 (c2, second fix pass: ll-p9a p2-s10, "the email never names a commitment or consistency mechanism"
+                # grounded by the excerpt "one more small step"): a literal that says the text never or does not name, mention or
+                # state something is an absence no located excerpt states, unless the excerpt's clause holds the literal's own
+                # words; one that holds none of them only occurs in the text and is cited for what it does not say. A negated
+                # statement about the world (a translation of the excerpt's own words, as in a Language B text) is not judged here
+                found = (1, "its clause holds none of the literal's words, and a located excerpt cannot state that the text never or does not "
+                            "name, mention or state something", where)
             else:
                 return None  # some of the literal's words in other terms: a paraphrase is not judged here
         if refutation is None or found[0] > refutation[0]:

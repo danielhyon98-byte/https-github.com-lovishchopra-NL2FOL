@@ -108,6 +108,9 @@ class StemProfile:
     computer_science: bool = False
     #: only the principal (non-negative) root is taken in a step (sciences); mathematics keeps both signs
     principal_root: bool = True
+    #: round-9 clearance (rule data-convention): the request or the answer states the decimal convention for the multiples of the byte
+    #: ('1 GB = 1000 MB', '1 MB = 10⁶ bytes'), so kB, MB, GB and TB have their decimal reading only (set per document by build_document)
+    decimal_data: bool = False
 
     @property
     def is_mathematics(self) -> bool:

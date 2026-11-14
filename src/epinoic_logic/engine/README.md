@@ -220,3 +220,26 @@ Larger roots, surds and wrong roots take 2 to 15 ms. A linear sign-change form (
 of opposite signs, by the intermediate value theorem) decides the same correct root in about
 13 ms. A double root has no sign change, so the nonlinear Form S stays the fallback. Both
 forms are pinned in the shape tests.
+
+## Round-9 clearance (integrated round c2): the omitted condition (`E111`)
+
+A COUNTEREXAMPLE that exists only because the encoding left out what its own link or definition needs is no verdict on the claim
+(`E111`, message `OMITTED_CONDITION`, `_omitted_condition_diagnostic`): a link's antecedent holds a condition on numeric symbols no
+premise constrains whose grounding declares their value stated (`arithmetic_fact`, `task_setting`, `rubric_rule`, `supplied_text`,
+`quotation`), and with that condition the conclusion follows (c2 ess-p9c s4.1: "a larger share of runoff" with the shares never
+given); or the conclusion defines a symbol no premise mentions by an equation over premise symbols, and with the definition as a
+premise the rest of the conclusion follows (c2 ch-p9b s5.3: c = n/V written in the conclusion). A counterexample that survives the
+condition or the definition (a wrong figure, a wrong step) keeps its verdict, a Bool condition the claim never established stays the
+missing link the argument rules name (ARG-NS-002), and a conclusion atom the translator declared keeps the advisory `W111`. One
+solver call per shape, inside the probes' shared budget.
+
+## Round-9 clearance, second fix pass: the nesting bound before the schema library, a definitional majority
+
+`parse_and_validate` bounds the nesting of the parsed JSON (an iterative walk, `json_nesting_beyond`) at the deepest a problem
+within the limits can need (`json_nesting_bound`: two levels per expression node plus the problem's own six), before pydantic
+validates it, so a document nested beyond any valid problem is `E303` whatever the library's own recursion limit and the name of its
+error (pydantic 2.14.3 reports a 500-deep expression as `recursion_depth_exceeded`, which used to surface as `E100`); any recursion
+error the library reports is `E303` as well. ARG-HG-001 no longer names a majority read off a share above half of the same whole
+("a species making over half of the individuals means most belong to one species", c2 ess-t15 s6.2: `_definitional_majority`); a
+majority that places its population in a wider scope ("most students in the country" from one class's pass rate) is still the
+hasty generalisation.

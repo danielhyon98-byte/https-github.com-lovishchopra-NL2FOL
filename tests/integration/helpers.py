@@ -178,7 +178,7 @@ def real_port(agents: str = "off") -> Any:
         from tests.overseer_attach import REASON
         # the overseer sub-project's port adapter: a [real] parameter is skipped, with the reason, where the overseer is not
         # installed (the translator's suite runs without it; the test-double parameters still run)
-        connect = pytest.importorskip("epinoic_overseer.port", reason=REASON).connect
+        connect = pytest.importorskip("epinoic_overseer.port", reason=REASON, exc_type=ModuleNotFoundError).connect
         config = {"engine_key": bytes.fromhex(ENGINE_KEY_HEX), "engine_key_id": "default", "overseer_secret": bytes.fromhex(OVERSEER_SECRET_HEX),
                   "replay_mode": "process", "agents": agents}
         if agents == "async":

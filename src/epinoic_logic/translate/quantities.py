@@ -48,6 +48,7 @@ A figure is located by its offsets in the ORIGINAL text, so every reading names 
 """
 from __future__ import annotations
 
+import itertools
 import re
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
@@ -562,12 +563,28 @@ def _figure_unit(text: str, end: int) -> tuple[int, Optional[str], Optional[Frac
         lowered = token.lower().rstrip(".,;:)")
         if lowered in _CURRENCY_WORDS:
             return u.start("u") + len(token.rstrip(".,;:)")), lowered, None, "currency", scale, scale_word
-        # a two-word unit ("km h⁻¹", "m s⁻¹", "mol dm-3", "m s**-1") before a one-word one
-        two = re.match(r"\s?([A-Za-zµμ°]{1,4}\s[A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*(?:\*\*[-+]?\d)?)", text[end:end + 24])
+        # a two-word unit ("km h⁻¹", "m s⁻¹", "mol dm-3", "m s**-1") before a one-word one, and the same unit with one or two further
+        # words ("kJ m⁻² yr⁻¹", "J kg⁻¹ K⁻¹"), the longest reading first (round-9 clearance c2b, c1 translation fidelity #7: "kJ m⁻² yr⁻¹"
+        # was read as "kJ m⁻²", a kg s^-2, and named a dimension conflict with a symbol declared in kg s^-3)
+        two = _TWO_WORD_UNIT_RE.match(text[end:end + 24])
         if two is not None:
+            stop2 = end + two.end(1)
+            further = list(itertools.islice(_FURTHER_UNIT_WORD_RE.finditer(text, stop2, min(len(text), stop2 + 24)), 2))
+            further = further[:1] if len(further) == 2 and further[1].start() != further[0].end() else further
+            if further and further[0].start() != stop2:
+                further = []
+            for k in range(len(further), 0, -1):
+                stop = further[k - 1].end()
+                reading = _unit_reading(text[end + two.start(1):stop], after_number=True)
+                if reading is not None and not _subtraction_after(text, stop, reading[0]):
+                    return stop, reading[0], reading[1], reading[2], scale, scale_word
             reading = _unit_reading(two.group(1), after_number=True)
-            if reading is not None and not _subtraction_after(text, end + two.end(1), reading[0]):
-                return end + two.end(1), reading[0], reading[1], reading[2], scale, scale_word
+            if reading is not None and not _subtraction_after(text, stop2, reading[0]):
+                if any(_EXPONENT_MARK_RE.search(w.group(1)) or w.group(1).lower() == "per" for w in further):
+                    # a further unit word (one with an exponent, or "per") follows the two read: the unit is cut, so it gives no
+                    # dimension and no factor (never a dimension conflict from a truncated unit)
+                    return stop2, reading[0], None, None, scale, scale_word
+                return stop2, reading[0], reading[1], reading[2], scale, scale_word
         reading = _unit_reading(token, after_number=True)
         if reading is not None and not _subtraction_after(text, u.start("u") + len(reading[0]), reading[0]):
             return u.start("u") + len(reading[0]), reading[0], reading[1], reading[2], scale, scale_word
@@ -575,6 +592,12 @@ def _figure_unit(text: str, end: int) -> tuple[int, Optional[str], Optional[Frac
 
 
 _NEXT_ATOM_RE = re.compile(r"[ \t]{1,4}([A-Za-zµμΩ]{1,4})(?![A-Za-z])")
+#: A two-word unit after a numeral: an atom, a blank, and an atom with its exponent ("km h⁻¹", "kJ m⁻²", "mol dm-3", "m s**-1").
+_TWO_WORD_UNIT_RE = re.compile(r"\s?([A-Za-zµμ°]{1,4}\s[A-Za-zµμ]{1,3}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]*(?:\*\*[-+]?\d)?)")
+#: One further word of a unit after a two-word one, after a single blank (an atom with its exponent: "yr⁻¹", "K⁻¹", "s**-1"; or "per").
+_FURTHER_UNIT_WORD_RE = re.compile(r"[ \t]([A-Za-zµμ°]{1,4}[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^\-0-9]{0,6}(?:\*\*[-+]?\d)?)(?![A-Za-zµμ°])")
+#: An exponent mark (a superscript minus or digit, a caret, a sign and a digit, "**").
+_EXPONENT_MARK_RE = re.compile(r"[⁻¹²³⁴⁵⁶⁷⁸⁹⁰^]|[-+]\d|\*\*")
 
 
 def _subtraction_after(text: str, end: int, unit: str) -> bool:
@@ -632,10 +655,45 @@ def _two_digits_at(text: str, i: int) -> bool:
     return i + 1 < len(text) and text[i].isdigit() and text[i + 1].isdigit() and (i + 2 >= len(text) or not text[i + 2].isdigit())
 
 
+#: Round 9 (c2): a LaTeX fraction of two whole numbers ("\\frac{45}{11}", "\\dfrac", "\\tfrac"): one figure, 45/11.
+_LATEX_FRACTION_RE = re.compile(r"\\[dt]?frac\{(\d{1,12})\}\{(\d{1,12})\}")
+#: A clock time ("09:30", "21:30"), never part of a longer numeral or a ratio of more parts: also the figure hours + minutes/60.
+_CLOCK_TIME_RE = re.compile(r"(?<![\d:.,])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])")
+#: A month named in full and capitalised ("September"): also the figure of its number. "May" counts only before a day or a year.
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+_MONTH_RE = re.compile(r"\b(" + "|".join(_MONTHS) + r")\b(?!-)")
+
+
+def _latex_fractions_as_written(text: str) -> str:
+    """``text`` with each LaTeX fraction of two whole numbers written as ``a/b`` at the same length (blanks before it), so
+    the figure scanner reads it as one exact figure and every other position is unchanged."""
+    if "frac" not in text:
+        return text
+    return _LATEX_FRACTION_RE.sub(lambda m: " " * (len(m.group(0)) - len(m.group(1)) - len(m.group(2)) - 1) + f"{m.group(1)}/{m.group(2)}", text)
+
+
+def _calendar_figures(kind: str, ident: str, text: str) -> list[StatedFigure]:
+    """The clock times and months of ``text`` as figures of their own (a time in hours, a month by its number), beside the
+    numerals the scanner reads: "09:30" states 9.5 hours, "September" states month 9 (round 9, c2: a correct encoding of
+    them was refuted as an introduced figure). Each is exact (no half-width)."""
+    out: list[StatedFigure] = []
+    if ":" in text:
+        for m in _CLOCK_TIME_RE.finditer(text):
+            value = Fraction(int(m.group(1))) + Fraction(int(m.group(2)), 60)
+            out.append(StatedFigure(source_kind=kind, source_id=ident, start=m.start(), end=m.end(), written=m.group(0), numeral=m.group(0),  # type: ignore[arg-type]
+                                    value=value, has_point=False, places=0, half_width=Fraction(0), unit="h", unit_factor=Fraction(3600), unit_dim="time"))
+    for m in _MONTH_RE.finditer(text):
+        if m.group(1) == "May" and not re.match(r"\s{1,3}\d", text[m.end():m.end() + 5]) and not re.search(r"\d\s{1,3}$", text[max(0, m.start() - 5):m.start()]):
+            continue
+        out.append(StatedFigure(source_kind=kind, source_id=ident, start=m.start(), end=m.end(), written=m.group(1), numeral=m.group(1),  # type: ignore[arg-type]
+                                value=Fraction(_MONTHS.index(m.group(1)) + 1), has_point=False, places=0, half_width=Fraction(0), word=True))
+    return out
+
+
 @lru_cache(maxsize=256)
 def _figures(kind: str, ident: str, text: str) -> tuple[StatedFigure, ...]:
-    text = text[:MAX_TEXT_CHARS]
-    out: list[StatedFigure] = []
+    text = _latex_fractions_as_written(text[:MAX_TEXT_CHARS])
+    out: list[StatedFigure] = _calendar_figures(kind, ident, text)
     # the characters of the cues that state a precision ('2 decimal places'): their numerals are no figures (one lookup
     # per numeral, so the scan stays linear in the text)
     cue_numerals = bytearray(len(text) + 1)

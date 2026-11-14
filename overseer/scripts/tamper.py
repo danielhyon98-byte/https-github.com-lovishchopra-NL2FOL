@@ -1114,6 +1114,15 @@ def t2d(suite: Suite, target: str) -> list[Fault]:
     return _with(suite, target, body)
 
 
+def _declined_bound_record(c: Any) -> bool:
+    """Whether a constraint result is a bound recorded not applicable under rule declined-bound (round-9 clearance c2, q222b): method
+    ``not_checkable``, no status and no verdict, and the channel's own declined-bound wording; any other not-checkable record (the
+    channel's "constraint kind not checkable by code") is not one, so T5 never presents it as the declined-bound case."""
+    from epinoic_logic.api.channel import DECLINED_BOUND_PREFIX
+    return (c.method == "not_checkable" and c.formal_status is None and c.satisfied is None
+            and str(getattr(c, "detail", "") or "").startswith(DECLINED_BOUND_PREFIX))
+
+
 def t5_presented(rc: Any) -> Any:
     """The receipt T5 presents in place of ``rc``: the first constraint result with a definitive formal_status flipped
     (ENTAILED to COUNTEREXAMPLE and back, ``satisfied`` with it). When no result has a definitive status, the first bound
@@ -1128,7 +1137,7 @@ def t5_presented(rc: Any) -> Any:
             new = "COUNTEREXAMPLE" if c.formal_status == "ENTAILED" else "ENTAILED"
             flipped.append(c.model_copy(update={"formal_status": new, "satisfied": new == "ENTAILED"}))
             done = True
-        elif not done and not definitive and c.method == "not_checkable":
+        elif not done and not definitive and _declined_bound_record(c):
             flipped.append(c.model_copy(update={"formal_status": "ENTAILED", "satisfied": True, "method": "formal"}))
             done = True
         else:

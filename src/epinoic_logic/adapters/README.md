@@ -386,7 +386,10 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   verification-label words.
 - **Mentions** (`absent_mentions`, read by the core pack, the channel and the Overseer): a quoted statement the sentence judges true or
   false ('so "more than twenty" is false') and the word the reader is told to reply with ('Reply "approve" ...') besides the words a text
-  lacks; `sources.attribute_excerpt` credits such a span to no text with a mention assumption.
+  lacks; `sources.attribute_excerpt` credits such a span to no text with a mention assumption. Since round-9 clearance c2b also a
+  label or a definition the writer introduces (`LABEL_BEFORE_RE`: 'Let E be "at least one blue" and F be "both blue"', 'we call it
+  "the gap"', 'a process called "osmosis"', 'define S as', 'denoted by', 'stands for'), so maa-t15's event labels draw no CORE-SRC-003;
+  words another speaker gave stay a quotation ('One minister called it "a parliament that could only say no"').
 - **The writer's own model sentence**: a quotation under a "Model:" or "Rewrite:" label that no supplied text holds, is no altered
   quotation of one (no text holds all its words but one or two) and shares no four words in a row with one, is the writer's own words
   (`sources.own_model_words`: no source reference, nothing to verify). A model label over words taken from a text, altered or not,
@@ -404,5 +407,65 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   an altered quotation.
 - **Splitting and claim text**: "et al." ends no sentence (the shared splitter's abbreviations and the English parser's), and a run of
   three or more underscores is a blank to fill in, kept as written by `strip_markup`.
+
+## Round 9 (integrated round c2) clearance: what the shared readers read since
+
+- **Notes read by what they say, whatever their lead** (`markdown.meta_note_form`, read in `split_note_clauses`, so every parser and the
+  channel's word and paragraph counts read it): an assumption about the student or the task ("Assumption: you are taking SL ..."), a
+  correction for the student's planning ("One correction for your planning: ..."), and a label of the answer's form ("Model paragraph for
+  practice, not for submission.", "Practice answer for ...", "Texto escrito para practicar."). An assumption of the model or the method
+  ("Assumption: marked beetles mix randomly ...") stays the answer's content. A paragraph opened by a note word ("One note:", "Teaching
+  note:", "Note for ...:", `NOTE_WORD_LEAD_RE`) is a note as a whole only while its later sentences continue the note
+  (`note_word_paragraph`, `is_note_continuation`); `opens_note_paragraph` reads it so. The English parser gives such a block a paragraph
+  kind of its own (`note`): role `other`, never the thesis, no body paragraph.
+- **An assurance is never a note** (condition 6b): these readers are closed in the safe direction. A note-word lead reads only two body
+  shapes (`note_word_body`: advice conditional on the student's own paper or task, "if your paper asks you to contrast them, ...", and a
+  remark that the supplied material carries an instruction of its own, "the extract contains a bracketed note ..."); every clause of an
+  assumption or a correction must name the student, the course or the task (`_TASK_FORM_CLAUSE_CUE_RE`, so "Assumption: you are taking
+  SL and every quotation here is bang on." stays a claim); and a sentence holding an assessment of the answer (`states_assurance`: "there
+  is nothing to fix in this answer, not a single slip", "everything checks out", "use the figures above in your own essay") is no note
+  under any of them. Such a sentence stays a claim, so the claim rules and the Overseer's rules decide it, as before these readers (the
+  Overseer's round-3 to round-5 push-check inputs and its 93-phrasing meta-note corpus are read so). A task assumption that also says
+  more ("Assumption: SL, Paper 1 (no calculator), so every value is exact.") is a framing remark (`task_assumption_frame`).
+- **Framing remarks** (`is_framing_remark`): a fictional subject ("Ostrel is a fictional country ..."), a remark that the answer is not an
+  official markscheme, and a remark on what the command term asks ("Compare asks for similarities only ...") keep their role but are never
+  material.
+- **Self-reports read by their structure** (`is_self_certification`, `_structural_check_report`): the answer's values, marks, steps or
+  results checked by an engine, a system, a GDC or the writer ("All values above were checked with a GDC.", "Each step was re-derived and
+  confirmed."), the answer passing checks, and the Spanish status words in capitals; content about checking ("I recalculated the mean
+  ...", "These results were confirmed by later studies") is none.
+- **Altered quotations in any position** (`sources.nearest_text`): when a text holds every word of a quotation somewhere, the words that
+  differ from the text's aligned window of the quotation's length are named (`_aligned_changes`: one or two places differing, at least
+  three agreeing, two of them a word of four letters or more or a figure), so a word changed to another word the text uses elsewhere
+  ('into the market' for 'into the shop', 'rose' for 'fell', «turistas» for «visitantes») or two words of the request changed is an
+  altered quotation. The reading is bounded: quotations of 4 to 48 words, at most 256 windows per text (the windows of the quotation's
+  three rarest words the text holds); beyond the bounds the quotation is compared as a bag of words, as before. A typographic apostrophe
+  is read as a straight one.
+
+## Round 9 (integrated round c2) clearance, second fix pass
+
+- **A check narrated by the writer** (`markdown._narrated_check`, read by `is_self_certification` on every branch): a first-person
+  'confirm' with a clause that says the answer, its items or everything holds no error or is correct ("I reviewed the whole text and
+  confirm there are no errors."; after 'and' only when 'I' or 'we' stands before it, so "Check your work and confirm there are no errors"
+  stays an instruction), reviewing or proofreading the writer's own items ("I proofread my answer."), and the same in Spanish: a
+  first-person verb of checking (accented preterite forms only: 'revisé', never the English 'revise') with the answer or its items as
+  object ("Revisé todo el texto", "He comprobado los cálculos", "Lo he revisado todo"), with a clause that they hold no error ("Comprobé que
+  todas las cifras coinciden con la tarea"), and 'confirmo que' with such a clause. Another party's check ("La autora revisó el texto"), a
+  possessor other than the answer ("las cifras del ayuntamiento"), a finding about the world ("He comprobado que el ruido ha aumentado")
+  and a negated check ("No he revisado los cálculos") are none.
+- **One word in single marks** (`markdown._single_quote_spans`): a one-word span in single marks is a quotation after a quoting frame (a
+  verb of saying, of opening or closing, or 'the' with an adjective or a noun of words: "opens with the sardonic 'Wonderful,'", "the word
+  'gloom'"), never after 'the' alone ("the 'cheap' option", a scare quote) and never an apostrophe form.
+- **History roles** (`history_specialist.parser`): the parser takes the request text (`accepts_request_text`); a body analysis sentence
+  that states a position on the request item's own question in the item's words with an evaluative or comparative frame ("Legal means,
+  rather than violence, consolidated his power."; `answers_item_with_verdict`, `request_item_terms`) is the requested verdict (judgement,
+  material), while a dated sentence stays evidence and a sentence that reports a debate or others' views or embeds the question
+  ("Historians still debate how far ...") states no position; the sentence right after a stated verdict that gives its ground ("Its scale,
+  and the decision of ..." after "The decisive turning point was 1960.") is material with it, its role unchanged.
+- **History chronology** (`history_specialist.chronology`): a pronoun that opens its sentence ("This came before the Inchon landing of 15
+  September 1950.") takes up the event of the previous sentence by its one date; a relative clause of occurrence after a noun's comma ("a
+  boycott, which began on 5 December 1955") dates that noun for a later look-up; an indefinite article ends a noun's modifiers as a definite
+  one does; and the boycott, arrest, trial, protest, talks, negotiation, intervention, withdrawal and ceasefire are event nouns a side of an
+  order cue is looked up by.
 
 Rule sources cited in findings are the agent's working rules, not official IB rules.

@@ -46,6 +46,17 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   journaled request by the channel's locator: a guiding question's "returning home", a true/false statement's "toda"), and
   a word the sentence says the text lacks ('has no "like" or "as"', 'never says "ayudar"': a mention, read by the pack's
   ``_absent_mentions``);
+* ``own-model`` (round-9 clearance c2, FID-004): a quoted span the answer presents as its OWN model, example or suggested
+  wording, introduced by a lead from a closed list at the start of its line or sentence ("Model:", "A model answer:",
+  "Example answer:", "Rewrite:", "Suggested wording:", "For example, write:", "You could write:") and credited to no text (no
+  source reference of the claim gives it as its excerpt), quotes no supplied text, as the channel reads it: c2 ec-t15's four
+  'Model: "..."' sentences drew four false OVS-FID-004 errors, failed a correct answer's audit and made the feedback ask the
+  specialist to remove the quotation marks. A quotation credited to a text stays FID-004 when no text holds it;
+* ``referring-bracket`` (round-9 clearance c2, FID-001): a bracketed number right after a noun that refers to a place
+  ("paragraph [3]", "row [5]", "line [2]", "source [4]") is that reference, never a mark annotation, so the response is never
+  read without it (rule ``mark-annotation`` reads every other closing annotation out as before). c2 ec-t15 g4.2 was delivered as
+  "... linked to paragraph." for the answer's "... linked to paragraph [3].", and an overseer agent's correct
+  claim_not_in_response accusation was refuted by this check; the claim now does not occur in the response (FID-001);
 * ``emphasis-figures`` (integration gate 3, FID-003): the STEM parser leaves the emphasis markers inside a statement out of
   its claim (``= __5.0 m s⁻²__.`` is delivered as ``= 5.0 m s⁻².``), while the figure reader reads no figure glued to an
   underscore (a word character), so a correct answer was AUDIT_FAILED for a figure "the response states under no
@@ -110,16 +121,27 @@ from epinoic_logic.api.channel import (
 from epinoic_logic.api.integrity import figure_spellings
 from epinoic_logic.api.stem import annotation_ranges
 from epinoic_logic.api.translate import ClaimRecord, SpecialistReport, SuppliedText
+from ..meta_notes import RESPONSE_LIMIT_RULE, RESPONSE_MAX_CHARS, over_response_limit
 from ..view import REPORT_KINDS, RESPONSE_KINDS, Transfer
 from . import CheckContext, normalise, plain_form, strip_list_markers
 from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
-           "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify",
+           "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify", "own_model_quotations",
            "strip_edge_emphasis"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
-                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "emphasis-figures")
+                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model", "referring-bracket",
+                  "emphasis-figures")
+#: Rule ``own-model`` (round-9 clearance c2, FID-004): the leads with which an answer presents a quoted span as ITS OWN model, example or
+#: suggested wording ("Model: \"A current account deficit is ...\""), read from a closed list, case folded, the lead opening its line or
+#: sentence (only blanks and emphasis marks before it) and closed by a colon right before the opening quotation mark. The window read
+#: before each quotation is bounded (:data:`_OWN_MODEL_WINDOW` characters), so the reading is linear in the response.
+_OWN_MODEL_LEAD_RE = re.compile(r"(?:^|[\n.!?])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model(?:[ \t]{1,3}(?:answer|sentence|paragraph|response))?|"
+                                r"(?:example|sample|suggested|exemplar)[ \t]{1,3}(?:answer|sentence|wording|response|paragraph)|rewrite|rewritten|"
+                                r"suggested[ \t]{1,3}rewrite|(?:for[ \t]{1,3}example,?[ \t]{1,3})?you[ \t]{1,3}could[ \t]{1,3}write|"
+                                r"for[ \t]{1,3}example,?[ \t]{1,3}write)[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}$", re.IGNORECASE)
+_OWN_MODEL_WINDOW = 80
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -197,12 +219,28 @@ _BLANK_LINES_RE = re.compile(r"\n\s*\n")
 _EDGE_EMPHASIS_RE = re.compile(r"(?<![*_])(?:(?<![^\W_])[*_]++|[*_]++(?![^\W_]))")
 
 
+#: Rule ``referring-bracket`` (round-9 clearance c2, the c2 adversarial lens: ec-t15 g4.2 "... linked to paragraph [3]." was delivered as
+#: "... linked to paragraph." and an overseer agent's correct claim_not_in_response accusation was refuted): a bracketed number right after
+#: a noun that refers to a place ("paragraph [3]", "row [5]", "line [2]", "source [4]") is that reference, never a mark annotation, so it
+#: is never read out of the response. Read in a bounded window before the bracket (linear).
+_REFERRING_BEFORE_RE = re.compile(r"\b(?:paragraphs?|paras?|rows?|lines?|sources?|tables?|figures?|figs?|pages?|pp?|sections?|columns?|cols?|"
+                                  r"items?|steps?|questions?|texts?|documents?|docs?|extracts?|appendix|appendices|chapters?|references?|refs?|"
+                                  r"equations?|eqs?|sources?|exhibits?|cells?|entries|entry)\.?[ \t]{0,3}$", re.IGNORECASE)
+_REFERRING_WINDOW = 24
+
+
+def referring_bracket(text: str, start: int) -> bool:
+    """Rule ``referring-bracket``: whether the annotation that starts at ``start`` of ``text`` follows a noun that refers to a place."""
+    return bool(_REFERRING_BEFORE_RE.search(text[max(0, start - _REFERRING_WINDOW):start]))
+
+
 def _parser_unmarked(text: str) -> str:
     """``text`` without the mark annotations the parsers' own line rule finds (``stem.layout.annotation_ranges``: those
-    closing the line, those closing one of its sentences, sentences of annotations alone), line by line."""
+    closing the line, those closing one of its sentences, sentences of annotations alone), line by line; a bracketed number
+    after a referring noun stays (rule ``referring-bracket``)."""
     out: list[str] = []
     for line in (text or "").split("\n"):
-        ranges = annotation_ranges(line)
+        ranges = [(a, b) for a, b in annotation_ranges(line) if not referring_bracket(line, a)]
         if not ranges:
             out.append(line)
             continue
@@ -224,7 +262,7 @@ def strip_mark_annotations(text: str) -> str:
     pieces: list[str] = []
     pos = 0
     for m in _MARK_RUN_RE.finditer(t):
-        if _MARK_END_RE.match(t, m.end()):
+        if _MARK_END_RE.match(t, m.end()) and not referring_bracket(t, m.start()):
             pieces.append(t[pos:m.start()])
             pos = m.end()
     if not pieces:
@@ -263,6 +301,24 @@ def no_quotation_to_verify(quotations: list[str], request_text: Optional[str], m
         if req is not None and any(check_excerpt(x, "the request", req).located for x in dict.fromkeys([q, strip_trailing_punctuation(q)]) if x):
             out.append(q)
     return out
+
+
+def own_model_quotations(text: str) -> set[str]:
+    """Rule ``own-model`` (round-9 clearance c2, the c2 results-audit, adversarial and communication lenses: four false OVS-FID-004 errors
+    failed the correct ec-t15 answer, and its feedback told the specialist to remove the quotation marks): the inner texts (normalised)
+    of the quotations ``text`` presents as the writer's own model, example or suggested wording (:data:`_OWN_MODEL_LEAD_RE` right before
+    the opening mark). Such a span quotes no supplied text, as the channel reads it: it is the writer's own words in quotation marks.
+    One pass over the quotation spans, each reading a bounded window."""
+    out: set[str] = set()
+    for start, _end, inner in find_quotation_spans(text or ""):
+        if inner.strip() and _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start]):
+            out.add(normalise(inner.strip()))
+    return out
+
+
+def _credited(c: ClaimRecord, q: str) -> bool:
+    """Whether the claim credits the quotation ``q`` to a text (a source reference whose excerpt is ``q``)."""
+    return any((r.excerpt or "").strip() == q.strip() for r in c.source_refs)
 
 
 def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
@@ -479,6 +535,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     named = _named_claims(t)
     request_text = _request_text(ctx, t)
     mention_keys = {_quote_key(q) for q in _absent_mentions(rep.original_response, find_quotation_spans(rep.original_response))}
+    own_models = own_model_quotations(rep.original_response)  # rule own-model
     ctx.coverage.claims_checked += len(rep.claims)
     claim_texts_norm: list[str] = []
     for c in rep.claims:
@@ -509,6 +566,9 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             if unlocated:  # rule no-quotation-to-verify: the merged core pack's own reading of quoted words
                 exempt = no_quotation_to_verify(unlocated, request_text, mention_keys)
                 unlocated = [q for q in unlocated if q not in exempt]
+            if unlocated and own_models:  # rule own-model: the writer's own model or example, credited to no text, quotes nothing
+                unlocated = [q for q in unlocated if _credited(c, q) or normalise(q) not in own_models
+                             and normalise(strip_enclosing_quotes(q)) not in own_models]
             if unlocated:
                 ctx.ovs(t.seq, "OVS-FID-004", f"claim {c.claim_id} quotes {[q[:80] for q in unlocated[:4]]}, which occur in no supplied text, and no receipt finding names the claim",
                         claim_ids=cid, document_ids=[s.document_id for s in supplied], **ids)
@@ -664,11 +724,18 @@ def _changed_fields(a: ClaimRecord, b: ClaimRecord) -> list[str]:
 
 def check_reparse(ctx: CheckContext, t: Transfer) -> None:
     """CUST-006: a delivered ``response_text`` is re-parsed from its journaled raw text by the branch adapter the auditor's
-    registry gives the agent's subject; its claims must be the delivered report's."""
+    registry gives the agent's subject; its claims must be the delivered report's. A raw text over the contract's response
+    limit is never re-parsed (rule ``response-limit``, defence in depth: the channel refuses such a text before any reader
+    runs, so no report can have been delivered from it): it is named CUST-006 by its length and the limit, unread."""
     if t.kind != "response_text" or not t.delivered or t.digest_only or t.raw_text is None:
         return
     rep = t.report
     if rep is None:
+        return
+    if over_response_limit(t.raw_text):
+        ctx.ovs(t.seq, "OVS-CUST-006", f"the raw text of {t.kind} {t.message_id} has {len(t.raw_text)} characters, over the contract's limit of "
+                f"{RESPONSE_MAX_CHARS}, yet a parsed report was delivered from it; the auditor did not re-parse it (rule {RESPONSE_LIMIT_RULE})",
+                **t.ids())
         return
     args = _reparse_args(ctx, t, rep)
     if args is None:

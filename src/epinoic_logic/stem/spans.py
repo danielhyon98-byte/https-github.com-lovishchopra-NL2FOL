@@ -795,6 +795,12 @@ class _RunFinder:
             return True  # a word formula 'BMI = mass/height² = 72/1.80² = …': the prose word ends the label
         if rel_start and p.kind == "PERCENT" and k + 1 < len(self.t) and self.t[k + 1].kind == "NUM":
             return True  # 'useful output/total input × 100% = 600 J / 800 J × 100% = 75%': the word formula is the label
+        if rel_start and p.kind == "NUM" and k >= 3 and k + 1 < len(self.t) and self.t[k + 1].kind == "NUM" and self.t[k - 2].kind == "OP" \
+                and self.t[k - 2].text in ("×", "*", "÷", "/") and self.t[k - 3].kind == "IDENT" and len(self.t[k - 3].text) >= 3 \
+                and not self.mathy_start(self.t[k - 3]):
+            # round-9 clearance (rule word-formula-chain): 'percentage yield = actual yield ÷ theoretical yield × 100 = 150 cm³ ÷ 1000 cm³ ×
+            # 100 = 15.0%': the word formula ending in a factor is the label of the working after it (the line had no span at all)
+            return True
         return False
 
     def can_start(self, k: int) -> bool:
@@ -1123,6 +1129,27 @@ class _RunFinder:
             return ""
         return " ".join(self.view[start_tok.start:self.t[i].start].split())[:120]
 
+    def label_cut(self, i: int) -> str:
+        """Round-9 clearance (rule cut-label): the words before a run that opens with a relation sign are the unit of a figure of an
+        expression the run does not hold ('6 000 000 bytes ÷ 1500 bytes per packet = 5000 packets': the run is '= 5000 packets', its
+        label 'bytes per packet'), or follow a times or division sign: the relation's left side is not read, so it is named, never read
+        as a label's value. The excerpt, else ''."""
+        k = i - 1
+        words = 0
+        while k >= 0 and self.t[k].kind == "IDENT" and words < 6:
+            words += 1
+            k -= 1
+        if words == 0 or k < 0:
+            return ""
+        stop = self.t[k]
+        cut = stop.kind == "OP" and stop.text in ("÷", "×", "*")
+        if not cut and stop.kind == "NUM" and self.unit_here(k + 1) and k >= 1:
+            before = self.t[k - 1]
+            cut = before.kind == "NUM" or (before.kind == "OP" and before.text in ("÷", "×", "*", "/", "+", "−", "-"))
+        if not cut or "\n" in self.view[stop.start:self.t[i].start]:
+            return ""
+        return " ".join(self.view[max(0, stop.start - 24):self.t[i].end + 16].split())[:120]
+
 
 def _verbal(toks: tuple[Token, ...]) -> list[tuple[int, int, tuple[Token, ...]]]:
     """Verbal arithmetic: numbers joined by plus/minus/times/multiplied by/divided by, then
@@ -1237,7 +1264,10 @@ def _tables_and_data(view: str, lines: tuple[Line, ...], covered: "_Cover", comp
             while j + 1 < n and view[lines[j + 1].start:lines[j + 1].end].strip().startswith("|") and not _inside(lines[j + 1].start, covered):
                 j += 1
             block = [view[lines[k].start:lines[k].end].strip() for k in range(i, j + 1)]
-            if any(t.endswith("|") or t.count("|") >= 3 for t in block):
+            # round-9 clearance: a lone line of bars that does not end with a bar is maths ('||1|| = 2', '||−3| − 5| = 7': nested
+            # absolute values had been read as a one-row table, so their relation was neither checked nor named)
+            lone_math = j == i and not block[0].endswith("|")
+            if not lone_math and any(t.endswith("|") or t.count("|") >= 3 for t in block):
                 out.append(Span("table", lines[i].start, lines[j].end, rows=tuple((lines[k].start, lines[k].end) for k in range(i, j + 1)), line=i))
                 i = j + 1
                 continue
@@ -1259,7 +1289,7 @@ def _data_like(text: str) -> bool:
 
 
 def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile, limits: StemLimits = DEFAULT_LIMITS,
-               names: frozenset[str] = frozenset(), decimal_dots: tuple[int, ...] = ()) -> SpanSet:
+               names: frozenset[str] = frozenset(), decimal_dots: tuple[int, ...] = (), mark_codes: tuple[tuple[int, int], ...] = ()) -> SpanSet:
     """Extract every span of ``text`` (see the module docstring). ``reading`` is the reading view
     (computed when omitted); ``names`` are the names in scope from the document's pre-pass. ``decimal_dots`` (integration gate 3, rule
     middle-dot: ``document.ambiguous_dots``) are the middle dots between digits that the runs are found with as decimal points, so a
@@ -1275,7 +1305,10 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
     # the emphasis-only pairs ('_', '___', '~~' with its struck text) are blanked for the maths too (integration gate 3)
     marked_ranges = set(markup)
     math_view = blank_ranges(view, code_cov.ranges + markup + [r for r in emphasis if r not in marked_ranges])
-    scan = blank_ranges(math_view, latex_cov.ranges + [(lines[h].start, lines[h].end) for h in headings])
+    # round-9 clearance, second pass (rule mark-code, ``document._mark_codes``): the markscheme codes that close a line after one blank are
+    # blanked in the view the runs are found in only, never in the math view the statements are cut from, nor as markup, so the statements
+    # (and the claims cut from them, and the claim ids) are cut as before
+    scan = blank_ranges(math_view, latex_cov.ranges + [(lines[h].start, lines[h].end) for h in headings] + list(mark_codes))
     # chemical equations
     chem_cov: list[tuple[int, int]] = []
     if profile.chemistry:
@@ -1323,6 +1356,14 @@ def find_spans(text: str, reading: Optional[str] = None, *, profile: StemProfile
                 err, code = "", ""
                 if b - a > limits.max_span_chars:
                     err, code = f"a math run of {b - a} characters exceeds the span bound of {limits.max_span_chars}", "ST-LIM-001"
+                elif run.lead and run.label:
+                    excerpt = finder.label_cut(run.first)
+                    if excerpt:
+                        # round-9 clearance (rule cut-label): the left side of the relation is an expression the run does not hold (a
+                        # numeral written with a thousands space before it, '6 000 000 bytes ÷ …'): named, never read as a label's value
+                        err, code = (f"a relation whose left side is not read ('…{excerpt}…'): the words before its sign are the unit of a figure "
+                                     "of a longer expression (a numeral written with a thousands space, or a sign outside the grammar), so it is not "
+                                     "checked"), "ST-PARSE-001"
                 spans.append(Span("math_run", a, b, rows=((a, b),), lead=run.lead, label=run.label, line=ln.index, error=err, code=code))
                 taken.append((run.first, run.last))
             for first, last, synth in verbal:

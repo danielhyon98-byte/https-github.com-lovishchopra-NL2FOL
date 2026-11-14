@@ -406,18 +406,29 @@ def test_a_translator_without_a_name_this_release_imports_is_refused_at_import_w
     """Architecture review after arena round 8: an overseer release paired with a translator that lacks a public name it
     imports (``FEEDBACK_KEY_ID`` here, as for the release before it) installs, since both distributions carry the versions
     they always carried, and failed only with a bare ImportError from deep inside the package. It is refused by the check
-    that runs first, naming every missing name; a public API stating another MAJOR version is refused too."""
+    that runs first, naming every missing name; a public API stating another MAJOR version is refused too.
+
+    Each case runs in a fresh interpreter (``python -I``: it reads no ``PYTHONPATH`` and inherits nothing of this session's
+    path), given first on its path the directory this session imported the package from, as the session's ``pythonpath``
+    gives it: the repository's test command also runs where only the translator is installed, and before, every case there
+    failed with ModuleNotFoundError instead of reaching the check. The fresh interpreter is held to resolve the package
+    under test itself, never another installed copy (an assertion added with that fix: a stricter rule)."""
     import subprocess
     import sys
-    code = ("import epinoic_logic.api as api, epinoic_logic.api.channel as ch\n"
+    root = str(PACKAGE.parent)
+    where = subprocess.run([sys.executable, "-I", "-c", "import importlib.util, sys\nsys.path.insert(0, sys.argv[1])\n"
+                            "print(importlib.util.find_spec('epinoic_overseer').origin)\n", root], capture_output=True, text=True, timeout=300)
+    assert Path(where.stdout.strip()).resolve() == PACKAGE / "__init__.py", (where.stdout, where.stderr[-2000:])
+    code = ("import sys\nsys.path.insert(0, sys.argv[1])\n"
+            "import epinoic_logic.api as api, epinoic_logic.api.channel as ch\n"
             "del ch.EXPORTS['FEEDBACK_KEY_ID']\n{extra}"
             "try:\n    import epinoic_overseer\nexcept ImportError as exc:\n    print(type(exc).__name__ + ': ' + str(exc))\nelse:\n    print('IMPORTED')\n")
-    out = subprocess.run([sys.executable, "-I", "-c", code.format(extra="")], capture_output=True, text=True, timeout=300)
+    out = subprocess.run([sys.executable, "-I", "-c", code.format(extra=""), root], capture_output=True, text=True, timeout=300)
     assert out.stdout.startswith("TranslatorIncompatible: epinoic-overseer ") and "api.channel.FEEDBACK_KEY_ID" in out.stdout, (out.stdout, out.stderr[-2000:])
     assert "Install the translator release this overseer release was built against" in out.stdout
-    major = subprocess.run([sys.executable, "-I", "-c", code.replace("del ch.EXPORTS['FEEDBACK_KEY_ID']\n", "").format(extra="api.API_VERSION = '2.0'\n")],
+    major = subprocess.run([sys.executable, "-I", "-c", code.replace("del ch.EXPORTS['FEEDBACK_KEY_ID']\n", "").format(extra="api.API_VERSION = '2.0'\n"), root],
                            capture_output=True, text=True, timeout=300)
     assert major.stdout.startswith("TranslatorIncompatible: ") and "version 2.0; this release speaks version 1.x" in major.stdout, (major.stdout, major.stderr[-2000:])
-    same = subprocess.run([sys.executable, "-I", "-c", code.replace("del ch.EXPORTS['FEEDBACK_KEY_ID']\n", "").format(extra="api.API_VERSION = '1.7'\n")],
+    same = subprocess.run([sys.executable, "-I", "-c", code.replace("del ch.EXPORTS['FEEDBACK_KEY_ID']\n", "").format(extra="api.API_VERSION = '1.7'\n"), root],
                           capture_output=True, text=True, timeout=300)
     assert same.stdout.strip() == "IMPORTED", (same.stdout, same.stderr[-2000:])

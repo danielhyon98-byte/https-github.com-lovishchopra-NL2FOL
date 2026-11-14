@@ -261,9 +261,11 @@ def test_an_invisible_mark_between_numerals_reads_as_a_blank(mark):
     # Rewritten to a stricter rule by the round-8 clearance's handoff fixer (rule bidi-text): an answer holding a bidirectional isolate
     # or embedding (U+2066, U+202A) is now refused by the channel before it is parsed (INT-REQ-009, REJECTED, nothing checked or
     # delivered); what the STEM pack reads in it (no failed check, the relation named ST-PARSE-001) is kept, asserted on the pack.
+    # Rewritten to the same stricter rule in the round-9 clearance: the channel now refuses an invisible tag character (U+E0041) as it
+    # refuses those controls (INT-REQ-009, REJECTED); the pack's reading of it is asserted on the pack, unchanged.
     for answer in (f"x = 3{mark}4 = 12", f"x = 3 {mark} 4 = 12"):
         rc = receive(AA, answer, "Find x.")
-        if mark in ("\u2066", "\u202a"):
+        if mark in ("\u2066", "\u202a", "\U000e0041"):
             assert rc.status.value == "REJECTED" and codes(rc).count("INT-REQ-009") == 1 and f"U+{ord(mark):04X}" in message(rc, "INT-REQ-009") \
                 and not rc.formal_checks and not rc.structural_findings, (answer, codes(rc))
             clear_document_cache()

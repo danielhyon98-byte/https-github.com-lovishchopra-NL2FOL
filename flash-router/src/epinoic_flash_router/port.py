@@ -24,18 +24,24 @@ The service attaches this module with ``EPINOIC_FLASH_ROUTER=epinoic_flash_route
 an environment that holds no key, secret or token, validate everything it answers as untrusted data, and run their own
 minimum-oversight floor whenever its plan is out of contract or below that floor. :class:`FlashRouter` is the same API
 over another data directory (a re-tuned copy being tried). Standard library only.
+
+A request this router does not read (not JSON text, or a member the planners read out of the type or range the router
+port gives it: :mod:`epinoic_flash_router.contract`) is refused with :class:`RequestError` (a ``ValueError``) naming the
+member and the rule, before anything is planned. Any other exception :func:`plan` or :func:`pool_plan` raises is a fault
+of the router's own code, never of the request: the runner (``python -m epinoic_flash_router_cli``) reports the first as
+exit status 3 and the second as exit status 4.
 """
 from __future__ import annotations
 
-import json
 from typing import Optional
 
 from . import __version__
+from .contract import RequestError, decode
 from .planner import plan_for
 from .pool import pool_plan_for
 from .rules import DEFAULT, DataSet, canonical
 
-__all__ = ["NAME", "IDENTITY", "FlashRouter", "hello", "plan", "pool_hello", "pool_plan"]
+__all__ = ["NAME", "IDENTITY", "FlashRouter", "RequestError", "hello", "plan", "pool_hello", "pool_plan"]
 
 NAME = "epinoic-flash-router"
 _PROTOCOL = "epinoic.integration.v1"
@@ -57,8 +63,9 @@ class FlashRouter:
                           "profiles": ["standard", "fast"], "tier": "cheapest", "deterministic": True})
 
     def plan(self, request_json: str) -> str:
-        """The service's plan (``routing-plan.v1``) for one routing request."""
-        return canonical(plan_for(json.loads(request_json), identity=self.identity, data=self.data))
+        """The service's plan (``routing-plan.v1``) for one routing request. :class:`RequestError` when the text is not a
+        request this router reads."""
+        return canonical(plan_for(decode(request_json), identity=self.identity, data=self.data))
 
     def pool_hello(self) -> str:
         """The overseer pool's hello (``pool-router-hello.v1``): the ``pool-plan`` capability at pool port 1.2 (N_FOLD for a
@@ -70,8 +77,9 @@ class FlashRouter:
                           "profiles": ["standard", "fast"], "tier": "cheapest", "deterministic": True})
 
     def pool_plan(self, request_json: str) -> str:
-        """The overseer pool's plan (``pool-routing-plan.v1``) for one batch."""
-        return canonical(pool_plan_for(json.loads(request_json), identity=self.identity, data=self.data))
+        """The overseer pool's plan (``pool-routing-plan.v1``) for one batch. :class:`RequestError` when the text is not a
+        request this router reads."""
+        return canonical(pool_plan_for(decode(request_json), identity=self.identity, data=self.data))
 
 
 _ROUTER = FlashRouter()
@@ -86,7 +94,7 @@ def hello() -> str:
 
 def plan(request_json: str) -> str:
     """The plan (``routing-plan.v1``) for one routing request, as canonical JSON text. The same request text always gives
-    the same plan text."""
+    the same plan text. :class:`RequestError` (a ``ValueError``) when the text is not a request this router reads."""
     return _ROUTER.plan(request_json)
 
 
@@ -97,5 +105,6 @@ def pool_hello() -> str:
 
 def pool_plan(request_json: str) -> str:
     """The pool plan (``pool-routing-plan.v1``) for one overseer-pool batch, as canonical JSON text. The same request text
-    always gives the same plan text."""
+    always gives the same plan text. :class:`RequestError` (a ``ValueError``) when the text is not a request this router
+    reads."""
     return _ROUTER.pool_plan(request_json)

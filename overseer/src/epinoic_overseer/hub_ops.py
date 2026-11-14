@@ -460,9 +460,18 @@ def _review_twofold(self: HubOperations, hub: Any, ch: Any, uid: str, runners: S
                      + f"{'discarded after the request' if tw.context_discarded else 'NOT discarded'}")
         notes.append("temporary context as issued to the merged review: " + canonical_json(rec))
     confirmed_m = sum(1 for a in tw.merged.assessments for x in a.accusations if x.outcome == "confirmed")
-    notes.append(f"merged review of the combinator's output (syntheses {', '.join(layout.synthesis_ids)}) with the temporary context, by "
-                 f"{list(tw.merged.agent_ids)}; {len(tw.merged.assessments)} verdict(s) assessed, {confirmed_m} accusation(s) confirmed; carried faults "
-                 + ("confirmed: " + "; ".join(f"{', '.join(c['claim_ids'])}" for c in tw.carried) if tw.carried else "confirmed: none"))
+    if any(getattr(a, "valid", False) for a in tw.merged.assessments):
+        notes.append(f"merged review of the combinator's output (syntheses {', '.join(layout.synthesis_ids)}) with the temporary context, by "
+                     f"{list(tw.merged.agent_ids)}; {len(tw.merged.assessments)} verdict(s) assessed, {confirmed_m} accusation(s) confirmed; carried faults "
+                     + ("confirmed: " + "; ".join(f"{', '.join(c['claim_ids'])}" for c in tw.carried) if tw.carried else "confirmed: none"))
+    else:
+        # round-9 clearance c2b (the c4f276c push check): the merged part with no assessed verdict is NOT reviewed, as a source part
+        # is (decision 133); "0 verdict(s) assessed ... carried faults confirmed: none" read as a clean merged review
+        what_m = [f"{r.agent_id}: {r.status}" for r in tw.merged.runs] + [f"{a}: no dossier issued ({why})" for a, why in tw.merged.refused] \
+            + [f"{a}: the runner failed ({err})" for a, err in tw.merged.runner_errors]
+        notes.append(f"merged review of the combinator's output (syntheses {', '.join(layout.synthesis_ids)}) NOT reviewed: no verdict was assessed on it "
+                     f"({'; '.join(what_m) or 'no instance ran'}); planned instances {list(tw.merged.agent_ids)}; {len(tw.merged.assessments)} verdict(s) "
+                     "assessed, none valid: its silence shows nothing, and no carried fault is confirmed or cleared by it")
     if consolidations:
         notes.append("part dossiers show consolidated responses of their own answers only")
     notes.extend(_pool_notes(pool_plan, uid))

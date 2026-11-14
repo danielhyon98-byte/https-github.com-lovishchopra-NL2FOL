@@ -40,6 +40,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'locate_quotation': ('epinoic_logic.translate.grounding', 'locate_quotation'),
     'outcome_diagnosis': ('epinoic_logic.translate.outcome', 'outcome_diagnosis'),
     'parse_json_object': ('epinoic_logic.translate.parsing', 'parse_json_object'),
+    'previous_lines': ('epinoic_logic.translate.pipeline', 'previous_lines'),
     'report_diagnostics': ('epinoic_logic.translate.diag_core', 'report_diagnostics'),
     'resolve_profile': ('epinoic_logic.translate.subjects', 'resolve_profile'),
     'review_currency': ('epinoic_logic.translate.review', 'review_currency'),

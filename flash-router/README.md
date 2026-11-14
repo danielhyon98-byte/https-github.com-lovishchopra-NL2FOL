@@ -55,6 +55,19 @@ record, not in the service's plan, until the port adds the code (a router port c
 routing request that names one transfer key twice is refused, as the router port refuses it (every transfer is one
 entry, port rule 1).
 
+**What it reads of a request** (`epinoic_flash_router.contract`). Before anything is planned, every request is checked
+against what the planners read of it: JSON text (no `NaN` or `Infinity`, no member named twice in one object, no string
+it cannot write as UTF-8) whose every member the planners read has the type and the range the router port gives it,
+every count at most 2^53 - 1 (the protocol's integers). A request it does not read is refused with `RequestError` (a
+`ValueError`) naming the member and the rule, never a value of the request: `limits.per_instance_quota is an integer
+from 1 to 9007199254740991`, say. So a request that passes cannot make the planners fail, and what they raise on one is a
+fault of the router's own code, never of the request: the runner reports the two apart (exit 3 and exit 4, below). The
+checks are no stricter than the router port (each rule is implied by the port's own validation of that member, and the
+members the planners do not read are left to the callers, which validate the whole request before they send it), so
+every request in contract is planned exactly as before: the plans of 8,011 port-validated requests (the router-port
+vectors, 4,000 of the service's and 4,000 of the pool's at 1.1 and 1.2) are byte for byte those of the router before the
+checks, which is why the identity did not change.
+
 **The runner** operates the router as a separate sub-agent from the command line, over the same port:
 
 ```
@@ -66,11 +79,19 @@ python -m epinoic_flash_router_cli identity
 python -m epinoic_flash_router_cli pool-plan --data DIR < pool-routing-request.json   # a re-tuned copy of the data
 ```
 
-The answer is written to standard output as canonical JSON with no trailing newline; exit status 2 when the data cannot
-be loaded, 3 when the input is not a request this router reads (the reason on standard error, never a plan). Never a
-traceback: whatever loading the data raises is 2, and whatever reading or planning the request raises is 3 (a request
-nested too deep to decode, a number out of range, a zero quota, a transfer key named twice), each named by its exception
-type only.
+The answer is written to standard output as canonical JSON with no trailing newline. Otherwise nothing is written to
+standard output, one line on standard error names the reason, and there is never a traceback:
+
+| Exit | When | Standard error names |
+|---|---|---|
+| 0 | the answer was written | nothing |
+| 2 | the data cannot be loaded: a file that cannot be read, that is not JSON or not the shape the planners read, or that is nested too deep to decode | the exception type and the loader's reason (`OSError`, `ValueError`; `RecursionError` by its type) |
+| 3 | the input is not a request this router reads: standard input that is not text, or a request the router refuses (a request nested too deep to decode, a number out of range, a zero quota, a transfer key named twice, ...) | `RequestError` and its reason: the member and the rule |
+| 4 | the router itself failed: any other exception while its code is imported and its data loaded, while it writes a hello or its identity, or while it plans a request it reads | the exception type only: a fault in the router's own code (or a broken install), never in the input or the data |
+
+Until round 9's second fix pass (the push check of c4f276c) every exception was exit 2 or 3, so a fault of the router's
+own code read as bad data or as bad input. A command line `argparse` cannot read exits 2 with the usage, as in every
+`argparse` program.
 
 ## How it is attached, and why its plan is only advice
 
@@ -141,19 +162,25 @@ python -m pytest -q          # from this directory: tests/flash_router_tests
 
 From the translator's repository root, its documented command (`python -m pytest -q`) runs this suite too, beside the
 translator's and the overseer's, and `tests/integration/test_flash_router_subproject.py` runs it once more from this
-directory. The suite shows the router port's conformance items over the router-port vectors (`tests/vectors/router-port/`,
-copied here by the translator's `integration/tools/vectors.py`; change the kit's generator, never this copy) and over
-generated requests, validated with the translator's own `epinoic_logic.integration.router_port` and `router_pool`
-(pydantic and the standard library: no engine, no Z3, no overseer); the pool plans; the data files, their manifest and
-pinned digests, and the current cost data held to the system text of pack 2.1 (the dossier of 525,000 characters that
-cost data 3 recorded as fitting is disclosed `over_budget`); the runner, its named exit statuses and never a traceback (a
-request nested 200,000 deep, a number out of range, a zero quota, a repeated transfer key, a data file nested too deep);
-determinism in a fresh interpreter; and that the router runs with nothing but its own `src/` on the path; and the flash
-decision maker on minimal inputs for each method, risk only escalating, its record in the pool plan, and the service's
-combined answer decided as the pool's (three 150,000-character sources: the merged review recorded `over_budget`, the
-plan's numbers the record's, a repeated key refused at once, 16,000 sources in one pass; `test_decision.py`). Inside the
-translator repository `tests/flash_router_tests/conftest.py` uses its `src/`; a split copy uses the translator package
-installed in its environment.
+directory. The suite shows the router port's conformance items over the router-port vectors
+(`tests/vectors/router-port/`, copied here by the translator's `integration/tools/vectors.py`; change the kit's
+generator, never this copy) and over generated requests, validated with the translator's own
+`epinoic_logic.integration.router_port` and `router_pool` (pydantic and the standard library: no engine, no Z3, no
+overseer); the pool plans; the data files, their manifest and pinned digests, and the current cost data held to the
+system text of pack 2.1 (the dossier of 525,000 characters that cost data 3 recorded as fitting is disclosed
+`over_budget`); the runner, its named exit statuses and never a traceback (a request nested 200,000 deep, a number out
+of range, a zero quota, a repeated transfer key: exit 3 with the router's own reason; a data file nested too deep: exit
+2; a fault of the router's own code: exit 4, never 2 or 3, for nine exception types raised while planning a request it
+reads (`ValueError` among them) and seven while loading its data or writing a hello, and for a real fault edited into a
+copy of the planner, with no traceback; `test_runner.py`); what the router reads of a request (each refusal with its
+exact reason before anything is planned; any request mutated from one in contract planned or refused with a
+`RequestError`, never a fault of the router, and answered 0 or 3 by the runner; every pool port 1.2 request the port
+accepts planned; `test_contract.py`); determinism in a fresh interpreter; and that the router runs with nothing but its
+own `src/` on the path; and the flash decision maker on minimal inputs for each method, risk only escalating, its record
+in the pool plan, and the service's combined answer decided as the pool's (three 150,000-character sources: the merged
+review recorded `over_budget`, the plan's numbers the record's, a repeated key refused at once, 16,000 sources in one
+pass; `test_decision.py`). Inside the translator repository `tests/flash_router_tests/conftest.py` uses its `src/`; a
+split copy uses the translator package installed in its environment.
 
 ## Repository form (decisions D20 and D28) and splitting it into a repository of its own
 

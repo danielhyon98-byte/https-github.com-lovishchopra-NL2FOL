@@ -581,10 +581,28 @@ A candidate may be delivered only if it passes the **integrity gates**:
   audit, a clearance that did not pass, or a repeated fault (`OVS-REP-001`). The consolidation's own rule says an
   excluded answer is never delivered.
 - The router may act on its clearance at the moment of selection.
+- It carries no self-certification (rule `self-certification-gate`, round-9 clearance): CORE-SELF-001 or INT-REQ-014 on its
+  receipt, or OVS-FID-005 or OVS-FID-009 in the task audit, at any severity; and no self-report that no code names on its
+  own. An ES-META-001 paragraph or sentence, a claim the parser sets aside (role `other`) and a block a note lead opens (a
+  note-word lead such as "Final note:" or "One note:" included, whatever the parser made of the block: since round 9 the
+  parsers keep an assurance under such a lead as a claim of the answer; second fix pass, design decision 147) are
+  read by the shared self-report readers (narration, self-certification vocabulary, a verification label, a JSON object), a
+  check narrated in the first person ("I checked every quotation against the text: all accurate.") and, where the text names
+  the writer's own answer ("this answer", "nothing above"), an assurance or evaluation word ("Final note: there is nothing to
+  fix in this answer, not a single slip."). A study suggestion, a caveat, the writer's word count or a marking answer's
+  verdict on the student's answer names nothing: no closing line of the recorded c1 and c2 answers is read so, while two
+  first-person check narrations the parsers set aside are (c1 maa-p8b "I checked this by hand: ...", c2 bi-p9b "I recalculated
+  these values by hand ... and they agree"). A fallback delivery never contains a claim that it was checked or verified.
 - Its journaled payload carries its envelope's digest.
 
 A failed translation is a warning on the receipt, never an exclusion. This covers invalid, unsupported, ambiguous,
-undecided and not-attempted translations. Translation failures are what the fallback is for.
+undecided and not-attempted translations. Translation failures are what the fallback is for. So is a translation the
+transfer audit faults (rule `translation-faults`, round-9 clearance): an `OVS-TRN-*` error is a fault of the translator's
+product, not of the answer. When the task audit's only faults of an answer are translation faults (no error on its receipt,
+no other error-level audit finding, no repeated fault, not superseded), its exclusion and its AUDIT_FAILED clearance keep it
+a candidate; custody and the receipt digest are re-checked as the router's rule re-checks them. Each claim so named has its
+formal outcome withdrawn: its signed result neither refutes nor supports it. The clearance stays AUDIT_FAILED and the formal
+path never completes over it.
 
 ### The overseer stage
 
@@ -610,9 +628,9 @@ receipt records each material claim with one assessment and its evidence:
 
 | Assessment | When |
 | --- | --- |
-| `inaccurate` | A signed engine result refutes the claim. Either its display status is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE, re-derived and authentic, or an error-level check names it and cites a signed, definitive result. A claim is also inaccurate when a deterministic check faults it: an error-level receipt or task-audit finding, or an agent's accusation that a check confirmed. |
+| `inaccurate` | A signed engine result refutes the claim. Either its display status is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE, re-derived and authentic, or an error-level check names it and cites a signed, definitive result. A COUNTEREXAMPLE carrying the engine's coverage warning W110 or W111 (it only reassigns a figure or a conclusion symbol no premise constrains: perhaps a gap of the translation) still refutes its claim this round; the receipt names the warning (rule `coverage-gap`, round-9 clearance, recorded only: reading it as unresolved lands with the translator's arena test, whose "refuted answer" is such a counterexample). A claim is also inaccurate when a deterministic check faults it: an error-level receipt or task-audit finding (a translation fault excepted: rule `translation-faults`), or an agent's accusation that a check confirmed. |
 | `contested` | A counted verdict accuses the claim and the accusation stays unresolved or unverifiable. |
-| `unassessed` | No counted verdict examined the claim's transfer. |
+| `unassessed` | No counted verdict examined the claim's transfer, a verdict whose own notes declare its review incomplete ("Not completed: ...", "Partial review ...") counting as none (rule `declared-incomplete`, the round-9 clearance's second pass: such a verdict certifies nothing by its silence; its accusations and engine statements still count); or the receipt names the claim's working unchecked (the formal path's unchecked-working codes: ST-PARSE-*, ST-UNDEC-*, INT-SUBJ-002, ...) and no counted verdict states an engine result for it (rule `unchecked-working`, round-9 clearance: a verdict's silence assesses no unchecked working). A supporting claim so named is scored with the material claims. |
 | `accurate` | At least one counted verdict examined the transfer (`transfers_reviewed`). No fault is pinned on the claim, no check names it in an error, and no signed result refutes it. |
 
 An unassessed claim is never accurate.
@@ -622,8 +640,9 @@ An unassessed claim is never accurate.
 Selection is deterministic and runs in five steps:
 
 1. **Integrity gates.** A candidate that fails them is never delivered.
-2. **Refutation rule.** A candidate with a material claim refuted by a signed engine result is never delivered while
-   another candidate has none.
+2. **Refutation rule.** A candidate with a material claim refuted by a signed engine result is never delivered, whatever
+   the other candidates are (rule `absolute-refutation`, round-9 clearance; before it the rule applied only while another
+   candidate had none).
 3. **Fault rule.** This rule is stricter than the founder's. A candidate that a deterministic check faults is never
    delivered while another candidate has no such fault. A fault includes an error-level finding on a supporting claim,
    such as an invented quotation in the evidence.
@@ -634,8 +653,15 @@ Selection is deterministic and runs in five steps:
    delivered. An operator may raise the threshold. A threshold below 0.90 is refused.
 
 No acceptable candidate means withheld, with every candidate's score and reasons on the receipt. A single candidate
-keeps the founder's threshold. If one of its claims is refuted, that claim counts as inaccurate, which lowers its
-accuracy, and the receipt names the refutation.
+keeps the founder's threshold and the refutation rule: if one of its material claims is refuted by a signed engine result,
+it is withheld whatever its accuracy (before the round-9 clearance the refuted claim only lowered its accuracy, so one
+refuted claim among eleven or more was delivered OVERSEER-SELECTED).
+
+**A deployment note (round-9 clearance, c1 bug 25 and the c2 overseer-agent stage).** The fallback rests on the overseer
+agents' green lights. Round 9 measured their green-light precision at 0.44 by the scorer and 0.17 by the judges, below the
+0.90 the selection asks of them, and every arena verdict was a self-report. Keep the fallback's agents unconfigured (no
+pack and provider factory: every answer withheld, or NOT CHECKED by the operator's choice) until a round measures runner-
+attested verdicts (`scripts/README.md`, the recorded-reply transport) with green-light precision above 0.90.
 
 ### The overseer stage's deadline
 
@@ -650,8 +676,8 @@ overseer agent configured, no accuracy is established. The answer is then:
 
 - **withheld** by default; or
 - delivered **NOT CHECKED**, only when the operator sets `on_overseer_timeout="deliver_canonical_not_checked"`. The
-  answer is the consolidation's canonical one. It must still pass the integrity gates and the refutation and fault rules
-  against the other candidates. Without a deliverable consolidation (for example, conflicting answers) it is withheld.
+  answer is the consolidation's canonical one. It must still pass the integrity gates, the refutation rule (absolute since
+  the round-9 clearance) and the fault rule against the other candidates. Without a deliverable consolidation (for example, conflicting answers) it is withheld.
 
 The NOT CHECKED label states that no accuracy was established.
 

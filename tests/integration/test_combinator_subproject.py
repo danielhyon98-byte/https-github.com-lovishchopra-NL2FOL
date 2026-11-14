@@ -627,7 +627,7 @@ BASE_HISTORY = "The Treaty of Versailles was signed in June 1919. The reparation
 #: Closing notes the delivery reads as notes (role 'other') that the hub named only when the self-certification vocabulary
 #: happened to read them (V3-H1); "[OK] All claims hold." was read as a material point at delivery (V3-L4).
 CARRIED_NOTES = ["Z3: proved.", "Accuracy: 100%.", "These claims are correct and complete.", "Everything here has been confirmed against the sources.",
-                 "This paragraph contains no errors.", "I cannot answer the second part of the question.",
+                 "This paragraph contains no errors.", "I have not answered the second part of the question.",
                  "Would you like me to say more about the reparations?", "Word count: 45.", "[OK] All claims hold."]
 
 
@@ -655,6 +655,45 @@ def test_a_carried_note_is_caught_by_the_hub_whatever_its_wording(note):
         assert named and named[0].severity == "warning" and cid in named[0].claim_ids, (note, cid, [(f.code, f.claim_ids) for f in receipt.findings])
     content = {f"s{i}" for cid, i in index.items() if cid not in notes}
     assert not [f for f in receipt.findings if f.code == "INT-LEDGER-029" and content & set(f.claim_ids)], "the content claims carried beside them are not named"
+
+
+def test_a_decline_carried_word_for_word_is_a_note_for_the_student_and_every_other_form_is_still_caught():
+    """Round 9 (integrated round c2, ps-t15): a decline of the requested work carried word for word, alone, as 'carried' is what
+    rule 7 of the combinator's instructions asks for, so that the student still learns that the work was withheld; the hub
+    reads it as a note for the student (no INT-LEDGER-029). The same decline under a verification label, merged with a claim
+    of the answer, or under another transformation word with its words unchanged is still a note carried back as a claim.
+    (CARRIED_NOTES held this decline until the round-9 clearance; its place there is taken by a note of the same shape that
+    declines nothing.)"""
+    decline = "I cannot answer the second part of the question."
+    ch, inp, notes = _with_note(decline)
+    assert len(notes) == 1, notes
+    note = notes[0]
+    agent = _carry_all(inp)
+    index = {c["source_claim_ids"][0]: i for i, c in enumerate(agent["claims"])}
+    receipt = _through_combinator(ch, inp, agent, "syn-n7")
+    assert "INT-LEDGER-029" not in _codes_naming(receipt, f"s{index[note]}"), [(f.code, f.message[:160]) for f in receipt.findings]
+    content = {f"s{i}" for cid, i in index.items() if cid != note}
+    assert not [f for f in receipt.findings if f.code == "INT-LEDGER-029" and content & set(f.claim_ids)]
+
+    def labelled(a):
+        a["claims"][index[note]].update(text="Verified: " + decline)
+
+    def merged(a):
+        k = next(i for i, c in enumerate(a["claims"]) if "June 1919" in c["text"])
+        a["claims"][k].update(text=a["claims"][k]["text"] + " " + decline, source_claim_ids=a["claims"][k]["source_claim_ids"] + [note],
+                              transformation="merged")
+        del a["claims"][index[note]]
+        return k
+
+    def relabelled(a):
+        a["claims"][index[note]].update(transformation="paraphrased")
+
+    for name, edit in (("under a verification label", labelled), ("merged with a claim", merged), ("under another word", relabelled)):
+        agent = _carry_all(inp)
+        k = edit(agent)
+        k = index[note] if k is None else k
+        receipt = _through_combinator(ch, inp, agent, f"syn-n7-{name.replace(' ', '-')}")
+        assert "INT-LEDGER-029" in _codes_naming(receipt, f"s{k}"), (name, [(f.code, f.claim_ids[:3]) for f in receipt.findings])
 
 
 @pytest.mark.parametrize("transformation,text", [("paraphrased", "Part two of the question is not answered here."),

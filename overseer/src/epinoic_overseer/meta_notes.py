@@ -200,12 +200,50 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
+from epinoic_logic.api.translate import SpecialistReport as _SpecialistReport
+
 __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_RULE", "ANSWER_EVALUATION_RULE", "BARE_NEGATOR_RULE",
            "NOTE_FORM_RULE", "SUGGESTION_RULE", "NO_ACCESS_RULE", "NOT_CHECKED_RULE", "NoteReading", "note_paragraphs", "is_note_paragraph",
            "read_meta_paragraph", "assurance_words", "evaluation_words", "note_reading", "note_form", "meta_paragraph_of", "self_report_findings",
            "LEAD_BLOCKS_RULE", "SOURCE_LIST_RULE", "MAX_LEAD_BLOCKS", "LeadBlock", "SourceListReading", "lead_blocks", "unread_lead_blocks",
            "read_source_list", "source_list_grounding", "reader_text", "hides_text", "lead_starts", "answer_paragraphs", "normalised_answer",
-           "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead"]
+           "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
+           "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
+           "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
+           "require_response_limit"]
+
+
+# ============================================================================================ rule response-limit
+#: Rule ``response-limit`` (round-9 clearance c2b, queued q211b; defence in depth): the channel refuses a specialist's response text
+#: over the contract's limit before any reader runs on it, and the auditor's answer-level readers (the re-parse of a delivered
+#: response, :func:`note_paragraphs`, :func:`lead_blocks`, :func:`self_reporting_note_blocks` and the parser readings of
+#: ``non_material``) refuse such a text unread too, so a journal or a report object that holds a longer text is never segmented,
+#: parsed or scanned, and the work an audit or a delivery decision spends never grows with it. The text is refused, never cut: a
+#: truncated reading would free what the rest of the text says.
+RESPONSE_LIMIT_RULE = "response-limit"
+#: The contract's limit on a response text (``SpecialistReport.original_response``), read from the contract itself, as the channel
+#: reads it, so the two never drift.
+RESPONSE_MAX_CHARS: int = next(m.max_length for m in _SpecialistReport.model_fields["original_response"].metadata
+                               if getattr(m, "max_length", None) is not None)
+
+
+class OversizeAnswer(ValueError):
+    """An answer text over :data:`RESPONSE_MAX_CHARS`, refused unread (rule ``response-limit``); its message names the length and
+    the limit, never the text."""
+
+
+def over_response_limit(text: Any) -> bool:
+    """True when ``text`` is a string longer than the contract's response limit (rule ``response-limit``). Constant time."""
+    return isinstance(text, str) and len(text) > RESPONSE_MAX_CHARS
+
+
+def require_response_limit(text: Any, what: str = "the answer text") -> None:
+    """Raise :class:`OversizeAnswer` when ``text`` is over the contract's response limit (rule ``response-limit``), before any
+    reader runs on it; otherwise return. Constant time."""
+    if over_response_limit(text):
+        raise OversizeAnswer(f"{what} has {len(text)} characters, over the contract's limit of {RESPONSE_MAX_CHARS}; "
+                             f"it was not read (rule {RESPONSE_LIMIT_RULE})")
+
 
 META_NOTE_RULE = "meta-note"
 ASSURANCE_RULE = "assurance-words"
@@ -1347,7 +1385,10 @@ def is_note_paragraph(text: str) -> bool:
 
 def note_paragraphs(text: str) -> frozenset[int]:
     """The 1-based indices of the English answer ``text``'s meta-text paragraphs that are notes (rule ``meta-note``), as
-    the English parser segments it. Never raises: an answer it cannot segment has none."""
+    the English parser segments it. Never raises: an answer it cannot segment has none, and neither has one over the
+    contract's response limit, which is not segmented at all (rule ``response-limit``; fail closed: no paragraph is freed)."""
+    if over_response_limit(text):
+        return frozenset()
     try:
         from epinoic_logic.api.adapters import segment
         return frozenset(p.index for p in segment(text or "") if p.kind == "meta" and is_note_paragraph(p.text))
@@ -1373,6 +1414,159 @@ def self_report_findings(findings: Iterable[Any], report: Any) -> list[Any]:
     text = getattr(report, "original_response", None) if report is not None else None
     notes = note_paragraphs(text) if isinstance(text, str) else frozenset()
     return [f for f in found if not (meta_paragraph_of(f) in notes and not list(getattr(f, "claim_ids", []) or []))]
+
+
+# ============================================================================================ rule self-certification-gate
+# The fallback's reading of a self-report (round-9 clearance c2, c2 ps-t15 and the B5 record: "a self-certification the parser roles
+# as 'other' passes the audit"). The formal path refuses every meta-text paragraph rule meta-note cannot read as a note (fail
+# closed: its closed lists refuse genuine closing lines too, which only keeps the label off). The fallback must not refuse a
+# genuine study suggestion or caveat, yet must never hand on an answer that narrates a check or certifies itself: it asks only
+# whether a self-report reader names the text, whatever its form or grammar.
+SELF_CERTIFICATION_GATE_RULE = "self-certification-gate"
+#: The assurance phrase of the writer's own word count ("Word count: about 513 including headline"): read apart by the gate.
+_MEASURE_PHRASES = frozenset({"word count", "word-count"})
+#: The sentence-level message of ES-META-001, written by the English pack's own code (``structural.meta_findings``).
+_META_SENTENCE_RE = re.compile(r"paragraph (\d{1,6}), sentence (\d{1,6}) narrates")
+#: A text that names the writer's own answer ("this answer", "my working", "nothing above", "the figures above"; never the
+#: comparative "above that level"): the word lists of the gate are read only
+#: in such a text, so a study suggestion's "percentage change" or a marking answer's "the answer carries its unit", about the
+#: student's work, is never read as the writer evaluating its own answer. Closed list; blank runs bounded (linear).
+_ANSWER_REFERENCE_RE = re.compile(r"\b(?:this|my|our)[ \t]{1,3}(?:answer|response|reply|essay|working|solution|work)s?\b"
+                                  r"|\b(?:everything|nothing|anything|all|each|every)[ \t]{1,3}(?:written[ \t]{1,3})?above\b"
+                                  r"|\b(?:answers?|working|calculations?|figures?|quotations?|steps?|claims?|lines?)[ \t]{1,3}above\b"
+                                  r"|\babove[ \t]{1,3}(?:is|are|was|were|needs?|holds?)\b", re.IGNORECASE)
+#: How :func:`assurance_words` names a checking act after a first-person subject ("i checked", "we verified").
+_FIRST_PERSON_ACT = ("i ", "we ")
+
+
+def self_report_reading(text: str, *, words: bool = True) -> Optional[str]:
+    """Rule ``self-certification-gate``: the rule that names ``text`` (a paragraph, a sentence or a claim of an answer) a
+    self-report, or None. A shared self-report reader names one of its sentences (narration, self-certification vocabulary, a
+    verification label; quotations masked) or it holds a JSON object (a pasted receipt); and, with ``words``, it narrates a
+    check in the first person ("I checked every quotation", "we verified the dates"; rule ``assurance-words``, polarity read:
+    "I did not check" is a disclaimer), or it names the writer's own answer (:data:`_ANSWER_REFERENCE_RE`: "this answer",
+    "above") and carries an assurance word (the writer's own word count apart: a measure the channel takes itself) or an
+    evaluation word (rule ``evaluation-words``: "nothing to fix in this answer", "nothing above needs fixing"). The note's form
+    and grammar (rules ``note-form``, ``note-clauses``, ``answer-evaluation``) are not asked, and a word that evaluates another
+    text ("the answer carries its unit" in a marking answer, "percentage change" in a study suggestion) is not read. Never
+    raises: a text it cannot read is a self-report (fail closed)."""
+    try:
+        from epinoic_logic.api.adapters import META_NARRATION_RE, find_json_spans, is_json_block, mask_quotations
+        from epinoic_logic.api.adapters import self_cert_vocabulary, split_sentences, verification_label
+        if not text or not text.strip():
+            return None
+        if len(text) > _MAX_PARAGRAPH_CHARS or hides_text(text):
+            return META_NOTE_RULE
+        text = reader_text(text)
+        if "{" in text and (is_json_block(text) or find_json_spans(text)):  # a pasted receipt is an object; "[1]" is a mark
+            return META_NOTE_RULE
+        masked = mask_quotations(text)
+        if META_NARRATION_RE.search(masked):
+            return META_NOTE_RULE
+        for s in split_sentences(text):
+            if self_cert_vocabulary(s) is not None or verification_label(s) is not None:
+                return META_NOTE_RULE
+        if not words:
+            return None
+        found = [w for w in assurance_words(masked) if w not in _MEASURE_PHRASES]
+        if any(w.startswith(_FIRST_PERSON_ACT) for w in found):
+            return ASSURANCE_RULE
+        if _ANSWER_REFERENCE_RE.search(masked) is None:
+            return None
+        if found:
+            return ASSURANCE_RULE
+        if evaluation_words(masked):
+            return EVALUATION_RULE
+        return None
+    except Exception:  # noqa: BLE001 - fail closed: a reader that fails frees nothing
+        return META_NOTE_RULE
+
+
+def self_certifying_meta(findings: Iterable[Any], report: Any) -> list[Any]:
+    """Rule ``self-certification-gate`` on the English pack's ES-META-001 in ``findings``: one whose paragraph (a paragraph-level
+    finding) or sentence (a sentence-level one) of the journaled ``report``'s answer, as the English parser segments it,
+    :func:`self_report_reading` names; one whose text cannot be found is kept (fail closed). A study suggestion, a caveat or the
+    writer's word count that names no check, assurance or evaluation is no self-report here, whatever the closed lists of rule
+    meta-note read it as."""
+    found = [f for f in findings if getattr(f, "code", None) == "ES-META-001"]
+    if not found:
+        return []
+    text = getattr(report, "original_response", None) if report is not None else None
+    paragraphs: dict[int, str] = {}
+    sentences: dict[tuple[int, int], str] = {}
+    if isinstance(text, str):
+        try:
+            from epinoic_logic.api.adapters import segment
+            for p in segment(text):
+                if p.kind == "meta":
+                    paragraphs[p.index] = p.text
+                for st in p.sentences:
+                    sentences[(p.index, st.index)] = st.text
+        except Exception:  # noqa: BLE001 - fail closed: nothing is read, every finding is kept
+            paragraphs, sentences = {}, {}
+    out: list[Any] = []
+    for f in found:
+        n = meta_paragraph_of(f)
+        m = _META_SENTENCE_RE.match(str(getattr(f, "message", "") or "")) if n is None else None
+        if n is not None:
+            read = paragraphs.get(n)
+        elif m is not None:
+            read = sentences.get((int(m.group(1)), int(m.group(2))))
+        else:
+            read = None
+        if read is None or self_report_reading(read) is not None:
+            out.append(f)
+    return out
+
+
+#: A note lead written with the word "note" after up to three words, or before an addressee or a topic ("Final note:", "One more
+#: note:", "A quick note for you:", "Teaching note:", "Note for your planning:"): the parsers read some of these as a note lead and,
+#: since round 9, keep a sentence of assurance under one as a claim of the answer ("Final note: there is nothing to fix in this
+#: answer, not a single slip." is a point). The gate reads the block it opens whatever the parser made of it. Matched by
+#: :func:`lead_starts` at a lead's place on its normalised copy; every run is bounded (linear).
+_NOTE_WORD_LEAD_RE = re.compile(r"(?:[a-z]{1,20}[ \t]{1,3}){0,3}notes?(?:[ \t]{1,3}(?:for|to|on|about)[ \t]{1,3}[^:.!?\n]{1,60}?)?[ \t]{0,3}:",
+                                re.IGNORECASE)
+
+
+def self_reporting_note_blocks(text: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on the answer as written: the paragraphs that hold a block a note lead opens ("NB:", "Final
+    note:", "One note:", "Next step:"; at the paragraph's start, at a line's start or after a sentence's end, :func:`lead_starts`)
+    that :func:`self_report_reading` names with its word lists, and the paragraphs a bare note lead opens that it names as a whole,
+    each as "paragraph N", read whatever the parser made of them ("NB: I can't see the image. Nothing above needs fixing." is two
+    set-aside claims, the second with no lead of its own; "Final note: there is nothing to fix in this answer, not a single slip." is a
+    claim the parser keeps, round-9 clearance c2b). An answer that cannot be read, or holds more than :data:`MAX_LEAD_BLOCKS` leads,
+    is named as a whole (fail closed), and so is an answer over the contract's response limit, unread (rule ``response-limit``).
+    Linear: one lead scan per paragraph, each block read once."""
+    if not isinstance(text, str):
+        return ["the answer as a whole (its text could not be read)"]
+    if over_response_limit(text):
+        return [f"the answer as a whole (its text is over the contract's limit of {RESPONSE_MAX_CHARS} characters: rule {RESPONSE_LIMIT_RULE})"]
+    from epinoic_logic.api.adapters import opens_note_paragraph
+    out: list[str] = []
+    seen = 0
+    for i, (_start, _end, para) in enumerate(answer_paragraphs(text), start=1):
+        every = lead_starts(para, _NOTE_WORD_LEAD_RE)
+        seen += len(every)
+        if seen > MAX_LEAD_BLOCKS:
+            return [f"the answer as a whole (more than {MAX_LEAD_BLOCKS} blocks opened by a note lead)"]
+        # each block runs from its lead to the next lead of any kind (a sources lead included) or the paragraph's end
+        blocks = [para[s:every[k + 1][0] if k + 1 < len(every) else len(para)].strip() for k, (s, kind, _ln, _inline, _e) in enumerate(every)
+                  if kind != "sources"]
+        if (opens_note_paragraph(para) and self_report_reading(para) is not None) or any(self_report_reading(b) is not None for b in blocks):
+            out.append(f"paragraph {i}")
+    return out
+
+
+def self_reporting_notes(report: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on the claims the parser set aside: the ids of the claims of ``report`` roled ``other``
+    (a note, a label, a remark about the answer) that :func:`self_report_reading` names ("Final note: there is nothing to fix
+    in this answer, not a single slip.", the push check's assurance the parser sets aside as a note). A word count, a question
+    or a heading that narrates no check and does not evaluate the writer's own answer is no certification."""
+    out: list[str] = []
+    for c in list(getattr(report, "claims", None) or []):
+        if getattr(c, "claim_role", None) == "other" and self_report_reading(str(getattr(c, "claim_text", "") or "")) is not None:
+            out.append(str(getattr(c, "claim_id", "")))
+    return out
 
 
 # ============================================================================================ rule lead-blocks
@@ -1701,7 +1895,9 @@ def lead_blocks(text: str, grounding: Iterable[str] = ()) -> list[LeadBlock]:
     a whole. Quotations are NOT masked: a lead after a quotation mark is no lead for any parser, and one inside a quotation
     that follows a sentence's end is read (a refused block only keeps the answer off the formal path). Linear: one scan for
     the starts of each paragraph, a lead match of bounded look-ahead at each start, each block read once by a linear
-    reader. More than :data:`MAX_LEAD_BLOCKS` blocks raise ``OverflowError`` (the caller refuses the answer unread)."""
+    reader. More than :data:`MAX_LEAD_BLOCKS` blocks raise ``OverflowError`` (the caller refuses the answer unread); an answer
+    over the contract's response limit raises :class:`OversizeAnswer` before it is cut (rule ``response-limit``)."""
+    require_response_limit(text)
     ground = frozenset(grounding)
     out: list[LeadBlock] = []
     for paragraph, (_start, _end, para) in enumerate(answer_paragraphs(text), start=1):
@@ -1726,7 +1922,12 @@ def unread_lead_blocks(text: str, grounding: Iterable[str] = ()) -> list[LeadBlo
     try:
         return [b for b in lead_blocks(text, grounding) if not b.read]
     except Exception as exc:  # noqa: BLE001 - a reader that fails frees nothing
-        why = "more than the bound of blocks" if isinstance(exc, OverflowError) else f"the reader failed ({type(exc).__name__})"
+        if isinstance(exc, OverflowError):
+            why = "more than the bound of blocks"
+        elif isinstance(exc, OversizeAnswer):
+            why = f"the answer is over the contract's limit of {RESPONSE_MAX_CHARS} characters, unread (rule {RESPONSE_LIMIT_RULE})"
+        else:
+            why = f"the reader failed ({type(exc).__name__})"
         return [LeadBlock(0, 0, False, "", "", False, LEAD_BLOCKS_RULE, why)]
 
 

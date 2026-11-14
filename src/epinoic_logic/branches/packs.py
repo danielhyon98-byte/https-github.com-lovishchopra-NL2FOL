@@ -13,6 +13,7 @@ quantities masked, so ``1500 K`` is never a year). CORE-SRC-001 (per ``source_re
 under both readings."""
 from __future__ import annotations
 
+import itertools
 import re
 from fractions import Fraction
 from functools import lru_cache
@@ -24,10 +25,10 @@ from ..adapters.history_specialist.sentences import split_sentences as _split_se
 from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
                                  find_quotation_spans, is_memory_label, parser_quotation_spans, self_cert_vocabulary, strip_emphasis, unbalanced_double_quotes,
                                  verification_label)
-from ..adapters.sources import check_excerpt, specialist_names, strip_trailing_punctuation, uncredited_excerpt
+from ..adapters.sources import OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
-from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation
+from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation, locate_excerpt, locate_quotation_inexact
 from ..translate.subjects import resolve_profile
 from .base import FormalCheck
 from .quant import ARITH_ENDPOINT_REASON, GENERAL, LONG_NUMBER_RUN_REASON, WORKED_EQUATION_REASON, XRATE_OPEN_REASON, extract_quant_checks, undecided_quant_statements
@@ -302,6 +303,15 @@ def _quant_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = 
     return out
 
 
+def _figure_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = None, reading: QuantReading = GENERAL) -> list[FormalCheck]:
+    """The figures the report takes from its supplied tables and texts, checked against them (:mod:`.grounded_figures`; round 9 second pass,
+    c2 adversarial-live bug 16). Not on the STEM branches (the SI reading), whose ``stem-giv`` check reads the supplied tables itself."""
+    if reading.si:
+        return []
+    from .grounded_figures import figure_grounding_checks
+    return figure_grounding_checks(report, prefix, limit)
+
+
 def _excerpt_around(statement: str, phrase: str, width: int = 160) -> str:
     """``statement`` as quoted in a check's description: whole when short, otherwise a window of ``width`` characters around the
     phrase the check reads, so a false phrase at the end of a long unpunctuated block is quoted, not cut off."""
@@ -386,6 +396,13 @@ _CASE_ROLE_RE = re.compile(r"\bthe\s++((?:finance|managing|marketing|operations|
                            r"|spokes(?:man|woman|person)|headteacher|mayor)\b", re.IGNORECASE)
 
 
+#: The leading word of a supplied text's title that names it in prose ('Brackwater' of 'Brackwater Garden Buildings Ltd'): a capitalised
+#: word of four letters or more.
+_TITLE_LEAD_RE = re.compile(r"\s{0,4}['\"“‘]?([A-Z][^\W\d_]{3,30})\b")
+#: Kinds of supplied material a title word names besides :data:`_GENERIC_SOURCES` ('the Brackwater case study', 'the Brackwater case').
+_CASE_KINDS = ("case study", "case text", "case", "scenario", "stimulus", "data")
+
+
 def _source_names(texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
     """Phrases that name a supplied text in prose -> (document_id, label): an author's full
     name and surname, a title (parenthetical and subtitle removed), and for a peer agent's
@@ -418,14 +435,40 @@ def _source_names(texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
     for role, docs in role_docs.items():
         if len(docs) == 1:
             names.setdefault(f"the {role}", (next(iter(docs)), f"the {role} of {next(iter(docs))}"))
+    # a supplied text named by the leading word of its title and a kind ('the Brackwater case study says: "..."' for 'Brackwater Garden
+    # Buildings Ltd (case study, ...)'; round 9, c2 lens-al 12h): the credit is that text's, so words that occur only in a colleague's
+    # report are a wrong credit (CORE-SRC-005). Only a title word one supplied text alone opens with.
+    title_words: dict[str, set[str]] = {}
+    for t in non_peer:
+        first = _TITLE_LEAD_RE.match(t.title or "")
+        # a name, not a common word that opens the title ('Last orders at the deep end'): the text never writes it in lower case, as it
+        # never writes 'brackwater' (it writes 'Brackwater' in every place), where an opinion column titled 'Last orders ...' writes 'last'
+        if first and not re.search(r"(?<![^\W\d_])" + re.escape(first.group(1).lower()) + r"(?![^\W\d_])", t.text[:200_000]):
+            title_words.setdefault(first.group(1).lower(), set()).add(t.document_id)
+    for word, docs in title_words.items():
+        if len(docs) == 1:
+            doc_id = next(iter(docs))
+            for g in (*_GENERIC_SOURCES, *_CASE_KINDS):
+                names.setdefault(f"the {word} {g}", (doc_id, f"the {word} {g}"))
     if len(non_peer) == 1:
         for g in _GENERIC_SOURCES:
+            names.setdefault(f"the {g}", (non_peer[0].document_id, f"the {g}"))
+        for g in _CASE_KINDS[:2]:  # 'the case study', 'the case text' (never 'the case' alone: 'in the case of')
             names.setdefault(f"the {g}", (non_peer[0].document_id, f"the {g}"))
     if len(peers) == 1:
         for g in _GENERIC_PEERS:
             names.setdefault(f"the {g}", (peers[0].document_id, f"the {g}"))
             names.setdefault(f"my {g}", (peers[0].document_id, f"my {g}"))
     return names
+
+
+def _holds_quotation(excerpt: str, doc: SuppliedText) -> bool:
+    """Whether ``doc`` holds the quoted words: verbatim or after typographic normalization (``find_quotation``), with the sentence
+    punctuation written inside the closing mark set aside (``locate_excerpt``), or in a conventional difference of form, the first
+    letter's case, a verse mark or diacritics (``locate_quotation_inexact``; round 9, c2 lens-al 12f: '"imports fall by 2.5 million
+    tonnes per year"' of a colleague's 'Imports fall by ...' is the colleague's words, so a credit to the case is still checked)."""
+    return bool(find_quotation(excerpt, doc.text, document_id=doc.document_id) or locate_excerpt(excerpt, doc.text, document_id=doc.document_id)
+                or locate_quotation_inexact(strip_trailing_punctuation(excerpt), doc.text, document_id=doc.document_id))
 
 
 def _named_mentions(text: str, names: dict[str, tuple[str, str]]) -> list[tuple[int, int, str, str]]:
@@ -668,9 +711,14 @@ def _claims_for_si_statement(report: SpecialistReport, sentence: str, reading: Q
 # ------------------------------------------------------------------ marks of marking feedback (c1 breadth finding 16)
 
 #: A mark awarded out of a maximum, with an optional range: '3 out of 5 (range 2–3)', '6/11 (range 5–7)'. Bounded figures and blank runs.
-_MARK_VALUE = r"(?P<n>\d{1,3})\s{0,3}(?:out\s{1,3}of|/)\s{0,3}(?P<m>\d{1,3})(?:\s{0,3}\(\s{0,3}range\s{1,3}(?P<lo>\d{1,3})\s{0,3}(?:[–—-]|to)\s{0,3}(?P<hi>\d{1,3})\s{0,3}\))?"
-#: The total of a marking: 'Provisional total: 6 out of 11 (range 5–7)', 'Total mark: 9/20'.
-_MARK_TOTAL_RE = re.compile(r"\b(?:provisional\s{1,3})?total(?:\s{1,3}mark)?\s{0,3}:\s{0,3}" + _MARK_VALUE, re.IGNORECASE)
+#: Round 9 (c2): also a mark 'n of N' (beside a mark word: 'Provisional mark: 16 of 15') and a mark written as a range, 'a to b out of N',
+#: 'a–b of N' ('Provisional mark: 1 to 2 out of 4', '5–6 of 15'), whose top is held to the maximum and whose range is summed.
+_MARK_VALUE = (r"(?:(?P<a>\d{1,3})\s{0,3}(?:to|[–—-])\s{0,3})?(?P<n>\d{1,3})\s{0,3}(?:out\s{1,3}of|of|/)\s{0,3}(?P<m>\d{1,3})(?![\d.,]?\d)"
+               r"(?:\s{0,3}\(\s{0,3}range\s{1,3}(?P<lo>\d{1,3})\s{0,3}(?:[–—-]|to)\s{0,3}(?P<hi>\d{1,3})\s{0,3}\))?")
+#: The total of a marking: 'Provisional total: 6 out of 11 (range 5–7)', 'Total mark: 9/20', 'Provisional total across the four parts: 3 to 6
+#: out of 11'.
+_MARK_TOTAL_RE = re.compile(r"\b(?:provisional\s{1,3})?total(?:\s{1,3}mark)?(?:\s{1,3}(?:across|for|over|of)\s{1,3}[^:\n]{1,40}?)?\s{0,3}:\s{0,3}" + _MARK_VALUE,
+                            re.IGNORECASE)
 #: The mark of one part: 'Provisional mark: 3 out of 5 (range 2–3)', 'Mark for (b): 2/4', or of one assessment criterion: 'Criterion A: 4/5',
 #: 'Criterion B (Analysis and evaluation) – 3 out of 5' (round-8 clearance c1, handoff fixer: an English A feedback stating "Criterion A:
 #: 6/5 ... Total: 14/20", 6 over its maximum and criteria summing to 17, drew no finding).
@@ -684,10 +732,31 @@ MARKS_SCOPE = ("Marks check: proves a property of its encoding only: that the ma
 
 
 def _mark_of(m: "re.Match[str]") -> tuple[int, int, int, int]:
-    """``(stated, maximum, low, high)`` of a mark; a mark with no range has low = high = stated."""
+    """``(stated, maximum, low, high)`` of a mark; a mark with no range has low = high = stated; a mark written as a range ('1 to 2 out of
+    4') has its two ends as low and high and its top as the stated mark."""
     n, mx = int(m.group("n")), int(m.group("m"))
+    if m.group("a"):
+        a = int(m.group("a"))
+        return max(a, n), mx, min(a, n), max(a, n)
     lo, hi = (int(m.group("lo")), int(m.group("hi"))) if m.group("lo") else (n, n)
     return n, mx, min(lo, hi), max(lo, hi)
+
+
+#: The other mark a part may get, stated right after its mark ('Provisional mark: 1 out of 3. It would be 2 if your teacher's scheme gives
+#: the division its own mark.'; c1 ch-t14): the part's range, for the total, runs to it.
+_ALTERNATIVE_MARK_RE = re.compile(r"\b(?:it|this|that|the\s{1,3}mark)\s{1,3}(?:would|could|might)\s{1,3}(?:be|rise\s{1,3}to|go\s{1,3}up\s{1,3}to)\s{1,3}(\d{1,3})\b",
+                                  re.IGNORECASE)
+
+
+def _with_alternative_mark(text: str, m: "re.Match[str]", stop: int) -> tuple[int, int, int, int]:
+    """:func:`_mark_of` of a part mark, its range widened to the other mark the text states for the part before the next part's mark
+    (within 300 characters of it), when that mark is no more than the part's maximum."""
+    n, mx, lo, hi = _mark_of(m)
+    alt = _ALTERNATIVE_MARK_RE.search(text, m.end(), min(stop, m.end() + 300))
+    if alt is not None and int(alt.group(1)) <= mx:
+        v = int(alt.group(1))
+        return n, mx, min(lo, v), max(hi, v)
+    return n, mx, lo, hi
 
 
 def _marks_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = None, reading: QuantReading = GENERAL) -> list[FormalCheck]:
@@ -728,7 +797,7 @@ def _marks_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = 
                                problem=Problem.model_validate(prob), claim_ids=claims(m)))
     if total is not None and len(parts) >= 2:
         n, mx, lo, hi = _mark_of(total)
-        part_marks = [_mark_of(p) for p in parts]
+        part_marks = [_with_alternative_mark(text, p, parts[j + 1].start() if j + 1 < len(parts) else len(text)) for j, p in enumerate(parts)]
         if sum(p[1] for p in part_marks) == mx and len(out) < (limit if limit is not None else MAX_FORMAL_CHECKS):
             symbols = [{"name": f"p{j}_lo", "sort": "Int", "meaning": f"the lowest mark stated for part {j}"} for j in range(1, len(part_marks) + 1)]
             symbols += [{"name": f"p{j}_hi", "sort": "Int", "meaning": f"the highest mark stated for part {j}"} for j in range(1, len(part_marks) + 1)]
@@ -739,15 +808,19 @@ def _marks_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = 
                     premises.append({"id": f"P{j}_{bound.upper()}", "expr": {"op": "eq", "left": V(f"p{j}_{bound}"), "right": I(v)},
                                      "label": f"part {j}: {parts[j - 1].group(0)[:60]}",
                                      "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}})
-            premises.append({"id": "TOTAL", "expr": {"op": "eq", "left": V("total"), "right": I(n)}, "label": f"stated total {total.group(0)[:80]}",
+            # a total written as a range ('3 to 6 out of 11') lies within the sum of the parts' ranges at both ends (round 9, c2 ec-t15-total)
+            symbols.append({"name": "total_lo", "sort": "Int", "meaning": "the lowest total the feedback states"})
+            premises.append({"id": "TOTAL", "expr": {"op": "eq", "left": V("total"), "right": I(hi)}, "label": f"stated total {total.group(0)[:80]}",
+                             "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}})
+            premises.append({"id": "TOTAL_LO", "expr": {"op": "eq", "left": V("total_lo"), "right": I(lo)}, "label": f"stated total, its lowest value {lo}",
                              "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}})
             low = {"op": "add", "args": [V(f"p{j}_lo") for j in range(1, len(part_marks) + 1)]}
             high = {"op": "add", "args": [V(f"p{j}_hi") for j in range(1, len(part_marks) + 1)]}
             prob = {"problem_id": f"marks-{report.report_id}-total", "request_id": report.request_id, "claim_id": f"{report.report_id}:marks-total",
                     "query": "entailment", "symbols": symbols, "premises": premises,
-                    "conclusion": {"id": "TOTAL_OF_PARTS", "expr": {"op": "and", "args": [{"op": "ge", "left": V("total"), "right": low},
+                    "conclusion": {"id": "TOTAL_OF_PARTS", "expr": {"op": "and", "args": [{"op": "ge", "left": V("total_lo"), "right": low},
                                                                                          {"op": "le", "left": V("total"), "right": high}]},
-                                   "label": "the stated total lies within the sum of the part marks (their ranges included)"},
+                                   "label": "the stated total (both ends of its range) lies within the sum of the part marks (their ranges included)"},
                     "notes": MARKS_SCOPE}
             out.append(FormalCheck(check_id=f"{prefix}-marks-{len(out) + 1}", kind="marks_arithmetic",
                                    description=(f"the total '{total.group(0)[:120]}' against the sum of the {len(part_marks)} part marks, whose maxima make up "
@@ -769,7 +842,50 @@ def _states_a_figure(text: str) -> bool:
 
 
 #: The SI reading's undecided reason when the prose around the maths states no pair (the maths itself is masked from the prose reader).
+# ---------------------------------------------------------------- precise real-world figures with no source (CORE-SRC-002, per claim)
+# Round 9 second pass (c1 adversarial-live#22, c2 adversarial-live bug 22): 'last year about 3.7 million hectares of tropical rainforest were
+# cleared worldwide' and 'about 262 million people worldwide have asthma, and 455,000 people died of it last year' crossed with no finding that
+# named them, the answer's own Sources line saying nothing was consulted. A precise count, area or rate (a figure of four digits or more, or one
+# with a scale word or a unit of measure) in a sentence that places it in the world beyond the supplied material ('worldwide', 'globally', 'in
+# the world', 'last year', 'each year', 'annually', 'nationally'), stated by no supplied text and not by the request, under no from-memory label
+# and credited to no source in its sentence, is named on its claim. Info, as the report-level finding of the same code (the overseer's code
+# table holds CORE-SRC-002 at info); each claim is named once.
+_WORLD_MARKER_RE = re.compile(r"\b(?:worldwide|world-wide|globally|across\s+the\s+(?:world|globe)|in\s+the\s+world|the\s+world['’]s|around\s+the\s+world"
+                              r"|last\s+year|each\s+year|every\s+year|a\s+year\s+worldwide|annually|nationally|nationwide|in\s+recent\s+years)\b", re.IGNORECASE)
+_PRECISE_FIGURE_RE = re.compile(
+    r"(?<![\w.,])(?P<n>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,}(?:\.\d+)?|\d+(?:\.\d+)?(?=\s*+(?:million|billion|trillion|thousand|hectares|ha\b|km|tonnes|tons"
+    r"|kJ|MJ|GJ|kg|people|deaths|cases|patients|species)))(?![\d,.]?\d)(?P<scale>\s*+(?:million|billion|trillion|thousand)\b)?")
+_HELD_NUMBER_RE = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![\d.,])\d+(?:\.\d+)?")
+_SOURCE_CREDIT_RE = re.compile(r"\b(?:according\s+to|(?:estimates?|estimated|reports?|reported|records?|recorded|states?|stated)\s+(?:by|in)\b|source[sd]?\s*:)",
+                               re.IGNORECASE)
+
+
+def _unsourced_world_figures(report: SpecialistReport, request_text: Optional[str]) -> list[StructuralFinding]:
+    """CORE-SRC-002 (info) on each claim that states a precise real-world figure no supplied text and not the request holds (the comment
+    above). Bounded: at most 200 claims of at most 4,000 characters are read, each with its own scans."""
+    held: set[str] = set()
+    for t in [x.text[:200_000] for x in report.supplied_texts] + [request_text[:50_000] if request_text else ""]:
+        held.update(m.group(0).replace(",", "") for m in _HELD_NUMBER_RE.finditer(t))  # the texts' numbers, read once
+    out: list[StructuralFinding] = []
+    for c in report.claims[:200]:
+        text = c.claim_text[:4000]
+        if c.claim_role == "other" or not _WORLD_MARKER_RE.search(text) or _MEMORY_LABEL_RE.search(text) or _SOURCE_CREDIT_RE.search(text):
+            continue
+        figures = [(m.group("n"), m.group(0).strip()) for m in itertools.islice(_PRECISE_FIGURE_RE.finditer(text), 40)
+                   if not re.fullmatch(r"(?:1[0-9]|20)\d\d", m.group("n"))]
+        missing = list(dict.fromkeys(shown for n, shown in figures if n.replace(",", "") not in held))
+        if not missing:
+            continue
+        out.append(StructuralFinding(code="CORE-SRC-002", severity="info", claim_ids=[c.claim_id],
+                                     message=(f"claim {c.claim_id} states precise real-world figures ({', '.join(missing[:4])}) that no supplied text and not the "
+                                              "request holds, with no source, library reference or from-memory label: the figures are unverified"),
+                                     rule_source="sources.md L5 (working rule): a precise figure about the world needs its source"))
+    return out
+
+
 _NO_FIGURES_REASON = "no figures are stated with it in its sentence"
+#: The words of ``quant._no_pair_reason`` for a sentence whose figures stand only in written arithmetic.
+_WRITTEN_ONLY_REASON = "its figures only as written arithmetic"
 _MATHS_FIGURES_REASON = ("its sentence states its figures only in written maths, which the STEM checks read (the prose reader reads no pair of "
                          "figures beside it)")
 _DIGIT_IN_MATHS_RE = re.compile(r"\d\s*[=≈×÷*/+−-]|[=≈×÷*/+−-]\s*\d")
@@ -789,7 +905,24 @@ def _restates_written_result(phrase: str, texts: list[str]) -> bool:
         return False
     figure = m.group(1).replace(",", "").lstrip("+").replace("−", "-")
     pattern = re.compile(r"[=≈]\s*[-+−]?" + re.escape(figure.lstrip("-")) + r"\s*(?:%|per\s*cent|percent)(?![\d.])")
-    return any(pattern.search(t.replace(",", "")) for t in texts)
+    if any(pattern.search(t.replace(",", "")) for t in texts):
+        return True
+    # the written result rounded at the restated figure's own precision ('= 631.4%, so 631% to three significant figures; an increase of
+    # 631%': round 9, c2 bi-t15): the restatement of a result the STEM check decides, never arithmetic of its own
+    try:
+        stated = abs(Fraction(figure))
+    except (ValueError, ZeroDivisionError):
+        return False
+    places = len(figure.split(".")[1]) if "." in figure else 0
+    half = Fraction(1, 2) / Fraction(10) ** places
+    for t in texts:
+        for r in re.finditer(r"[=≈]\s*[-+−]?(\d[\d,]{0,20}(?:\.\d{1,12})?)\s*(?:%|per\s*cent|percent)(?![\d.])", t[:20000]):
+            try:
+                if abs(Fraction(r.group(1).replace(",", "")) - stated) <= half:
+                    return True
+            except (ValueError, ZeroDivisionError):
+                continue
+    return False
 
 
 # ---------------------------------------------------------------- near-miss names of a supplied text (rule case-name, CORE-SRC-008)
@@ -1002,6 +1135,7 @@ class CorePack:
         has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
+        f += self._guarded("unsourced real-world figures", lambda: _unsourced_world_figures(report, request_text), f) or []
         disagreeing, disputed = self._guarded("quotation references", lambda: self._quotation_ref_disagreements(report), f) if report.supplied_texts else ([], frozenset())
         f += disagreeing or []
         f += self._guarded("unverifiable quotations", lambda: self._unverifiable_quotations(report, has_memory_label, disputed or frozenset(), request_text, r), f) or []
@@ -1089,13 +1223,18 @@ class CorePack:
         all_notes = " ".join(a for c in report.claims for a in c.assumptions).casefold()
         all_carried = {_quote_key(r.excerpt) for x in report.claims for r in x.source_refs if r.excerpt}
         for c in report.claims:
-            if c.claim_role == "other":
-                continue
+            if c.claim_role == "other" or OWN_MODEL_NOTE in c.assumptions:
+                continue  # (the writer's own model sentence the parser recorded as such is no quotation: round 9, c2 la-3)
             text, _removed = strip_json_spans(c.claim_text)
             # the quotations a parser reads (``parser_quotation_spans``): a correction or a suggestion in a marking task is the writer's
             # own words, never an unaccounted quotation of the claim (integration gate 1, end-to-end B5, B13); outside a feedback task
             # these are every quoted span, as before
             quotes = [inner.strip() for _s, _e, inner in parser_quotation_spans(text) if len(inner.strip()) >= 4]
+            # a 'Model:' or 'Rewrite:' line of the writer's own words (``sources.own_model_words``: no supplied text holds them, or all
+            # but one or two of them, or four in a row) quotes nothing of a text; the same label over an altered line of the text is
+            # still a quotation, checked here (round 9, c2 la-3: the parser recorded the model sentence's evidence claim as the writer's
+            # own, while the sentence's point, which carries the same words, was charged CORE-SRC-006 and its INT-SUBJ-003 copy)
+            quotes = [q for q in quotes if not own_model_words(text, q, docs)]
             if not quotes:
                 continue
             refs = [r for x in [c, *(by_id[i] for i in c.supporting_claim_ids if i in by_id)] for r in x.source_refs if r.excerpt and r.document_id in docs]
@@ -1175,6 +1314,12 @@ class CorePack:
             request_doc = {"the request": SuppliedText(document_id="the request", title=None, author="router", text=request_text)}
             quoted = [q for q in quoted if not check_excerpt(q, "the request", request_doc).located]
         quoted = [q for q in quoted if _quote_key(q) not in mentions]
+        # the writer's own model sentence under a 'Model:' or 'Rewrite:' label (``sources.own_model_words``, recorded by the parser as
+        # OWN_MODEL_NOTE) is no quotation to verify (round 9, c2 la-3: once CORE-SRC-006 no longer charged it, it was named unverifiable)
+        own = {_quote_key(q) for _s, _e, inner in spans for q in [inner.strip()] if q
+               and any(OWN_MODEL_NOTE in c.assumptions and q in c.claim_text for c in report.claims)}
+        if own:
+            quoted = [q for q in quoted if _quote_key(q) not in own]
         # a word quoted from a quotation the answer already gives ('the verb "killed"' after '"We killed him openly"') is that quotation's
         keys = [_quote_key(q) for q in quoted]
         absorbed = _absorbed_quotation_keys(keys)
@@ -1232,7 +1377,7 @@ class CorePack:
                 if attributed is None:
                     continue
                 doc_id, label, others = attributed
-                located = sorted(t.document_id for t in texts if find_quotation(excerpt, t.text, document_id=t.document_id))
+                located = sorted(t.document_id for t in texts if _holds_quotation(excerpt, t))
                 if doc_id.startswith(_UNSUPPLIED_PEER):
                     # credited to a colleague whose report this agent was not given: the words of a supplied text are not the colleague's
                     if not located or (excerpt, doc_id) in seen:
@@ -1382,6 +1527,10 @@ class CorePack:
                 if reason.startswith(_NO_FIGURES_REASON) and any(_DIGIT_IN_MATHS_RE.search(t) for t in originals):
                     # the sentence does state figures, in written maths the STEM checks read: say so, never 'no figures are stated'
                     reason = _MATHS_FIGURES_REASON + reason[len(_NO_FIGURES_REASON):]
+            elif _WRITTEN_ONLY_REASON in reason and _restates_written_result(u.phrase, [u.sentence_text or ""]):
+                # '= 200% Result: the peak discharge rose by 200%': the per cent restates the stated result of the sentence's written arithmetic,
+                # which the worked-arithmetic check decides (or names undecided itself): never arithmetic of its own (round 9 second pass, c2 ge-p9c g3.2)
+                continue
             grouped.setdefault((u.paragraph, u.sentence, reason), []).append(u)
         for (pi, si, reason), items in grouped.items():
             names = list(dict.fromkeys(u.phrase[:120] for u in items))
@@ -1446,7 +1595,7 @@ class CorePack:
         pack's reading."""
         r = self._reading(report)
         out: list[FormalCheck] = []
-        for build in (_quant_formal, _chronology_formal, _marks_formal):
+        for build in (_quant_formal, _chronology_formal, _marks_formal, _figure_formal):
             if len(out) >= MAX_FORMAL_CHECKS:
                 break  # nothing beyond the limit is built: the check-limit finding names it
             try:
@@ -1653,10 +1802,12 @@ def _worked_checks(report: SpecialistReport, prefix: str, skip: set[str]) -> lis
     """The report's worked equations as engine problems (:func:`.worked.worked_problems`), each naming the claims of its statement;
     equations in ``skip`` are decided by the pack's own check (an elasticity, a margin)."""
     from ..ir.schema import Problem
-    from .worked import breakdown_problems, worked_problems
+    from .worked import breakdown_problems, clock_problems, payback_problems, worked_problems
     out: list[FormalCheck] = []
     built = worked_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=prefix, skip=frozenset(skip))
     built += breakdown_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=prefix)
+    built += clock_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=prefix)
+    built += payback_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=prefix)
     for wp in built:
         out.append(FormalCheck(check_id=f"{prefix}-{len(out) + 1}", kind="worked_arithmetic",
                                description=wp.description, problem=Problem.model_validate(wp.problem), expected_if_sound="ENTAILED",

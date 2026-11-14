@@ -64,7 +64,7 @@ from ...translate.subjects import resolve_profile
 from ...ir.schema import SourceRef
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
-from ..markdown import (MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification,
+from ..markdown import (JUDGEMENT_LABEL_RE, MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification,
                         parser_quotation_spans, split_note_clauses)
 from ..sources import attribute_excerpt, strip_trailing_punctuation
 from ...stem.layout import ANNOTATION_ONLY_RE, LABEL_ONLY_REST_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, plain_line
@@ -150,6 +150,24 @@ def _claim_text(text: str, start: int, end: int, markup: list[tuple[int, int]] =
     return "".join(parts)[:MAX_CLAIM_TEXT_CHARS].rstrip()
 
 
+#: A line that checks the result before it ("Check:", "Checking:", "Check by counting:", "To check:"): it supports that result.
+_CHECK_LEAD_RE = re.compile(r"^\W{0,4}(?:to[ \t]{1,3})?check(?:ing)?(?:[ \t]{1,3}by[ \t]{1,3}[A-Za-z]{1,20})?[ \t]{0,3}[:—–-]", re.IGNORECASE)
+#: A line that only sets up the notation of the working that follows ("Write R for red and B for blue.", "Let E denote ...").
+_NOTATION_LEAD_RE = re.compile(r"^\W{0,4}(?:(?:write|denote)\b[^.!?\n]{1,80}?\bfor\b|let\b[^.!?\n]{1,80}?\b(?:denote|stand[ \t]{1,3}for)\b)", re.IGNORECASE)
+
+
+#: A part title worded as a question ("Why a volumetric flask is used", "How the yield is improved"), with no stop of its own and
+#: at most twelve words once a closing mark annotation ("[1]") is set aside.
+_TITLE_QUESTION_RE = re.compile(r"(?:why|how|what|which|when|where)\b", re.IGNORECASE)
+_TITLE_MARK_RE = re.compile(r"[ \t]*\[[ \t]*\d{1,3}[ \t]*(?:marks?)?[ \t]*\][ \t]*$", re.IGNORECASE)
+
+
+def _question_title(rest: str) -> bool:
+    """True when the content of a part's lead line is a title worded as a question (:data:`_TITLE_QUESTION_RE`)."""
+    body = _TITLE_MARK_RE.sub("", rest.strip()[:400]).strip()
+    return bool(body) and len(body.split()) <= 12 and _TITLE_QUESTION_RE.match(body) is not None and body[-1:] not in ".!?:;"
+
+
 def _units(text: str, rows: list[dict]) -> list:
     """One generic-branch unit per statement, with what the generic parser records for a unit of the same line
     (``generic_parser._units_of``): its paragraph (the blank-line paragraphs of the answer), its logical line, the
@@ -196,6 +214,10 @@ def _units(text: str, rows: list[dict]) -> list:
 
     lead_lines = {li for li, pl in enumerate(plains) if _PART_LEAD_RE.match(pl)}
     label_only = {li for li in lead_lines if LABEL_ONLY_REST_RE.fullmatch(plains[li][_PART_LEAD_RE.match(plains[li]).end():])}
+    # a part's title worded as the question it answers ("(f) Why a volumetric flask is used [1]"; round-9 clearance c2b, ch-p9b and
+    # ch-t15) heads the part like a label-only lead: a heading (role other), the part opening on the next line
+    titles = {li for li in lead_lines - label_only if _question_title(plains[li][_PART_LEAD_RE.match(plains[li]).end():])}
+    label_only |= titles
     headers = {li for li, pl in enumerate(plains) if TABLE_ROW_RE.match(pl) and li + 1 < len(plains)
                and TABLE_SEPARATOR_RE.match(plains[li + 1]) and "-" in plains[li + 1]}
     part_at: list[int] = []
@@ -221,7 +243,7 @@ def _units(text: str, rows: list[dict]) -> list:
         idx = by_line[ln]
         body = " ".join(rows[i]["text"] for i in idx)
         following = n + 1 < len(order) and paras[by_line[order[n + 1]][0]] == paras[idx[0]]
-        heading_of[ln] = ln in headers or (ln not in lead_lines and _line_heading(body, following))
+        heading_of[ln] = ln in headers or ln in titles or (ln not in lead_lines and _line_heading(body, following))
     for i, r in enumerate(rows):
         ln = logical[i]
         u = _Unit(text=r["text"], para=paras[i], line=ln, part=part_at[ln] if ln < len(part_at) else count)
@@ -484,6 +506,7 @@ class StemTextParser:
                 continue
             if r["role"] == "analysis" and r["stem_role"] == "link" and _REASON_RE.search(r["text"]):
                 r["role"] = "link"
+        StemTextParser._part_furniture(rows)
         if any(r["dev_part"] for r in rows) or any(r["role"] not in ("other", "structural") and (r["material"] or r["role"] in ("point", "judgement")) for r in rows):
             return
         live = [r for r in rows if r["role"] not in ("other", "structural")]
@@ -514,6 +537,8 @@ class StemTextParser:
             if outcomes <= {"formula"} and not _DIGIT_RE.search(core):
                 return "evidence", "factual", False  # a law or definition: its truth is the evidence service's
             return "evidence", "arithmetic", False   # values stated for symbols (Given, 'taking g = 9.81')
+        if JUDGEMENT_LABEL_RE.match(core):
+            return "judgement", "unknown", False  # "Judgement: ...": the part's judgement, material (round-9 clearance c2b, ess-p9c)
         if refs or quotes:
             return "evidence", "factual" if not refs else "unknown", False
         if doc.items_for(sid):
@@ -525,6 +550,31 @@ class StemTextParser:
         if _LINK_CUE_RE.search(core):
             return "link", "unknown", False
         return "analysis", "unknown", False
+
+    @staticmethod
+    def _part_furniture(rows: list[dict]) -> None:
+        """Round-9 clearance c2b (the STEM fixer's handoff 1c): two lines the generic reading takes for a part's point are not:
+
+        * a check of the part's result ("Check: g((x − 3)/2) = ... = x.", "Check: (6, −1) lies on this line, ..."): it supports
+          the result it checks, which is the part's material claim (the nearest earlier result of the same part is made
+          material when the part held no other);
+        * a notation set-up ("Write R for red and B for blue.", "Let E denote ..."): it serves the working that follows.
+
+        Each keeps its role's kind (a value: quantitative; none: analysis) and is no longer material; no support is added, so
+        no cycle can form."""
+        for i, r in enumerate(rows):
+            if r["role"] != "point" or r["kind"] in ("code", "table"):
+                continue
+            head = (split_note_clauses(r["text"])[0] or r["text"]).strip()
+            if _CHECK_LEAD_RE.match(head):
+                r["role"], r["material"] = ("quantitative" if r["value"] else "analysis"), False
+                same = [x for x in rows[:i] if x["dev_part"] == r["dev_part"] and x["role"] not in ("other", "structural")]
+                if not any(x["material"] or x["role"] in ("point", "judgement") for x in same):
+                    result = next((x for x in reversed(same) if x["role"] == "quantitative" and (x["chain"] or x["value"])), None)
+                    if result is not None:
+                        result["material"] = True
+            elif _NOTATION_LEAD_RE.match(head) and not r["chain"]:
+                r["role"], r["material"] = ("quantitative" if r["value"] else "analysis"), False
 
     @staticmethod
     def _self_report_notes(rows: list[dict], cid) -> list[str]:

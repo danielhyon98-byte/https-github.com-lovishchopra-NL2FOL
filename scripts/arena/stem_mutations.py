@@ -62,6 +62,9 @@ _UNIT_TAIL = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 _ANNOTATION_TAIL_RE = re.compile(r"(?:(?:[ \t]{2,}|\t)\(?[MARN]\d{1,2}\)?|[ \t]*\([MARN]\d{1,2}\)|[ \t]*\[[ \t]*\d{1,2}(?:[ \t]*(?:marks?|spare))?[ \t]*\])+[ \t]*$")
 #: the end of a sentence inside a line: a full stop, question or exclamation mark, then a space and a capital or a figure
 _SENTENCE_END_RE = re.compile(r"[.?!](?=[ \t]+[A-Z0-9(\[])")
+#: a list marker opening a line ("- ", "* ", "• ", "– ", "3) "), the shape the STEM front end reads as one (``stem.spans``): structure
+#: too, which no claim carries
+_LIST_MARKER_RE = re.compile(r"[ \t]{0,8}(?:[-*•–—]|\d{1,3}[.)])[ \t]+")
 #: a part label opening a line ("(b) ", "(a)(ii) ", "2. ", "b) ", "Part (c): "): structure, which no claim carries
 _PART_LABEL_RE = re.compile(r"[ \t]*(?:(?:part|question|q)[ \t]*)?(?:\([ \t]*(?:[a-h]|[ivx]{1,4}|\d{1,2})[ \t]*\)|(?:[a-h]|[ivx]{1,4})\)|\d{1,2}[.)])"
                             r"(?:[ \t]*\([ \t]*(?:[a-h]|[ivx]{1,4})[ \t]*\))?[ \t]*[:.]?[ \t]+", re.IGNORECASE)
@@ -307,12 +310,16 @@ def _link_marker(text: str, a: int, b: int, *, through_next_relation: bool = Fal
     """The mutated link as a marker: from the relation sign before the operand that holds ``[a, b)`` (``through_next``:
     the operand alone, up to the next relation sign) — a stretch inside one statement, so the claim that carries it is
     found by its text. Bounded by the line, and by the sentence that holds the operand ("low = mid + 4 is safe. In an
-    unsorted list ..." gives "mid + 4 is safe"); a mark annotation closing the stretch ("6 − 9t  M1") is left out, as
-    every claim leaves it out."""
+    unsorted list ..." gives "mid + 4 is safe"); a part label or a list marker opening the line ("(b) ", "- ") and a mark
+    annotation closing the stretch ("6 − 9t  M1") are left out, as every claim leaves them out."""
     s, e = _line_bounds(text, a)
-    label = _PART_LABEL_RE.match(text, s) if s == 0 or text[s - 1] == "\n" else None
+    at_line_start = s == 0 or text[s - 1] == "\n"
+    label = _PART_LABEL_RE.match(text, s) if at_line_start else None
     if label is not None and label.end() <= a:
         s = label.end()  # a part label opening the line is structure: no claim carries it
+    bullet = _LIST_MARKER_RE.match(text, s) if at_line_start else None
+    if bullet is not None and bullet.end() <= a:
+        s = bullet.end()  # so is a list marker ("- 181 − 128 = 53" is carried as "181 − 128 = 53")
     if through_next_relation:
         left = text.rfind("=", s, a)
         right = text.find("=", b, e)

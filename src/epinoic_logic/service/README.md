@@ -54,3 +54,8 @@ once, from `--signing-key-file` (a file holding the hex text), `--signing-key-he
 `EPINOIC_SIGNING_KEY` environment variable; a shorter key, an empty one or one given two ways is refused. `--adapter` is
 checked against the closed allowlist `ADAPTER_IDS` before anything is imported, and each allowed id imports one fixed
 module (`_ADAPTER_MODULES`), so no module name is built from command-line text (integration gate, round 1).
+
+**Command line bounds (round-9 clearance, c2).** `check-report` refuses an envelope whose `response` is over the contract's
+400,000-character limit before the adapter parses it, a report or fixtures file over `cli.MAX_INPUT_FILE_BYTES` (16,000,000 bytes)
+is refused before it is read, and `verify` reads a problem file up to the validator's own limit and one byte more, so the engine
+refuses an over-long file (E306) as before without the command reading the rest.

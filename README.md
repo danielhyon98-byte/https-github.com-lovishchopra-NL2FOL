@@ -346,7 +346,10 @@ answered one input) is decided by `epinoic_overseer.delivery_policy.DeliveryPoli
 - Only FORMALLY CHECKED claims a check: every other label says "not formally checked, not verified". The delivered
   payload is the journaled one byte for byte; the fallback never edits, widens, adds or drops a claim. The receipt
   records the time to decision, the translation time and the overseer time; the arena harness reports each task's mode,
-  time to decision, candidates and choice in `results.json` and `summary.md`.
+  time to decision, candidates and choice in `results.json` and `summary.md`, and says whether its delivery pass
+  exercised the overseer-selected fallback. On the command line it calls no model, so it exercises none. With
+  `run_arena.py --overseer-provider MODULE:FACTORY`, the fallback's overseer agents run through the package's runner,
+  and the decisions are reported beside the withheld baseline (`scripts/arena/README.md`).
 
 ## Features of the logic translator (`src/epinoic_logic/translate/`)
 

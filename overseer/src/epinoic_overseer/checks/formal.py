@@ -120,7 +120,18 @@ _STEM_CODE_PREFIX = "ST-"
 _BOUND_OPS = {"max_words": "le", "min_words": "ge", "max_paragraphs": "le", "min_paragraphs": "ge"}
 #: The measurement a declined-bound record states (``channel.bus`` writes "...; measured N words; bound KIND VALUE"); rule
 #: ``declined-bound`` compares it with the recount (round-8 r7 stage 2: the record's count is a statement the router reads).
-_DECLINED_MEASURED_RE = re.compile(r"; measured (\d+) (?:words|paragraphs); bound \S+ \S+$")
+#: Round-9 clearance c2 (rule ``declined-bound``, exact): the unit and the bound are captured too, and each must be the constraint's.
+_DECLINED_MEASURED_RE = re.compile(r"; measured (\d+) (words|paragraphs); bound (\S+) (\S+)$")
+
+
+def _bound_value_text(value) -> str:
+    """A bound's value as the channel's declined-bound record writes it (``str`` of the constraint's value; a whole number as a whole)."""
+    try:
+        if float(value) == int(float(value)):
+            return str(int(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return str(value)
 
 
 def _constraint_image(status: str) -> Optional[bool]:
@@ -465,8 +476,16 @@ def _structural_implied(rc, t: Transfer, branch_key: str, structural, ids: dict,
                 not_found.update(f.claim_ids)
         covered |= set(request_quoted)
     form_covered = covered - not_found
+    # the receipt's error-level structural findings and INT-SUBJ-003 messages, indexed once by their claims (a report of
+    # thousands of faulty claims is read in one pass, never once per fault)
+    receipt_errors = {(x.code, tuple(sorted(x.claim_ids))) for x in rc.structural_findings if x.severity == "error"}
+    subject_messages: dict[tuple[str, ...], list[str]] = {}
+    for x in rc.findings:
+        if x.code == "INT-SUBJ-003" and x.severity == "error":
+            subject_messages.setdefault(tuple(sorted(x.claim_ids)), []).append(x.message or "")
     out = []
     seen: set[tuple[str, tuple[str, ...]]] = set()
+    subject_errors = []
     for sf in structural:
         if sf.severity != "error":
             continue
@@ -479,17 +498,23 @@ def _structural_implied(rc, t: Transfer, branch_key: str, structural, ids: dict,
         if key in seen:
             continue
         seen.add(key)
-        on_receipt = any(x.code == sf.code and tuple(sorted(x.claim_ids)) == cids and x.severity == "error" for x in rc.structural_findings)
-        if not on_receipt:
+        if key not in receipt_errors:
             out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id} implies the error-level structural finding {sf.code} "
                                    f"(claims {list(cids)[:6]}) but lacks it: the branch {branch_key!r} packs re-derive it from the journaled report (R2)",
                                    claim_ids=list(cids), **ids))
         if sf.code.endswith("-SRC-001") and sf.claim_ids and set(sf.claim_ids) <= covered:
             continue  # the excerpt is already an INT-REQ-003 / INT-REQ-010 finding naming the branch rule
-        has_subj = any(x.code == "INT-SUBJ-003" and x.severity == "error" and tuple(sorted(x.claim_ids)) == cids and f"{sf.code}:" in x.message for x in rc.findings)
-        if not has_subj:
-            out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id} implies INT-SUBJ-003 (error) for the structural finding "
-                                   f"{sf.code} (claims {list(cids)[:6]}) but lacks it: the channel raises INT-SUBJ-003 for every error-level branch finding (R2)",
+        subject_errors.append(sf)
+    # rule one-fault-once (the channel's own grouping, called, not copied): one INT-SUBJ-003 per fault, naming every code of it, with
+    # exactly the fault's claims; an exact match, never "a superset of the claims", so a dropped INT-SUBJ-003 cannot hide behind another
+    from epinoic_logic.api.channel import subject_error_groups
+    for codes, cids_list, _message in subject_error_groups(subject_errors):
+        cids = tuple(sorted(cids_list))
+        lead = re.compile(r"\[[^\]]{0,64}\] " + re.escape(", ".join(codes)) + ": ")  # "[english] CORE-SRC-005, ES-SRC-008: ..."
+        if not any(lead.match(m) for m in subject_messages.get(cids, ())):
+            what = f"the structural finding {codes[0]}" if len(codes) == 1 else f"the structural findings {', '.join(codes)} (one fault)"
+            out.append(ovs_finding("OVS-RCPT-004", f"receipt {rc.receipt_id} of {t.kind} {t.message_id} implies INT-SUBJ-003 (error) for {what} "
+                                   f"(claims {list(cids)[:6]}) but lacks it: the channel raises one INT-SUBJ-003 for every error-level branch fault (R2)",
                                    claim_ids=list(cids), **ids))
     return out
 
@@ -730,10 +755,17 @@ def rederive(ctx: CheckContext, t: Transfer) -> Optional[Rederived]:
                 # rule declined-bound: the bound does not apply to a decline, as the channel records it; the measurement the
                 # record states is still the recount's (the channel writes it, so the router reads it)
                 said = list(_DECLINED_MEASURED_RE.finditer(str(cr.detail or "")))
+                unit = "words" if c.kind.endswith("words") else "paragraphs"
                 if not said or int(said[-1].group(1)) != measured:
                     red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} is recorded not applicable (rule declined-bound) with a "
                                                     f"MEASURED count the response does not yield: the record states "
                                                     f"{said[-1].group(1) if said else 'none'}, the recount gives {measured}", **ids))
+                elif said[-1].group(2) != unit or said[-1].group(3) != c.kind or said[-1].group(4) not in (str(c.value), _bound_value_text(c.value)):
+                    # round-9 clearance c2: the record's UNIT and BOUND are statements the router reads too (a word bound recorded in
+                    # paragraphs, or another bound's kind or value, was accepted on its count alone)
+                    red.findings.append(ovs_finding("OVS-FORM-003", f"constraint {c.constraint_id} ({c.kind} {_bound_value_text(c.value)}) is recorded not "
+                                                    f"applicable (rule declined-bound) with a measurement in {said[-1].group(2)} and the bound "
+                                                    f"{said[-1].group(3)} {said[-1].group(4)}: the MEASURED unit or the BOUND is not the constraint's", **ids))
                 continue
             if cr is None or cr.method != "formal" or not cr.formal_result_id:
                 red.findings.append(ovs_finding("OVS-FORM-004", f"request constraint {c.constraint_id} ({c.kind} {c.value}) has no formal result on the receipt"

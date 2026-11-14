@@ -95,8 +95,9 @@ Since architecture step 2c the overseer pool's planning decision is the router's
    estimated cost is the sum of its decisions'; `router_pool.check_pool_plan` holds a 1.2 plan to PROTOCOL.md 7b.5. A router
    that speaks only 1.1 is refused for a batch with a combined answer (`KIT-RT-015`), and the overseer's floor plans it.
 
-The released router shows them in `flash-router/tests/flash_router_tests/test_pool.py`, `test_data.py` and
-`test_runner.py`; the overseer shows the other side in `overseer/tests/overseer_tests/test_flash_router_pool.py` (every
+The released router shows them in `flash-router/tests/flash_router_tests/test_pool.py`, `test_data.py`, `test_runner.py`
+and `test_contract.py` (the router refuses a request it does not read, before planning, with `RequestError`, and never
+fails on one it reads); the overseer shows the other side in `overseer/tests/overseer_tests/test_flash_router_pool.py` (every
 recorded pool plan reproduced with the router attached, the router absent, the version handshake, a weakened data file
 refused below the floor, and the refusal recorded in the signed audit) and in `test_twofold.py` (a combined answer's N_FOLD
 planned by the router and admitted, a smaller context bound refused below the floor, a 1.1 router refused), the router in

@@ -292,6 +292,9 @@ def test_a_model_line_of_the_writers_own_words_is_no_quotation_and_an_altered_li
     reply, rc = through_hub("Your essay compares the two works.\n\n" + model, "Mark my essay.", subject="English A: Literature",
                             agent="english-a-literature-specialist", texts=[STUDENT])
     assert not findings(rc, "INT-REQ-003") and not findings(rc, "ES-SRC-001"), codes(rc)
+    # round 9 (c2), made stricter: the core pack charges the model sentence neither as an unlocated quotation (CORE-SRC-006) nor, through
+    # the channel's copy of a branch error, as INT-SUBJ-003, nor as an unverifiable quotation (CORE-SRC-003)
+    assert not findings(rc, "CORE-SRC-006") and not findings(rc, "INT-SUBJ-003") and not findings(rc, "CORE-SRC-003"), codes(rc)
     assert own_model_words(model, model.split('"')[1], {"doc-student": STUDENT})
     # control: a model label over the student's own line with one word changed is an altered quotation, checked as any other
     altered = 'Model: "Shelley uses lots of imagery and emotive language here to show he is alone."'

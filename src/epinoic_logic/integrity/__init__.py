@@ -122,7 +122,11 @@ def run_integrity_checks(
         guarded("ledger", ledger)
 
     def formalization_binding() -> None:
-        allowed = set(plan.allowed_document_ids)
+        # the task record is always within a formalization's retrieval scope (round 9, c2: translate_v3 rule 9 grounds the
+        # facts the task states in the document id 'task', and the plan's scope lists the supplied texts only, so every such
+        # premise was an error-level INT-HANDOFF-004 in the Overseer's re-check); any other document outside the scope stays one
+        from ..translate.grounding import TASK_DOCUMENT_IDS
+        allowed = set(plan.allowed_document_ids) | (set(TASK_DOCUMENT_IDS) | {plan.task_id} if plan.allowed_document_ids else set())
         for key, problem in formalized.items():
             why = []
             if key != problem.claim_id:

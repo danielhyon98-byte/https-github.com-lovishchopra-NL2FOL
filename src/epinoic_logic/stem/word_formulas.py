@@ -137,15 +137,18 @@ def _cover(words: list[tuple[int, int, str]], names: dict[tuple[str, ...], str])
     return out
 
 
-def _put(chars: list[str], a: int, b: int, symbol: str, power: str = "") -> None:
+def _put(chars: list[str], a: int, b: int, symbol: str, power: str = "", head: bool = False) -> None:
     """Write ``symbol`` (and a power mark after it) into ``chars[a:b]``: at the end of the span when no power word is folded in
-    (so a superscript written after the words still follows the symbol), else at its start; spaces elsewhere."""
+    (so a superscript written after the words still follows the symbol), else at its start; spaces elsewhere. A head (the quantity the
+    equation defines) is written at the start of its words (round-9 clearance): the maths run, and so the statement and the claim, then
+    start where the words start; written at their end, the run had started on the last letter of the word ('n = amount ÷ volume' for
+    'Concentration = amount ÷ volume'), and the claim delivered left the rest of the word out."""
     width = b - a
     body = symbol + power
     if len(body) > width:
         return
     fill = [" "] * width
-    at = 0 if power else width - len(body)
+    at = 0 if (power or head) else width - len(body)
     for t, ch in enumerate(body):
         fill[at + t] = ch
     chars[a:b] = fill
@@ -177,7 +180,7 @@ def word_formula_view(reading: str, profile_key: str) -> str:
             if rhs.strip() and operator and all(ch.isalnum() and ch.isascii() or ch in " \t" or ch in _RHS_MARKS for ch in rhs):
                 cover = _cover(words, names) if words else None
                 if cover:
-                    edits.append((head[0], head[1], names[head[2]], ""))
+                    edits.append((head[0], head[1], names[head[2]], "\x00"))
                     edits.extend(cover)
                     used.add(head[2])
                     for a, b, _sym, _p in cover:
@@ -188,8 +191,9 @@ def word_formula_view(reading: str, profile_key: str) -> str:
     taken = {(a, b) for a, b, _s, _p in edits}
     for a, b, words in heads:  # a value stated for a quantity a word formula uses: its head is the same symbol
         if words in used and (a, b) not in taken:
-            edits.append((a, b, names[words], ""))
+            edits.append((a, b, names[words], "\x00"))
     chars = list(reading)
     for a, b, symbol, power in edits:
-        _put(chars, a, b, symbol, power)
+        # a head is marked with the power "\x00" (never a power mark): written at the start of its words
+        _put(chars, a, b, symbol, "" if power == "\x00" else power, head=power == "\x00")
     return "".join(chars)

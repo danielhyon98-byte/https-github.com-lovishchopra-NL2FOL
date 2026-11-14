@@ -47,7 +47,7 @@ REQUIRED_API: dict[str, tuple[str, ...]] = {
         'ids_held_by_other_agents', 'keep_list', 'located', 'match_claims', 'material_claims', 'measure_answer_words', 'model_json',
         'named_claim_ids', 'needs_qualified_ids', 'observation_state', 'per_part_bound', 'quote_text', 'render_instruction',
         'render_revision_message', 'rendered_digest', 'report_bidi_findings', 'revision_budget', 'revision_id_of', 'revision_signable_text',
-        'snapshot_event', 'weakened', 'withheld_deliverable', 'word_bound_severity',
+        'snapshot_event', 'subject_error_groups', 'weakened', 'withheld_deliverable', 'word_bound_severity',
     ),
     'engine': (
         'CapturedResult', 'PACK_POLICIES', 'POLICY_VERSION', 'POSITIVE_STATUS', 'SCOPE_STATEMENT', 'SolverConfig', 'TASK_GIVEN_KINDS',
@@ -78,7 +78,7 @@ REQUIRED_API: dict[str, tuple[str, ...]] = {
         'SpecialistReport', 'SuppliedText', 'TASK_AUTHORITY_KINDS', 'TaskRecord', 'TranslationResult', 'TranslationStatus', 'apply_subject_policy',
         'assess_release', 'binding_problem', 'build_summary', 'check_assertion', 'check_claim_sources', 'check_problem_grounding',
         'compose_outcome', 'decide_eligibility', 'display_status_for', 'locate_quotation', 'outcome_diagnosis', 'parse_json_object',
-        'report_diagnostics', 'resolve_profile', 'review_currency', 'semantic_restatement', 'sha256_text', 'subjects', 'truncate',
+        'previous_lines', 'report_diagnostics', 'resolve_profile', 'review_currency', 'semantic_restatement', 'sha256_text', 'subjects', 'truncate',
     ),
 }
 REQUIRED_PROTOCOL: dict[str, tuple[str, ...]] = {

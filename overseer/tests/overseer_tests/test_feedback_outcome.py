@@ -70,13 +70,28 @@ def test_a_deleted_calculation_is_removed_not_allowed_and_its_claim_is_lost():
 
 
 def test_a_calculation_turned_into_an_estimate_is_evaded():
+    """Strengthened (round-9 clearance c2b, the c4f276c push check): an evaded flaw ends the chain for human review
+    (``evaded_after_feedback``, OVS-FB-002), the revision's receipt names the weakened claim (INT-REV-002), and the
+    consolidation never delivers the weakened revision in place of the answer it revises."""
     case = physics_case()
     try:
         issue = case.ask()
-        a2, _rc2 = case.deliver(issue, "The trolley starts from rest, so u = 0. Using a = Δv/Δt, a is about 6 m s⁻². "
-                                       "The acceleration is therefore 6.0 m s⁻².", report_id="rep-ph-2")
+        a2, rc2 = case.deliver(issue, "The trolley starts from rest, so u = 0. Using a = Δv/Δt, a is about 6 m s⁻². "
+                                      "The acceleration is therefore 6.0 m s⁻².", report_id="rep-ph-2")
+        weakened = [f for f in rc2.findings if f.code == "INT-REV-002"]
+        assert weakened and any("s1.2" in f.claim_ids and "is made approximate" in f.message for f in weakened)
         out = case.hub.revision_outcome(case.task_id, a2.message_id)
         assert _buckets(out) == {"INT-SUBJ-001": "evaded"}
+        assert out.next == "escalated" and out.escalation_reason == "evaded_after_feedback"
+        esc = case.hub.revisions(case.task_id)["escalations"]
+        assert len(esc) == 1 and esc[0].reason == "evaded_after_feedback" and esc[0].finding.code == "OVS-FB-002" and "evaded" in esc[0].finding.message
+        again = case.ask(a2.message_id)
+        assert not again.allowed and again.reason == "escalated"
+        resp = case.hub.consolidate(case.task_id, request_message_ids=[case.m.message_id, issue.message.message_id])
+        assert a2.message_id in resp.excluded_message_ids()
+        [ex] = [e for e in resp.excluded if e.message_id == a2.message_id]
+        assert any("evaded its feedback" in r and "rule evaded-escalates" in r for r in ex.reasons)
+        assert not any("superseded by its revision" in r for e in resp.excluded for r in e.reasons)  # the revision supersedes nothing
     finally:
         case.close()
 

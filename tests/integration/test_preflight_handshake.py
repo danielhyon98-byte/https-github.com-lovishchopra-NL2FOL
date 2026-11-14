@@ -65,7 +65,7 @@ def test_the_default_overseer_port_adapter_is_the_overseer_sub_projects_and_conn
     sub-project) connects through the real probe, its hello names the pinned pack and the standard profile only (D30).
     Skipped, with the reason, where the overseer is not installed (the translator's suite runs without it; the service then
     refuses at start-up with KIT-HS-007, which the tests of the probe's refusals hold)."""
-    pytest.importorskip("epinoic_overseer.port", reason=REASON)
+    pytest.importorskip("epinoic_overseer.port", reason=REASON, exc_type=ModuleNotFoundError)
     facts = run_preflight(settings(), FixtureProbes(missing="overseer"))
     assert facts.settings.overseer_port == "epinoic_overseer.port"
     assert set(facts.overseer.pack_digests) <= PINNED_PACK_DIGESTS and facts.overseer.mode == "embedded" and facts.overseer.profiles == ["standard"]

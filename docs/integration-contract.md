@@ -549,8 +549,8 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - `translator_version` in `VerificationResult.versions`. Today it is reported in translation
   records, by `epinoic-logic version` and in the service's version response, but not in an
   engine result.
-- A dependency lock for every install. `pyproject.toml` gives lower bounds only: `z3-solver>=4.13`,
-  `pydantic>=2.6`. A kit install is pinned since integration gate 2 (`integration/constraints.txt`, the measured versions,
+- A dependency lock for every install. `pyproject.toml` gives a lower bound for `pydantic>=2.6` and, since the round-9
+  clearance, the accepted solver series `z3-solver>=5.1.0,<5.2` (the bootstrap's range; `tests/integration/test_declared_z3_range.py`). A kit install is pinned since integration gate 2 (`integration/constraints.txt`, the measured versions,
   installed with `pip install -c` in playbook step 6), and `integration/COMPATIBILITY.json` accepts only the measured
   solver series.
 - A frozen, versioned list of report-level finding codes for the receiving side.

@@ -58,10 +58,23 @@ def test_the_circular_c1_translations_are_withheld_never_displayed_entailed(task
 def test_a_stated_step_and_a_definitional_identity_are_checked_steps_never_circles(task, claim, why):
     """The first pass of this clearance withheld these three as circular (the transfer auditor's labels); the round's
     translation-fidelity lens judged m6.1 and c18.2 faithful checks of the claim's own step, and the auditor now exempts all
-    three by its rules stated-step and definitional-identity: the engine's ENTAILED is displayed with no E112."""
+    three by its rules stated-step and definitional-identity: the engine's ENTAILED is displayed with no E112.
+
+    Rewritten to a stricter rule for c25.1 (round-9 clearance c2, second fix pass; the c2 translation-fidelity lens's critical
+    finding on meaning-changing translation faults, and c1 translation-fidelity #12): c25.1 ("Check: for A, B = 00, 01, 10 and
+    11, the original expression gives 1, 0, 1, 0, and NOT B gives 1, 0, 1, 0.") is still no circle (no E112, and its premise
+    still only names the expression its conclusion is an identity of), but its encoding checks the identity and none of the
+    values the claim states, so a check with wrong values would have been displayed ENTAILED as well: its verdict is now
+    withheld as AMBIGUOUS_TRANSLATION with the flag ``values_not_encoded``, never displayed ENTAILED."""
     from epinoic_logic.translate.restatement import _definitional_identity, _stated_step, _Checker, _dump, _nnf_conjuncts
     o = outcome_of(task, claim, C1["translations"][task])
-    assert o.display_status is S.ENTAILED and not any("E112" in d for d in o.translation.diagnostics), o.translation.diagnostics
+    assert not any("E112" in d for d in o.translation.diagnostics), o.translation.diagnostics
+    if claim == "c25.1":
+        flags = [f.code for f in o.translation.interpretation.ambiguity_flags] if o.translation.interpretation is not None else []
+        assert o.display_status is S.AMBIGUOUS_TRANSLATION and "values_not_encoded" in flags, (o.display_status, flags)
+        assert o.verification is not None and o.verification.status is S.ENTAILED  # the engine's verdict, withheld from display
+    else:
+        assert o.display_status is S.ENTAILED, o.translation.diagnostics
     p = Problem.model_validate(C1["translations"][task][claim]["problem"])
     exprs = {pr.id: _dump(pr.expr) for pr in p.premises}
     if why == "stated step":

@@ -154,7 +154,7 @@ def test_the_public_api_states_its_version_and_exports_the_names_the_overseer_im
             assert name in table[area], (area, name)
             assert getattr(module, name) is getattr(importlib.import_module(internal), name), (area, name)
     assert sum(len(n) for n in ADDED_IN_1_1.values()) == 26
-    compat = pytest.importorskip("epinoic_overseer.compat", reason=REASON)  # the overseer's own check, where it is installed
+    compat = pytest.importorskip("epinoic_overseer.compat", reason=REASON, exc_type=ModuleNotFoundError)  # the overseer's own check, where it is installed
     assert int(api.API_VERSION.split(".")[0]) == compat.API_MAJOR and compat.missing_translator_names() == []
 
 

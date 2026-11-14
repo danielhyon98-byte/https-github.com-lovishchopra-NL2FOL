@@ -42,7 +42,7 @@ __all__ = [
     "PORT_VERSION", "VOCABULARY", "CERTAINTIES", "MAX_OUTPUT_TEXT_BYTES", "MAX_REFUSAL_DETAIL_CHARS", "REFUSAL_REASONS", "CLAIM_ID_PATTERN", "TEXT_PATTERN",
     "CONTRACT_FILES", "SourceClaim", "SourceReport", "InputIds", "CombinatorInput", "SynthClaim", "EvidenceRef", "Dropped",
     "Conflict", "CombinatorOutput", "CombinatorIdentity", "CombinatorHello", "CombinatorRefusal", "check_input",
-    "check_output", "check_hello", "check_refusal", "to_synthesis_format", "synthesis_payload", "source_report",
+    "check_output", "check_hello", "check_refusal", "to_synthesis_format", "synthesis_payload", "student_facing_text", "source_report",
     "build_input", "vocabulary_document", "port_rules_document", "contract_documents", "contract_digest",
 ]
 
@@ -356,6 +356,19 @@ def to_synthesis_format(out: CombinatorOutput) -> dict:
     return body
 
 
+def student_facing_text(claim_texts: Sequence[str]) -> str:
+    """The student-facing text of a synthesis composed from its synthesized claims' texts, in order, joined by one space, leaving
+    out each claim whose whole text is a quotation that another claim of the same synthesis holds verbatim, before or after it
+    (``integrity.ledger.quotations_held_verbatim``): the student reads such a quotation once, inside the sentence that quotes it
+    (round 9, c2, ll-t15: the joined text handed the student each of its ten quotation claims twice, once as a stray fragment).
+    Every claim's text still occurs in the text (the hub's INT-LEDGER-017 presence check) and the text stays a composition of its
+    claims (INT-LEDGER-031). Linear in the claims' length, a search per quotation claim."""
+    from ..integrity.ledger import quotations_held_verbatim
+    texts = [str(t) for t in claim_texts]
+    held = quotations_held_verbatim(texts)
+    return " ".join(t for i, t in enumerate(texts) if i not in held)
+
+
 def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_id: str, combinator_agent_id: str, created_at: str,
                       evidence_refs: Optional[Mapping[int, Sequence[Mapping[str, Any]]]] = None) -> dict:
     """The ``synthesis/1.0`` mapping the service relays through the hub for a checked output (``check_output``): the
@@ -364,7 +377,8 @@ def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_
     Synthesized claims are numbered ``s0``, ``s1``, ... (with a longer prefix should the input hold such a claim id, so a
     synthesized claim never reuses a source claim's id, INT-LEDGER-015); every material synthesized claim keeps the
     default materiality ``material``; a dropped entry is a ledger entry ``dropped``; a disclosed conflict is an
-    ``unresolved`` conflict record; the student-facing text is the claims' texts joined by a space. ``evidence_refs``
+    ``unresolved`` conflict record; the student-facing text is the claims' texts joined by a space, each quotation claim another
+    claim holds rendered only inside that claim (:func:`student_facing_text`). ``evidence_refs``
     (synthesized claim index -> references) are the references the service attaches (phase 2: the arena's rule, the
     references of cited material sources whose excerpts the claim reproduces word for word); without them a claim keeps
     the references the combinator gave, if any."""
@@ -382,7 +396,7 @@ def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_
         elif c.evidence_refs is not None:
             item["evidence_refs"] = [r.model_dump(exclude_none=True) for r in c.evidence_refs]
         claims.append(item)
-    text = " ".join(c.text for c in out.claims)
+    text = student_facing_text([c.text for c in out.claims])
     return {
         "synthesis_id": synthesis_id, "request_id": inp.ids.request_id, "task_id": inp.ids.task_id,
         "combinator_agent_id": combinator_agent_id, "source_report_ids": [s.report_id for s in inp.sources], "claims": claims,

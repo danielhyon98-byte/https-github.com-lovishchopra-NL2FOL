@@ -14,7 +14,9 @@ Its rules (the features it reads, the thresholds, the method table, the batch si
 data files with digests (``data/``, :mod:`epinoic_flash_router.rules`): the router is edited, re-tuned and released by
 changing them, without touching the translator, the engine, the STEM support or the overseer. Standard library only;
 nothing here imports the translator, the engine, Z3 or the overseer. Its identity (name, version, the digests of its
-rules and of its cost data) changes whenever its behaviour can.
+rules and of its cost data) changes whenever the plan of a request it reads can. A request it does not read (out of
+the type or range the router port gives a member its planners read: :mod:`epinoic_flash_router.contract`) gets no plan
+but a ``RequestError`` naming the member and the rule.
 """
 __version__ = "0.4.0"
 

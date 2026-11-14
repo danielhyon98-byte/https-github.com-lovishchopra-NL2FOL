@@ -250,6 +250,10 @@ class Unsupported:
     #: never encoded itself
     var: str = ""
     order: int = 0
+    #: round-9 clearance (rule coordinate-pair): the components of a coordinate pair or a short vector written in round or square
+    #: brackets ('((2 + 8)/2, (1 + 3)/2)'), each read as an expression; empty when a component could not be read. Never encoded
+    #: itself: a relation between two pairs of closed components is checked component by component (``relations._pair_link``)
+    parts: tuple = ()
 
 
 Node = Union[Num, Quantity, WithUnit, Sym, Neg, BinOp, IntOp, PlusMinus, Pow, RealPower, Root, Func, Apply, Abs, Percent, Degrees, Magnification, Ratio,

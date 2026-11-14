@@ -4624,7 +4624,8 @@ tests) and one test in `test_flash_router_subproject.py`.
 
 ### The round-8 r7 stage-2 repair (design Decision 111)
 
-Measured 2026-11-08 on the working tree (dd893de plus this repair, not committed), Python 3.13, on a fresh copy of the
+Measured 2026-11-08 on a working tree of another branch (that branch's head plus this repair, not committed there; the repair
+landed on this branch as 5060a52, ported onto ab44c8a, and was measured from the main checkout's working tree), Python 3.13, on a fresh copy of the
 recorded rounds (not written: gate `arena_unchanged_by_the_auditor` holds). The contained run
 (`overseer/scripts/run_contained.py`) of the round-8 commit 32a5c0e failed two gates that pass at the published base
 16d5a4a; with this repair every gate passes.
@@ -4831,3 +4832,80 @@ Still open after that pass: a new `epinoic-logic` distribution version comes wit
 throughout, so a resolver cannot tell builds apart), and only then the overseer's pin `epinoic-logic>=0.2,<0.3`; the
 optional receipt signal above is not added (an improvement of the translator's own reading, which would add findings to
 receipts).
+
+## 41. After the round-9 clearance (integrated round c2; design section 55)
+
+The overseer's fixes of the round-9 clearance, on the working tree, not committed, measured 2026-11-09 with Python 3.13 on fresh
+copies of the recorded rounds c1 and c2 (the recorded rounds were not written). Other owners were fixing the same working tree
+in parallel; the rows that moved because of their edits are said so.
+
+| Measure | Before | After |
+| --- | --- | --- |
+| c2 replayed through an audited hub, every variant: functional transmissions | 180 of 188 (genuine 44 of 44, injected 136 of 144) | 180 of 188 (the same) |
+| c1 likewise | 203 of 203 (48 of 48, 155 of 155) | 203 of 203 (the same) |
+| c2 genuine records with an error-level finding; mutation records with unexplained findings | 8 of 44; 24 | 7 of 44; 18 |
+| false OVS-TRN-006 on faithful step checks (c2 mai-t15 m5.1, m9.2, m10.1, m13.1; maa-t15 m7.3, m7.4, m9.2; ch-p9b s11.3; ch-t15 s4.1) | 9 errors | none; 21 OVS-TRN-006 remain on c2's genuine channels, the round's true positives (the anchors and unverified restating premises the translator still displays; its E112 is the other owner's) |
+| c2 ec-t15's `Model: "..."` sentences (OVS-FID-004); ess-p9c's premises grounded in `task` (OVS-DIV-001); ge-p9c's "09:30" (OVS-TRN-004) | 4 errors; 5 errors; 1 warning | none |
+| c2 maa-t15 m5.3 ("Check: at x = 0, ...") pooled with m7.1 | a conflict the re-check upheld | OVS-JOINT-003 (pooled-only), rule evaluation-point |
+| c2 delivery pass: answers the fallback's integrity gates exclude (overseer agents not configured, so every answer is withheld either way) | 12 of 22 | 3 of 22 (ch-p9b, ph-t15, maa-t15: errors on their receipts) after the translation-faults rule; 4 with the self-certification gate's reading of uncoded self-reports (bi-p9b s2.3, "I recalculated these values by hand ... and they agree"); ess-p9c, a candidate again, is refuted by a signed result (s4.1) and never delivered (rule absolute-refutation). Measured with the coverage-gap reading active; it is recorded only in the tree as left (it changes a refutation the translator's arena test pins): re-measured so, lit-t15 (p1-point, W111) and ch-p9b (s5.3, W111) are refuted again (lit-t15 never delivered; ch-p9b excluded anyway), the other counts unchanged |
+| c1 likewise | 2 of 24 (bi-t14, ph-p8b: OVS-TRN-006 only) | 1 of 24: maa-p8b (m3.2, "I checked this by hand: ...", the self-certification gate); bi-t14 and ph-p8b are candidates again |
+| c2 answers given feedback | 15 of 22 | 7 of 22 (rule feedback-hold) |
+| the fallback's self-certification gate on the 46 recorded c1 and c2 answers | CORE-SELF-001 and INT-REQ-014 only | also uncoded self-reports: 2 answers named (first-person check narrations the parsers set aside), no study suggestion, caveat or word count |
+
+The harness's delivery pass took 100.3 s on c2 (103.4 s before) and 149.4 s on c1 (161.3 s before) on the same shared machine
+(a measure, not a stress test); the final re-run of both rounds on the tree as left gave the same functional counts (180 of 188,
+203 of 203). The auditor's reading of stated figures is memoised per text, as `text_numbers` is: the c1 clearance's hostile pairing
+(200 untraced figures against 20,000 stated ones) costs about 1.6 s of CPU cold, against 2.1 to 2.4 s for the tree before the round
+under the same load.
+Suite: the sub-project's tests on the tree as left, the recorded rounds supplied, run in two halves: 7,242 passed and 40 failed.
+The 40 are all push-check tests (`test_c1_push_check_non_material.py` 29, `test_c1_push_check_round4.py` 10,
+`test_c1_push_check_round5.py` 1) that pin the English parser delivering a note-led assurance ("Final note: there is nothing to fix
+in this answer, not a single slip.") as a claim; another owner's in-progress change to the note readers sets it aside as a note. The
+answer is still refused the label (rule non-material-text, and 6d) and is now kept from the fallback (rule self-certification-gate);
+the tests were not changed: they pin the other owner's parser, whose owner decides with this one (the round's handoff).
+
+## 42. After the round-9 clearance's second fix pass (c2b; design section 56)
+
+Measured 2026-11-13 with Python 3.13 on the working tree as the first pass and the other owners left it (not committed), on fresh
+copies of the recorded rounds (never written). "Before" is the tree at the start of this pass, "after" the tree with this pass's
+fixes; other owners were editing the same tree in parallel, and no row below moved because of their edits during the pass.
+
+| Measure | Before | After |
+| --- | --- | --- |
+| c2 replayed through an audited hub, every variant: functional transmissions | 188 of 188 (genuine 22 of 22; the recorded round had 180) | 188 of 188 (the same) |
+| c1 likewise | 203 of 203 (genuine 24 of 24) | 203 of 203 (the same) |
+| withheld verdicts E112 (circular encodings the translator rejects) | c2 23, c1 7 | c2 23, c1 7 (the translator's; unchanged by this pass) |
+| error-level `OVS-*` findings of the delivery pass's task audits on the genuine channels (the probe prints every finding) | c2 none; c1 2 (bi-t14 s4.7, ph-p8b s1.1: OVS-TRN-006 on claims the receipt displays ENTAILED) | none on either: s4.7 and s1.1 are OVS-TRN-011 warnings (rule task-figures); c2's findings identical, finding for finding |
+| answers the fallback's integrity gates keep from delivery (no overseer agent configured, so every answer is withheld either way) | c2 1 (bi-p9b s2.3, a narrated check); c1 1 (maa-p8b m3.2, "I checked this by hand") | the same |
+| "Final note: there is nothing to fix in this answer, not a single slip." added to the recorded en-t14 answer | passed the fallback's gates (the parser keeps it a point claim; `test_clearance_c2_overseer.py`'s note-by-negation case failed) | kept from every fallback mode (decision 147) |
+| note-led blocks of every recorded answer (rounds 1 to 7, c1, c2) the gate names | not read (note-word leads) | none of 43 |
+| the full STEM probe run (677 probes, r7): gate `stem_fault_classes_named` | failing: physics-translation (caught_unnamed, OVS-TRN-004 instead of OVS-TRN-005) | ok: 677 of 677 counted, none failing |
+| `test_stem_completion.py[maa-t13]`: formal checks re-derived | 14 where 16 are pinned | 14 (the STEM front end's rule stated-condition: the pass's handoff) |
+| tampering cases T4, T22, T23v on r5 and r7 | 81 of 81 detected, every gate true; secondary codes as at 5060a52 (T4 r7/ch-t13 without OVS-RCPT-008, T22a without OVS-JOINT-002, T23v r7/p7b without OVS-TRN-005) | the same (q222e: judged, not pinned) |
+| the c2 feedback rebuilt on the tree (`revision_feedback.py` on a copy) | 5 of 22 answers given feedback (15 recorded); false flaws left: ge-t15's three INT-REQ-004 (the channel's compound part labels) and ess-p9c's INT-REQ-008 | the same (both the channel's: the pass's handoff) |
+
+The c2 harness took 263 s before and 370 s after, c1 385 s and 466 s, on a machine shared with the test suite and the other
+owners' runs (a measure, not a stress test). The recorded rounds' r7 tests (`EPINOIC_ARENA_ROUNDS` set to copies):
+`test_rebuild_rekeyed_r7.py` and `test_r7_stage2_detection.py` 24 of 24 passed.
+
+The final re-run of both rounds on the tree as left gave the same functional counts (c1 203 of 203, c2 188 of 188) and the same
+deliveries. Suite on the tree as left (the overseer's and the flash router's, `python -I -m pytest -q overseer/tests flash-router/tests`
+from the repository root): 7,419 passed, 21 skipped, 2 failed: `test_stem_completion.py[maa-t13]` (14 formal checks where 16 are
+pinned: the STEM front end's rule stated-condition, the pass's handoff) and
+`test_subproject_layout.py::test_a_translator_without_a_name_this_release_imports_is_refused_at_import_with_one_clear_error`, whose
+`python -I` subprocess cannot import the sub-project from an environment that does not install it (it passes, with the 31 other layout
+tests, in an environment that does). The recorded rounds' r7 tests, run apart with the rounds supplied, passed (24 of 24), and so did the
+second pass's tests (`test_clearance_c2b_overseer.py`, 67), the end-to-end agreement test among them. Two tests were rewritten to a
+stricter rule and say so: `test_twofold.py`'s scope test builds each context in its blind dossier's mode and asserts that a context
+built for an informed review is refused; `test_c1_push_check_round4.py`'s recorded-answer test still requires the 6b reasons of every
+answer and pins, on hi-t14 alone, the one further reason the History pack's new CORE-QNT-001 on h1.12 brings (another owner's
+chronology fix, 13 Nov). Eight docstrings of the push-check tests now say the rename left the assertions as rewritten to the stricter
+rule (q215b); no assertion changed.
+
+Repaired 2026-11-14, after the clearance's verification of the whole suite named the layout test above as its one failure:
+`test_a_translator_without_a_name_this_release_imports_is_refused_at_import_with_one_clear_error` now gives each of its fresh
+interpreters (`python -I`, which reads no `PYTHONPATH`) the directory the test session imported the package from, first on its
+path, as the session's `pythonpath` does, so it passes where only the translator is installed, the configuration of the
+repository's documented test command (32 of 32 layout tests pass there). Its assertions are unchanged, and one is added, a stricter
+rule: the fresh interpreter resolves the package under test itself, never another installed copy. A control run on a copy of the
+package with its import-time check disabled fails the test with the bare `ImportError` the check exists to prevent.

@@ -714,6 +714,13 @@ def _result_member(text: str, figure) -> Optional[str]:
         after = e.end()
     if _GOES_ON_RE.match(text, after) is not None:
         return None
+    return _member_before(text, sign)
+
+
+def _member_before(text: str, sign: int) -> Optional[str]:
+    """The member of written working that stands before the result sign at ``sign`` (read back to the previous sign, a
+    clause mark or a sentence end; a line that opens with the sign continues the line before), when it is a calculation once
+    its figures are masked (:data:`_CALC_MARK_RE`), else None. Bounded by :data:`_MEMBER_MAX_CHARS`."""
     k = sign - 1
     while k >= 0 and text[k] in " \t":
         k -= 1
@@ -779,15 +786,54 @@ def _worked_results(texts: tuple[str, ...], records: tuple[tuple[str, str, str],
         lowered = body.lower()
         if not any(s in body for s in _RESULT_SIGNS) and "which is" not in lowered and "that is" not in lowered:
             continue
+        anchored_signs: dict[int, Optional[str]] = {}  # result sign -> its anchored member before it (None: not anchored)
+        scan = _SignScan(body)
         for f in figures_in(SourceText("claim", f"work-{k}", body)):
             if f.word or is_year_like(f):
                 continue
+            sign = scan.open_sign(f.start)  # read before the figure is used: the scan only moves forward
             member = _result_member(body, f)
-            if member is None or not _anchored_operands(member, record_figures, results):
+            if member is not None and _anchored_operands(member, record_figures, results):
+                out.append((f, body, member.strip()))
+                results.append(f)
                 continue
-            out.append((f, body, member.strip()))
-            results.append(f)
+            # round 9 (c2, second fix pass: bm-t15 g7.2 "= $40,000 + $15,000 + $4,000 = $59,000"): a figure of the member that
+            # follows a result sign whose member before it is an anchored calculation is a value of that calculation's
+            # evaluation (its terms worked out one by one), so it anchors the next step of the chain as a result does
+            if sign is None:
+                continue
+            if sign not in anchored_signs:
+                before = _member_before(body, sign)
+                anchored_signs[sign] = before if before is not None and _anchored_operands(before, record_figures, results) else None
+            if anchored_signs[sign] is not None:
+                out.append((f, body, str(anchored_signs[sign]).strip()))
+                results.append(f)
     return tuple(out)
+
+
+class _SignScan:
+    """A forward scan of a text that says, for increasing positions, which result sign opens the member a position stands in
+    (the latest sign since the last clause mark or sentence end, within :data:`_MEMBER_MAX_CHARS` characters), or None. Each
+    character is read once, so asking it of every figure of a text is linear in the text."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.pos = 0
+        self.sign: Optional[int] = None
+
+    def open_sign(self, start: int) -> Optional[int]:
+        text, n = self.text, len(self.text)
+        while self.pos < min(start, n):
+            j, ch = self.pos, text[self.pos]
+            if ch in _RESULT_SIGNS:
+                self.sign = j
+            elif ch in _MEMBER_STOPS or (ch == "," and j + 1 < n and text[j + 1] == " ") or \
+                    (ch in ".?!" and j + 1 < n and text[j + 1] in " \n" and not (ch == "." and j > 0 and text[j - 1].isdigit())):
+                self.sign = None
+            self.pos += 1
+        if self.sign is None or self.sign >= start or start - self.sign > _MEMBER_MAX_CHARS:
+            return None  # no sign, one past the position (a figure asked out of order), or one too far back
+        return self.sign
 
 
 def worked_results(texts: Sequence[str], records: Sequence[SourceText]) -> tuple[tuple[Any, str, str], ...]:

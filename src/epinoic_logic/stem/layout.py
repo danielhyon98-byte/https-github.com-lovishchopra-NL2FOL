@@ -12,7 +12,10 @@ that decide where a claim starts and ends are the generic parser's (``branches/g
   ("(a) [2]", "(i) [2 marks]", "Part (a) — find — 3 marks", "3.") opens a part and proposes no claim;
 * mark annotations ("[1]", "[1 spare]", "[2 marks]", "M1" or "A1" after two spaces, "(M1)") are no part of a
   claim: at the end of a line or of a sentence they are left out of the claim, and a fragment that is nothing else is
-  no claim; a table's separator row is furniture.
+  no claim; a table's separator row is furniture;
+* a bare bracketed number right after a locator word ("linked to paragraph [3].", "Table [2].") is that locator's
+  number, never a mark allocation (rule locator-number, round-9 clearance): it stays in the claim, and only the marks
+  after it are left out.
 
 This module re-states the generic parser's patterns because the STEM package imports nothing from ``branches``
 (tests/stem/test_front_end_safety.py); tests/stem/test_layout.py asserts the two sets of patterns are the same. It
@@ -26,7 +29,7 @@ from typing import Optional
 __all__ = [
     "ANNOTATION_ONLY_RE", "ANNOTATION_ONLY_LINEAR_RE", "BULLET_RE", "CONNECTIVE_END_RE", "CONTINUATION_RE", "LABEL_ONLY_REST_RE", "MARK_ALLOC", "MARK_CODE", "PART_LEAD_RE",
     "SENT_RE", "SOFT_WRAP_NEXT_RE", "TABLE_ROW_RE", "TABLE_SEPARATOR_RE", "TERMINAL_PUNCT_RE", "TRAILING_ANNOTATION_RE", "annotation_ranges",
-    "strip_trailing_annotations", "trailing_annotation_span",
+    "strip_trailing_annotations", "trailing_annotation_span", "LOCATOR_BEFORE_RE", "LEADING_BRACKET_NUMBER_RE", "locator_number_end",
     "is_working", "joins_previous", "label_only_rest", "plain_line", "EMPHASIS_RE", "emphasis_spans",
 ]
 
@@ -377,6 +380,33 @@ def strip_trailing_annotations(text: str) -> str:
     return text.rstrip()
 
 
+#: Rule locator-number (round-9 clearance, second pass; the generic parser's ``_LOCATOR_BEFORE_RE``, which tests/stem/test_layout.py
+#: holds identical): a bracketed number written right after a locator word that names a part of a text by its number ("linked to
+#: paragraph [3].", "see line [12]", "Table [2]", "Source [1]") is the locator's number, never a mark allocation (c2 ec-t15 "... linked to
+#: paragraph [3]." was delivered as "... linked to paragraph.", and the STEM claims cut "Table [2]." to "Table." the same way). A locator
+#: after an article or a determiner ("using the source [2]") names no number: the bracket is its line's mark. Read on at most
+#: :data:`_LOCATOR_WINDOW` characters before the bracket, anchored at their end; the blank runs are possessive, so the search is linear.
+LOCATOR_BEFORE_RE = re.compile(r"(?:^|(?<=\s))(?:(?P<det>the|this|that|each|every|a|an|its|their|his|her|my|your|our)\s++)?"
+                               r"(?:paragraphs?|paras?|lines?|pages?|pp?|stanzas?|chapters?|sections?|rows?|columns?|tables?|figures?|figs?|appendix|appendices"
+                               r"|footnotes?|equations?|eqs?|exhibits?|verses?|sources?|extracts?|documents?|docs?)\.?\s*+$", re.IGNORECASE)
+#: The bare bracketed number that opens a run of trailing annotations (the generic parser's ``_LEADING_BRACKET_NUMBER_RE``).
+LEADING_BRACKET_NUMBER_RE = re.compile(r"\s*+\[\s*+\d{1,3}\s*+\]")
+_LOCATOR_WINDOW = 40
+
+
+def locator_number_end(text: str, start: int) -> Optional[int]:
+    """Rule locator-number: when the run of annotations that starts at ``start`` of ``text`` opens with a bare bracketed number written
+    right after a locator word with no determiner before it ("paragraph [3]", "Table [2]"), the offset where that number ends (it is the
+    locator's, and stays in the claim); None otherwise. The generic parser keeps the same number (``generic_parser._strip_annotations``)."""
+    lead = LEADING_BRACKET_NUMBER_RE.match(text, start)
+    if lead is None:
+        return None
+    m = LOCATOR_BEFORE_RE.search(text[max(0, start - _LOCATOR_WINDOW):start])
+    if m is None or m.group("det") is not None:
+        return None
+    return lead.end()
+
+
 def joins_previous(prev: str, line: str) -> bool:
     """True when the physical ``line`` continues the logical line ``prev`` (both with their mark annotations and
     markup removed): an equation continued on a line that opens with ``=`` or ``≈``, a line after one that ends on a
@@ -414,7 +444,9 @@ def _sentence_spans(line: str) -> list[tuple[int, int]]:
 def annotation_ranges(line: str) -> list[tuple[int, int]]:
     """Offsets (in ``line``) of the mark annotations the generic parser leaves out of claims: those closing the line,
     those closing one of its sentences (before the sentence's final ``.``, ``;`` or ``,``), and sentences that are
-    nothing but annotations. Each range covers the whitespace before the annotation, as the generic parser removes it."""
+    nothing but annotations. Each range covers the whitespace before the annotation, as the generic parser removes it.
+    A bracketed number that a locator word before it owns ("paragraph [3]", rule locator-number) is no annotation: a range
+    closing a sentence or the line starts after it."""
     if not line or len(line) > _MAX_LINE or not any(ch in line for ch in "[(MARNG"):
         return []
     out: list[tuple[int, int]] = []
@@ -428,10 +460,17 @@ def annotation_ranges(line: str) -> list[tuple[int, int]]:
             continue
         span = trailing_annotation_span(sent)  # TRAILING_ANNOTATION_RE.search(sent), linear
         if span is not None and span[1] > span[0]:
-            out.append((a + span[0], a + span[1]))
+            first = locator_number_end(sent, span[0])
+            first = span[0] if first is None else first
+            if span[1] > first:
+                out.append((a + first, a + span[1]))
     span = trailing_annotation_span(line)
     if span is not None and span[1] > span[0]:
-        out.append(span)
+        first = locator_number_end(line, span[0])
+        if first is None:
+            out.append(span)
+        elif span[1] > first:
+            out.append((first, span[1]))
     out.sort()
     merged: list[tuple[int, int]] = []
     for a, b in out:

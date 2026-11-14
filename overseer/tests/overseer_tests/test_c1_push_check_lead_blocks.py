@@ -143,7 +143,8 @@ def test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_lab
     them with the label rule's reason last.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; its assertions are unchanged: the
+    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the
     old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     _rc, report, decision, _audit = _deliver(EN_T14)
@@ -271,7 +272,8 @@ def test_a_genuine_source_list_in_place_of_en_t14s_is_refused_by_the_label_rule_
     (``_clean_recorded_claims``), and a claim the input adds keeps its real outcome.
 
     Renamed after the re-review of the c1 landing (from ``test_a_genuine_source_list_in_place_of_en_t14s_keeps_the_label``),
-    its assertions unchanged: the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
+    the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
     condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     _rc, _report, decision, _audit = _deliver(EN_T14[: -len(SOURCES_LINE)] + variant)
@@ -335,8 +337,9 @@ def test_a_genuine_note_added_to_en_t14_is_refused_by_the_label_rule_alone(monke
     outcome, which the label no longer allows; every claim of the recorded answer is now counted clean
     (``_clean_recorded_claims``), and a claim the input adds keeps its real outcome.
 
-    Renamed after the re-review of the c1 landing (from ``test_a_genuine_note_added_to_en_t14_keeps_the_label``), its
-    assertions unchanged: the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
+    Renamed after the re-review of the c1 landing (from ``test_a_genuine_note_added_to_en_t14_keeps_the_label``), the rename left its
+    assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md``
     condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     for text in (EN_T14 + "\n\n" + note, EN_T14.replace(P4_END, P4_END + "\n" + note)):

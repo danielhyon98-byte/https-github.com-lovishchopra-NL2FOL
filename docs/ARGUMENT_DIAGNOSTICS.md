@@ -361,8 +361,12 @@ or source authority, and for circularity too (`assumed_grounding` is `not has_au
   the premise dates that the sentence does not date leaves it unvalidated. Deictics that point to one time ("the past year",
   "the previous year" and "last year") are no conflict. The month "May" written with a capital inside a
   task sentence is no modal (close round 1, ADV6-09, `grounding._suspending_tokens`);
-- a figure is read with its whole unit, a unit of two or three words included ("21 m³ s⁻¹", "4200 J kg⁻¹ K⁻¹": the
-  longest reading first; repair round 2, `translate/quantities.py`);
+- a figure is read with its unit: a two-word unit ("km h⁻¹", "m s⁻¹", "mol dm-3") and the same unit with one or two
+  further words ("4200 J kg⁻¹ K⁻¹", "kJ m⁻² yr⁻¹", "kg per day"), the longest reading first (repair round 2 and round-9
+  clearance c2b, `translate/quantities.py`); a two-word unit cut before a further unit word (one with an exponent, or "per")
+  gives no dimension, so it never names a dimension conflict. A unit whose first word carries an exponent ("21 m³ s⁻¹") is
+  read by its first word only, as before (c2b measured: reading it whole changes recorded outcomes through the exactness
+  rule, bi-t15 s3.2 and s3.3, so it is left for the translate owner);
 - a figure grounds when the excerpts state it, when the answer's own written calculation derived it (the claim, its
   supporting claims and the report's original response are read: `check_problem_grounding(..., answer_texts=...)`; the
   calculation must give the figure, exactly or rounded to its last place, by the closed reader of written arithmetic,

@@ -40,7 +40,7 @@ def test_the_audit_scope_sentence_is_the_overseers_own_constant_verbatim():
     sub-project's ``contracts.AUDIT_SCOPE_SENTENCE``; its audits carry the engine scope statement before it), and the engine
     scope statement is the one every overseer audit starts with. Skipped, with the reason, where the overseer is not
     installed (the translator's suite runs without it)."""
-    overseer_contracts = pytest.importorskip("epinoic_overseer.contracts", reason=REASON)
+    overseer_contracts = pytest.importorskip("epinoic_overseer.contracts", reason=REASON, exc_type=ModuleNotFoundError)
     assert P.AUDIT_SCOPE_STATEMENT == overseer_contracts.AUDIT_SCOPE_SENTENCE
     assert overseer_contracts.AUDIT_SCOPE_STATEMENT == P.SCOPE_STATEMENT + " " + P.AUDIT_SCOPE_STATEMENT
 

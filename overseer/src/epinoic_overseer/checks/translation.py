@@ -760,8 +760,81 @@ def grounding_faults(tr: TranslationResult, report: SpecialistReport, task: Opti
     for c in tr.grounding_checks:
         if c.verified is True and (c.target_id, c.document_id) not in verified_again:
             overstated.append(f"the grounding check of {c.target_id} against {c.document_id!r} is recorded as verified; the re-run does not verify it")
-    absent = [(c.target_id, c.document_id, c.detail or c.method) for c in checks if c.verified is False and c.target_id not in accepted]
+    absent = [(c.target_id, c.document_id, c.detail or c.method) for c in checks if c.verified is False and c.target_id not in accepted
+              and not read_as_stated(problem, report, same_task, c)]
     return list(dict.fromkeys(overstated)), absent
+
+
+#: Rule ``stated-readings`` (round-9 clearance c2): the readings of a stated figure the translator's figure check does not make.
+STATED_READINGS_RULE = "stated-readings"
+
+
+def _precision_ends(text: str) -> set[Fraction]:
+    """The ends of the interval each decimal figure of ``text`` states at its written precision ("15.0%" states 14.95% to 15.05%, also
+    as fractions of one when a per cent sign follows); one pass, linear."""
+    out: set[Fraction] = set()
+    for m in _FIGURE_RE.finditer(text or ""):
+        if not m.group(2) or not _digits_ok(m.group(1), m.group(2)):
+            continue
+        value = Fraction(int(m.group(1).replace(",", ""))) + Fraction(int(m.group(2)), 10 ** len(m.group(2)))
+        ends = _ends(value, _half_units(m.group(1), m.group(2)))
+        out |= ends
+        tail = text[m.end():m.end() + 8]
+        if tail.startswith("%") or _PERCENT_RE.match(tail.lstrip()):
+            out |= {e / 100 for e in ends}
+    return out
+
+
+def _bound_literals(expr: Any) -> set[Fraction]:
+    """The numbers ``expr`` (IR JSON) compares a term with as a bound (``lt``, ``le``, ``gt``, ``ge``), iteratively."""
+    out: set[Fraction] = set()
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("op") in ("lt", "le", "gt", "ge"):
+                for side in (node.get("left"), node.get("right")):
+                    v = _literal(side)
+                    if v is not None:
+                        out.add(abs(v))
+            stack.extend(v for k, v in node.items() if k != "value")
+        elif isinstance(node, list):
+            stack.extend(node)
+    return out
+
+
+def read_as_stated(problem: Problem, report: SpecialistReport, task: Optional[TaskRecord], check: Any) -> bool:
+    """Rule ``stated-readings`` (round-9 clearance c2, the c2 translation-fidelity lens: false OVS-TRN-004 on figures their source
+    states): whether every figure the failed check ``check`` (``figures_in_excerpt`` on a located excerpt, ``numeric_in_task`` on the
+    task material) misses is a reading of a figure its source states: a month its source names ("September" states 9), the hour a
+    clock time states ("09:30" states 9.5), or an end of the interval a decimal figure states at its written precision, used by the
+    assertion as a bound of that side ("15.0%" states 14.95 and 15.05 as the ends of ``14.95 <= p <= 15.05``). Any other missing
+    figure keeps the translator's verdict (OVS-TRN-004)."""
+    method = getattr(check, "method", None)
+    if method not in ("figures_in_excerpt", "numeric_in_task") or getattr(check, "verified", None) is not False:
+        return False
+    missing = _missing_figures(getattr(check, "detail", None))
+    if not missing:
+        return False
+    try:
+        values = [abs(Fraction(f.replace(",", ""))) for f in missing]
+    except (ValueError, ZeroDivisionError):
+        return False
+    assertion = next((a for a in list(problem.premises) + ([problem.conclusion] if problem.conclusion is not None else []) if a.id == check.target_id), None)
+    if assertion is None:
+        return False
+    if method == "figures_in_excerpt":
+        docs = {d.document_id: d.text for d in report.supplied_texts}
+        texts = [ref.excerpt for ref in (assertion.grounding.source_refs if assertion.grounding is not None else [])
+                 if ref.excerpt and docs.get(ref.document_id) and locate_quotation(ref.excerpt, docs[ref.document_id], document_id=ref.document_id) is not None]
+    else:
+        texts = ([task.text] if task is not None else []) + [d.text for d in report.supplied_texts if d.text]
+    if not texts:
+        return False
+    stated = set().union(*({Fraction(_MONTHS[m.group(1)]) for m in _MONTH_RE.finditer(t)} | _clock_hours(t) for t in texts))
+    bounds = _bound_literals(assertion.expr.model_dump(mode="json", exclude_none=True))
+    ends = set().union(*(_precision_ends(t) for t in texts)) if bounds else set()
+    return all(v in stated or (v in ends and v in bounds) for v in values)
 
 
 # ============================================================================================ TRN-005
@@ -793,6 +866,14 @@ _MONTHS = {"January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June"
 _MONTH_RE = re.compile(r"\b(" + "|".join(sorted(_MONTHS, key=len, reverse=True)) + r")\b")
 #: date-encoding: the divisors that extract a year (YYYYMMDD // 10000, YYYYMM // 100) or a month from an encoded date.
 DATE_DIVISORS = frozenset({Fraction(100), Fraction(10000)})
+#: Rule ``clock-times`` (round-9 clearance c2): a clock time "hh:mm" states its hour as a figure, the minutes read as a fraction of the
+#: hour (c2 ge-p9c: "09:30" states 9.5 h). Two written minute digits are required, so a ratio such as "3:2" is never read so.
+_CLOCK_RE = re.compile(r"(?<![\d:.])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])")
+
+
+def _clock_hours(text: str) -> set[Fraction]:
+    """Rule ``clock-times``: the hours each clock time of ``text`` states (one pass, linear)."""
+    return {Fraction(int(m.group(1))) + Fraction(int(m.group(2)), 60) for m in _CLOCK_RE.finditer(text or "")}
 # scientific-notation (STEM answers; the STEM translation guidance tells the translator to expand it exactly): a mantissa
 # times a power of ten, written with x, ×, ·, *, \times or \cdot and the exponent as ^E, ^{E}, **E or superscript digits,
 # or as e-notation (3.0e8, 6.67E-11); and a bare power of ten (10⁻³, 10^-3). The sign may be ASCII, U+2212 or a dash.
@@ -934,6 +1015,7 @@ def _read_text_numbers(text: str) -> set[Fraction]:
     if text:
         out |= _fraction_words(text)
         out.update(Fraction(_MONTHS[m.group(1)]) for m in _MONTH_RE.finditer(text))
+        out |= _clock_hours(text)
         out |= _scientific_numbers(text)
         out |= _unit_numbers(text)
         out |= _precision_numbers(text)
@@ -1072,9 +1154,20 @@ _WRITTEN_OPERATION_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+
                                    r"(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?![\d])")
 #: Every figure, for its stated precision: digits with comma thousands, optional decimals.
 _FIGURE_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?![\d])")
+#: Rule ``years-months`` (round-9 clearance c2): "4 years 11 months", "4 years and 11 months", "4 yr 11 mo"; each blank run bounded.
+_YEARS_MONTHS_RE = re.compile(r"(?<![\w.])(\d{1,4})[ \t]{0,3}(?:years?|yrs?)[ \t,]{0,3}(?:and[ \t]{1,3})?(\d{1,2})[ \t]{0,3}(?:months?|mos?)\b", re.IGNORECASE)
 _PI_RE = re.compile(r"π|\bpi\b|\\pi", re.IGNORECASE)
 _ROOT_RE = re.compile(r"√|\bsqrt\b|\\sqrt|square[ -]root|\broot\b", re.IGNORECASE)
 _TRIG_RE = re.compile(r"\b(?:sin|cos|tan)\b|\\(?:sin|cos|tan)", re.IGNORECASE)
+#: Rule ``derived-constants`` (round-9 clearance c2, q222a): a division written in a text ("/", "÷", "\frac", "divide", "per", "over", a
+#: quotient or a ratio), the operation the reciprocal and quotient readings need, as π, roots and trigonometric values need theirs.
+_DIVISION_RE = re.compile(r"[/÷]|\\frac|\bdivid(?:e|ed|es|ing)\b|\bper\b|\bover\b|\bquotients?\b|\bratios?\b", re.IGNORECASE)
+#: Rule ``stated-squares`` (round-9 clearance c2): a square written in a text ("v²", "^2", "**2", "squared"); each blank run is bounded.
+_SQUARE_RE = re.compile(r"(?<![⁻\-])²|\^[ \t]{0,3}\{?[ \t]{0,3}2(?![\d.])|\*\*[ \t]{0,3}2(?![\d.])|\bsquared?\b", re.IGNORECASE)
+#: Rule ``stated-squares``, its root part (round-9 clearance c2b, the contained run's physics-translation probe): the figures a text writes
+#: under a root sign ("√2210", "\sqrt{2210}", "sqrt(2210)"), as written; only such a figure over the square of a stated whole number is a
+#: stated value ((√2210/11)² = 2210/121). Each blank run bounded (linear).
+_ROOTED_FIGURE_RE = re.compile(r"(?:√|\\sqrt|\bsqrt\b)[ \t]{0,3}[({]?[ \t]{0,3}(\d{1,3}(?:,\d{3})+|\d{1,15})(?:\.(\d{1,15}))?(?![\d.])", re.IGNORECASE)
 _PI_MULTIPLES = (Fraction(1, 6), Fraction(1, 4), Fraction(1, 3), Fraction(1, 2), Fraction(2, 3), Fraction(3, 4), Fraction(1), Fraction(4, 3),
                  Fraction(3, 2), Fraction(2), Fraction(3), Fraction(4))
 _DERIVED_MAX_KNOWN = 4000  # bounds the root and quotient readings (each linear in the figures the texts state)
@@ -1144,6 +1237,13 @@ def _read_derived_numbers(text: str) -> set[Fraction]:
             dec = mant.split(".", 1)[1] if "." in mant else ""
             value = Fraction(mant) * Fraction(10) ** e
             out |= _ends(value, [Fraction(1, 2 * 10 ** len(dec)) * Fraction(10) ** e])
+    # rule years-months (round-9 clearance c2, the c1 translation-fidelity record: bm-p8a g8.2 "a payback of about 4 years 11 months"):
+    # a duration written in years and months states its whole months (4 × 12 = 48, 59), with the half-month ends of the stated
+    # total (58.5 and 59.5), its exact unit conversion read as the claim's own precision reader reads it
+    for m in _YEARS_MONTHS_RE.finditer(text):
+        years, months = int(m.group(1)), int(m.group(2))
+        total = Fraction(12 * years + months)
+        out |= {Fraction(12 * years), total} | _ends(total, [Fraction(1, 2)])
     # rule prefix-factor: a unit symbol written with an SI prefix states the factor between it and the unprefixed unit
     for m in _PREFIXED_UNIT_RE.finditer(text):
         f = _SI_PREFIXES.get(m.group(1))
@@ -1166,7 +1266,17 @@ def _read_derived_numbers(text: str) -> set[Fraction]:
 def _as_written(text: str) -> set[Fraction]:
     """The figures ``text`` writes, each at its written value only: a numeral (thousands separated by commas or by spaces).
     No precision end, conversion, scale or per cent reading (rule ``as-written``, round-8 r7 stage 2): the reciprocal
-    reading of rule ``derived-constants`` takes only these."""
+    reading of rule ``derived-constants`` takes only these. Memoised per text, as :func:`text_numbers` (the round-9
+    clearance: the audit reads the same request and supplied texts for every claim, and each reading was repeated)."""
+    return set(_as_written_memo(text)) if text else set()
+
+
+@functools.lru_cache(maxsize=64)
+def _as_written_memo(text: str) -> frozenset:
+    return frozenset(_read_as_written(text))
+
+
+def _read_as_written(text: str) -> set[Fraction]:
     out: set[Fraction] = set()
     for m in _FIGURE_RE.finditer(text or ""):
         if _digits_ok(m.group(1), m.group(2)):
@@ -1183,7 +1293,16 @@ def _as_stated(text: str) -> set[Fraction]:
     :func:`_as_written`, a figure with the scale word or per cent sign written after it (``3 million``, ``41%``), and a
     value written in scientific notation or as a vulgar fraction. Never the ends of a stated precision (``±0.01`` does not
     state 0.005), an SI prefix's factor or a unit conversion: a figure the translator reaches from a supplied text only
-    through such a reading is its own conversion and stays named (Decision 90's limit, Inspection I91)."""
+    through such a reading is its own conversion and stays named (Decision 90's limit, Inspection I91). Memoised per text."""
+    return set(_as_stated_memo(text)) if text else set()
+
+
+@functools.lru_cache(maxsize=64)
+def _as_stated_memo(text: str) -> frozenset:
+    return frozenset(_read_as_stated(text))
+
+
+def _read_as_stated(text: str) -> set[Fraction]:
     out = _as_written(text)
     for m in _FIGURE_RE.finditer(text or ""):
         if not _digits_ok(m.group(1), m.group(2)):
@@ -1195,7 +1314,47 @@ def _as_stated(text: str) -> set[Fraction]:
             out.add(value * _SCALES[sc.group(1).lower()])
         if tail.startswith("%") or _PERCENT_RE.match(tail.lstrip()[:8]):
             out.add(value / 100)
+    # round-9 clearance c2 (q222d): a figure the request or a supplied text writes in words is stated as written too ("fourteen",
+    # "one half"), as text_numbers reads it; still no precision end, SI-prefix factor or conversion (Decision 111's limit)
+    out |= _word_numbers(text or "")
     return out | _scientific_numbers(text or "")
+
+
+def _word_numbers(text: str) -> set[Fraction]:
+    """The values ``text`` writes in words, as :func:`text_numbers` reads them: number words (with a scale word after them) and
+    fractions in words. One pass of each reader, linear."""
+    out: set[Fraction] = set(_fraction_words(text)) if text else set()
+    for m in _WORD_RE.finditer(text or ""):
+        w, unit = m.group(1).lower(), (m.group(2) or "").lower()
+        base = _TENS.get(w, _UNITS.get(w, _OTHER_WORDS.get(w)))
+        if base is None:
+            continue
+        value = Fraction(base) + (Fraction(_UNITS[unit]) if unit and w in _TENS else 0)
+        out.add(value)
+        sc = _SCALE_AFTER_RE.match(text[m.end():m.end() + _TAIL_CHARS])
+        if sc:
+            out.add(value * _SCALES[sc.group(1).lower()])
+    return out
+
+
+def _written_in_order(texts: list[str], allowed: set[Fraction], cap: int) -> list[Fraction]:
+    """The first ``cap`` distinct figures ``texts`` write as written (:func:`_as_written`'s readings, those in ``allowed``), in text
+    order: a bounded, ordered reading (a set's order is arbitrary, so a cap on it would not say which figures it keeps)."""
+    out: list[Fraction] = []
+    seen: set[Fraction] = set()
+    for t in texts:
+        for rx, sep in ((_FIGURE_RE, False), (_SPACED_THOUSANDS_RE, True)):
+            for m in rx.finditer(t or ""):
+                whole = _THOUSANDS_SEP_RE.sub("", m.group(1)) if sep else m.group(1).replace(",", "")
+                if not _digits_ok(whole, m.group(2)):
+                    continue
+                v = Fraction(int(whole)) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0)
+                if v in allowed and v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                    if len(out) >= cap:
+                        return out
+    return out
 
 
 class _DerivedConstants:
@@ -1207,7 +1366,7 @@ class _DerivedConstants:
     :data:`_QUOTIENT_MAX_FIGURES` exact products: a hostile answer with many figures and an IR with many numbers stays linear
     in its size (``tests/overseer_tests/test_clearance_c1_overseer.py``)."""
 
-    __slots__ = ("known", "figures", "recips", "pi", "squares", "trig")
+    __slots__ = ("known", "figures", "recips", "pi", "squares", "trig", "square_values", "square_gate", "division", "rooted")
 
     def __init__(self, known: set[Fraction], texts: list[str], *, as_written: Optional[set[Fraction]] = None) -> None:
         import math
@@ -1221,9 +1380,11 @@ class _DerivedConstants:
                     break
         self.figures = figures
         # the reciprocal reading takes only the figures the texts write as written (round-8 r7 stage 2: the reciprocal of a
-        # precision end, 1/12.5 from "12 mm³", traced a planted 0.08)
+        # precision end, 1/12.5 from "12 mm³", traced a planted 0.08), and (round-9 clearance c2, q222a and p5060c) only when a text
+        # writes a division, and only the first _DERIVED_MAX_KNOWN of them in text order, like every other reading here
+        self.division = any(_DIVISION_RE.search(t) for t in joined)
         written = as_written if as_written is not None else set().union(*(_as_written(t) for t in joined)) if joined else set()
-        self.recips = {1 / k for k in written if k != 0}
+        self.recips = {1 / k for k in _written_in_order(joined, written, _DERIVED_MAX_KNOWN) if k != 0} if self.division else set()
         self.pi = any(_PI_RE.search(t) for t in joined)
         self.squares = sorted({float(k) for k in figures if k > 0}) if any(_ROOT_RE.search(t) for t in joined) else []
         values: set[float] = set()
@@ -1238,6 +1399,20 @@ class _DerivedConstants:
                         if math.isfinite(y):
                             values.add(y)
         self.trig = sorted(values)
+        # rule stated-squares (round-9 clearance c2): the square of a stated figure (a precision end included: 2.95² = 3481/400 for
+        # "3.0"), only when a text writes a square or a root (a negative exponent of a unit, "m s⁻²", is no square: round-9 clearance c2b);
+        # and a figure a text writes under a root sign over the square of a stated whole number ((√2210/11)² = 2210/121), never any stated
+        # figure over any square (c2b, the contained run's physics-translation probe: 0.60 = 2.4/2² traced a planted 0.60)
+        self.square_gate = any(_SQUARE_RE.search(t) or _ROOT_RE.search(t) for t in joined)
+        self.square_values = {k * k for k in figures} if self.square_gate else set()
+        rooted: set[Fraction] = set()
+        for t in joined:
+            for m in _ROOTED_FIGURE_RE.finditer(t):
+                if len(rooted) >= _DERIVED_MAX_KNOWN:
+                    break
+                whole = m.group(1).replace(",", "")
+                rooted.add(Fraction(int(whole)) + (Fraction(int(m.group(2)), 10 ** len(m.group(2))) if m.group(2) else 0))
+        self.rooted = rooted
 
     def holds(self, v: Fraction) -> bool:
         import math
@@ -1246,13 +1421,18 @@ class _DerivedConstants:
             return False
         if a in self.recips:
             return True  # the reciprocal of a stated figure: dividing by it, written as a product
-        if a.denominator != 1:
+        if self.square_gate:
+            if a in self.square_values:
+                return True  # the square of a stated figure (rule stated-squares)
+            if a.denominator != 1 and self.rooted and any(a * k * k in self.rooted for k in self.figures[:_QUOTIENT_MAX_FIGURES] if k.denominator == 1):
+                return True  # a figure written under a root sign over the square of a stated whole number: (√N / k)² = N / k²
+        if a.denominator != 1 and self.division:
             d = a.denominator
             for p in (2, 5):
                 while d % p == 0:
                     d //= p
             if d != 1 and any(a * k in self.known for k in self.figures[:_QUOTIENT_MAX_FIGURES]):
-                return True  # the exact quotient of two stated figures (115/4608 for 1.15 ÷ 46.08)
+                return True  # the exact quotient of two stated figures (115/4608 for 1.15 ÷ 46.08), only where a text writes a division
         fa = float(a)
         if not math.isfinite(fa):
             return False
@@ -1309,10 +1489,12 @@ def untraced_content(problem: Problem, problem_obj: Optional[dict], scope_texts:
     """``(target, description)`` for each quotation excerpt and number of the IR that ``scope_texts`` never state (a
     quotation may also come verbatim from ``supplied_texts``, rule ``supplied-text``; a task-setting premise may also take
     its numbers from ``request_texts``). ``exact_scale``: the report is a STEM answer (rules ``stem-exact-scale`` and
-    ``table-units``)."""
+    ``table-units``). Rule ``task-quotation`` (round-9 clearance c2): a quotation of the request's own words grounds a fact the claim
+    reports exactly as a quotation of a supplied text does (the translator's prompt prescribes it for facts the task states: c2 ess-t15
+    and cs-t15 quoted the task's 'A video file is 1.8 GB'); it is the task's data, not content the translation invents."""
     texts = [t for t in scope_texts if t]
     supplied_texts = [t for t in supplied_texts if t]
-    quotable = texts + supplied_texts
+    quotable = texts + supplied_texts + [t for t in request_texts if t]
     out: list[tuple[str, str]] = []
     for _key, name, g in _targets(problem):
         for ex in _excerpts(g):
@@ -1678,7 +1860,12 @@ _CURRENCY_BEFORE = {"$": "dollar", "€": "euro", "£": "pound", "¥": "yen"}
 _MARKER_SYNONYMS = {"%": "percent", "per cent": "percent", "pct": "percent", "€": "euro", "eur": "euro", "$": "dollar", "usd": "dollar", "£": "pound",
                     "gbp": "pound", "yr": "year", "yrs": "year", "annum": "year", "hr": "hour", "hrs": "hour", "mins": "minute", "min": "minute",
                     "sec": "second", "secs": "second", "wk": "week", "wks": "week", "mo": "month", "mos": "month"}
-_MARKER_TOKEN_RE = re.compile(r"\s{0,3}([A-Za-zµμΩ°][A-Za-z0-9µμΩ°³²¹⁰⁴⁵⁶⁷⁸⁹⁻⁺^\-]*)")
+_MARKER_TOKEN_RE = re.compile(r"\s{0,3}([A-Za-zµμΩ°][A-Za-z0-9µμΩ°³²¹⁰⁴⁵⁶⁷⁸⁹⁻⁺^\-₀₁₂₃₄₅₆₇₈₉]*)")
+#: Rule ``chemical-amounts`` (round-9 clearance c2): the substance an amount names ("2 mol NH3", "0.5 mol of NaOH"), a formula
+#: written with a capital letter; and the subscript digits a formula is written with ("2NH₃" names NH₃, read as "NH3").
+_SPECIES_AFTER_RE = re.compile(r"[ \t]{1,3}(?:of[ \t]{1,3})?([A-Z][A-Za-z0-9₀₁₂₃₄₅₆₇₈₉]{0,23})(?![A-Za-z0-9₀₁₂₃₄₅₆₇₈₉])")
+_SUBSCRIPT_DIGITS = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
+_AMOUNT_UNITS = frozenset({"mol", "mole", "mmol", "kmol"})
 #: An ASCII exponent in a unit marker ("cm3", "dm-3", "s^-1"), written as the STEM unit reader reads it ("cm³", "dm⁻³").
 _ASCII_EXPONENT_RE = re.compile(r"(?<=[A-Za-z])\^?(-?)(\d)$")
 _TO_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
@@ -2299,7 +2486,7 @@ def _table_cells(text: str) -> list[_Cell]:
 
 
 def _norm_marker(raw: str) -> str:
-    t = " ".join(raw.strip().split()).strip(".,;:'\"").casefold()
+    t = " ".join(raw.translate(_SUBSCRIPT_DIGITS).strip().split()).strip(".,;:'\"").casefold()
     t = _MARKER_SYNONYMS.get(t, t)
     if t.endswith("s") and len(t) > 3 and not t.endswith("ss"):
         t = t[:-1]
@@ -2369,7 +2556,14 @@ def _occurrences_of(text: str) -> list[_Occurrence]:
         c = cell_at(start, end)
         if c is None:
             context, phrase, negates = _context_in(text, spans, start, end)  # rule statement-context
-            return _Occurrence(start, end, frozenset(values), marker, bound, context=context, phrase=phrase, negates=negates)
+            names: frozenset = frozenset()
+            if marker is not None and _norm_marker(marker) in _AMOUNT_UNITS:
+                # rule chemical-amounts (round-9 clearance c2): "2 mol NH3" states 2 for NH3 too (c2 ch-t15 s4.1: the task's
+                # "→ 2NH₃(g)" for a premise "the equation as written forms 2 mol NH3")
+                sm = _SPECIES_AFTER_RE.match(text, after)
+                if sm:
+                    names = frozenset({sm.group(1)})
+            return _Occurrence(start, end, frozenset(values), marker, bound, quantity=names, context=context, phrase=phrase, negates=negates)
         if marker is not None and after > c.end:
             marker = None  # rule table-cells: what follows a cell's figure beyond its cell is another cell or line
         return _Occurrence(start, end, frozenset(values), marker, bound, quantity=c.quantity, column=c.column, row=c.row)
@@ -2604,7 +2798,19 @@ def figure_reading(v: Fraction, texts: list[str], statement: str, relations: Opt
     are structural (as for the number trace): never refuted and never read as data."""
     v = abs(v)
     if v in (0, 1):
-        return FigureReading(FIGURE_UNREAD, f"its figure {_fig(v)} is structural (0 or 1), which no check reads as data")
+        structural = FigureReading(FIGURE_UNREAD, f"its figure {_fig(v)} is structural (0 or 1), which no check reads as data")
+        # rule unit-structural (round-9 clearance c2, c1 bi-t14 s1.2 "60 quadrats, each 1 m²"): a 0 or 1 is read only where its source
+        # states it with a unit of measure (a marker the STEM unit reader gives a dimension) for the quantity the premise names, as the
+        # premise states it, as a statement; bare, with a counted noun or anywhere else it stays structural, never refuted
+        req0 = {t for t in required if t}
+        free0 = [_blank(t, target_spans(t)) for t in texts]
+        units = [(_as_required(o, texts[i]) if texts[i] in req0 else o) for i, t in enumerate(free0) for o in _occurrences(t)
+                 if _states(o, v) and o.marker is not None and o.marker != FREQUENCY_MARKER and _unit_dim(o.marker) is not None]
+        if units:
+            r = _reading(v, units, free0, statement, relations, where=where)
+            if r.kind == FIGURE_READ:
+                return r
+        return structural
     known = set().union(*(text_numbers(t) for t in texts)) if texts else set()
     date_encoded = _date_encoding(v, known)
     if not number_traced(v, known, date_encoded=date_encoded):
@@ -2635,7 +2841,7 @@ def _reading(v: Fraction, occs: list[_Occurrence], texts: list[str], statement: 
     v = abs(v)
     # the quantity the premise's own statement names: the markers it states ``v`` with; when it states ``v`` with none, the
     # words it names (a symbol's meaning "the hours the claim states" names hours)
-    own = [o.marker for o in _occurrences(statement) if _states(o, v) and o.marker is not None] or _statement_words(statement)
+    own = [n for o in _occurrences(statement) if _states(o, v) for n in o.names()] or _statement_words(statement)
     bare = not occs or any(o.bare for o in occs)
     same = [o for o in occs if own and _names_quantity(o, own)]
     if not bare and own:
@@ -2685,7 +2891,7 @@ def figure_refutation(v: Fraction, texts: list[str], statement: str, relations: 
     return r.reason if r.kind == FIGURE_REFUTED else None
 
 
-_STATEMENT_WORD_RE = re.compile(r"(?<![\w])(in\s+)?([A-Za-zµμΩ°][A-Za-z0-9µμΩ°³²¹⁰⁴⁵⁶⁷⁸⁹⁻⁺^\-]*)")
+_STATEMENT_WORD_RE = re.compile(r"(?<![\w])(in\s+)?([A-Za-zµμΩ°][A-Za-z0-9µμΩ°³²¹⁰⁴⁵⁶⁷⁸⁹⁻⁺^\-₀₁₂₃₄₅₆₇₈₉]*)")
 
 
 def _statement_words(statement: str) -> list[str]:
@@ -2783,6 +2989,19 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
     if g.verified is False:
         return Standing(REFUTED, f"the deterministic grounding check refutes its {g.kind} grounding")
     if assumed_grounding(g):
+        # rule task-figures (round-9 clearance c2b, the merged c1 record: bi-t14 s4.7 "both species were present in 20 quadrats" and ph-p8b
+        # s1.1 "combined spring constant is 50 N m⁻¹", displayed ENTAILED while this rule named them OVS-TRN-006): an arithmetic_fact with no
+        # located excerpt that presents its figure as the task's (its label names the task or the question) is data only when a
+        # deterministic check READS its whole content in the request or the supplied texts, exactly as a task setting's is read (rule
+        # same-quantity: each figure stated there for the quantity the premise names, with its unit, as a statement, never as a target, a
+        # question or a requirement); it is then undecided data (a warning at most, never the claim assumed). Anything else (a label that
+        # does not name the task, a figure the request does not state for that quantity, Boolean content, a relation, a structural 0 or 1
+        # stated bare) stays the writer's own: the kind label alone is IR data, not evidence (decision 55, its pinned cases unchanged), and
+        # an invented task figure stays named OVS-TRN-006
+        if g.kind == "arithmetic_fact" and g.verified is None and _TASK_ORIGIN_RE.search(str(getattr(premise, "label", "") or "")[:400]):
+            read = _task_figures_reading(premise, report, request_texts, sorts, request_documents, problem, request_constraints)
+            if read is not None:
+                return read
         return Standing(OWN_KIND, f"its {g.kind} grounding is not verified by the deterministic grounding check (no excerpt located in a supplied text "
                                   "that states its figures): the kind label alone is IR data, not evidence")
     if g.kind not in TRANSCRIPTION_KINDS:
@@ -2865,20 +3084,51 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
             return Standing(TRANSCRIPTION)
         return Standing(UNCHECKABLE, f"{unverified}: what it states is not the values of quantities (each a comparison of one Int or Real symbol with one "
                                      f"figure), so no deterministic check reads it against {where}: {label_only}")
-    structural = sorted({abs(v) for _n, _op, v in atoms if abs(v) in (0, 1)})
+    # rule unit-structural (round-9 clearance c2): a 0 or 1 its source states with a unit for the premise's quantity ("60 quadrats, each
+    # 1 m²") is read like any other figure; a bare or unit-less 0 or 1 stays structural
+    read_structural = {abs(v) for v, r in readings if abs(v) in (0, 1) and r.kind == FIGURE_READ}
+    structural = sorted({abs(v) for _n, _op, v in atoms if abs(v) in (0, 1) and abs(v) not in read_structural})
     if structural and len(structural) == len({abs(v) for _n, _op, v in atoms}):
         return Standing(UNCHECKABLE, f"{unverified}: it states no figure other than 0 or 1 (structural figures, never read as data), so no deterministic "
                                      f"check reads it against {where}: {label_only}")
     if structural:
         return Standing(UNCHECKABLE, f"{unverified}: it states the structural figure(s) {', '.join(str(v) for v in structural)} (0 or 1, never read as "
                                      f"data) as the value of a quantity, so no deterministic check reads all of it against {where}: {label_only}")
-    unread = [r for _v, r in readings if r.kind != FIGURE_READ]
+    unread = [r for _v, r in readings if r.kind != FIGURE_READ and abs(_v) not in (0, 1)]
     if unread:
         return Standing(UNCHECKABLE, f"{unverified}: {unread[0].reason}, and a number match is no evidence: {label_only}")
-    read = "; ".join(r.reason for _v, r in readings if abs(_v) not in (0, 1))
+    read = "; ".join(r.reason for _v, r in readings if abs(_v) not in (0, 1) or r.kind == FIGURE_READ)
     return Standing(UNDECIDED, f"{unverified}: {read}. So read it is data presented as given there, but a number match is no evidence of a "
                                f"transcription: no deterministic check verifies it (no excerpt was located) and none refutes it (rule {STANDING_RULE}; the "
                                "kind label alone is IR data, not evidence)")
+
+
+#: Rule ``task-figures`` (round-9 clearance c2b): an unverified ``arithmetic_fact`` that presents its figure as the task's (its own label
+#: names the task, the question or the request as the figure's source: "20 quadrats had both species (task figure)", "the question gives
+#: the combined spring constant as 50 N/m") and whose whole content rule ``same-quantity`` reads in the request or the supplied texts is
+#: undecided data, as a task setting's is (:func:`_task_figures_reading`). Any other arithmetic fact with no located excerpt stays the
+#: writer's own however the task states its figures (decision 55, pinned: "the claim restated" under the kind is the claim assumed).
+TASK_FIGURES_RULE = "task-figures"
+#: The label of an arithmetic fact that presents its figure as the task's (a closed list of the task's names; bounded, linear).
+_TASK_ORIGIN_RE = re.compile(r"\b(?:task|question|request|prompt|data[ \t]{1,3}table|the[ \t]{1,3}table|problem[ \t]{1,3}statement)\b", re.IGNORECASE)
+
+
+def _task_figures_reading(premise: Any, report: SpecialistReport, request_texts: Iterable[str], sorts: Optional[dict[str, str]],
+                          request_documents: Iterable[Any], problem: Optional[Problem], request_constraints: Iterable[str]) -> Optional[Standing]:
+    """Rule ``task-figures`` (:data:`TASK_FIGURES_RULE`): the ``undecided`` standing of an unverified ``arithmetic_fact`` premise (no
+    located excerpt) whose whole content is the values of quantities, each figure READ in the request (its input, its constraints and
+    the texts supplied with it) exactly as a ``task_setting`` premise's is (the same reading, the request's constraints read as
+    requirements); None for anything else (the caller keeps it the writer's own). Never raises."""
+    try:
+        g = premise.grounding
+        as_task = premise.model_copy(update={"grounding": g.model_copy(update={"kind": "task_setting", "verified": None})})
+        st = premise_standing(as_task, report, request_texts, sorts, request_documents, problem, request_constraints=tuple(request_constraints))
+    except Exception:  # noqa: BLE001 - a reading that fails reads nothing: the premise stays the writer's own
+        return None
+    if st.kind != UNDECIDED:
+        return None
+    return Standing(UNDECIDED, st.reason.replace("its task_setting grounding", f"its {g.kind} grounding", 1)
+                    + f" (rule {TASK_FIGURES_RULE}: an arithmetic fact the request states is read as a task setting's figures are)")
 
 
 #: Rule ``task-equation`` (integration gate round 1, hold-out control ho_c_disjunction_maa): a ``task_setting`` premise
@@ -3726,10 +3976,13 @@ def restatement(problem: Optional[Problem], report: SpecialistReport, request_te
     # another form than as written is no restatement when it is the claim's stated step input or a definition the
     # conclusion is an identity of; the translator's floor and a restatement as written are never exempt
     exempt: list[tuple[str, str]] = []
+    prior = prior_lines(report, problem.claim_id) if restates else []
+    profile = stem_profile(report.subject)
     for pid in list(restates):
         if pid in floor or set(ways.get(pid, ())) & {"syntactic", "verbatim"} or pid in named:
             continue
-        rule = _exemption(grounded, pid, [n for k, n in needed.items() if k in restates[pid]], readings, claim_text)
+        rule = _exemption(grounded, pid, [n for k, n in needed.items() if k in restates[pid]], readings, claim_text, ways=ways.get(pid, ()),
+                          prior_texts=prior, profile=profile)
         if rule is not None:
             exempt.append((pid, rule))
             del restates[pid]
@@ -3791,16 +4044,20 @@ def translator_semantic_floor(problem: Problem, report: SpecialistReport, *, tas
     the translator's own step 4c (``translate.restatement.semantic_restatement``) names on ``problem`` as its pipeline
     re-grounds it (the supplied texts and the task record), or ``(None, ())``. The pipeline withholds such an encoding (E112),
     so one that reaches a receipt came past the translator's own rule. Never raises: a rule that is absent or fails names
-    nothing (the overseer's own readings still run)."""
+    nothing (the overseer's own readings still run). The rule is given the claim's previous lines of working exactly as the
+    pipeline gives them (``translate.pipeline.previous_lines``: the three claims before it, nearest last, and the claims it cites;
+    rule previous-line-step, round-9 clearance c2b), so the floor is the translator's rule as the pipeline runs it."""
     try:
-        from epinoic_logic.api.translate import semantic_restatement
+        from epinoic_logic.api.translate import previous_lines, semantic_restatement
         from epinoic_logic.api.engine import conclusion_valid_alone, premises_inconsistent
     except ImportError:  # pragma: no cover - a translator without the semantic rule
         return None, ()
     try:
         grounded, checks = check_problem_grounding(problem, list(report.supplied_texts), task)
         located = {c.target_id for c in checks if c.verified is True and c.method in ("verbatim_match", "normalized_match")}
-        found = semantic_restatement(grounded, located, claim_text=claim_text)
+        claim = next((c for c in report.claims if c.claim_id == problem.claim_id), None)
+        prior = previous_lines(claim, report) if claim is not None else []
+        found = semantic_restatement(grounded, located, claim_text=claim_text, prior_texts=prior)
         if found is None or premises_inconsistent(grounded) or conclusion_valid_alone(grounded):
             return None, ()
         return found.kind, tuple(found.premises)
@@ -3899,20 +4156,327 @@ def definitional_identity(problem: Problem, pid: str, readings: "_Readings") -> 
     return False
 
 
-def _exemption(problem: Problem, pid: str, conjuncts: list[dict], readings: "_Readings", claim_text: Optional[str]) -> Optional[str]:
-    """The rule that exempts the restating premise ``pid`` (rules ``stated-step``, ``definitional-identity``), or None."""
+def _exemption(problem: Problem, pid: str, conjuncts: list[dict], readings: "_Readings", claim_text: Optional[str], *,
+               ways: Iterable[str] = (), prior_texts: Iterable[str] = (), profile: str = "mathematics_aa") -> Optional[str]:
+    """The rule that exempts the restating premise ``pid`` (rules ``stated-step``, ``definitional-identity``, and, for a premise
+    the arithmetic reading alone names, ``stated-input`` and ``stated-evaluation``), or None."""
     pr = next((x for x in problem.premises if x.id == pid), None)
     if pr is None:
         return None
     sorts = {sym.name: sym.sort for sym in problem.symbols}
     try:
-        if stated_step(claim_text, pr.expr.model_dump(mode="json", exclude_none=True), conjuncts, sorts, readings):
+        premise = pr.expr.model_dump(mode="json", exclude_none=True)
+        if stated_step(claim_text, premise, conjuncts, sorts, readings):
             return STATED_STEP_RULE
         if definitional_identity(problem, pid, readings):
             return DEFINITION_RULE
+        if set(ways) == {"arithmetic"}:
+            # rules stated-input and stated-evaluation (round-9 clearance c2): only a premise that restates the conclusion by the
+            # arithmetic of its own symbols alone, never one that restates it as written, by its Boolean structure or in order
+            if stated_input(claim_text, premise, conjuncts, sorts, readings, prior_texts=prior_texts, profile=profile):
+                return STATED_INPUT_RULE
+            if stated_evaluation(claim_text, premise, conjuncts, sorts, readings, profile=profile):
+                return STATED_EVALUATION_RULE
     except Exception:  # noqa: BLE001 - a reading that fails exempts nothing
         return None
     return None
+
+
+# ============================================================================================ round-9 clearance c2
+#: Rule ``stated-input`` (round-9 clearance c2): a premise the arithmetic reading names is the input of the step the claim writes,
+#: stated as a relation on the answer's previous lines of working (or in the claim before its step marker).
+STATED_INPUT_RULE = "stated-input"
+#: Rule ``stated-evaluation`` (round-9 clearance c2): a premise that only gives symbols values, the conclusion evaluated at them being
+#: written in the claim (a check at a stated value: "Check: the left side is −5 + 1 = −4").
+STATED_EVALUATION_RULE = "stated-evaluation"
+#: How many earlier claims of the report are read as the claim's previous lines of working.
+PRIOR_LINES = 3
+#: At most this many symbols of one written relation are renamed onto the problem's symbols (every permutation is tried).
+_RENAME_MAX = 3
+#: At most this many renamings are combined when the premise's and the conclusion's relations are matched.
+_RENAME_COMBINATIONS = 256
+_TEXT_SYMBOL = "\u0000"
+_SUBJECT_PROFILES = (("chemistry", "chemistry"), ("physics", "physics"), ("biology", "biology"), ("environmental", "ess"),
+                     ("computer", "computer_science"), ("sports", "sports_science"), ("design", "design_technology"),
+                     ("applications and interpretation", "mathematics_ai"))
+
+
+def stem_profile(subject: Optional[str]) -> str:
+    """The STEM front end's profile key for a report's subject (the reading switches of its units and symbols); mathematics by default."""
+    low = (subject or "").casefold()
+    return next((key for word, key in _SUBJECT_PROFILES if word in low), "mathematics_aa")
+
+
+def prior_lines(report: SpecialistReport, claim_id: Optional[str], n: int = PRIOR_LINES) -> list[str]:
+    """The texts of the (at most ``n``) claims the report holds before ``claim_id``, nearest last: the claim's previous lines of
+    working as the parser delivered them."""
+    ids = [c.claim_id for c in report.claims]
+    if claim_id not in ids:
+        return []
+    i = ids.index(claim_id)
+    return [c.claim_text for c in report.claims[max(0, i - n):i]]
+
+
+def _open_term(node: Any, budget: list[int]) -> Optional[dict]:
+    """A written operand (a STEM front-end AST, data) as an IR term over the closed subset of :func:`_stem_relation_ir`, but with
+    every symbol a placeholder named by the text (renamed onto the problem's symbols later) and every quantity read at its
+    number as written (its unit dropped: a figure the IR states in another unit is then simply not matched). None for anything
+    else; nothing is evaluated."""
+    from epinoic_logic.api.stem import Abs, BinOp, Neg, Num, Pow, Sym
+    budget[0] -= 1
+    if budget[0] < 0:
+        return None
+    if isinstance(node, Num) or (hasattr(node, "number") and hasattr(node, "unit") and not isinstance(node, (Sym, BinOp))):
+        try:
+            return {"op": "real", "value": _fraction_text(Fraction(node.number.value))}
+        except (AttributeError, TypeError, ValueError, ZeroDivisionError):
+            return None
+    if isinstance(node, Sym):
+        name = str(node.name)
+        if node.kind != "symbol" or not name or len(name) > 32:
+            return None
+        return {"op": "var", "name": _TEXT_SYMBOL + name}
+    if isinstance(node, Neg):
+        arg = _open_term(node.arg, budget)
+        return {"op": "neg", "arg": arg} if arg is not None else None
+    if isinstance(node, BinOp) and node.op in ("+", "-", "*", "/"):
+        left, right = _open_term(node.left, budget), _open_term(node.right, budget)
+        if left is None or right is None:
+            return None
+        if node.op == "+":
+            return {"op": "add", "args": [left, right]}
+        if node.op == "-":
+            return {"op": "sub", "left": left, "right": right}
+        if node.op == "*":
+            return {"op": "mul", "args": [left, right]}
+        d = _literal(right)
+        return {"op": "div", "left": left, "right": right} if d is not None and d != 0 else None
+    if isinstance(node, Pow) and isinstance(node.exp, int) and 0 <= node.exp <= _TASK_POWER_MAX:
+        base = _open_term(node.base, budget)
+        if base is None:
+            return None
+        if node.exp == 0:
+            return {"op": "real", "value": "1"}
+        return base if node.exp == 1 else {"op": "mul", "args": [base] * node.exp}
+    if isinstance(node, Abs):
+        arg = _open_term(node.arg, budget)
+        if arg is None:
+            return None
+        return {"op": "ite", "cond": {"op": "ge", "left": arg, "right": {"op": "real", "value": "0"}}, "then": arg, "otherwise": {"op": "neg", "arg": arg}}
+    return None
+
+
+def written_relations(text: str, profile: str = "mathematics_aa") -> list[dict]:
+    """The relations the STEM front end reads in ``text`` (data, nothing evaluated), as IR over placeholder symbols
+    (:func:`_open_term`): each link of a chain as the answer's own reader reads it ("A = B = C" gives A = B and B = C) and each
+    whole chain as the request reader reads it (A = C). Bounded: a text past :data:`_STEP_TEXT_MAX` characters is not read,
+    and each relation is at most :data:`_TASK_NODES_MAX` nodes."""
+    if not text or not text.strip() or len(text) > _STEP_TEXT_MAX:
+        return []
+    try:
+        from epinoic_logic.api.stem import build_document
+    except ImportError:  # pragma: no cover - a translator without the STEM front end
+        return []
+    pairs: list[tuple[Any, str, Any]] = []
+    try:
+        for r in build_document(text, "", profile).relations:
+            left, right = getattr(r, "left", None), getattr(r, "right", None)
+            if left is None or right is None or left.error or right.error or len(left.readings) != 1 or len(right.readings) != 1:
+                continue
+            pairs.append((left.readings[0], str(r.op), right.readings[0]))
+    except Exception:  # noqa: BLE001 - a reader that fails reads nothing
+        pass
+    try:
+        for left, op, right in build_document("", text, profile).request.relations:
+            if left.error or right.error or len(left.readings) != 1 or len(right.readings) != 1:
+                continue
+            pairs.append((left.node, str(op), right.node))
+    except Exception:  # noqa: BLE001
+        pass
+    out: list[dict] = []
+    seen: set[str] = set()
+    for lnode, op, rnode in pairs:
+        ir_op = _TASK_RELATION_OPS.get(op)
+        if ir_op is None:
+            continue
+        budget = [_TASK_NODES_MAX]
+        lhs, rhs = _open_term(lnode, budget), _open_term(rnode, budget)
+        if lhs is None or rhs is None:
+            continue
+        rel = {"op": ir_op, "left": lhs, "right": rhs}
+        key = canonical_json(rel)
+        if key not in seen:
+            seen.add(key)
+            out.append(rel)
+    return out
+
+
+def _renamed(node: Any, mapping: dict[str, str]) -> Any:
+    """``node`` (IR JSON) with each placeholder symbol renamed by ``mapping`` (data only)."""
+    if isinstance(node, dict):
+        if node.get("op") == "var" and node.get("name") in mapping:
+            return {"op": "var", "name": mapping[node["name"]]}
+        return {k: (_renamed(v, mapping) if k != "value" else v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_renamed(v, mapping) for v in node]
+    return node
+
+
+def _equivalent(a: dict, b: dict, readings: "_Readings") -> bool:
+    """Whether two relations over the problem's symbols are the same relation: equal as written, or equivalent under every
+    assignment read by the engine's own compiler (full arithmetic, numbers exact)."""
+    if canonical_json(a) == canonical_json(b):
+        return True
+    return readings.valid({"op": "iff", "left": a, "right": b}) is True
+
+
+def _renamings(rel: dict, target: dict, sorts: dict[str, str], readings: "_Readings") -> list[frozenset]:
+    """Every renaming of the written relation ``rel``'s placeholder symbols onto ``target``'s numeric symbols (one to one,
+    at most :data:`_RENAME_MAX` of them) under which ``rel`` is ``target`` (:func:`_equivalent`)."""
+    import itertools
+    tsyms = sorted(_expr_symbols(rel))
+    qsyms = sorted(_expr_symbols(target))
+    if len(tsyms) != len(qsyms) or len(tsyms) > _RENAME_MAX or any(sorts.get(q) not in ("Int", "Real") for q in qsyms):
+        return []
+    if not tsyms:
+        return [frozenset()] if _equivalent(rel, target, readings) else []
+    out = []
+    for perm in itertools.permutations(qsyms):
+        mapping = dict(zip(tsyms, perm))
+        if _equivalent(_renamed(rel, mapping), target, readings):
+            out.append(frozenset(mapping.items()))
+    return out
+
+
+def _consistent(choices: list[list[frozenset]]) -> Optional[dict[str, str]]:
+    """One renaming that agrees with a choice for every relation (each list the renamings one relation admits), one to one, or
+    None; at most :data:`_RENAME_COMBINATIONS` combinations are tried."""
+    import itertools
+    tried = 0
+    for combo in itertools.product(*choices):
+        tried += 1
+        if tried > _RENAME_COMBINATIONS:
+            return None
+        merged: dict[str, str] = {}
+        ok = True
+        for pairs in combo:
+            for t, q in pairs:
+                if merged.get(t, q) != q:
+                    ok = False
+                    break
+                merged[t] = q
+            if not ok:
+                break
+        if ok and len(set(merged.values())) == len(merged):
+            return merged
+    return None
+
+
+def stated_input(claim_text: Optional[str], premise: dict, conjuncts: list[dict], sorts: dict[str, str], readings: "_Readings", *,
+                 prior_texts: Iterable[str] = (), profile: str = "mathematics_aa") -> bool:
+    """Rule ``stated-input`` (round-9 clearance c2, the c2 translation-fidelity lens: nine faithful step checks named circular).
+    Rule ``stated-step`` reads the step input only in the claim itself and only under the problem's own symbol names, so a
+    translation that names the answer's ``x`` as ``ix`` ("11x = 45" on the previous line, "x = 45/11" in the claim) restated its
+    conclusion for the auditor, while the engine checks exactly the step the answer writes. Here the restating ``premise`` (IR
+    JSON) is the input of the claim's step when each of its conjuncts is a relation the answer writes BEFORE the step (on the
+    claim's previous lines of working, ``prior_texts``, or in the claim before its first step marker), each restated
+    ``conjunct`` is a relation the claim writes (after the marker, or anywhere in it when the input stands on an earlier line),
+    one renaming of the written symbols onto the problem's symbols fits them all (:func:`_renamings`, :func:`_consistent`), and no
+    relation written for the input is, as written, one written for the result (a claim that repeats its input states no step).
+    A premise the answer does not write (an intermediate the translation invents: ph-t15 s2.4's "6000 vsq = 54096") is not
+    exempt, and neither is any premise that restates as written. Data only; every reading is bounded."""
+    if not claim_text or len(claim_text) > _STEP_TEXT_MAX or not conjuncts:
+        return False
+    parts = nnf_conjuncts(premise)
+    if not parts or len(parts) > 4 or len(conjuncts) > 4:
+        return False
+    m = _STEP_MARKER_RE.search(claim_text)
+    claim_before = claim_text[:m.start()] if m is not None else ""
+    claim_after = claim_text[m.end():] if m is not None else claim_text
+    prior = [t for t in prior_texts if t and t.strip()]
+    for before_texts, after_text in (([claim_before], claim_after), (prior, claim_text)):
+        before = [r for t in before_texts for r in written_relations(t, profile)]
+        after = written_relations(after_text, profile)
+        if not before or not after:
+            continue
+        choices: list[list[frozenset]] = []
+        used_before: list[dict] = []
+        used_after: list[dict] = []
+        for q in parts:
+            fits = [(r, rn) for r in before for rn in _renamings(r, q, sorts, readings)]
+            choices.append([rn for _r, rn in fits])
+            used_before += [r for r, _rn in fits]
+        for c in conjuncts:
+            fits = [(r, rn) for r in after for rn in _renamings(r, c, sorts, readings)]
+            choices.append([rn for _r, rn in fits])
+            used_after += [r for r, _rn in fits]
+        if any(not ch for ch in choices):
+            continue
+        if {canonical_json(r) for r in used_before} & {canonical_json(r) for r in used_after}:
+            continue
+        if _consistent(choices) is not None:
+            return True
+    return False
+
+
+def _bindings(premise: dict, sorts: dict[str, str]) -> Optional[dict[str, dict]]:
+    """``{symbol: number node}`` when every conjunct of ``premise`` gives one numeric symbol one exact number (``x = 45/11``),
+    else None."""
+    out: dict[str, dict] = {}
+    for q in nnf_conjuncts(premise):
+        if not isinstance(q, dict) or q.get("op") != "eq":
+            return None
+        left, right = q.get("left"), q.get("right")
+        for var, num in ((left, right), (right, left)):
+            if isinstance(var, dict) and var.get("op") == "var" and _literal(num) is not None and sorts.get(str(var.get("name"))) in ("Int", "Real"):
+                name = str(var["name"])
+                if name in out and canonical_json(out[name]) != canonical_json(num):
+                    return None
+                out[name] = num
+                break
+        else:
+            return None
+    return out or None
+
+
+def stated_evaluation(claim_text: Optional[str], premise: dict, conjuncts: list[dict], sorts: dict[str, str], readings: "_Readings", *,
+                      profile: str = "mathematics_aa") -> bool:
+    """Rule ``stated-evaluation`` (round-9 clearance c2): the restating ``premise`` only gives symbols values (``x = −5``, the
+    previous line's result, or a coefficient's value) and the claim writes each restated ``conjunct`` evaluated at those values: its
+    symbols replaced by the values, it is a relation the claim writes, side for side (each side exactly the written side's value,
+    read by the engine's own compiler: "Check: the left side is −5 + 1 = −4" for ``x + 1 = −4``; "10/28 = 5/14" for
+    ``c52 / 28 = 5/14``). The engine then checks the claim's own arithmetic at the stated value, which the claim writes: an
+    evaluation, never the claim assumed. A conjunct that keeps a symbol after the values are put in, or whose evaluation the claim
+    does not write, is not exempt. Data only; bounded."""
+    if not claim_text or len(claim_text) > _STEP_TEXT_MAX or not conjuncts or len(conjuncts) > 4:
+        return False
+    values = _bindings(premise, sorts)
+    if not values:
+        return False
+    written = [r for r in written_relations(claim_text, profile) if not _expr_symbols(r)]
+    if not written:
+        return False
+    flip = {"lt": "gt", "gt": "lt", "le": "ge", "ge": "le", "eq": "eq"}
+    for c in conjuncts:
+        ground = c
+        for name, num in values.items():
+            ground = _substituted(ground, name, num)
+        if _expr_symbols(ground) or not isinstance(ground, dict) or ground.get("op") not in flip:
+            return False
+        found = False
+        for r in written:
+            for op, lhs, rhs in ((r["op"], r["left"], r["right"]), (flip.get(r["op"], ""), r["right"], r["left"])):
+                if op != ground["op"]:
+                    continue
+                sides = {"op": "and", "args": [{"op": "eq", "left": ground["left"], "right": lhs}, {"op": "eq", "left": ground["right"], "right": rhs}]}
+                if readings.valid(sides) is True:
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            return False
+    return True
 
 
 def withheld_as_circular(o: ClaimVerificationOutcome) -> Optional[str]:

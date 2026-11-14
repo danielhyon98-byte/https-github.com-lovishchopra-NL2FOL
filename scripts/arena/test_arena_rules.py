@@ -78,6 +78,7 @@ are no site. None of these tests was rewritten.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -1078,10 +1079,10 @@ def _dropped0(**kw) -> dict:
 
 
 OUT_OF_CONTRACT = {
-    "nul-and-bidi-override-in-a-merged-text": (_claim0(text=H11 + "\x00‮", transformation="merged"), "claims.0.text: string_pattern_mismatch"),
+    "nul-and-bidi-override-in-a-merged-text": (_claim0(text=H11 + "\x00\u202e", transformation="merged"), "claims.0.text: string_pattern_mismatch"),
     "bell-and-escape-in-a-paraphrase": (_claim0(text=H11 + "\x07\x1b[2J", transformation="paraphrased"), "claims.0.text: string_pattern_mismatch"),
-    "bidi-override-in-a-paraphrase": (_claim0(text="‮" + H11, transformation="paraphrased"), "claims.0.text: string_pattern_mismatch"),
-    "escape-bell-and-bidi-in-a-dropped-reason": (_dropped0(reason="context \x1b[2J\x07‮"), "dropped.0.reason: string_pattern_mismatch"),
+    "bidi-override-in-a-paraphrase": (_claim0(text="\u202e" + H11, transformation="paraphrased"), "claims.0.text: string_pattern_mismatch"),
+    "escape-bell-and-bidi-in-a-dropped-reason": (_dropped0(reason="context \x1b[2J\x07\u202e"), "dropped.0.reason: string_pattern_mismatch"),
     "blank-dropped-reason": (_dropped0(reason="   "), "dropped.0.reason: string_pattern_mismatch"),
     "a-merged-claim-citing-one-source-twice": (_claim0(source_claim_ids=["h1.1", "h1.1"], transformation="merged"),
                                                "claims.0: a synthesized claim cites each source claim once"),
@@ -1103,7 +1104,7 @@ def test_a_synthesis_out_of_the_combinators_contract_is_a_named_failure(tmp_path
     assert (p["file"], p["code"], p["reason"]) == (f"syntheses/{TASK}.json", "KIT-CB-002", "output_invalid") and where in p["detail"]
     assert any(r.startswith(f"syntheses/{TASK}.json is out of the combinator's published contract (KIT-CB-002 output_invalid") and where in r
                for r in s["failure_reasons"])
-    assert "\x00" not in json.dumps(p) and "‮" not in p["detail"], "the check names positions and rules, never the combinator's text"
+    assert "\x00" not in json.dumps(p) and "\u202e" not in p["detail"], "the check names positions and rules, never the combinator's text"
 
 
 def test_the_same_synthesis_in_contract_is_functional_and_unnamed(tmp_path):
@@ -1120,7 +1121,7 @@ _C0_CONTROLS = "".join(chr(c) for c in range(0x20) if chr(c) not in "\t\n\r")
 
 
 @pytest.mark.parametrize("value, code, reason, where", [
-    (_claim0(text=H11 + "⁦"), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
+    (_claim0(text=H11 + "\u2066"), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
     (_claim0(text=" \n\t "), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
     (_claim0(text=""), "KIT-CB-002", "output_invalid", "claims.0.text: string_too_short"),
     (_claim0(text=H11 + _C0_CONTROLS[:5]), "KIT-CB-002", "output_invalid", "claims.0.text: string_pattern_mismatch"),
@@ -1132,7 +1133,7 @@ _C0_CONTROLS = "".join(chr(c) for c in range(0x20) if chr(c) not in "\t\n\r")
     (_claim0(transformation="joined with the census"), "KIT-CB-003", "transformation_unknown", "claims[0].transformation is not one of"),
     (_claim0(certainty=0.9), "KIT-CB-002", "output_not_json", "a float is not allowed"),
     (_dropped0(reason=None), "KIT-CB-002", "output_invalid", "dropped.0.reason: string_type"),
-    ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "they ‮disagree"}]}, "KIT-CB-002", "output_invalid",
+    ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "they \u202edisagree"}]}, "KIT-CB-002", "output_invalid",
      "conflicts.0.description: string_pattern_mismatch"),
     ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.4"], "description": "  "}]}, "KIT-CB-002", "output_invalid", "conflicts.0.description: string_pattern_mismatch"),
     ({**CLEAN_HI, "conflicts": [{"claim_ids": ["h1.1", "h1.1"], "description": "they disagree"}]}, "KIT-CB-002", "output_invalid",
@@ -1530,9 +1531,11 @@ def test_the_listing_prints_the_claim_ids_the_hub_delivers_for_every_member_of_a
     assert [[c["claim_id"] for c in s["claims"]] for s in view["sources"]] == [PH_QUALIFIED, ["s1.1", "s1.2", "s1.3"], [f"s1.{i}@chemistry-specialist" for i in (1, 2, 3)]]
 
 
-#: The group's answer with a line the encodings leave undecided (a symbol with no stated value): its genuine receipt
-#: carries an ST-UNDEC-001 warning on that line, which no mutation touches.
-FORCE_WITH_WORK = FORCE_ANSWER + "\nThe work done over the distance is W = F × d = 6.0 × d."
+#: The group's answer with a line the encodings leave undecided: its genuine receipt carries an ST-UNDEC-001 warning on
+#: that line, which no mutation touches. The work line was that line until round 9's STEM fixes decided it (a substitution
+#: of F, ENTAILED); the torque line (a function of an unknown) is that line now.
+FORCE_WITH_WORK = (FORCE_ANSWER + "\nThe work done over the distance is W = F × d = 6.0 × d."
+                   "\nThe torque about the pivot is τ = F × r sin θ = 6.0 r sin θ.")
 
 
 def _shape(rec: dict) -> tuple:
@@ -1544,7 +1547,12 @@ def test_a_mutation_of_the_second_stem_report_is_compared_with_its_genuine_recor
     delivered there with its unqualified ids while its genuine record carries the qualified ones. The genuine ST-UNDEC-001
     warning on the work line then read as unexplained on every mutation record of ph-g1 ('s1.4') and as absent from it
     ('s1.4@physics-specialist'), where ch-g1's identical answer showed neither. The genuine findings are now read in the
-    mutation's id form (baseline_in_form): both reports' mutation records name, explain and miss the same findings."""
+    mutation's id form (baseline_in_form): both reports' mutation records name, explain and miss the same findings.
+
+    Rewritten in round 9's second fix pass (its fixture only; every assertion kept at its strength): the STEM fixes of the
+    round decide the work line (stem-sub, ENTAILED), so the answer had no genuine finding left to compare. The answer now
+    also states a torque line the front end leaves undecided, and the genuine warning is on that line (s1.5); the work
+    line must now draw no finding at all."""
     rd = tmp_path / "work"
     (rd / "specialists").mkdir(parents=True)
     for task, (subject, agent) in STEM_GROUP.items():
@@ -1553,8 +1561,8 @@ def test_a_mutation_of_the_second_stem_report_is_compared_with_its_genuine_recor
                                                                      ensure_ascii=False), encoding="utf-8")
     out = ra.run_round(rd)
     gen = {r["file"]: r for r in out["records"] if r["variant"] == "genuine"}
-    assert [(f["code"], f["claim_ids"]) for f in gen["ph-g1.json"]["findings"] + gen["ph-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.4@physics-specialist"])]
-    assert [(f["code"], f["claim_ids"]) for f in gen["ch-g1.json"]["findings"] + gen["ch-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.4"])]
+    assert [(f["code"], f["claim_ids"]) for f in gen["ph-g1.json"]["findings"] + gen["ph-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.5@physics-specialist"])]
+    assert [(f["code"], f["claim_ids"]) for f in gen["ch-g1.json"]["findings"] + gen["ch-g1.json"]["subject_findings"]] == [("ST-UNDEC-001", ["s1.5"])]
     variants = sorted({r["variant"] for r in out["records"]} - {"genuine"})
     assert {"stem_arithmetic_slip", "invented_quotation", "self_certification"} <= set(variants)
     for variant in variants:
@@ -1829,3 +1837,454 @@ def test_a_stem_mutation_at_a_quotation_or_a_bracketed_sum_is_also_named_by_the_
     coded = "```\nn = 120 / 8.0 // 5\n```\nv = 120 m / 8.0 s = 15 m s⁻¹"
     text, codes = ra.stem_variant(coded, q, "stem_substitution")
     assert codes == "INT-SUBJ-001" and text.startswith("```\nn = 120 / 8.0 // 5\n```\n") and "5.0 s" in text
+
+
+# --- arena round 9 (integrated round c2), harness owner: revision budgets and the overseer-selected fallback -------------
+#
+# The revision pass re-issued every request under the channel's default budget (2 rounds) because the round's tasks.json
+# recorded no revision_rounds, while the specialists had read feedback issued under one round ('Revision request 1 of 1'):
+# gate feedback_as_read failed on all 15 revisions for configuration, not custody. The re-issue now takes the budget each
+# recorded feedback file was issued under (its signed block), revision_feedback.py records the budget in tasks.json when
+# it is given one, a revision file that does not record the digest of what its specialist read fails that gate, and a file
+# in feedback/ that is no feedback file (an exercise's own summary) is named and never compared. The delivery pass said
+# nothing when the overseer-selected fallback was not exercised (every c2 decision was withheld because no overseer agent
+# was configured); it now says so, and --overseer-provider runs the fallback through the overseer package's runner beside
+# the withheld baseline. None of these tests was rewritten.
+
+PH_TASK = "ph-x9"
+PH_ITEM = {
+    "task_id": PH_TASK, "subject": "Physics", "agent_id": "physics-specialist", "task_type": "short_answer",
+    "question": "A trolley accelerates uniformly from rest to 20 m s⁻¹ in 4.0 s. Calculate its acceleration.", "supplied_texts": [],
+    "response_text": "The trolley starts from rest, so u = 0. Using a = Δv/Δt, a = (20 - 0)/4.0 = 6.0 m s⁻². The acceleration is therefore 6.0 m s⁻².",
+}
+PH_CORRECTED = "The trolley starts from rest, so u = 0. Using a = Δv/Δt, a = (20 - 0)/4.0 = 5.0 m s⁻². The acceleration is therefore 5.0 m s⁻²."
+
+
+def _overseer():
+    return pytest.importorskip("epinoic_overseer", reason="the revision and delivery passes are the overseer's: it is not installed here", exc_type=ModuleNotFoundError)
+
+
+def _feedback_round(rd: Path, *, tasks: list | None = None) -> Path:
+    (rd / "specialists").mkdir(parents=True)
+    for item in (PH_ITEM, HISTORY_ITEM):
+        (rd / "specialists" / f"{item['task_id']}.json").write_text(json.dumps(item))
+    if tasks is not None:
+        (rd / "tasks.json").write_text(json.dumps(tasks))
+    return rd
+
+
+def _revise_ph(rd: Path, text: str = PH_CORRECTED, *, read: str | None = "feedback") -> None:
+    fb = json.loads((rd / ra.FEEDBACK_DIR / f"{PH_TASK}.json").read_text())
+    rev = {"task_id": PH_TASK, "agent_id": fb["agent_id"], "response_text": text, "elapsed_s": 2.0}
+    if read is not None:
+        rev["feedback_sha256"] = fb["rendered_sha256"] if read == "feedback" else read
+    (rd / ra.REVISIONS_DIR).mkdir(exist_ok=True)
+    (rd / ra.REVISIONS_DIR / f"{PH_TASK}.json").write_text(json.dumps(rev))
+
+
+def test_the_revision_pass_reissues_each_request_under_the_budget_its_feedback_was_issued_under(tmp_path):
+    """Arena round 9 (c2, minor, two lenses): the feedback was issued under one revision round, but the round recorded no
+    budget, so the replay re-issued it under the default and every comparison differed in max_rounds and the rendered
+    digest. The replay now reads the budget from each recorded file's signed block: the request is re-issued byte for byte
+    and gate feedback_as_read decides custody."""
+    _overseer()
+    rd = _feedback_round(tmp_path / "r")  # no tasks.json: the round records no budget, as c2's did
+    out = ra.revision_feedback(rd, revision_rounds=1)
+    assert out["budget"] == {"revision_rounds": 1, "recorded_in": None, "tasks": []}  # nowhere to record it but the feedback files
+    recorded = json.loads((rd / ra.FEEDBACK_DIR / f"{PH_TASK}.json").read_text())
+    assert recorded["issued"] and recorded["max_rounds"] == recorded["block"]["max_rounds"] == 1
+    assert recorded["rendered"].startswith("Revision request 1 of 1 from the tutoring system")
+    assert ra.recorded_feedback_budget(recorded) == 1 and ra.recorded_feedback_budget({"max_rounds": True}) is None
+    # the cause, reproduced: re-issued under the round's (default) budget, the request is not the one the specialist read
+    hub, entries = ra._feedback_replay(ra.load_items(rd / "specialists"), {})
+    try:
+        assert ra.feedback_differences(recorded, ra.feedback_document(entries[PH_TASK])) == ["max_rounds", "rendered_sha256"]
+    finally:
+        hub.close()
+    _revise_ph(rd)
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    check = next(c for c in rv["checks"] if c["task_id"] == PH_TASK)
+    assert check["identical"] and check["differences"] == [] and check["budget"] == {"max_rounds": 1, "source": "feedback"}
+    [t] = rv["tasks"]
+    assert t["delivered"] and t["feedback_read"] and "flag" not in t
+    assert all(c["identical"] for c in rv["checks"]) and rv["gates"]["feedback_as_read"] and ra.revision_gate_failures(rv) == []
+    # the History answer got no request (no_actionable_flaw), and its feedback file records the budget it was decided under too
+    assert next(c for c in rv["checks"] if c["task_id"] == TASK)["budget"] == {"max_rounds": 1, "source": "feedback"}
+    assert ("2 under the budget recorded in its feedback file, which the round does not record as its own: hi-x1 1, ph-x9 1"
+            in "\n".join(ra.revision_lines(rv)))
+
+
+def test_a_round_budget_that_contradicts_the_recorded_feedback_is_named_and_the_signed_block_decides(tmp_path):
+    """The recorded feedback's signed block says what the specialist read; a round that records another budget is named
+    beside the check, and the request is still re-issued as it was read."""
+    _overseer()
+    rd = _feedback_round(tmp_path / "r")
+    ra.revision_feedback(rd, revision_rounds=1)
+    (rd / "tasks.json").write_text(json.dumps([{"task_id": PH_TASK, "revision_rounds": 2}]))
+    _revise_ph(rd)
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    check = next(c for c in rv["checks"] if c["task_id"] == PH_TASK)
+    assert check["identical"] and check["budget"] == {"max_rounds": 1, "source": "feedback", "round_budget": 2}
+    assert "ph-x9 1 (the round records 2)" in "\n".join(ra.revision_lines(rv))
+    # the round agreeing with the block is the round's own budget
+    (rd / "tasks.json").write_text(json.dumps([{"task_id": PH_TASK, "revision_rounds": 1}]))
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    assert next(c for c in rv["checks"] if c["task_id"] == PH_TASK)["budget"] == {"max_rounds": 1, "source": "round"} and rv["gates"]["feedback_as_read"]
+
+
+def test_revision_feedback_records_its_budget_in_tasks_json_and_never_overwrites_another(tmp_path):
+    """revision_feedback.py --revision-rounds N records N as the round's revision_rounds before it issues anything; a task
+    that records another budget is refused (exit status 2) with nothing written."""
+    _overseer()
+    import revision_feedback as rf
+    rd = _feedback_round(tmp_path / "r", tasks=[{"task_id": PH_TASK, "question": PH_ITEM["question"]}, {"task_id": TASK}])
+    assert rf.main([str(rd), "--revision-rounds", "1", "--all"]) == 0
+    tasks = json.loads((rd / "tasks.json").read_text())
+    assert [(t["task_id"], t["revision_rounds"]) for t in tasks] == [(PH_TASK, 1), (TASK, 1)] and tasks[0]["question"] == PH_ITEM["question"]
+    assert json.loads((rd / ra.FEEDBACK_DIR / f"{PH_TASK}.json").read_text())["max_rounds"] == 1
+    assert ra.group_plan(ra.load_items(rd / "specialists"), PH_TASK).budgets == {"revision_rounds": 1}
+    before = {p.name: p.read_bytes() for p in [rd / "tasks.json", *sorted((rd / ra.FEEDBACK_DIR).glob("*.json"))]}
+    assert rf.main([str(rd), "--revision-rounds", "2"]) == 2
+    with pytest.raises(ValueError, match="records revision_rounds 1"):
+        ra.revision_feedback(rd, revision_rounds=2)
+    with pytest.raises(ValueError, match="integer from 1"):
+        ra.revision_feedback(rd, revision_rounds=0)
+    assert {p.name: p.read_bytes() for p in [rd / "tasks.json", *sorted((rd / ra.FEEDBACK_DIR).glob("*.json"))]} == before
+
+
+def test_a_revision_that_does_not_record_what_its_specialist_read_fails_feedback_as_read(tmp_path):
+    """c2's revision files carried no feedback_sha256, so no replay could show what the specialists read; the gate passed
+    only because the copy the exercise checked had the digests added by hand. Such a revision is now flagged, the gate
+    fails, and --fail-on-revision-gates exits with status 1 (without the flag the run still exits 0 and says so)."""
+    _overseer()
+    rd = _feedback_round(tmp_path / "r")
+    ra.revision_feedback(rd, revision_rounds=1)
+    _revise_ph(rd, read=None)
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    [t] = rv["tasks"]
+    assert not t["delivered"] and t["error"] == "the revision file lacks ['feedback_sha256']" and t["flag"] == ra.UNRECORDED_READ_FLAG
+    assert all(c["identical"] for c in rv["checks"]) and not rv["gates"]["feedback_as_read"]
+    assert ra.revision_gate_failures(rv) == ["gate feedback_as_read FAIL"]
+    assert ra.UNRECORDED_READ_FLAG in "\n".join(ra.revision_lines(rv))
+    assert ra.main([str(rd), "--fail-on-revision-gates"]) == 1
+    assert ra.main([str(rd)]) == 0
+    assert ra.revision_gate_failures({"skipped": "the round has no feedback/ directory (scripts/arena/revision_feedback.py was not run)"}) == []
+    assert ra.revision_gate_failures({"skipped": ra.OVERSEER_NOT_INSTALLED}) == [f"the revision pass was not run ({ra.OVERSEER_NOT_INSTALLED})"]
+
+
+def test_files_in_feedback_that_are_no_feedback_are_named_and_unreadable_ones_never_raise(tmp_path):
+    """c2's feedback/ also holds the exercise's own summary.json, which the pass compared as the feedback of a task named
+    'summary' ('the answer was not replayed'). A file whose name is no task of the round and that carries no task_id is
+    listed and not compared; a feedback or revision file of a task that is not JSON is a named difference or error."""
+    _overseer()
+    rd = _feedback_round(tmp_path / "r")
+    ra.revision_feedback(rd, revision_rounds=1)
+    _revise_ph(rd)
+    (rd / ra.FEEDBACK_DIR / "summary.json").write_text(json.dumps({"revised": 15, "flaws_before": 30, "detail": "the exercise's own summary"}))
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    assert rv["ignored_files"] == [{"file": "feedback/summary.json", "why": "no feedback file: its name is no task of the round and it carries no task_id"}]
+    assert "summary" not in {c["task_id"] for c in rv["checks"]} and rv["gates"]["feedback_as_read"]
+    assert "- not a feedback or revision file, so not compared: feedback/summary.json" in "\n".join(ra.revision_lines(rv))
+    # a stray file that does carry a task_id is compared, and fails: it names no answer this round replays
+    (rd / ra.FEEDBACK_DIR / "summary.json").write_text(json.dumps({"task_id": "zz-t1", "issued": True}))
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    assert {"task_id": "summary", "identical": False, "differences": ["the answer was not replayed"]} in rv["checks"] and not rv["gates"]["feedback_as_read"]
+    (rd / ra.FEEDBACK_DIR / "summary.json").unlink()
+    (rd / ra.FEEDBACK_DIR / f"{TASK}.json").write_text("{not json")
+    (rd / ra.REVISIONS_DIR / f"{TASK}.json").write_text("[1, 2")
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    bad = next(c for c in rv["checks"] if c["task_id"] == TASK)
+    assert not bad["identical"] and bad["differences"] == ["the recorded feedback file is not JSON (JSONDecodeError)"]
+    hi = next(t for t in rv["tasks"] if t["task_id"] == TASK)
+    assert not hi["delivered"] and hi["error"] == "the revision file is not JSON (JSONDecodeError)" and hi["flag"] == ra.UNRECORDED_READ_FLAG
+    assert rv["errors"] == [] and next(t for t in rv["tasks"] if t["task_id"] == PH_TASK)["delivered"]
+    # an unreadable feedback file beside a revision that is fine: the revision is delivered, flagged, and nothing raises
+    (rd / ra.FEEDBACK_DIR / f"{PH_TASK}.json").write_text("not json either")
+    rv = ra.revision_pass(rd, ra.load_items(rd / "specialists"), {})
+    ph = next(t for t in rv["tasks"] if t["task_id"] == PH_TASK)
+    assert rv["errors"] == [] and ph["delivered"] and ph["flag"] == "feedback differs from what the specialist read"
+    assert not rv["gates"]["feedback_as_read"]
+
+
+_H11_UNTRANSLATABLE = json.loads(json.dumps(H11_COUNTEREXAMPLE_FIXTURE))
+_H11_UNTRANSLATABLE["problem"]["premises"].append({"id": "pr_million", "expr": {"op": "var", "name": "near_million"},
+                                                   "label": "London had close to a million inhabitants in 1801", "grounding": _GK, "materiality": "material"})
+
+#: An overseer completion provider for the tests below, written to a module of its own so the command line can name it
+#: (--overseer-provider MODULE:FACTORY). Test code reading the dossier as data, never a model: ``silent`` reviews every
+#: transfer and accuses nothing; ``contest`` also accuses the History answer's first claim with a kind no check decides,
+#: which leaves that claim contested (never confirmed accurate).
+PROVIDER_MODULE = '''
+import json
+from epinoic_logic.translate.contracts import ProviderInfo
+from epinoic_logic.translate.providers.base import ProviderResponse
+
+
+def _verdict(d, accusations=()):
+    return {"contract": d["verdict_contract"], "pack": dict(d["pack"]), "verdict_id": "v-" + d["agent_id"], "agent_id": d["agent_id"],
+            "task_id": d["task"]["task_id"], "dossier_sha256": d["dossier_sha256"], "lens": d["lens"],
+            "transfers_reviewed": [t["message_id"] for t in d["transfers"] if t["message_id"]], "accusations": list(accusations),
+            "engine_statements": [], "notes": ""}
+
+
+def _contest(d):
+    t = next(t for t in d["transfers"] if t["kind"] in ("response", "response_text") and (t.get("payload") or {}).get("report_id") == "rep-hi-x1-0")
+    pointer = next(e["pointer"] for e in d["index"] if e["type"] == "claim" and e["id"] == "h1.1") + "/claim_text"
+    return _verdict(d, [{"accusation_id": "a1", "kind": "other", "claimed_severity": "error", "evidence": [{"pointer": pointer}],
+                         "statement": "This point is doubtful.", "message_ids": [t["message_id"]], "receipt_ids": [], "claim_ids": ["h1.1"],
+                         "report_ids": ["rep-hi-x1-0"], "result_ids": [], "document_ids": []}])
+
+
+class Scripted:
+    name = "scripted"
+
+    def __init__(self, reply):
+        self.reply = reply
+
+    def complete(self, system, user, *, prompt_version):
+        lines = user.split("\\n")
+        d = json.loads("\\n".join(lines[1:-1]))
+        return ProviderResponse(raw_text=json.dumps(self.reply(d)), info=ProviderInfo(provider_name=self.name, prompt_version=prompt_version, temperature=0.0))
+
+
+def silent(agent_id):
+    return Scripted(_verdict)
+
+
+def contest(agent_id):
+    return Scripted(_contest)
+
+
+def failing(agent_id):
+    return Scripted(lambda d: 1 / 0)
+
+
+not_callable = 3
+'''
+
+
+def _delivery_round(rd: Path) -> Path:
+    (rd / "specialists").mkdir(parents=True)
+    (rd / "translations").mkdir()
+    (rd / "specialists" / f"{TASK}.json").write_text(json.dumps(HISTORY_ITEM))
+    (rd / "translations" / f"{TASK}.json").write_text(json.dumps({"report_id": f"rep-{TASK}-0", "claims": {"h1.1": _H11_UNTRANSLATABLE}}))
+    return rd
+
+
+def test_the_delivery_pass_says_when_the_overseer_selected_fallback_was_not_exercised(tmp_path):
+    """Arena round 9 (c2, minor): every decision was withheld because no overseer agent was configured, and nothing said
+    the 90% rule had not been tested. The pass now counts what it exercised and says why it exercised nothing."""
+    _overseer()
+    out = ra.run_round(_delivery_round(tmp_path / "r"))
+    d = out["deliveries"]
+    assert d["by_mode"]["withheld"] == 1 and d["fallback_exercised"] is False and d["decided_on_established_accuracy"] == 0
+    assert d["fallback_not_exercised"].startswith("no overseer agent is configured (the harness calls no model)")
+    assert d["withheld_by_cause"] == {"no_accuracy": 1} and d["tasks"][0]["withheld_why"] == "no_accuracy"
+    assert "deliveries_baseline" not in out
+    assert "Overseer-selected fallback: NOT exercised in this pass: no overseer agent is configured" in (tmp_path / "r" / "summary.md").read_text()
+
+
+def test_an_overseer_provider_runs_the_fallback_beside_the_withheld_baseline(tmp_path, monkeypatch):
+    """--overseer-provider MODULE:FACTORY configures the delivery pass's overseer agents (through the package's runner and
+    verdict intake, so every counted verdict is runner-attested) and reports the decisions beside the withheld baseline:
+    an answer the agents' review gives 2/2 is delivered OVERSEER-SELECTED, and one whose first claim they contest (1/2,
+    not above 0.9) is withheld below the threshold, labelled honestly. The transport count does not move."""
+    _overseer()
+    from epinoic_overseer.delivery_policy import is_fallback_label_honest
+    (tmp_path / "arena_scripted_provider.py").write_text(PROVIDER_MODULE)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    plain = ra.run_round(_delivery_round(tmp_path / "plain"))
+    rd = _delivery_round(tmp_path / "selected")
+    assert ra.main([str(rd), "--overseer-provider", "arena_scripted_provider:silent"]) == 0
+    out = json.loads((rd / "results.json").read_text())
+    d, base, cmp_ = out["deliveries"], out["deliveries_baseline"], out["delivery_comparison"]
+    assert d["overseer"].startswith("configured (arena_scripted_provider:silent, through the overseer package's runner")
+    [t] = d["tasks"]
+    assert t["mode"] == "overseer_selected" and t["delivered"] and t["candidates"][0]["accuracy_fraction"] == "2/2" and t["candidates"][0]["above_threshold"]
+    assert is_fallback_label_honest(t["mode"], t["label"]) and t["label"].startswith("OVERSEER-SELECTED (not formally checked, not verified)")
+    assert d["fallback_exercised"] and d["decided_on_established_accuracy"] == 1 and d["overseer_selected"] == 1
+    assert base["by_mode"]["withheld"] == 1 and not base["fallback_exercised"] and base["tasks"][0]["withheld_why"] == "no_accuracy"
+    assert cmp_["changed"] == [f"{TASK}.json"] and cmp_["tasks"][0]["baseline_mode"] == "withheld" and cmp_["tasks"][0]["mode"] == "overseer_selected"
+    summary = (rd / "summary.md").read_text()
+    assert "## Delivery decisions without overseer agents (the withheld baseline)" in summary
+    assert f"- {TASK}.json: withheld (no_accuracy) -> overseer_selected" in summary and "Overseer-selected fallback: exercised: 1 decision(s)" in summary
+    assert (out["transmissions"], out["functional"]) == (plain["transmissions"], plain["functional"])
+    rd2 = _delivery_round(tmp_path / "contested")
+    assert ra.main([str(rd2), "--overseer-provider", "arena_scripted_provider:contest"]) == 0
+    d2 = json.loads((rd2 / "results.json").read_text())["deliveries"]
+    [t2] = d2["tasks"]
+    assert t2["mode"] == "withheld" and t2["withheld_why"] == "below_threshold" and t2["candidates"][0]["accuracy_fraction"] == "1/2"
+    assert not t2["candidates"][0]["above_threshold"] and d2["fallback_exercised"] and d2["withheld_by_cause"] == {"below_threshold": 1}
+    assert t2["candidates"][0]["claims"] == {"accurate": 1, "inaccurate": 0, "contested": 1, "unassessed": 0} and t2["overseer"]["verdicts_counted"] == 2
+    assert is_fallback_label_honest(t2["mode"], t2["label"]) and "not formally checked, not verified" in t2["label"]
+    # agents whose every run fails establish nothing: the decision is never counted as an exercise of the fallback, whatever
+    # cause its label states (the policy's own label for this case is the overseer owner's: handed off)
+    rd3 = _delivery_round(tmp_path / "failing")
+    assert ra.main([str(rd3), "--overseer-provider", "arena_scripted_provider:failing"]) == 0
+    d3 = json.loads((rd3 / "results.json").read_text())["deliveries"]
+    [t3] = d3["tasks"]
+    assert t3["mode"] == "withheld" and not t3["delivered"] and t3["overseer"]["verdicts_counted"] == 0
+    assert {r["status"] for r in t3["overseer"]["runs"]} == {"provider_error"}
+    assert not d3["fallback_exercised"] and d3["overseer_stage_without_counted_verdict"] == [f"{TASK}.json"]
+    assert d3["fallback_not_exercised"].startswith("the overseer agents established no accuracy on any answer")
+    assert f"The overseer stage ran with no counted verdict (nothing established, whatever cause the label states) on: {TASK}.json." in (rd3 / "summary.md").read_text()
+
+
+def test_a_malformed_or_missing_overseer_provider_is_refused_before_any_pass(tmp_path, monkeypatch, capsys):
+    """The provider factory is the operator's own code, named as MODULE:FACTORY; anything else is refused (argparse exit
+    status 2) before a round is read, so no pass runs half-configured."""
+    _overseer()
+    (tmp_path / "arena_scripted_provider.py").write_text(PROVIDER_MODULE)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(ValueError, match="MODULE:FACTORY"):
+        ra.load_provider_factory("arena_scripted_provider.silent")
+    with pytest.raises(ValueError, match="not callable"):
+        ra.load_provider_factory("arena_scripted_provider:not_callable")
+    with pytest.raises(ImportError):
+        ra.load_provider_factory("no_such_module_for_the_arena:silent")
+    rd = _delivery_round(tmp_path / "r")
+    for argv in (["--overseer-provider", "os.system; x"], ["--overseer-provider", "arena_scripted_provider:not_callable"],
+                 ["--overseer-pack", str(tmp_path / "pack.zip")],
+                 ["--overseer-provider", "arena_scripted_provider:silent", "--overseer-pack", str(tmp_path / "no-such-pack.zip")]):
+        with pytest.raises(SystemExit) as exc:
+            ra.main([str(rd), *argv])
+        assert exc.value.code == 2
+    assert not (rd / "results.json").exists()
+
+
+# --- arena round 9 (integrated round c2), harness owner, second fix pass: the student-facing text, raw bidi controls ------
+#
+# The synthesis text the arena relays is composed as the deployed combinator port composes it (``student_facing_text``),
+# never by the harness on its own, so a change of the composer (ll-t15: every quotation read twice, once as a stray
+# fragment) reaches the arena only through the port. No file the harness owner keeps holds a raw bidirectional control.
+# None of these tests was rewritten.
+
+#: The ll-t15 shape of round 9 (c2): a quotation the parser delivers as an evidence claim, carried beside the sentence
+#: that quotes it (clearance/c2/syntheses/ll-t15.json, claims p1-point, p1-q01, p1-s02).
+LL_T15_POINT = ("Bea Lindqvist persuades readers to oppose the closure by fusing personal anecdote with humour, so that the council's "
+                "plan looks absurd to anyone who has swum there.")
+LL_T15_QUOTE = '"I learned to swim at the Corran Street Baths in 1989, which is to say that I learned to sink there first."'
+LL_T15_SENTENCE = f"The column opens with a memory rather than an argument: {LL_T15_QUOTE}"
+LL_T15_CLAIMS = [{"text": t, "source_claim_ids": [cid], "certainty": "probable", "transformation": "carried"}
+                 for cid, t in (("p1-point", LL_T15_POINT), ("p1-q01", LL_T15_QUOTE), ("p1-s02", LL_T15_SENTENCE))]
+LL_T15_DROPPED = {"source_claim_ids": ["h1.1"], "reason": "the census answers another question than the column's persuasion"}
+
+
+def _port_text(claims: list[dict]) -> str:
+    """The student-facing text the deployed combinator port relays for ``claims`` (an output in contract, checked by
+    ``check_output``, projected by ``synthesis_payload``)."""
+    from epinoic_logic.integration import combinator_port as CB
+    from epinoic_logic.integration.protocol import PROTOCOL
+    ids = {"task_id": "t_" + "0" * 31 + "1", "request_id": "a_" + "0" * 31 + "1"}
+    pack = {"name": "combinator-instructions", "version": "1.0", "sha256": "9a" * 32}
+
+    def source_claim(c: dict) -> dict:
+        cid = c["source_claim_ids"][0]
+        return {"claim_id": cid, "role": "evidence" if "-q" in cid else "point", "materiality": "supporting" if "-q" in cid else "material",
+                "certainty": "established", "claim_text_sha256": ra.sha256_text(c["text"]), "text": c["text"]}
+    peer = {"claim_id": "h1.1", "role": "point", "materiality": "material", "certainty": "probable", "claim_text_sha256": ra.sha256_text(H11), "text": H11}
+    # the port combines two answers at least (its combined mode): the History answer's one claim is dropped with its reason
+    inp = CB.check_input({"schema": "epinoic.integration.combinator-input.v1", "protocol": PROTOCOL, "port_version": CB.PORT_VERSION, "ids": ids,
+                          "sources": [{"report_id": "rep-ll-x1-0", "agent_id": "english-a-lang-lit-specialist",
+                                       "subject": "English A: Language and Literature", "branch": "english", "claims": [source_claim(c) for c in claims]},
+                                      {"report_id": f"rep-{TASK}-0", "agent_id": "history-specialist", "subject": "History", "branch": "history",
+                                       "claims": [peer]}],
+                          "vocabulary": list(CB.VOCABULARY), "instruction_pack": pack})
+    out = CB.check_output({"schema": "epinoic.integration.combinator-output.v1", "protocol": PROTOCOL, "port_version": CB.PORT_VERSION, "ids": ids,
+                           "instruction_pack_sha256": pack["sha256"], "claims": [{**c, "evidence_refs": None} for c in claims],
+                           "dropped": [LL_T15_DROPPED], "conflicts": []}, inp)
+    return CB.synthesis_payload(out, inp, synthesis_id="syn-ll-x1", combinator_agent_id="synthesis", created_at="2026-11-13T00:00:00Z")["text"]
+
+
+def test_the_arena_composes_the_student_facing_text_as_the_port_does(monkeypatch):
+    """Arena round 9 (c2, communication fidelity, minor): the ll-t15 synthesis hands the student the quotation of p1-q01
+    twice, as a stray fragment and then inside p1-s02, because the text is the claims' texts joined. The harness relays
+    exactly the text the deployed combinator port composes for the same output (parity), so the arena never shows a text
+    production would not send; rendering such a quotation only inside the sentence that quotes it is the port's composer
+    (handed off), which the harness then follows with no change of its own."""
+    from epinoic_logic.integration import combinator_port as CB
+    items = [{**HISTORY_ITEM, "_path": Path("specialists") / f"{TASK}.json"}]
+    plan = ra.group_plan(items, TASK)
+    reply = types.SimpleNamespace(payload={"report_id": f"rep-{TASK}-0", "claims": [{"claim_id": c["source_claim_ids"][0], "source_refs": []}
+                                                                                    for c in LL_T15_CLAIMS] + [{"claim_id": "h1.1", "source_refs": []}]})
+    body = {"claims": LL_T15_CLAIMS, "dropped": [LL_T15_DROPPED]}
+    got = ra.group_synthesis(items, TASK, {TASK: body}, {TASK: reply}, plan)
+    port = _port_text(LL_T15_CLAIMS)
+    assert got["text"] == port == ra.student_facing_text([c["text"] for c in LL_T15_CLAIMS])
+    assert got["text_sha256"] == ra.sha256_text(got["text"])
+    # the composer is the port's own whenever the port has one (a stand-in here, never the harness's): the harness follows it
+    monkeypatch.setattr(CB, ra.PORT_TEXT_COMPOSER, lambda texts: " | ".join(texts), raising=False)
+    again = ra.group_synthesis(items, TASK, {TASK: body}, {TASK: reply}, plan)
+    assert again["text"] == " | ".join(c["text"] for c in LL_T15_CLAIMS) and again["text_sha256"] == ra.sha256_text(again["text"])
+    # an output with no text left to compose is still relayed with the placeholder text, so the hub names it
+    assert ra.group_synthesis(items, TASK, {TASK: {"claims": [7]}}, {TASK: reply}, plan)["text"] == "(empty)"
+
+
+#: The bidirectional embedding, override and isolate controls (U+202A to U+202E, U+2066 to U+2069). Written raw in a
+#: source file they reorder what a reviewer reads (Trojan Source); a test input writes them as escapes ("\u202e").
+_RAW_BIDI_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
+
+
+def _harness_owner_files() -> tuple[Path, list[Path]]:
+    """The files the harness owner keeps: everything under scripts/arena (the cache aside), every file under docs/ except
+    the STEM_ and OVERSEER_ documents (their owners'), the repository README and tests/README.md."""
+    root = Path(__file__).resolve().parents[2]
+    files = [p for p in sorted((root / "scripts" / "arena").rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
+    files += [p for p in sorted((root / "docs").rglob("*")) if p.is_file() and not p.name.startswith(("STEM_", "OVERSEER_"))]
+    return root, files + [root / "README.md", root / "tests" / "README.md"]
+
+
+def test_no_file_the_harness_owner_keeps_holds_a_raw_bidirectional_control():
+    """Round 9's queued finding q215a (minor): six string literals of this file held raw U+202E and U+2066, which display
+    reordered in review. They are written as escapes since the first fix pass, with the values the tests see unchanged;
+    this keeps every file of the harness owner free of raw controls (the other owners' files are handed off)."""
+    root, files = _harness_owner_files()
+    assert {root / "README.md", root / "tests" / "README.md", root / "docs" / "PROTOTYPE.md", root / "scripts" / "arena" / "run_arena.py",
+            root / "scripts" / "arena" / "test_arena_rules.py"} <= set(files)
+    assert not [p for p in files if p.name.startswith(("STEM_", "OVERSEER_"))]
+    found: dict[str, list[str]] = {}
+    for p in files:
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:  # no text file: nothing a reviewer reads as source
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            found.setdefault(str(p.relative_to(root)), []).extend(f"line {n} U+{ord(m.group()):04X}" for m in _RAW_BIDI_RE.finditer(line))
+    assert not {k: v for k, v in found.items() if v}
+    # the escapes still give the tests the controls themselves (the values are unchanged, only their spelling)
+    texts = {name: body["dropped"][0]["reason"] if "dropped-reason" in name else body["claims"][0]["text"]
+             for name, (body, _where) in OUT_OF_CONTRACT.items() if "bidi" in name}
+    assert all("\u202e" in t for t in texts.values()) and len(texts) == 3
+
+
+# ============================================================================================ rule overseer-beside (round-9 clearance c2b)
+def test_the_harness_finds_the_overseer_beside_it_under_the_documented_invocation():
+    """The router fixer's handoff (c2b): under the prescribed ``python -I scripts/arena/run_arena.py <round>`` with only the translator
+    installed, the overseer was never found (its source tree reaches the path only through the repository's pytest configuration), so
+    every replay ran without the delivery and revision measures. The harness now appends the repository's ``overseer/src`` when the
+    overseer cannot be located otherwise (an installed overseer wins), so it is found in a fresh isolated interpreter."""
+    import subprocess
+    root = Path(__file__).resolve().parents[2]
+    code = "import sys; sys.path.insert(0, sys.argv[1]); import run_arena as A; print(A.overseer_installed())"
+    out = subprocess.run([sys.executable, "-I", "-c", code, str(root / "scripts" / "arena")], cwd=root, capture_output=True, text=True, timeout=300)
+    assert out.returncode == 0 and out.stdout.strip().splitlines()[-1] == "True", (out.stdout[-400:], out.stderr[-400:])
+
+
+def test_a_pass_not_run_for_want_of_the_overseer_fails_the_run_unless_said(tmp_path, monkeypatch, capsys):
+    """With the overseer not found, ``main`` exits 1 naming both passes, and 0 with ``--without-overseer``, which results.json and
+    summary.md record; a round without feedback/ still names the delivery pass."""
+    items = {**HISTORY_ITEM}
+    rd = tmp_path / "r"
+    (rd / "specialists").mkdir(parents=True)
+    (rd / "specialists" / f"{TASK}.json").write_text(json.dumps(items))
+    monkeypatch.setattr(ra, "overseer_installed", lambda: False)
+    assert ra.main([str(rd)]) == 1
+    assert ra.WITHOUT_OVERSEER_FAILURE in capsys.readouterr().out
+    assert ra.main([str(rd), "--without-overseer"]) == 0
+    out = json.loads((rd / "results.json").read_text())
+    assert out["overseer"]["without_overseer"] is True and out["overseer"]["passes_not_run"] == ["deliveries"]
+    assert "replayed without the overseer on purpose (--without-overseer): deliveries not run." in (rd / "summary.md").read_text()
+    # a pass a harness switches off is no pass "not run for want of the overseer": the run does not fail for it
+    monkeypatch.setattr(ra, "overseer_installed", lambda: True)
+    monkeypatch.setattr(ra, "DELIVERY_PASS", False)
+    assert ra.main([str(rd)]) == 0

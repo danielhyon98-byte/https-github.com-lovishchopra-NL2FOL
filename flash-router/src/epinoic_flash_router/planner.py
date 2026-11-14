@@ -19,6 +19,10 @@ features used and estimated cost in the port's closed vocabulary, which has no c
 ``split_to_fit``): until the router port adds one, the record is where a transfer that does not fit is disclosed, and
 the plan's numbers are the record's (the merged review's estimated cost is its reviews times one call reading it whole).
 
+Before anything is planned the request is checked (:func:`~epinoic_flash_router.contract.check_routing_request`): one it
+does not read is refused with :class:`~epinoic_flash_router.contract.RequestError` naming the member and the rule, and
+what planning a request that passes raises is a fault of the router's own code, never of the request.
+
 Pure and deterministic: no network, no clock, no randomness, no model call, no file read (the data were read once, when
 they were loaded); the same request and the same data give the same plan. It reads the request's features only (the
 request never carries an answer, a claim text or an overseer finding) and writes closed vocabularies, the request's own
@@ -30,6 +34,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Mapping, Optional
 
+from .contract import RequestError, check_routing_request
 from .decision import decide, n_fold_decision, port_dossier_chars
 from .rules import DEFAULT, DataSet, canonical
 
@@ -157,12 +162,13 @@ def _n_fold_decision(out: Mapping[str, Any], *, reviews: int, reasons: list[str]
 
 def _readings(request: Mapping[str, Any], data: DataSet, cap: int) -> list[tuple[list[str], list[str], int]]:
     """Per output, in the request's order: its agreement signals (port rule 2), this router's escalations and the reviews
-    port rule 3 gives it. A request that names one transfer key twice is refused (``ValueError``), as the router port
+    port rule 3 gives it. A request that names one transfer key twice is refused (:class:`RequestError`, a
+    ``ValueError``; :func:`~epinoic_flash_router.contract.check_routing_request` refuses it first), as the router port
     refuses it (``check_request``): every transfer gets exactly one entry (port rule 1), and a combined answer's N_FOLD
     decision is made once, for its one synthesis, never once for each repetition of its key."""
     keys = [o["transfer_key"] for o in request["outputs"]]
     if len(set(keys)) != len(keys):
-        raise ValueError("the routing request names one transfer key twice: every transfer is one output of the request")
+        raise RequestError("the routing request names one transfer key twice: every transfer is one output of the request")
     params = data.parameters
     out = []
     for o in request["outputs"]:
@@ -204,18 +210,23 @@ def transfer_decisions(request: Mapping[str, Any], *, data: Optional[DataSet] = 
     (D6) with each part's decision, the merged review's fit included. The plan (:func:`plan_for`) is built from these
     records; router port 1.0 has no reason code for ``over_budget`` or ``split_to_fit``, so this record is where a
     transfer one instance cannot read whole is disclosed until the port carries it. Pure and deterministic, like the plan.
-    ``ValueError`` for a data directory without the decision maker (rules/2 plans by its own rule 4)."""
+    ``ValueError`` for a data directory without the decision maker (rules/2 plans by its own rule 4);
+    :class:`RequestError` (a ``ValueError``) for a request this router does not read (``contract.check_routing_request``)."""
     data = DEFAULT if data is None else data
     if data.decision is None:
         raise ValueError("the decision records need the flash decision maker's data (rules/3 or later): this data directory holds rules/2")
+    check_routing_request(request)
     cap = min(int(request["limits"]["max_instances"]), data.parameters["hard_max_instances"])
     return _decisions(request, data, cap, _readings(request, data, cap))
 
 
 def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str], data: Optional[DataSet] = None) -> dict:
     """The plan for one routing request (a parsed ``routing-request.v1`` object), under this router's ``identity`` and
-    ``data`` (the package's own data by default)."""
+    ``data`` (the package's own data by default). :class:`RequestError` (a ``ValueError``) for a request this router does
+    not read (``contract.check_routing_request``), before anything is planned: what planning a request that passes it
+    raises is a fault of the router's own code."""
     data = DEFAULT if data is None else data
+    request_text = check_routing_request(request)  # the request's canonical text, as UTF-8: what its digest is taken of
     params, cost = data.parameters, data.cost_data
     decided = data.decision is not None  # rules/3 and later: the flash decision maker; rules/2: its own rule 4 (split_words)
     read, read_combined = set(data.features["port"]), set(data.features["port_combined"])
@@ -273,7 +284,7 @@ def plan_for(request: Mapping[str, Any], *, identity: Mapping[str, str], data: O
         entry["reasons"] = _ordered(reasons, REASON_ORDER)
         entry["features_used"] = _ordered(features, FEATURE_ORDER)
         transfers.append(entry)
-    request_sha256 = hashlib.sha256(canonical(request).encode("utf-8")).hexdigest()
+    request_sha256 = hashlib.sha256(request_text).hexdigest()
     totals = {"instances": sum(t["instances"] for t in transfers),
               "estimated_cost": {"tokens": sum(t["estimated_cost"]["tokens"] for t in transfers),
                                  "seconds": sum(t["estimated_cost"]["seconds"] for t in transfers)}}

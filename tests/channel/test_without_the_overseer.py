@@ -448,8 +448,10 @@ def _unguarded_overseer_imports_in(source: str) -> list[str]:
     """Where a module's source imports the overseer unguarded: a plain ``import``/``from`` of ``epinoic_overseer`` or of its
     test package (at module level, which fails the module's collection where the overseer is not installed, or inside a
     test, which fails it at run time), ``importlib.import_module``/``__import__`` of it, or ``pytest.importorskip`` of it
-    without a reason. The guarded form is ``pytest.importorskip(<module>, reason=...)`` (``overseer_attach``'s
-    functions use it)."""
+    without a reason or without ``exc_type=ModuleNotFoundError``. The guarded form is ``pytest.importorskip(<module>,
+    reason=..., exc_type=ModuleNotFoundError)`` (``overseer_attach``'s functions use it): under pytest 8.x the default
+    ``exc_type`` is ``ImportError``, so an overseer that is installed but fails to import would be skipped as "not installed"
+    instead of failing (round-9 clearance c2b, the router fixer's handoff; rewritten to this stricter rule)."""
     out: list[str] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import) and any(_overseer_name(a.name) for a in node.names):
@@ -464,6 +466,9 @@ def _unguarded_overseer_imports_in(source: str) -> list[str]:
                 out.append(f"{node.lineno}: {name}({first!r})")
             elif name == "importorskip" and not any(k.arg == "reason" for k in node.keywords):
                 out.append(f"{node.lineno}: importorskip({first!r}) without a reason")
+            elif name == "importorskip" and not any(k.arg == "exc_type" and isinstance(k.value, ast.Name) and k.value.id == "ModuleNotFoundError"
+                                                    for k in node.keywords):
+                out.append(f"{node.lineno}: importorskip({first!r}) without exc_type=ModuleNotFoundError")
     return out
 
 
@@ -479,9 +484,12 @@ def test_the_guard_rule_reads_every_unguarded_form():
     for src in ("from epinoic_overseer import TransferAuditor\n", "import epinoic_overseer\n", "import epinoic_overseer.port as P\n",
                 "def f():\n    from epinoic_overseer.port import connect\n", "def f():\n    import epinoic_overseer\n",
                 "import importlib\nm = importlib.import_module('epinoic_overseer.pack')\n", "m = __import__('epinoic_overseer')\n",
-                "import pytest\nm = pytest.importorskip('epinoic_overseer.contracts')\n", "from overseer_tests.conftest import KEY\n"):
+                "import pytest\nm = pytest.importorskip('epinoic_overseer.contracts')\n", "from overseer_tests.conftest import KEY\n",
+                "import pytest\nm = pytest.importorskip('epinoic_overseer.contracts', reason='x')\n",
+                "import pytest\nm = pytest.importorskip('epinoic_overseer.contracts', reason='x', exc_type=ImportError)\n"):
         assert _unguarded_overseer_imports_in(src), src
-    for src in ("import pytest\nm = pytest.importorskip('epinoic_overseer.contracts', reason='x')\n", "from ..overseer_attach import overseer\n",
+    for src in ("import pytest\nm = pytest.importorskip('epinoic_overseer.contracts', reason='x', exc_type=ModuleNotFoundError)\n",
+                "from ..overseer_attach import overseer\n",
                 "x = overseer().TransferAuditor\n", "from epinoic_logic.integration import overseer_port\n",
                 "import importlib.util\nimportlib.util.find_spec('epinoic_overseer')\n", "NAMES = ('epinoic_overseer', 'overseer_tests')\n"):
         assert not _unguarded_overseer_imports_in(src), src
@@ -544,3 +552,26 @@ def test_the_tests_that_imported_the_overseers_test_package_pass_with_it_install
     assert proc.returncode == 0 and outcomes and all(o == "passed" for o, _m in outcomes.values()), (outcomes, proc.stdout[-4000:], proc.stderr[-2000:])
     for wanted in TEST_PACKAGE_IMPORTERS:
         assert any(n == wanted or n.startswith(wanted.split("::")[0]) for n in outcomes), wanted
+
+
+def test_an_overseer_that_is_installed_but_fails_to_import_fails_the_test_never_skips_it(tmp_path):
+    """The router fixer's handoff (round-9 clearance c2b): an overseer that IS installed but fails to import (a module of it raising
+    ImportError, a broken install) must fail the tests that attach it, never be skipped as "not installed" (pytest older than 9
+    catches every ImportError in ``importorskip`` unless ``exc_type=ModuleNotFoundError`` is passed). A scratch package named
+    ``epinoic_overseer`` whose ``__init__`` raises ImportError, first on the path: ``overseer_attach.overseer()`` raises; with no
+    such package (and the real one blocked) the same call skips with the reason."""
+    broken = tmp_path / "broken" / "epinoic_overseer"
+    broken.mkdir(parents=True)
+    (broken / "__init__.py").write_text("raise ImportError('a module of the overseer failed to import')\n")
+    code = ("import sys, pytest; sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2]);\n"
+            "from tests import overseer_attach as oa\n"
+            "try:\n    oa.overseer()\nexcept pytest.skip.Exception as e:\n    print('SKIPPED', e)\nexcept ImportError as e:\n    print('FAILED', e)\n")
+    out = subprocess.run([sys.executable, "-c", code, str(tmp_path / "broken"), str(ROOT)], cwd=ROOT, capture_output=True, text=True, timeout=300)
+    assert out.stdout.strip().startswith("FAILED") and "failed to import" in out.stdout, (out.stdout[-400:], out.stderr[-400:])
+    absent = ("import sys, importlib.abc, pytest; sys.path.insert(0, sys.argv[1])\n"
+              "class R(importlib.abc.MetaPathFinder):\n    def find_spec(self, n, p=None, t=None):\n"
+              "        if n.partition('.')[0] == 'epinoic_overseer':\n            raise ModuleNotFoundError(n, name=n)\n        return None\n"
+              "sys.meta_path.insert(0, R())\nfrom tests import overseer_attach as oa\n"
+              "try:\n    oa.overseer()\nexcept pytest.skip.Exception as e:\n    print('SKIPPED', e)\n")
+    out2 = subprocess.run([sys.executable, "-c", absent, str(ROOT)], cwd=ROOT, capture_output=True, text=True, timeout=300)
+    assert out2.stdout.strip().startswith("SKIPPED"), (out2.stdout[-400:], out2.stderr[-400:])

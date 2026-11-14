@@ -81,8 +81,8 @@ from ..stem.si_reading import SI_READING, si_unit
 from ..stem.tolerance import TAU_APPROX, TAU_EQUAL, approx_word_in, band_expr
 from .quant import worked_equations
 
-__all__ = ["MAX_DEPTH", "MAX_TOKENS", "MAX_WORKED_CHECKS", "WORKED_RULE", "WORKED_SCOPE", "WorkedProblem", "breakdown_problems", "decided_worked_chains",
-           "worked_problems"]
+__all__ = ["MAX_DEPTH", "MAX_TOKENS", "MAX_WORKED_CHECKS", "WORKED_RULE", "WORKED_SCOPE", "WorkedProblem", "breakdown_problems", "clock_problems",
+           "decided_worked_chains", "payback_problems", "worked_problems"]
 
 #: The most worked equations one report sends to the engine; the rest stay named undecided (CORE-QNT-001).
 MAX_WORKED_CHECKS = 64
@@ -247,6 +247,11 @@ def _tokens(link: str) -> list:
                 j += 1
             out.append(("pow", int(digits)))
             i = j
+        elif ch in _VULGAR:
+            if prev_operand:
+                raise _Refuse("two figures with no operator between them")
+            out.append(("fig", _Fig(ExactNumber(text=ch, value=_VULGAR[ch], sig_figs=1, last_place=0, exact=True, vulgar=True), 0, False, (), "", ch)))
+            i += 1
         elif ch.isdigit() and ch.isascii() or ch == "." or _CUR_RE.match(s, i):
             if prev_operand:
                 raise _Refuse("two figures with no operator between them")
@@ -432,6 +437,28 @@ def _unit_key(word: str) -> Optional[str]:
     return f"{w}" if u is not None else None
 
 
+def _products_only(trees) -> bool:
+    """True when no link of the line adds or subtracts (products, quotients, powers and signs only)."""
+    def walk(node) -> bool:
+        if node[0] in ("add", "sub"):
+            return False
+        return all(walk(child) for child in node[1:] if isinstance(child, tuple))
+    return all(walk(t) for t in trees)
+
+
+def _coherent_si(word: str) -> bool:
+    """A unit word of the coherent SI (a factor of one to the SI base units, no offset: 'm', 'm²', 's⁻¹', 'kg', 'N'): figures in such units
+    multiply and divide as written. 'km', 'cm', 'minutes' or '°C' are not."""
+    w = word.strip("'’-")
+    if w.lower() in _TIME_WORDS and w.lower() not in ("second", "seconds"):
+        return False
+    try:
+        u = si_unit(w, SI_READING.profile)
+    except Exception:  # noqa: BLE001 - an unreadable word is not a unit read as coherent
+        return False
+    return u is not None and u.factor == 1 and not u.affine
+
+
 @dataclass(frozen=True)
 class _Read:
     phrase: str
@@ -442,15 +469,45 @@ class _Read:
     approx: bool
 
 
+#: Blanks and opening quotation marks: what may stand before a line's working without being a label of it.
+_OPENING_MARKS = " \t\"'“‘«„"
+#: Vulgar fractions read as exact figures ('½ × $150 × (5.5 − 4.0)': round 9, c1 adversarial 14).
+_VULGAR = {"½": Fraction(1, 2), "⅓": Fraction(1, 3), "⅔": Fraction(2, 3), "¼": Fraction(1, 4), "¾": Fraction(3, 4), "⅕": Fraction(1, 5), "⅛": Fraction(1, 8)}
+_VULGAR_CHARS = "".join(_VULGAR)
+#: Where the words before a line's arithmetic end their clause: a comma, a semicolon, 'so', 'giving', 'which is', or a copula that ends
+#: the words ('so the loan needed is $60,000 − $45,000', 'At 7%, interest is $15,000 × 7%'). Read on the head only (bounded by the link).
+_HEAD_BOUNDARY_RE = re.compile(r"[,;]|\b(?:so|thus|hence|giving|which\s+is|that\s+is|i\.e\.|is|are|was|were|equals?|comes\s+to)\b", re.IGNORECASE)
+#: The start of a figure of the arithmetic, read back from its first digit: a sign, a currency sign, an opening bracket, blanks.
+_FIGURE_LEAD_CHARS = frozenset(" \t([−-+$£€¥")
+
+
+def _arithmetic_start(link: str) -> Optional[int]:
+    """Where the arithmetic of the link starts: the first figure an operator follows (quant's ``_OPERATOR_BETWEEN_RE``), with the sign,
+    currency sign and brackets written before it; None when no operator stands between two figures."""
+    from .quant import _OPERATOR_BETWEEN_RE
+    m = _OPERATOR_BETWEEN_RE.search(link)
+    if m is None:
+        return None
+    i = m.start()
+    while i > 0 and link[i - 1] in _FIGURE_LEAD_CHARS:
+        i -= 1
+    if i >= 2 and link[i - 2:i] == "US":
+        i -= 2
+    return i
+
+
 def _strip_label(link: str) -> str:
     """The first link without the label words before its first figure ('The tax is $0.40 × ...'), or a refusal when those words take
-    part in the arithmetic ('half of $6,000 ÷ 2')."""
-    m = re.search(rf"[\d(\[]|{_CUR}|[-−]\s*(?:{_CUR}\s*)?\d|\.\d", link)
+    part in the arithmetic ('half of $6,000 ÷ 2'). Words before the arithmetic that hold figures of their own ('Option 1 costs $60,000
+    against $45,000 of cash, so the loan needed is $60,000 − $45,000', 'At 7%, interest is $15,000 × 7%') are cut at the last clause
+    boundary before the arithmetic (:data:`_HEAD_BOUNDARY_RE`; round 9, c1 stem-integration 27): what follows the boundary is read by the
+    label rule, and the line is refused when no boundary separates the figures from the arithmetic."""
+    m = re.search(rf"[\d(\[{_VULGAR_CHARS}]|{_CUR}|[-−]\s*(?:{_CUR}\s*)?\d|\.\d", link)
     if m is None:
         raise _Refuse("no figure")
     head = link[:m.start()]
-    if not head.strip():
-        return link
+    if not head.strip(_OPENING_MARKS):
+        return link[m.start():] if head.strip() else link  # an opening quotation mark before the working ('("13,700 / 7,000 = 1.96")') is no label
     if re.search(r"\d", head) or not re.fullmatch(r"[\s\w'’:,.\-]+", head):
         raise _Refuse("label words outside the reading")
     words = re.findall(r"[A-Za-z]+", head)
@@ -459,13 +516,43 @@ def _strip_label(link: str) -> str:
     return link[m.start():]
 
 
+#: A word formula before the figures it is worked with, closed by 'here' or 'so' ('stock ÷ current liabilities, here 6,200 ÷ 7,000'): words,
+#: the operators between them and brackets, no figure. Bounded by the link.
+_WORD_FORMULA_HEAD_RE = re.compile(r"[A-Za-z][\w'’ ()÷×*/+−–-]{0,200}?,?\s*+(?:here|so|that\s++is|i\.e\.|giving|gives)\s*+:?\s*+")
+
+
+def _strip_head(link: str) -> str:
+    """The first link without the words before its arithmetic: :func:`_strip_label`'s rule, and two more heads (round 9, c1 adversarial 14
+    and stem-integration 27). Words before the arithmetic that hold figures of their own ('Option 1 costs $60,000 against $45,000 of cash,
+    so the loan needed is $60,000 − $45,000', 'At 7%, interest is $15,000 × 7%') are cut at the last clause boundary before the arithmetic
+    (:data:`_HEAD_BOUNDARY_RE`): what follows the boundary is read by the label rule, and the line is refused when no boundary separates the
+    figures from the arithmetic or when the words after it take part in the arithmetic. A word formula closed by 'here' ('stock ÷ current
+    liabilities, here 6,200 ÷ 7,000') is the statement of the working that follows it."""
+    first = re.search(rf"[\d(\[{_VULGAR_CHARS}]|{_CUR}|[-−]\s*(?:{_CUR}\s*)?\d|\.\d", link)
+    start = _arithmetic_start(link) if first is not None and link[:first.start()].strip(_OPENING_MARKS) else None
+    if start is not None and start > 0 and len(link) <= 2000:
+        head = link[:start]
+        if re.search(r"\d", head):
+            cuts = list(_HEAD_BOUNDARY_RE.finditer(head))
+            rest = head[cuts[-1].end():] if cuts else head
+            if not cuts or re.search(r"\d", rest) or not re.fullmatch(r"[\s\w'’:.\-]*", rest):
+                raise _Refuse("label words outside the reading")
+            words = re.findall(r"[A-Za-z]+", rest)
+            if words and words[-1].lower() in _ARITHMETIC_WORDS:
+                raise _Refuse("label words that take part in the arithmetic")
+            return link[start:]
+        if _WORD_FORMULA_HEAD_RE.fullmatch(head):
+            return link[start:]
+    return _strip_label(link)
+
+
 def _read(phrase: str, statement: str) -> _Read:
     parts = re.split(r"([=≈])", phrase)
     links = parts[0::2]
     seps = parts[1::2]
     if len(links) < 2:
         raise _Refuse("no stated result")
-    links = [_strip_label(links[0])] + links[1:]
+    links = [_strip_head(links[0])] + links[1:]
     *expr_links, result_link = links
     # a comment in brackets inside the working ('4.00% − 5.20% (inflation from paragraph [2])', '(units cancel)'): words and no operator,
     # so no part of the arithmetic; it is set aside before the link is read (c1 adversarial: such a chain was named undecided only)
@@ -511,7 +598,10 @@ def _read(phrase: str, statement: str) -> _Read:
     if len(curs) > 1:
         raise _Refuse("figures in two currencies")
     units = {k for f in figs for w in f.units for k in [_unit_key(w)] if k}
-    if len(units) > 1:
+    if len(units) > 1 and not (_products_only(trees) and all(_coherent_si(u) for u in units)):
+        # two units of measurement: a conversion the line does not write ('120 km ÷ 90 minutes = 80 km/h'), unless the line only multiplies
+        # and divides figures in coherent SI units, whose product is the result's unit as written ('6.0 m × 1.8 m = 10.8 m²', '10.8 m² ×
+        # 1.5 m s⁻¹ = 16.2 m³ s⁻¹': round 9, c2 ge-p9c)
         raise _Refuse("figures in two units of measurement")
     approx = bool(_APPROX_SIGN_RE.search("".join(seps))) or approx_word_in(statement[: max(0, statement.find(result_link.strip()))] if result_link.strip() in statement else statement)
     return _Read(phrase, statement, tuple(trees), tuple(" ".join(x.split()) for x in expr_links), result, approx)
@@ -784,5 +874,184 @@ def breakdown_problems(text: str, *, report_id: str, request_id: str, prefix: st
 
 
 def decided_worked_chains(text: str) -> set[str]:
-    """The phrases of the worked equations of ``text`` that :func:`worked_problems` builds a problem for."""
-    return {phrase for phrase, _s, r, _w in _reads(text) if r is not None}
+    """The phrases of the worked equations of ``text`` that :func:`worked_problems` or :func:`clock_problems` builds a problem for."""
+    return ({phrase for phrase, _s, r, _w in _reads(text) if r is not None} | {phrase for phrase, _s, _c in _clock_reads(text)}
+            | {phrase for phrase, _s, _p in _payback_reads(text)})
+
+
+# ------------------------------------------------------------------ a payback period in years and months ('3 years + ($55,000 ÷ $75,000) × 12 months = 3 years 8.8 months')
+
+_PB_FIG = r"(?:US\$|[$£€¥])?\s?\d{1,3}(?:,\d{3})*(?:\.\d+)?|(?:US\$|[$£€¥])?\s?\d+(?:\.\d+)?"
+#: The working of a payback period: whole years plus the fraction of the next year's net cash flow, in months.
+_PAYBACK_RE = re.compile(rf"^(?P<y>\d{{1,2}})\s*+years?\s*+\+\s*+\(\s*+(?P<a>{_PB_FIG})\s*+[÷/]\s*+(?P<b>{_PB_FIG})\s*+\)\s*+[×x*]\s*+12\s*+months?\s*+$",
+                         re.IGNORECASE)
+#: A stated payback period: '3 years + 8.8 months', '3 years 8.8 months', '4 years and 10.9 months'.
+_PAYBACK_STATED_RE = re.compile(r"^\s*+(?P<y>\d{1,2})\s*+years?\s*+(?:\+|and|,)?\s*+(?P<m>\d{1,2}(?:\.\d{1,4})?)\s*+months?\s*+[.,;]?\s*+$", re.IGNORECASE)
+
+
+@lru_cache(maxsize=32)
+def _payback_reads(text: str) -> tuple[tuple[str, str, tuple], ...]:
+    """``(phrase, statement, (years, a, b, stated))`` for every worked payback period of ``text`` (:data:`_PAYBACK_RE`), ``stated`` the
+    chain's stated periods as ``(years, months, written months)``."""
+    out: list[tuple[str, str, tuple]] = []
+    if "month" not in text:
+        return ()
+    for eq in worked_equations(text):
+        if len(out) >= MAX_WORKED_CHECKS:
+            break
+        head = eq.phrase.split("=", 1)[0]
+        m = _PAYBACK_RE.match(head.strip())
+        if m is None:
+            continue
+        try:
+            a, _e1 = _read_figure(m.group("a").strip(), 0)
+            b, _e2 = _read_figure(m.group("b").strip(), 0)
+        except _Refuse:
+            continue
+        if b.value == 0 or (a.cur and b.cur and a.cur != b.cur):
+            continue
+        at = eq.statement.find(head.strip())
+        chain = eq.statement[at + len(head.strip()):] if at >= 0 else eq.phrase[len(head):]
+        stated = []
+        for link in chain.split("=")[1:5]:
+            sm = _PAYBACK_STATED_RE.match(link)
+            if sm is None:
+                break
+            stated.append((int(sm.group("y")), Fraction(sm.group("m")), sm.group("m")))
+        if stated:
+            out.append((eq.phrase, eq.statement, (int(m.group("y")), a, b, tuple(stated))))
+    return tuple(out)
+
+
+def payback_problems(text: str, *, report_id: str, request_id: str, prefix: str) -> list[WorkedProblem]:
+    """The engine problems of the payback periods of ``text`` (:func:`_payback_reads`; round 9, c1 adversarial 14: '= 3 years + 9.8 months'
+    crossed as 'not checked'), numbered '-p1', '-p2': each stated period's years equal the written whole years and its months lie within
+    half a unit in their last written digit plus 1/100 of the computed months (12 × a ÷ b)."""
+    out: list[WorkedProblem] = []
+    for n, (phrase, statement, (years, a, b, stated)) in enumerate(_payback_reads(text), start=1):
+        months = Fraction(12) * a.value / b.value
+        symbols = [{"name": "c", "sort": "Real", "meaning": "the months computed from the written fraction of the next year (12 × a ÷ b)"}]
+        premises = [{"id": "C_DEF", "expr": {"op": "eq", "left": _var("c"), "right": {"op": "mul", "args": [_real(Fraction(12)), {"op": "div", "left": _real(a.value), "right": _real(b.value)}]}},
+                     "label": f"c = 12 × {a.text} ÷ {b.text}", "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}}]
+        bands = []
+        for k, (y, m_value, m_text) in enumerate(stated, start=1):
+            places = len(m_text.split(".")[1]) if "." in m_text else 0
+            half = Fraction(1, 2) / Fraction(10) ** places
+            symbols.append({"name": f"r{k}", "sort": "Real", "meaning": f"the stated months of '{y} years {m_text} months'"})
+            premises.append({"id": f"R{k}", "expr": {"op": "eq", "left": _var(f"r{k}"), "right": _real(m_value)}, "label": f"r{k} = {m_text} months",
+                             "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}})
+            bands.append(band_expr(_var("c"), _var(f"r{k}"), _real(half), TAU_EQUAL))
+            bands.append({"op": "eq", "left": _real(Fraction(y)), "right": _real(Fraction(years))})
+        problem = {
+            "ir_version": "1.0", "problem_id": f"{prefix}-{report_id}-p{n}"[:128], "request_id": request_id[:128], "claim_id": f"{report_id}:{prefix}-p{n}"[:128],
+            "query": "entailment", "symbols": symbols, "premises": premises,
+            "conclusion": {"id": "STATED", "expr": {"op": "and", "args": bands},
+                           "label": f"every stated period has the written {years} whole years and months within h + τ·|C| of 12 × {a.text} ÷ {b.text} (τ = 1/100)"[:1000]},
+            "notes": f"{WORKED_SCOPE} readings: a payback period in whole years and months"[:4000],
+        }
+        try:
+            Problem.model_validate(problem)
+        except Exception:  # noqa: BLE001 - a problem the IR schema refuses is not built
+            continue
+        shown = " = ".join(f"{y} years {t} months" for y, _v, t in stated)
+        description = (f"the written arithmetic: '{phrase[:240]}' (read as {years} years + 12 × {a.text} ÷ {b.text} months = {_fmt(months)} months against the "
+                       f"stated {shown[:120]}) [{WORKED_RULE}]")
+        out.append(WorkedProblem(phrase, statement, problem, description))
+    return out
+
+
+# ------------------------------------------------------------------ clock times ('Storm 2: 14:00 − 09:30 = 4 hours 30 minutes = 4.5 hours')
+
+#: A time of day on the 24-hour clock ('09:30', '14:00', '21:30'): hours 0 to 23, minutes 00 to 59, no digit or colon glued to it.
+_CLOCK = r"(?<![\d:.])([01]?\d|2[0-3]):([0-5]\d)(?![\d:])"
+#: The difference of two times of day opening a worked equation: '14:00 − 09:30 = ...'.
+_CLOCK_DIFF_RE = re.compile(rf"^{_CLOCK}\s*+[−–-]\s*+{_CLOCK}\s*+$")
+#: A stated duration: '4 hours 30 minutes', '4 h 30 min', '4.5 hours', '12 hours', '270 minutes'. Anchored at both ends of one link.
+_DURATION_RE = re.compile(
+    r"^\s*+(?:(?:about|approximately|roughly|around)\s++)?(?:(?P<h>\d{1,3}(?:\.\d{1,4})?)\s*+(?:hours?|hrs?|h)\b(?:\s*+(?:and\s++)?(?P<m>\d{1,2})\s*+(?:minutes?|mins?|min)\b)?"
+    r"|(?P<mm>\d{1,5}(?:\.\d{1,4})?)\s*+(?:minutes?|mins?|min)\b)\s*+[.,;]?\s*+$", re.IGNORECASE)
+
+
+def _duration(link: str) -> Optional[tuple[Fraction, Fraction, str]]:
+    """``(minutes, half-width in minutes, as written)`` of a stated duration link, or None: half a unit in the last written digit of its
+    last part ('4 hours 30 minutes': half a minute; '4.5 hours': 0.05 hour; '12 hours': half an hour)."""
+    m = _DURATION_RE.match(link)
+    if m is None:
+        return None
+    shown = " ".join(link.split()).rstrip(".,;")
+    if m.group("mm") is not None:
+        v = Fraction(m.group("mm"))
+        places = len(m.group("mm").split(".")[1]) if "." in m.group("mm") else 0
+        return v, Fraction(1, 2) / Fraction(10) ** places, shown
+    hours = Fraction(m.group("h"))
+    if m.group("m") is not None:
+        return hours * 60 + int(m.group("m")), Fraction(1, 2), shown
+    places = len(m.group("h").split(".")[1]) if "." in m.group("h") else 0
+    return hours * 60, Fraction(60, 2) / Fraction(10) ** places, shown
+
+
+@lru_cache(maxsize=32)
+def _clock_reads(text: str) -> tuple[tuple[str, str, tuple], ...]:
+    """``(phrase, statement, (t1, t2, durations))`` for every worked equation of ``text`` that subtracts two times of day and states the
+    elapsed time ('Storm 2: 14:00 − 09:30 = 4 hours 30 minutes = 4.5 hours'), in minutes; every stated duration of the chain is read. A
+    later time before an earlier one (a span across midnight the line does not state) is not read."""
+    out: list[tuple[str, str, tuple]] = []
+    if ":" not in text:
+        return ()
+    for eq in worked_equations(text):
+        if len(out) >= MAX_WORKED_CHECKS:
+            break
+        head, _sep, _rest = eq.phrase.partition("=")
+        m = _CLOCK_DIFF_RE.match(head)
+        if m is None:
+            continue
+        t1 = int(m.group(1)) * 60 + int(m.group(2))
+        t2 = int(m.group(3)) * 60 + int(m.group(4))
+        if t1 < t2:
+            continue
+        at = eq.statement.find(head.strip())
+        chain = eq.statement[at + len(head.strip()):] if at >= 0 else eq.phrase[len(head):]
+        durations = []
+        for link in chain.split("=")[1:5]:
+            d = _duration(link)
+            if d is None:
+                break
+            durations.append(d)
+        if durations:
+            out.append((eq.phrase, eq.statement, (t1, t2, tuple(durations))))
+    return tuple(out)
+
+
+def clock_problems(text: str, *, report_id: str, request_id: str, prefix: str) -> list[WorkedProblem]:
+    """The engine problems of the clock-time worked equations of ``text`` (:func:`_clock_reads`, round 9, c2 ge-p9c: '14:00 − 09:30 = 5
+    hours 30 minutes' crossed as 'not checked'), numbered '-t1', '-t2': the difference of the two times, in minutes, against every stated
+    duration of the chain within half a unit in its last written digit (exact times: no relative slack)."""
+    from ..stem.tolerance import abs_expr
+    out: list[WorkedProblem] = []
+    for n, (phrase, statement, (t1, t2, durations)) in enumerate(_clock_reads(text), start=1):
+        symbols = [{"name": "c", "sort": "Real", "meaning": "the elapsed time computed from the two times of day, in minutes"}]
+        premises = [{"id": "C_DEF", "expr": {"op": "eq", "left": _var("c"), "right": {"op": "sub", "left": _real(Fraction(t1)), "right": _real(Fraction(t2))}},
+                     "label": f"c is the later time minus the earlier, in minutes ({t1} − {t2})",
+                     "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}}]
+        bands = []
+        for k, (value, half, shown) in enumerate(durations, start=1):
+            symbols.append({"name": f"r{k}", "sort": "Real", "meaning": f"the stated elapsed time '{shown[:60]}', in minutes"})
+            premises.append({"id": f"R{k}", "expr": {"op": "eq", "left": _var(f"r{k}"), "right": _real(value)}, "label": f"r{k} = {shown[:80]} = {_fmt(value)} minutes",
+                             "grounding": {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}})
+            bands.append({"op": "le", "left": abs_expr({"op": "sub", "left": _var("c"), "right": _var(f"r{k}")}), "right": _real(half)})
+        shown_all = " = ".join(s for _v, _h, s in durations)
+        problem = {
+            "ir_version": "1.0", "problem_id": f"{prefix}-{report_id}-t{n}"[:128], "request_id": request_id[:128], "claim_id": f"{report_id}:{prefix}-t{n}"[:128],
+            "query": "entailment", "symbols": symbols, "premises": premises,
+            "conclusion": {"id": "STATED", "expr": bands[0] if len(bands) == 1 else {"op": "and", "args": bands},
+                           "label": f"every stated elapsed time ({shown_all[:200]}) lies within half a unit in its last written digit of the difference of the two times"[:1000]},
+            "notes": f"{WORKED_SCOPE} readings: times of day on the 24-hour clock read in minutes"[:4000],
+        }
+        try:
+            Problem.model_validate(problem)
+        except Exception:  # noqa: BLE001 - a problem the IR schema refuses is not built
+            continue
+        description = (f"the written arithmetic: '{phrase[:240]}' (read as {t1} − {t2} minutes against the stated {shown_all[:120]}; exact times, each stated "
+                       f"time within half a unit in its last written digit) [{WORKED_RULE}]")
+        out.append(WorkedProblem(phrase, statement, problem, description))
+    return out

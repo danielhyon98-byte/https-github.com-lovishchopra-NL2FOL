@@ -718,11 +718,40 @@ def _loc_to_path(loc: Sequence[Any]) -> Optional[str]:
     return "".join(parts) or None
 
 
+def json_nesting_bound(limits: Limits) -> int:
+    """The deepest JSON nesting a problem within ``limits`` can need: an expression of depth ``D`` sits at most ``2·D + 2``
+    levels down the document (the problem object, its ``premises`` list, the premise object, then at most two levels per
+    expression node: an ``args`` list and the node), and nothing else of a problem nests deeper than six levels. A document
+    nested deeper than this bound holds an expression deeper than ``limits.max_depth`` (E303) or a structure the schema
+    refuses, whatever it holds; the margin of four levels keeps the bound from deciding a document the validator would
+    accept."""
+    return 2 * max(limits.max_depth, 3) + 6
+
+
+def json_nesting_beyond(obj: Any, bound: int) -> Optional[int]:
+    """The first nesting depth beyond ``bound`` that the parsed JSON value ``obj`` reaches (the top-level object is depth
+    1, each list or object inside a container one level more), or ``None`` when it stays within. An iterative walk that
+    stops at the first container beyond the bound, so it is linear in the size of the document and never recurses."""
+    stack: list[tuple[Any, int]] = [(obj, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > bound:
+            return depth
+        if isinstance(node, dict):
+            stack.extend((v, depth + 1) for v in node.values() if isinstance(v, (dict, list)))
+        elif isinstance(node, list):
+            stack.extend((v, depth + 1) for v in node if isinstance(v, (dict, list)))
+    return None
+
+
 def _pydantic_diagnostics(exc: ValidationError) -> list[Diagnostic]:
-    """Map pydantic errors to E100 (schema) or E303 (parser depth) diagnostics."""
+    """Map pydantic errors to E100 (schema) or E303 (parser depth) diagnostics. Any recursion error of the validation
+    library (``recursion_loop``, or a maximum-depth error a later version names otherwise) is E303: the document's nesting,
+    never its schema, stopped the validation."""
     diagnostics: list[Diagnostic] = []
     for error in exc.errors(include_url=False, include_input=False):
-        if error.get("type") == "recursion_loop":
+        if error.get("type") == "recursion_loop" or "recursion" in str(error.get("type", "")).casefold() or \
+                str(error.get("msg", "")).casefold().startswith("recursion error"):
             code, message = DiagnosticCode.TOO_DEEP, "nesting exceeds the parser depth limit"
         else:
             code, message = DiagnosticCode.SCHEMA_VIOLATION, f"{error.get('msg', 'schema violation')} ({error.get('type', 'unknown')})"
@@ -747,6 +776,14 @@ def parse_and_validate(
     obj = _load_object(raw, max_bytes, diagnostics)
     if obj is None:
         return None, _failed(diagnostics)
+    # The structural nesting bound is decided on the parsed JSON itself, before the schema library validates it, so a
+    # document nested beyond any problem the limits admit is E303 whatever that library's own recursion limit and the
+    # name of its error (pydantic 2.14.3 reports one such document as an E100 schema error).
+    bound = json_nesting_bound(limits)
+    deep = json_nesting_beyond(obj, bound)
+    if deep is not None:
+        return None, _failed([_diag(DiagnosticCode.TOO_DEEP, f"document nesting reaches depth {deep}, beyond the {bound} levels a problem within "
+                                                             f"max_depth {limits.max_depth} can need", None)])
     try:
         problem = Problem.model_validate(obj, strict=True)
     except ValidationError as exc:

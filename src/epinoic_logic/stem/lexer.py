@@ -175,6 +175,8 @@ _MAX_TEXT = 400
 
 #: integration gate 3 (rule sign-forms): the value of an ``ERROR`` token that is a mathematical sign outside the grammar
 SIGN_ERROR = "a sign outside the grammar"
+#: round-9 clearance, second pass: the floor and ceiling brackets, outside the grammar (named, never read as maths of the grammar)
+_FLOOR_CEILING = frozenset("⌊⌋⌈⌉")
 #: the words of a Unicode name that make a mathematical symbol (category Sm) a relation sign
 _RELATION_NAME_WORDS = ("EQUAL", "LESS-THAN", "GREATER-THAN", "TILDE", "APPROXIMATELY", "ASYMPTOTICALLY", "EQUIVALENT", "IDENTICAL", "PRECEDES",
                         "SUCCEEDS", "APPROACHES", "ESTIMATES")
@@ -1020,6 +1022,13 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             emit("ERROR", s[i:k], i, k, value=f"letters outside the Latin and Greek alphabets ({s[i:k][:8]!r})")
             i = k
             continue
+        if ch in _FLOOR_CEILING:
+            # round-9 clearance, second pass (c2 stem-integration, floor and ceiling brackets): '⌊log₂ 7⌋ + 1 = 6' is outside the grammar:
+            # each bracket is an ERROR token its run keeps, so the relation is named for that notation (ST-PARSE-001), never withheld as an
+            # operand '+ 1' cut from a longer expression
+            emit("ERROR", ch, i, i + 1, value=f"{SIGN_ERROR} (floor and ceiling brackets {ch!r}, {unicodedata.name(ch, '')[:60].lower()})")
+            i += 1
+            continue
         kind_of_sign = sign_outside_grammar(ch)
         if kind_of_sign:
             # integration gate 3 (rule sign-forms): a relation sign or an operator the grammar does not read ('⨯', '∘', '≪', '≔'): an
@@ -1042,8 +1051,10 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
 _EXPRESSION_SIGNS = frozenset("×÷*/+-−·=≈<>≤≥^")
 
 
-#: stem-precision-10: a binary or hexadecimal numeral in groups of four or eight digits, one space apart, ending in its base subscript
-_GROUPED_BASED_RE = re.compile(r"(?P<digits>(?:[01]{4}|[01]{8})(?: (?:[01]{4}|[01]{8})){1,7})(?P<base>₂|_2)"
+#: stem-precision-10: a binary or hexadecimal numeral in groups of four or eight digits, one space apart, ending in its base subscript;
+#: round-9 clearance, second pass (rule octal-groups): binary digits grouped in threes for an octal conversion ('110 101 011₂', the lead
+#: group of one to three digits), with the binary subscript (read apart, the last group alone was set against the octal value: a false error)
+_GROUPED_BASED_RE = re.compile(r"(?P<digits>(?:[01]{4}|[01]{8})(?: (?:[01]{4}|[01]{8})){1,7}|[01]{1,3}(?: [01]{3}){1,10})(?P<base>₂|_2)"
                                r"|(?P<hdigits>(?:[0-9A-F]{4})(?: [0-9A-F]{4}){1,7})(?P<hbase>₁₆|_16)")
 
 

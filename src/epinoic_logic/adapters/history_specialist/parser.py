@@ -473,6 +473,60 @@ def is_counter_case_statement(sentence: str) -> bool:
     return any(c in low for c in _COUNTER) and not any(c in low for c in _JUDGEMENT) and not states_dated_evidence(sentence)
 
 
+#: The sentence right after a stated verdict that gives its ground: it opens with an anaphor of the verdict ('Its scale, and the decision of
+#: Britain, France and Belgium ...' after 'The decisive turning point was 1960.') or with a reason connective ('Because ...', 'This was because
+#: ...'). It is the verdict's reason, so it is material with it (round 9 second pass, c1 results-audit#28: a synthesis that dropped it was named
+#: only at info level). Anchored at the sentence's start.
+_VERDICT_REASON_RE = re.compile(r"^[\s*_\"“‘'(]*(?:its|this|that|these|those|such|it|because|since|for\s+this\s+reason|the\s+reason)\b", re.IGNORECASE)
+#: An evaluative or comparative frame that states a position on the request item's own question ('Legal means, rather than violence,
+#: consolidated his power.', '... mainly through legal means.', '... did most to consolidate his power.'): with two of the item's content
+#: words, the sentence is the requested verdict (round 9 second pass, c1 results-audit#27).
+_ITEM_VERDICT_FRAME_RE = re.compile(
+    r"\b(?:rather\s+than|(?:more|less)\s+than(?!\s*+(?:about\s+|around\s+|some\s+)?[\d$£€¥])|mainly|chiefly|largely|primarily|principally|predominantly|above\s+all|most\s+of\s+all"
+    r"|did\s+(?:most|more|less|least)|mattered\s+(?:more|less)|counted\s+for\s+(?:more|less)|weighed\s+(?:more|less)"
+    r"|(?:the|a)\s+(?:main|chief|principal|primary|central)\s+(?:means|cause|reason|factor|instrument|route|method))\b", re.IGNORECASE)
+#: A sentence that reports a debate or others' views, or embeds the item's question, states no position of its own ('Historians still debate how
+#: far the treaty, rather than the hyperinflation, explains ...'): never the requested verdict, whatever frame and words it carries.
+_REPORTED_VIEW_RE = re.compile(r"\b(?:debated?|debates|debating|argue[sd]?|arguing|contend(?:s|ed)?|disputed?|whether|how\s+far|to\s+what\s+extent"
+                               r"|historians?|historiography|scholars?|critics?|commentators?|some\s+(?:say|claim|suggest|believe))\b", re.IGNORECASE)
+_ITEM_STOP = frozenset("""what which when where whose whom that this these those there their them they then than with within without from into onto upon over
+    under about above below after before between during extent degree assess evaluate examine discuss explain compare contrast analyse analyze
+    outline describe justify consider question essay paragraph write answer through more most less least much many some such other also only
+    were been being have having does doing made make makes your yours mine ours paper student students exam exams marks words world history
+    topic syllabus first assessed method following dated quantified evidence body rather""".split())
+_ITEM_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]{3,30}")
+#: A question of the request in quotation marks, or the sentence that asks it ('To what extent ...?', 'How far ...?', 'Evaluate ...').
+_ITEM_QUESTION_RE = re.compile(r"['‘\"“]([^'’\"”\n]{12,400}?\?)['’\"”]|((?:to\s+what\s+extent|how\s+far|how\s+significant|why\s+did|examine|evaluate|assess|discuss)\b[^?.!\n]{8,400}[?.])",
+                               re.IGNORECASE)
+
+
+def request_item_terms(request_text: Optional[str]) -> frozenset[str]:
+    """The content words (their first five letters) of the request's question: its quoted question, else the sentences that ask one ('To what
+    extent did Mussolini consolidate his power between 1922 and 1929 through legal rather than violent means?' -> 'musso', 'conso',
+    'power', 'legal', 'viole', 'means'). Empty when the request states no question the reader finds; bounded by the request's first 8,000
+    characters."""
+    if not request_text:
+        return frozenset()
+    text = request_text[:8000]
+    questions = [m.group(1) or m.group(2) for m in _ITEM_QUESTION_RE.finditer(text)]
+    terms = {w.lower().strip("'’-")[:5] for q in questions[:4] for w in _ITEM_WORD_RE.findall(q) if w.lower().strip("'’-") not in _ITEM_STOP}
+    return frozenset(t for t in terms if len(t) >= 4)
+
+
+def answers_item_with_verdict(sentence: str, item_terms: frozenset[str]) -> bool:
+    """True when ``sentence`` states a position on the request item's own question: an evaluative or comparative frame
+    (:data:`_ITEM_VERDICT_FRAME_RE`) and at least two of the item's content words (:func:`request_item_terms`), quotations masked and no
+    question asked. A sentence that only restates the item's words, with no frame, is not one, and neither is one that reports a debate or
+    others' views or embeds the question (:data:`_REPORTED_VIEW_RE`)."""
+    if not item_terms or "?" in sentence:
+        return False
+    masked = _mask_quotations(sentence)
+    if not _ITEM_VERDICT_FRAME_RE.search(masked) or _REPORTED_VIEW_RE.search(masked):
+        return False
+    words = {w.lower().strip("'’-")[:5] for w in _ITEM_WORD_RE.findall(masked)}
+    return len(words & item_terms) >= 2
+
+
 def classify_paragraphs(text: str) -> list[tuple[ParagraphKind, str]]:
     """Segment ``text`` into paragraphs and decide each one's kind by content (see the
     module docstring). The structural checks use the same classification."""
@@ -543,6 +597,9 @@ class HistorySpecialistAdapter:
     #: ``channel.bus.needs_qualified_ids``, when the report's ids are ids a report of ANOTHER agent already delivered on the
     #: task holds (two instances of the History specialist on one task number their sentences alike).
     accepts_qualify_ids = True
+    #: The channel passes the request text (round 9 second pass): a sentence that states a position on the request item's own question in
+    #: its own words is the requested verdict (:func:`answers_item_with_verdict`).
+    accepts_request_text = True
 
     def structural_checks(self, report: SpecialistReport):
         from .structural import structural_checks
@@ -551,7 +608,7 @@ class HistorySpecialistAdapter:
     @in_quotation_task
     def parse_response(self, text: str, *, request_id: str, task_id: str, report_id: str, subject: str = "History", task_type: str = "essay",
                        supplied_texts: list[SuppliedText] = (), course_level: str = "unknown", agent_version: Optional[str] = None, agent_id: Optional[str] = None,
-                       qualify_ids: bool = False) -> SpecialistReport:
+                       qualify_ids: bool = False, request_text: Optional[str] = None) -> SpecialistReport:
         """Build a report from the specialist's raw text. Raises :class:`AdapterError`
         (shape only, never the text) when the answer is empty; an answer with no prose sentence
         (a pasted JSON fragment or markup only) is one ``other`` claim, never material;
@@ -561,13 +618,21 @@ class HistorySpecialistAdapter:
         With ``qualify_ids`` (integration gate 3) every claim id carries its agent, as the STEM and generic parsers' ids do
         (``h1.1@history-specialist``: :func:`agent_id_suffix`), and so does every reference to a claim id inside the report
         (supporting claim ids, the tail claim and the notes that name a claim), so no two reports on one task share a claim
-        id and a synthesis citing each can be accounted for (INT-LEDGER-014). Without it every id is what it always was."""
+        id and a synthesis citing each can be accounted for (INT-LEDGER-014). Without it every id is what it always was.
+
+        With ``request_text`` (the channel passes it: ``accepts_request_text``), a body sentence that states a position on the request
+        item's own question in the item's words, with an evaluative or comparative frame ('Legal means, rather than violence, consolidated
+        his power.'), is the requested verdict: role ``judgement``, material (:func:`answers_item_with_verdict`). The sentence right after a
+        stated verdict that gives its ground ('Its scale, and the decision of ...' after 'The decisive turning point was 1960.') is material
+        with it (:data:`_VERDICT_REASON_RE`), its role unchanged. Only an analysis sentence is read as the requested verdict: a dated
+        sentence stays evidence."""
         if not text or not text.strip():
             raise AdapterError("the specialist answer is empty")
         agent = agent_id or self.agent_id
         suffix = agent_id_suffix(agent) if qualify_ids else ""
         tail_id = _TAIL_CLAIM_ID + suffix
         paragraphs = classify_paragraphs(text)
+        item_terms = request_item_terms(request_text)
         docs = {t.document_id: t for t in supplied_texts}
         has_label = bool(MEMORY_LABEL_RE.search(text))
         base = dict(request_id=request_id, task_id=task_id, report_id=report_id, agent_id=agent, agent_version=agent_version, subject=subject, course_level=course_level, task_type=task_type)
@@ -580,6 +645,7 @@ class HistorySpecialistAdapter:
             point_id: Optional[str] = None
             body_index = 0
             after_counter_case = False
+            after_verdict = False   # the sentence before was a stated verdict of this body paragraph
             for si, sent in enumerate(sentences):
                 cid = f"h{pi + 1}.{si + 1}{suffix}"
                 core, notes = split_note_clauses(sent)
@@ -599,9 +665,16 @@ class HistorySpecialistAdapter:
                     role = "perspective"   # the colleague's view, not the History specialist's own point
                 else:
                     role = classify(body, body_index, True, after_counter_case=after_counter_case)
+                    if role == "analysis" and body_index > 0 and answers_item_with_verdict(body, item_terms):
+                        # the request item answered in its own words, with a position on it: the requested verdict (a dated sentence stays the
+                        # evidence it is: 'The army was mainly conscripts in 1940' describes, whatever words of the item it repeats)
+                        role = "judgement"
                     body_index += 1
+                verdict_reason = (not note and kind == "body" and after_verdict and role in ("analysis", "evidence")
+                                  and bool(_VERDICT_REASON_RE.match(body)))
                 if not note:
                     after_counter_case = role == "counter_evidence" and is_counter_case_statement(body)
+                    after_verdict = kind == "body" and role == "judgement"
                 refs: list[SourceRef] = []
                 assumptions: list[str] = []
                 quoted = False
@@ -643,7 +716,8 @@ class HistorySpecialistAdapter:
                     proposed = "unknown"
                 pending.append(dict(claim_id=cid, claim_text=truncate_claim_text(sent), claim_role=role, proposed_claim_kind=proposed,
                                     certainty=certainty_of(body, from_memory=(bool(notes) and not note) or (dated and has_label), attributed=attributed),
-                                    source_refs=refs[:32], assumptions=_dedupe(assumptions)[:32], materiality="material" if role in ("point", "judgement", "link", "thesis") else "supporting",
+                                    source_refs=refs[:32], assumptions=_dedupe(assumptions)[:32],
+                                    materiality="material" if role in ("point", "judgement", "link", "thesis") or verdict_reason else "supporting",
                                     advisory_verification_status=_SELF_REPORT if self_report else None))
                 para_claims.append((cid, role))
                 if role == "point" and point_id is None:

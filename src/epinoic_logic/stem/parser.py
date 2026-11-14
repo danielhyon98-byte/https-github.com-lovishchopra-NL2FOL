@@ -1234,7 +1234,9 @@ class _Parser:
         if not self._ends_operand(k) and not (k < n and toks[k].kind == "NUM" and toks[k].space and compound_part(toks, k)):
             return None  # (a compound quantity's next part may follow: stem-precision-5)
         text = self.ctx.s[toks[j].start:toks[k - 1].end]
-        expr = parse_unit(text, bare_m=prof.bare_m, tonne=prof.tonne, ascii_exponents=True)  # only the forms read above carry a glued digit
+        # only the forms read above carry a glued digit; round-9 clearance (rule data-convention): a stated decimal convention leaves a
+        # multiple of the byte its decimal reading only
+        expr = parse_unit(text, bare_m=prof.bare_m, tonne=prof.tonne, ascii_exponents=True, decimal_data=prof.decimal_data)
         if expr is None:
             return None
         if expr.readings and expr.readings[0].atoms and expr.readings[0].atoms[0].unit is None:
@@ -1526,6 +1528,43 @@ class _Parser:
             right = self.power(d)
             arg = self._count(BinOp("*", arg, right, _start(arg), _end(right), implicit=True))
 
+    def _pair_parts(self, close: int, d: int) -> tuple:
+        """Rule ``coordinate-pair`` (round-9 clearance): the two or three components of the bracket that opens at ``self.i`` and closes
+        at ``close``, separated by commas at its own depth, each read as an expression; () when there are more, or one is empty or
+        cannot be read. Reads nothing past the bracket and leaves ``self.i`` where it was."""
+        save = self.i
+        cuts: list[int] = []
+        depth = 0
+        for j in range(self.i + 1, close):
+            k = self.t[j].kind
+            if k in ("LPAR", "LGROUP"):
+                depth += 1
+            elif k in ("RPAR", "RGROUP"):
+                depth -= 1
+            elif depth == 0 and k == "COMMA":
+                cuts.append(j)
+            elif depth == 0 and k in ("SEMI", "REL"):
+                return ()
+            if len(cuts) > 2:
+                return ()
+        bounds = [self.i + 1] + [c + 1 for c in cuts]
+        ends = cuts + [close]
+        parts = []
+        try:
+            for a, b in zip(bounds, ends):
+                if a >= b:
+                    return ()
+                self.i = a
+                node = self.expr(d)
+                if self.i != b:
+                    return ()
+                parts.append(node)
+        except _OperandError:
+            return ()
+        finally:
+            self.i = save
+        return tuple(parts)
+
     def _paren(self, tok: Token, d: int) -> Node:
         d = self._descend(d)
         close = self._close_index(self.i)
@@ -1550,9 +1589,10 @@ class _Parser:
             elif x.kind in ("RPAR", "RGROUP"):
                 depth_ -= 1
             elif depth_ == 0 and x.kind in ("COMMA", "SEMI"):
-                self.i = close + 1
                 reason = "a set" if tok.text == "{" else "a coordinate pair, vector or list"
-                return self._count(Unsupported(reason, "", tok.start, self.t[close].end))
+                parts = self._pair_parts(close, d) if tok.text in ("(", "[") and x.kind == "COMMA" else ()
+                self.i = close + 1
+                return self._count(Unsupported(reason, "", tok.start, self.t[close].end, parts=parts))
             elif depth_ == 0 and x.kind == "REL" and x.text not in ("<", ">") and not self._is_bond_sign(x):
                 raise self._err("ST-PARSE-001", "a relation sign inside brackets", x)
         self.i += 1

@@ -98,7 +98,7 @@ def _adversarial(n: int) -> list[tuple[str, str, str]]:
         ("tower", "mathematics_aa", "y = 10^10^10^10 = " + "10^" * (n // 3) + "10"),
         ("huge_exponent", "physics", "E = 1.5 × 10^99999999 J and m = 1e999999 kg. " * (k // 4 or 1)),
         ("malformed_latex", "mathematics_aa", ("$$\\begin{align} x &= \\frac{{{ \\left( \\sqrt[ \\text{ \\unknown{ $$ " * (k // 6 or 1))),
-        ("confusables", "physics", ("а = 3 ν = 2 х = 5 Ꮪ = 1 ０ = １ x‍ = 2 ‮x = 3 " * (k // 4 or 1))),
+        ("confusables", "physics", ("а = 3 ν = 2 х = 5 Ꮪ = 1 ０ = １ x‍ = 2 \u202ex = 3 " * (k // 4 or 1))),
         ("deep_unary", "physics", "x = " + "-" * (n // 2) + "1"),
         ("relation_storm", "physics", "= " * (n // 2)),
         ("comparison_storm", "mathematics_aa", "a == b " * (n // 7)),

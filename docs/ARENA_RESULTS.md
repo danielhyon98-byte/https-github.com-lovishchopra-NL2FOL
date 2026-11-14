@@ -1590,6 +1590,104 @@ differ from that path's on the two items whose fixtures carry task-authority pre
 simulation's equality gate (G-EQ-ARENA) compares; with that path passing the record too, none differs. That change is
 the integration owner's (`tests/integration/test_fixture_parity.py`, whose fields leave the digests out, passes either way).
 
+## Round 9 clearance: the harness's own fixes (revision budgets, the overseer-selected fallback)
+
+Round 9 (integrated round c2) found three defects in the harness, all minor. The changes are in
+`scripts/arena/run_arena.py` and `scripts/arena/revision_feedback.py`; the rules are in `scripts/arena/README.md`
+("Delivery decisions", "Specialist revisions"); the tests are in `scripts/arena/test_arena_rules.py`. None of them
+moves the transport measure.
+
+- **The revision budget.** The round's feedback was issued under one revision round ("Revision request 1 of 1"), but
+  its tasks.json recorded no `revision_rounds`. The harness's revision pass therefore re-issued every request under the
+  channel's default of two rounds, and gate `feedback_as_read` failed for all 15 revisions on `max_rounds` and the
+  rendered digest. That is a configuration failure, not a custody failure. Three changes:
+  - The pass now re-issues each request under the budget its recorded feedback file was issued under: the signed
+    block's `max_rounds` (`replay_budgets`). Each check names where its budget came from.
+  - `revision_feedback.py --revision-rounds N` records the budget in tasks.json before it issues anything, and refuses
+    a task that records another budget.
+  - `run_arena.py --fail-on-revision-gates` exits with status 1 when a gate of the pass fails.
+- **What a specialist read.** The round's 15 revision files carry no `feedback_sha256`, the digest of the message each
+  specialist read. The exercise's check copied the digests in by hand. Now:
+  - a revision without the digest is flagged and not delivered, and it fails `feedback_as_read`;
+  - a file in `feedback/` that is no feedback file (the exercise's own `summary.json`) is named and never compared;
+  - a feedback or revision file that is not JSON is a named difference or error, never an exception.
+- **The overseer-selected fallback.** The delivery pass configured no overseer agent, so all 22 decisions were
+  withheld for that reason alone. Nothing said that the 90% rule had not been tested. Now:
+  - the pass counts what it exercised of the fallback (`fallback_exercised`, the withheld decisions by cause) and,
+    when it exercised nothing, says why;
+  - a decision counts only when a verdict of the overseer agents was counted;
+  - `--overseer-provider MODULE:FACTORY` runs the fallback's agents through the overseer package's runner and verdict
+    intake, and reports the decisions beside the withheld baseline of the same pass without them.
+
+  The round's own overseer-agent verdicts were self-reported (attestation: runner 0, self-reported 80), so none of them
+  can feed the delivery policy. Running the fallback in a round needs a provider that the round's pipeline supplies.
+
+Measured:
+
+- **The revision pass on the copy that the exercise checked** (the digests copied in), at the round's own code (HEAD's
+  sources with these harness files): 15 of 15 requests are re-issued identical (before the fix: 0 of 15). Gate
+  `feedback_as_read` passes, and every other figure is as the exercise recorded it: 22 answers checked, feedback issued
+  on 15, 7 negative controls, 30 flaws fed back (18 fixed, 6 removed, 6 persisted), fix rate 73.3%.
+- **The revision pass on the round as recorded**, at the same code: 15 of 15 requests are identical, and
+  `feedback/summary.json` is named and not compared. The 15 revisions are flagged and not delivered (no
+  `feedback_sha256`), so `feedback_as_read` fails. That is correct: the round's own files cannot show what the
+  specialists read.
+- **The harness on copies of c1 and c2, on the working tree with this round's other fixes in progress:**
+
+  | Round | Transport (functional) | Delivery pass | Fallback exercised |
+  | --- | --- | --- | --- |
+  | c1 | 203 of 203 (as recorded) | 24 withheld (no accuracy established) | no: no overseer agent configured |
+  | c2 | 188 of 188 (180 of 188 recorded; the rise comes from the other fixes) | 22 withheld (no accuracy established) | no: no overseer agent configured |
+
+  On c2 the revision pass reads the budget from all 15 feedback files. Only 2 of the 15 recorded requests are
+  re-issued identical, because the other fixes change the flaws this code issues: feedback goes to 5 answers, with 17
+  negative controls. So the gate reports that the feedback differs from what the specialists read, as it should.
+
+### Second fix pass (after the container replacement)
+
+The first pass's edits were checked again on the restored tree before anything was changed.
+
+- **The revision budget, checked again.** On the copy that the exercise checked (each feedback file's digest copied into
+  its revision file), at the round's own code (the sources of `c4f276c`, on which round 9 ran; the branch's committed
+  head carries the same sources):
+  - The harness of `c4f276c` re-issues none of the 15 requests identical. Each differs in `max_rounds` and the rendered digest,
+    `feedback/summary.json` is compared as the feedback of a task named `summary`, and gate `feedback_as_read` fails.
+  - This harness re-issues all 15 identical, under the budget each feedback file records (1). It names
+    `feedback/summary.json` and does not compare it, and the gate passes. The other figures are the exercise's: 22
+    answers checked, feedback on 15, 7 negative controls, 30 flaws fed back (18 fixed, 6 removed, 6 persisted), fix rate
+    73.3%.
+- **The overseer-selected fallback.** Unchanged since the first pass, and its tests pass. No recorded round can exercise
+  it in a replay. c1 and c2 hold no runner-produced verdict, and a verdict written for one replay's dossier cannot be fed
+  into another: the delivery pass's dossiers carry fresh ids and timestamps on every run (two runs of one round differ in
+  40 values of each dossier). A round exercises the fallback only when its overseer agents answer the pass's own dossiers
+  in the same run (`--overseer-provider`).
+- **The student-facing text of a synthesis** (communication fidelity, minor). In ll-t15 the student reads each of the 10
+  quotation claims twice. The combinator carries each quotation beside the sentence that quotes it, and the text is the
+  claims' texts joined. The hub now names that synthesis (INT-LEDGER-017, rule duplicated-content, the core owner's
+  fix). The harness composes the text exactly as the deployed combinator port does (`student_facing_text`: the port's
+  composer when it has one, else the join that `synthesis_payload` writes), so the arena relays the text production would
+  relay. Leaving the stray quotation out is a change of the port's composer, and it is handed to the port's owner; the
+  harness then follows it with no change of its own. No record moves.
+- **Raw bidirectional controls.** No file the harness owner keeps holds one, and a new test reads them all. The other
+  owners' files still hold 16, in 7 files; they are handed to their owners.
+- **A harness test rewritten in its fixture.** `test_a_mutation_of_the_second_stem_report_is_compared_with_its_genuine_record_claim_for_claim`
+  relied on a work line that this round's STEM fixes now decide (stem-sub, ENTAILED), so the answer had no genuine warning
+  left to compare. The answer now also states a torque line that the front end leaves undecided. Every assertion keeps
+  its strength.
+
+Measured at the end of this pass, on the working tree with the other owners' fixes in progress, on copies of the rounds.
+The transport count is the standard command's (`python -I scripts/arena/run_arena.py <copy>`). That interpreter does not
+have the overseer installed, so it records the overseer's two passes as not run; they were run once more with
+`overseer/src` on the path, as the test configuration puts it, with the same transport count:
+
+| Round | Transport (functional) | Delivery pass | Revision pass |
+| --- | --- | --- | --- |
+| c1 | 203 of 203 | 24 withheld (no accuracy established; 24 of 24 receipts identical to the genuine records'); fallback not exercised: no overseer agent configured | not run: the round holds no `feedback/` |
+| c2 | 188 of 188 | 22 withheld (no accuracy established; 22 of 22 receipts identical); fallback not exercised: no overseer agent configured | budgets read from all 15 feedback files (1 round each); 2 of 15 requests re-issued identical, 13 differ in the flaws this tree issues (feedback to 5 answers, 17 negative controls); the 15 revisions are flagged (no `feedback_sha256`) and not delivered, so `feedback_as_read` fails, as it should |
+
+No record of either round differs (status, codes and functional flag) from a run of the same tree before this pass's
+harness change: c2 from this fixer's own run, c1 from the STEM fixer's run of the same evening.
+
 ## Summary of the overseer verdicts, rounds 1 to 7
 
 | Round | Material | results-audit | communication-fidelity | adversarial-live | translation-fidelity | New findings (blocker / major / minor) | Fixed in the fix round (fixers' count) | Harness as run for the overseers |

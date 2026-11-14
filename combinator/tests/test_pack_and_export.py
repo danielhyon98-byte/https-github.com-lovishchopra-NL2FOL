@@ -2,8 +2,9 @@
 
 * the instructions say what the agent combines (the specialists' answers to one request), name exactly the five closed
   transformation words, keep certainty at most the weakest source's, keep every figure, unit, mark, date and quotation
-  exactly, never carry a note, self-certification, decline or question back as a claim, list every dropped claim with
-  its reason, never hide a contradiction, and ask for the exact output format and nothing else;
+  exactly, never carry a note, self-certification, word count or question back as a claim, carry a decline or a deferral
+  of the work the student asked for word for word (pack 1.3), list every dropped claim with its reason, never hide a
+  contradiction, and ask for the exact output format and nothing else;
 * the machine-readable format is the published contract's vocabulary, word for word, and names no model;
 * the pack's identity is stable and changes with any byte of either file;
 * ``python -m epinoic_combinator.export --out <dir>`` writes the files and a manifest that ``read_export`` accepts, and
@@ -63,6 +64,14 @@ def _flat(text: str) -> str:
     'never turn "a minority" into "most"',
     "never credit both specialists with what only one of them says, and never say that a text states what a claim only says about it.",
     "never only spaces, and no control character (a tab or a line break is fine)",
+    # pack 1.3 (round 9, integrated round c2: the ps-t15 synthesis dropped the specialist's decline of the requested proposal)
+    "Never hide work that was not done.",
+    "The one exception is a decline or a deferral of the work the student asked for: carry it exactly as rule 7 says, and in no other way.",
+    "the student must still learn from the synthesis that this work is not in it, and why.",
+    "cite that one source claim only, copy its text exactly, and write `carried` and the certainty the source states.",
+    "Do this whatever its `role` (such a sentence is often roled `other`).",
+    "Never leave it out, never merge it with another claim, never reword or shorten it",
+    "Never drop a decline or a deferral (rule 7).",
 ])
 def test_the_instructions_say_what_the_agent_must_do(phrase):
     assert phrase in _flat(INSTRUCTIONS), phrase
@@ -111,7 +120,7 @@ def test_the_identity_is_stable_and_changes_with_any_byte_or_the_version():
         changed = {**PACK.files, name: PACK.files[name] + b" "}
         assert pack_sha256(PACK.name, PACK.version, changed) != PACK.sha256
     assert pack_sha256(PACK.name, PACK.version + ".1", PACK.files) != PACK.sha256  # another version, whatever this release's is
-    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.2", "sha256": PACK.sha256}
+    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.3", "sha256": PACK.sha256}
 
 
 def test_export_writes_the_pack_and_a_manifest_read_export_accepts(tmp_path):

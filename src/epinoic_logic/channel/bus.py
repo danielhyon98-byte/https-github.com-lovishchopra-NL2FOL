@@ -35,7 +35,10 @@ ran (INT-LEDGER-011, INT-SYNTH-012). Raw text that is not valid Unicode (a lone 
 surrogate) is refused before parsing (INT-REQ-009); nothing raises into the router. So is a
 specialist's response whose own text holds a bidirectional embedding, override or isolate
 (rule bidi-text, :data:`BIDI_CONTROL_CLASS`): a reader may be shown that text in another order
-than every check reads it, as the combinator port's text rule already refuses in a synthesis.
+than every check reads it, as the combinator port's text rule already refuses in a synthesis; and, since round 9 (c2), one
+whose own text holds an invisible Unicode tag character (rule hidden-text,
+:data:`HIDDEN_TEXT_CLASS`), which can spell a payload the recipient receives and no check reads. A response over the
+contract's length limit is refused before any reader runs on it.
 
 Branch formal checks (``_branch_checks``) run under the check's named engine policy
 (``engine.policies``: ``linear`` is the caller's configuration unchanged; ``nonlinear`` opens
@@ -93,6 +96,7 @@ verdict) are INT-XENC-001 (warning); neither verdict is withdrawn. The summary c
 from __future__ import annotations
 
 import functools
+import heapq
 import inspect
 import itertools
 import re
@@ -143,7 +147,7 @@ from .cues import VERDICT_CUES, verdict_cue_regex
 from .events import ChannelEvent, ObservationState, observe_call
 from .feedback import _parsed_report as _revised_answer_report, check_revision_block, preservation_findings, revision_report_reuse
 from .request_parser import (LEVEL3_VERDICT_TERMS, about_band, blank_quotations, bound_word_measure, count_answer_words, count_paragraphs, extract_constraints,
-                             extract_items, measure_answer_words, measured_of, part_label, per_part_bound, question_label, word_bound_severity)
+                             extract_items, item_label, measure_answer_words, measured_of, part_label, per_part_bound, question_label, word_bound_severity)
 
 
 @dataclass(frozen=True)
@@ -194,6 +198,12 @@ _NOTE_ROLE = "other"
 #: Roles whose claims may carry the paragraph's verdict when they state a position (a claim roled 'other' never counts).
 _VERDICT_ROLES = frozenset({"point", "thesis", "link", "analysis"})
 _STOP = frozenset("the a an and or of to in on for with by is are was were be this that these those as at from it its how why what does do into their there which who whom not".split())
+#: Function words of the Language B courses' languages (Spanish, French), dropped from the coverage terms only (round-9 clearance c2b:
+#: a Spanish task item shares "para", "las", "entre" with any Spanish answer, which would read every item as addressed).
+#: Closed list; words that are also English words ("son", "sin", "con", "hay", "han", "pour", "par", "plus") are left out.
+_STOP_LB = frozenset(("las los del para por una uno unos unas que como pero sus este esta estos estas ese esa esos esas entre sobre "
+                      "más mas muy también tambien ser está están estan fue tiene tus mis nos otra otro otras otros cada "
+                      "les des une est dans avec sur sont qui aux ces cette mais leur leurs nous vous ils elles").split())
 #: Error codes that stop delivery: identity, envelope, request binding, unparseable payload, ledger provenance.
 _BLOCKING_PREFIXES = ("INT-HANDOFF", "INT-ENV", "INT-REQ-000", "INT-REQ-001", "INT-REQ-002", "INT-REQ-009", "INT-LEDGER-000", "INT-LEDGER-008")
 #: Parties to every channel that the plan does not select: the router that opened the task and the roles that read its
@@ -324,6 +334,17 @@ _SURROGATE_RE = re.compile("[\ud800-\udfff]")
 BIDI_CONTROL_CLASS = "\u202a-\u202e\u2066-\u2069"
 _BIDI_CONTROL_RE = re.compile(f"[{BIDI_CONTROL_CLASS}]")
 _BIDI_CONTROLS = ("\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\u2067", "\u2068", "\u2069")
+#: Round 9 (c2, rule hidden-text): the Unicode tag block (U+E0000 to U+E007F), which spells ASCII invisibly, one tag character
+#: per letter. No reader sees them, a recipient receives them inside a claim and the response, and the STEM reader drops them
+#: as ignorable (``stem.normalize``), so a payload spelled in them reaches the recipient while every check of the hub reads
+#: the text as if it were absent. A specialist's response whose own text holds one is refused like a bidirectional control
+#: (INT-REQ-009), naming code points and offsets only, never the text; a synthesis holding one is refused on relay
+#: (``synthesis_hidden_findings``). The rest of plane 14's default-ignorable range (the variation selectors supplement,
+#: U+E0100 to U+E01EF, and unassigned code points) is not refused here: the Overseer's readers set it aside and its label
+#: rule withholds an answer holding it (pinned by its round-6 push-check tests), so refusing it at the channel is that
+#: owner's decision.
+HIDDEN_TEXT_CLASS = "\U000e0000-\U000e007f"
+_HIDDEN_TEXT_RE = re.compile(f"[{HIDDEN_TEXT_CLASS}]")
 
 
 def _now() -> str:
@@ -355,7 +376,7 @@ def _terms(text: str) -> set[str]:
         if w.endswith(("'s", "’s")):
             w = w[:-2]
         w = _place_of(w)
-        if len(w) < 3 or w in _STOP:
+        if len(w) < 3 or w in _STOP or w in _STOP_LB:
             continue
         out.add(light_stem(w))
     return out
@@ -370,15 +391,97 @@ _ITEM_LABEL_RE = re.compile(r"^\s*+(?:guiding|essay|research|prescribed|key|focu
 _MARKUP_CHARS_RE = re.compile(r"[*_`$#]")
 
 
+#: Rule ``one-fault-once`` (round-9 clearance c2b; the overseer's and the parsers' handoffs): branch error codes that report ONE
+#: fault. A quotation credited to a supplied text that does not hold its words is named by the core pack (CORE-SRC-005) and by
+#: the English pack (ES-SRC-008); the receipt carries one INT-SUBJ-003 for that fault, naming both codes, never one per code.
+SAME_FAULT_FAMILIES: tuple[frozenset[str], ...] = (frozenset({"CORE-SRC-005", "ES-SRC-008"}),)
+#: The quotation a misattribution finding names, as both packs write it ("quotation 'X' is attributed ...", "attributes the
+#: quotation 'X' to ..."): its first 40 characters identify the fault (each pack cuts a long excerpt at its own length).
+_FAULT_EXCERPT_RE = re.compile(r"quotation '(.{1,200}?)'(?= is | to )")
+
+
+def _fault_excerpt(message: str) -> Optional[str]:
+    m = _FAULT_EXCERPT_RE.search(message[:600])
+    return " ".join(m.group(1).casefold().split())[:40] if m else None
+
+
+_EDGE_MARKS = ".,;:!?\"'“”‘’()[]«»…—–-"
+
+
+def _holds_long_words(excerpt: str, missing: Sequence[str]) -> bool:
+    """Rule held-words: the words of ``excerpt`` a text holds (every word but ``missing``) include at least two of four letters
+    or more or a figure, or at least half of the excerpt's words with one such word among them ("sin pesticidasly químicos"
+    holds "sin" and "químicos"; "wind of change" holds only "of"). Linear."""
+    gone = {m.strip(_EDGE_MARKS).casefold() for m in missing}
+    words = [w for w in (x.strip(_EDGE_MARKS).casefold() for x in excerpt.split()) if w]
+    held = [w for w in words if w not in gone]
+    long_held = sum(1 for w in held if len(w) >= 4 or any(ch.isdigit() for ch in w))
+    return long_held >= 2 or (long_held >= 1 and 2 * len(held) >= len(words))
+
+
+def subject_error_groups(errors: Sequence[StructuralFinding]) -> list[tuple[tuple[str, ...], list[str], str]]:
+    """Rule ``one-fault-once``: ``(codes, claim ids, message)`` of each INT-SUBJ-003 the channel raises for the error-level branch
+    findings ``errors`` (in order, after the channel's own suppression rules). Each finding is a fault of its own, except that
+    findings of one :data:`SAME_FAULT_FAMILIES` family naming the same quotation (:data:`_FAULT_EXCERPT_RE`) and sharing a claim
+    are one fault: a finding joins the earliest group of its family and quotation that shares a claim and lacks its code, so a
+    group holds its codes in order, its claims their union in order, its message the first finding's. The transfer auditor's
+    recount (R2) calls this function, so receipt and audit group alike. The groups that can still take a code are indexed by
+    (family, quotation, claim, code they lack), so the grouping reads each finding's claims once whatever the number of faults."""
+    groups: list[tuple[list[str], list[str], set[str], str]] = []
+    #: min-heaps of group indexes; an entry whose group has since taken the code is stale and dropped when it reaches the top
+    open_at: dict[tuple[int, str, str, str], list[int]] = {}
+
+    def register(g: int, fam: int, excerpt: str, claims) -> None:
+        for code in SAME_FAULT_FAMILIES[fam] - set(groups[g][0]):
+            for c in claims:
+                heapq.heappush(open_at.setdefault((fam, excerpt, c, code), []), g)
+
+    for sf in errors:
+        fam = next((i for i, f in enumerate(SAME_FAULT_FAMILIES) if sf.code in f), None)
+        excerpt = _fault_excerpt(sf.message) if fam is not None else None
+        own = list(dict.fromkeys(sf.claim_ids))
+        target: Optional[int] = None
+        if fam is not None and excerpt is not None:
+            for c in own:
+                heap = open_at.get((fam, excerpt, c, sf.code))
+                while heap and sf.code in groups[heap[0]][0]:
+                    heapq.heappop(heap)
+                if heap and (target is None or heap[0] < target):
+                    target = heap[0]
+        if target is not None:
+            codes, cids, have, _message = groups[target]
+            codes.append(sf.code)
+            added = [c for c in own if c not in have]
+            cids.extend(added)
+            have.update(added)
+            register(target, fam, excerpt, added)  # its older claims are indexed already under every code it still lacks
+            continue
+        groups.append(([sf.code], list(sf.claim_ids), set(own), sf.message))  # its claims as the finding names them
+        if fam is not None and excerpt is not None:
+            register(len(groups) - 1, fam, excerpt, own)
+    return [(tuple(codes), cids, message) for codes, cids, _have, message in groups]
+
+
 def _answer_sections(text: str) -> list[tuple[int, frozenset[str]]]:
     """``(offset, labels)`` for every line of the answer (markup removed) that opens with a part label: "(a)", "Part
     (b) —", "1.", and a nested "3. a)" (labels 3 and a), or with a question heading ("Question 2 [5 marks]": label q2,
-    ``request_parser.question_label``; round-8 clearance c1). Offsets are in the markup-free text."""
-    from .request_parser import part_label, question_label
+    ``request_parser.question_label``; round-8 clearance c1). A compound label "(a)(i)", "(a) (i)", "a(i)" or "a)(i)"
+    gives the part, the sub-part and the two together ("a", "i", "a.i"), and so does a roman sub-part label on a line of its
+    own under a lettered part's line ("(a)" then "(i)"; rule nested-parts, round-9 clearance c2, ge-t15). Offsets are in the
+    markup-free text."""
+    from .request_parser import _LETTER_LABEL_RE, _ROMAN_LABEL_RE, compound_label, part_label, question_label
     plain = _MARKUP_CHARS_RE.sub("", text)
     out: list[tuple[int, frozenset[str]]] = []
     pos = 0
+    parent: Optional[str] = None
     for line in plain.split("\n"):
+        both = compound_label(line)
+        if both is not None:
+            a, b = both.split(".")
+            parent = a
+            out.append((pos, frozenset({a, b, both})))
+            pos += len(line) + 1
+            continue
         lab = part_label(line) or question_label(line)
         if lab is not None:
             labels = {lab}
@@ -386,6 +489,12 @@ def _answer_sections(text: str) -> list[tuple[int, frozenset[str]]]:
             inner = part_label(rest) if rest else None
             if inner is not None and inner != lab:
                 labels.add(inner)
+            if _LETTER_LABEL_RE.fullmatch(lab):
+                parent = lab
+            elif parent is not None and _ROMAN_LABEL_RE.fullmatch(lab):
+                labels.add(f"{parent}.{lab}")
+            else:
+                parent = None
             out.append((pos, frozenset(labels)))
         pos += len(line) + 1
     return out
@@ -511,12 +620,38 @@ def _bidi_count(text: str) -> int:
     return sum(text.count(ch) for ch in _BIDI_CONTROLS)
 
 
+def _hidden_count(text: str) -> int:
+    """How many characters of :data:`HIDDEN_TEXT_CLASS` ``text`` holds: one C-level substitution pass, so a text made of
+    nothing else (400,000 tag characters) is counted in milliseconds, never matched one by one in Python."""
+    return _HIDDEN_TEXT_RE.subn("", text)[1]
+
+
+def hidden_text_message(what: str, text: str) -> Optional[str]:
+    """Rule hidden-text (round 9, c2): why ``text`` (the ``what`` of a specialist's response) is refused, naming the first
+    tag characters it holds (:data:`HIDDEN_TEXT_CLASS`) by code point and character offset and counting the rest, never
+    quoting the text; None when it holds none. Linear in the text."""
+    if not isinstance(text, str) or not text or _HIDDEN_TEXT_RE.search(text) is None:
+        return None
+    n = _hidden_count(text)
+    first = [f"U+{ord(m.group()):05X} at character offset {m.start()}" for m in itertools.islice(_HIDDEN_TEXT_RE.finditer(text), _MAX_NAMED)]
+    shown = ", ".join(first) + (f" and {n - len(first)} more" if n > len(first) else "")
+    return (f"{what} carries {n} invisible tag character(s) ({shown}): they can spell text the recipient "
+            "receives but no reader sees and every check of the hub reads past, so it was neither checked nor delivered (rule "
+            "hidden-text)")
+
+
 def bidi_control_message(what: str, text: str) -> Optional[str]:
     """Rule bidi-text: why ``text`` (the ``what`` of a specialist's response) is refused, naming the first bidirectional
     embeddings, overrides and isolates it holds (:data:`BIDI_CONTROL_CLASS`) by code point and character offset and
-    counting the rest, never quoting the text; None when it holds none. One pass over the text."""
-    if not isinstance(text, str) or not text or _BIDI_CONTROL_RE.search(text) is None:
+    counting the rest, never quoting the text; None when it holds none. One pass over the text.
+
+    Round 9 (c2): a text holding no bidirectional control is held to rule hidden-text as well (:func:`hidden_text_message`),
+    so every caller of the response rule (``respond_text`` before parsing, and the Overseer's re-derivation, which binds this
+    function) refuses both alike."""
+    if not isinstance(text, str) or not text:
         return None
+    if _BIDI_CONTROL_RE.search(text) is None:
+        return hidden_text_message(what, text)
     n = _bidi_count(text)
     first = [f"U+{ord(m.group()):04X} at character offset {m.start()}" for m in itertools.islice(_BIDI_CONTROL_RE.finditer(text), _MAX_NAMED)]
     shown = ", ".join(first) + (f" and {n - len(first)} more" if n > len(first) else "")
@@ -544,34 +679,81 @@ def _report_texts(report: SpecialistReport):
                     yield "a source reference of claim", c.claim_id, t
 
 
+def _report_class_findings(report: SpecialistReport, pattern: "re.Pattern[str]", count: Callable[[str], int], width: int, what: str, why: str) -> list[IntegrityFinding]:
+    """One INT-REQ-009 (error) when the specialist's own text (:func:`_report_texts`) holds a character ``pattern`` matches,
+    naming the first places by code point (``width`` hex digits), character offset and claim, and counting the rest with
+    ``count``; [] otherwise. ``what`` names the characters and ``why`` the rule."""
+    named: list[str] = []
+    claims: list[str] = []
+    n = 0
+    for where, cid, text in _report_texts(report):
+        if not isinstance(text, str) or pattern.search(text) is None:
+            continue
+        n += count(text)
+        if len(named) < _MAX_NAMED:
+            label = where if cid is None else f"{where} {_HIDDEN_TEXT_RE.sub(chr(0xFFFD), _BIDI_CONTROL_RE.sub(chr(0xFFFD), _scrub(str(cid))))[:128]}"
+            named += [f"U+{ord(m.group()):0{width}X} at character offset {m.start()} of {label}"
+                      for m in itertools.islice(pattern.finditer(text), _MAX_NAMED - len(named))]
+        if cid is not None and cid not in claims:
+            claims.append(cid)
+    if not n:
+        return []
+    shown = "; ".join(named) + (f" and {n - len(named)} more" if n > len(named) else "")
+    rid, aid = _text_attr(report, "report_id"), _text_attr(report, "agent_id")
+    return [IntegrityFinding(code="INT-REQ-009", severity="error", message=f"report payload carries {n} {what} in the specialist's own text ({shown}): {why}",
+                             claim_ids=[c for c in claims if isinstance(c, str)][:64], report_ids=[rid] if rid else [], agent_ids=[aid] if aid else [])]
+
+
 def report_bidi_findings(report: SpecialistReport) -> list[IntegrityFinding]:
     """Rule bidi-text on a report (a response received as a structured payload, or handed to ``respond``): INT-REQ-009
     (error, blocking) when the specialist's own text (:func:`_report_texts`) holds a bidirectional embedding, override or
-    isolate, naming the first place and the claims holding one; [] otherwise. Never raises: a report built around its
-    contract's validation is the re-validation's to refuse."""
+    isolate, naming the first place and the claims holding one; [] otherwise. Round 9 (c2): rule hidden-text likewise, a
+    second INT-REQ-009 when that text holds a Unicode tag character (:data:`HIDDEN_TEXT_CLASS`), so
+    the Overseer's re-derivation, which binds this function, agrees with the receipt. Never raises: a report built around
+    its contract's validation is the re-validation's to refuse."""
     try:
+        return (_report_class_findings(report, _BIDI_CONTROL_RE, _bidi_count, 4, "bidirectional embedding, override or isolate character(s)",
+                                       "a reader may be shown the text it governs in another order than the order every check of the hub reads, so it was "
+                                       "neither checked nor delivered (rule bidi-text: the text rule the combinator port holds a synthesis to)")
+                + _report_class_findings(report, _HIDDEN_TEXT_RE, _hidden_count, 5, "invisible tag character(s)",
+                                         "they can spell text the recipient receives but no reader sees and every check of the hub reads past, so it was "
+                                         "neither checked nor delivered (rule hidden-text)"))
+    except Exception:
+        return []
+
+
+def synthesis_hidden_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
+    """Rule hidden-text on a synthesis (round 9, c2): INT-REQ-009 (error) when the combinator's own text (a synthesized
+    claim's text, a ledger entry's reason, a conflict's description or basis, the student-facing text) holds a Unicode tag
+    character (:data:`HIDDEN_TEXT_CLASS`), naming code points, offsets and claims, never the
+    text; [] otherwise. The synthesis contract's text rule (``integrity.contracts.SYNTHESIS_TEXT_PATTERN``) is the combinator
+    port's published rule and does not name the class yet, so the channel holds it on relay. Never raises."""
+    try:
+        places: list[tuple[str, Optional[str], str]] = [("the text of synthesized claim", c.claim_id, c.text) for c in synthesis.claims]
+        places += [("a ledger entry's reason", None, e.reason) for e in synthesis.ledger if e.reason]
+        places += [(f"conflict record {c.conflict_id[:128]}'s {k}", None, t) for c in synthesis.conflicts for k, t in (("description", c.description), ("basis", c.basis)) if t]
+        places.append(("the student-facing text", None, synthesis.text))
         named: list[str] = []
         claims: list[str] = []
         n = 0
-        for where, cid, text in _report_texts(report):
-            if not isinstance(text, str) or _BIDI_CONTROL_RE.search(text) is None:
+        for where, cid, text in places:
+            if not isinstance(text, str) or _HIDDEN_TEXT_RE.search(text) is None:
                 continue
-            n += _bidi_count(text)
+            n += _hidden_count(text)
             if len(named) < _MAX_NAMED:
-                label = where if cid is None else f"{where} {_BIDI_CONTROL_RE.sub(chr(0xFFFD), _scrub(str(cid)))[:128]}"
-                named += [f"U+{ord(m.group()):04X} at character offset {m.start()} of {label}"
-                          for m in itertools.islice(_BIDI_CONTROL_RE.finditer(text), _MAX_NAMED - len(named))]
+                label = where if cid is None else f"{where} {_HIDDEN_TEXT_RE.sub(chr(0xFFFD), _scrub(str(cid)))[:128]}"
+                named += [f"U+{ord(m.group()):05X} at character offset {m.start()} of {label}" for m in itertools.islice(_HIDDEN_TEXT_RE.finditer(text), _MAX_NAMED - len(named))]
             if cid is not None and cid not in claims:
                 claims.append(cid)
         if not n:
             return []
         shown = "; ".join(named) + (f" and {n - len(named)} more" if n > len(named) else "")
-        rid, aid = _text_attr(report, "report_id"), _text_attr(report, "agent_id")
+        sid, comb = _text_attr(synthesis, "synthesis_id"), _text_attr(synthesis, "combinator_agent_id")
         return [IntegrityFinding(code="INT-REQ-009", severity="error",
-                                 message=(f"report payload carries {n} bidirectional embedding, override or isolate character(s) in the specialist's own text "
-                                          f"({shown}): a reader may be shown the text it governs in another order than the order every check of the hub "
-                                          "reads, so it was neither checked nor delivered (rule bidi-text: the text rule the combinator port holds a synthesis to)"),
-                                 claim_ids=[c for c in claims if isinstance(c, str)][:64], report_ids=[rid] if rid else [], agent_ids=[aid] if aid else [])]
+                                 message=(f"synthesis payload carries {n} invisible tag character(s) in the combinator's own text ({shown}): they "
+                                          "can spell text the student receives but no reader sees and every check of the hub reads past, so it was neither checked "
+                                          "nor delivered (rule hidden-text)"),
+                                 claim_ids=([sid] if sid else []) + [c for c in claims if isinstance(c, str)][:63], agent_ids=[comb] if comb else [])]
     except Exception:
         return []
 
@@ -685,6 +867,26 @@ def _contract_max_length(model, name: str) -> int:
 
 
 _USER_INPUT_MAX = _contract_max_length(TaskRequest, "user_input")
+#: The contract's limit on a specialist's response text (``SpecialistReport.original_response``): raw text over it is refused
+#: before it is parsed (round 9, c2: ``respond_text``).
+_RESPONSE_MAX = _contract_max_length(SpecialistReport, "original_response")
+#: The contract's limit on a report's claims: a raw payload over it is refused by validation before any claim is read.
+_CLAIMS_MAX = _contract_max_length(SpecialistReport, "claims")
+
+
+#: The most characters of a report sent as JSON text (its response, claims and texts together) the channel reads; the
+#: contract's own limits then hold each field.
+_JSON_TEXT_MAX = 16_000_000
+#: A response text that opens like a report sent as JSON (bare or in a code fence): one match at the text's start.
+_JSON_LEAD_RE = re.compile(r"\s{0,64}(?:\{\"|```)")
+
+
+def _oversize_message(what: str, n: int, limit: Optional[int] = None) -> str:
+    """Why a text over the contract's response limit (or a JSON report text over ``_JSON_TEXT_MAX``) is refused: its length
+    and the limit, never the text."""
+    limit = _RESPONSE_MAX if limit is None else limit
+    which = "the contract's limit" if limit == _RESPONSE_MAX else "the channel's limit for a report sent as JSON text"
+    return f"{what} has {n} characters, over {which} of {limit}; it was neither parsed nor delivered (no reader of the hub ran on it)"
 _REQUEST_ITEMS_MAX = _contract_max_length(TaskRequest, "items")
 _REQUEST_CONSTRAINTS_MAX = _contract_max_length(TaskRequest, "constraints")
 _REQUEST_TEXTS_MAX = _contract_max_length(TaskRequest, "supplied_texts")
@@ -753,7 +955,10 @@ def _request_texts_given(supplied_texts) -> tuple[list[SuppliedText], list[str]]
         given = list(supplied_texts)
     except TypeError:
         return out, [f"the request's supplied texts are of type {type(supplied_texts).__name__}, not a list of texts"]
-    for i, t in enumerate(given):
+    over = len(given) > _REQUEST_TEXTS_MAX
+    # round 9 (c2, the class sweep of the over-long response): the contract's count is held before the texts are validated,
+    # so the work never grows with a list over the limit (each text was validated first, 1,000,000 of them included)
+    for i, t in enumerate(given[:_REQUEST_TEXTS_MAX]):
         if isinstance(t, SuppliedText):
             out.append(t)
             continue
@@ -761,9 +966,8 @@ def _request_texts_given(supplied_texts) -> tuple[list[SuppliedText], list[str]]
             out.append(SuppliedText.model_validate(t))
         except (ValidationError, TypeError, ValueError) as exc:
             problems.append(f"supplied text {i} does not validate as a supplied text ({_shape_reason(exc)})")
-    if len(out) > _REQUEST_TEXTS_MAX:
-        problems.append(f"the request carries {len(out)} supplied texts, over the contract's limit of {_REQUEST_TEXTS_MAX}; the record keeps the first {_REQUEST_TEXTS_MAX}")
-        out = out[:_REQUEST_TEXTS_MAX]
+    if over:
+        problems.append(f"the request carries {len(given)} supplied texts, over the contract's limit of {_REQUEST_TEXTS_MAX}; the record keeps the first {_REQUEST_TEXTS_MAX}")
     return out, problems
 
 
@@ -1452,7 +1656,9 @@ def _raw_claim_provenance(data: Mapping) -> list[IntegrityFinding]:
     or ``agent_id`` differs from the report's, decided on the raw payload BEFORE contract validation (the contract
     refuses such a claim with a bare value error), naming the claim and the fields."""
     claims = data.get("claims")
-    if not isinstance(claims, list):
+    if not isinstance(claims, list) or len(claims) > _CLAIMS_MAX:
+        # round 9 (c2, the class sweep of the over-long response): a list over the contract's limit is refused by the contract
+        # validation that follows (INT-REQ-009), never read claim by claim (100,000 claims took 1.5 s here and as many findings)
         return []
     out: list[IntegrityFinding] = []
     rid, aid = _scrub(str(data.get("report_id") or ""))[:128], _scrub(str(data.get("agent_id") or ""))[:128]
@@ -1740,6 +1946,14 @@ class TranslatorChannel:
         identity = self._sender_identity(agent_id, req)
         if identity:
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=identity)
+        limit = _JSON_TEXT_MAX if _JSON_LEAD_RE.match(text) else _RESPONSE_MAX
+        if len(text) > limit:
+            # round 9 (c2, queued q211b): the contract's limit on the response is held BEFORE any reader runs on the text (the
+            # surrogate, bidi-text and hidden-text scans, the JSON reader, the branch adapter's segmenter), so the work spent on
+            # a response never grows with an over-long text; the length is named, never the text. A report sent as JSON text
+            # also carries its claims and texts, so it is held to the JSON bound here and to the contract by its validation.
+            return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
+                IntegrityFinding(code="INT-REQ-009", severity="error", message=_oversize_message("the response text", len(text), limit), report_ids=[report_id], agent_ids=[agent_id])])
         bad = surrogate_offsets(text)
         if bad:  # not valid Unicode: no adapter or contract can take it, so it is refused before parsing (never an exception)
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
@@ -1754,6 +1968,9 @@ class TranslatorChannel:
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=f"the response is a truncated or malformed JSON payload: a JSON object that ends before it is closed ({cut}); it was neither parsed nor delivered", report_ids=[report_id], agent_ids=[agent_id])])
         if mapping is not None:  # a report sent as JSON text: validated against the contract like a report received as a mapping
             return self._respond_payload(request_message_id, mapping, agent_id=agent_id, report_id=report_id)
+        if len(text) > _RESPONSE_MAX:  # text that looked like JSON and is none: prose, held to the response limit before the adapter
+            return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
+                IntegrityFinding(code="INT-REQ-009", severity="error", message=_oversize_message("the response text", len(text)), report_ids=[report_id], agent_ids=[agent_id])])
         parser = branch.parser()
         extra = {"request_text": req.user_input} if (req is not None and getattr(parser, "accepts_request_text", False) is True) else {}
         try:
@@ -1981,6 +2198,7 @@ class TranslatorChannel:
                 continue
             self._decide_branch_check(fc, results, ids, findings, report)
         seen: set[tuple[str, tuple[str, ...]]] = set()
+        errors: list[StructuralFinding] = []
         for sf in structural:
             if sf.severity != "error":
                 continue
@@ -1990,7 +2208,9 @@ class TranslatorChannel:
             seen.add(key)
             if sf.code.endswith("-SRC-001") and sf.claim_ids and set(sf.claim_ids) <= covered:
                 continue  # the same excerpt is already an INT-REQ-003 / INT-REQ-010 finding naming the branch rule
-            findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{branch.key}] {sf.code}: {sf.message}", claim_ids=list(sf.claim_ids)))
+            errors.append(sf)
+        for codes, cids, message in subject_error_groups(errors):  # rule one-fault-once: one INT-SUBJ-003 per fault
+            findings.append(IntegrityFinding(code="INT-SUBJ-003", severity="error", message=f"[{branch.key}] {', '.join(codes)}: {message}", claim_ids=cids))
         return structural, results, ids
 
     @staticmethod
@@ -2203,7 +2423,8 @@ class TranslatorChannel:
                 if withheld is not None:
                     why = (f"; the answer declines the deliverable ({withheld[1][:200]!r}): the item is declined, not answered" if withheld[0] == "declined"
                            else f"; the answer defers the deliverable to the student's reply ({withheld[1][:200]!r}): the item is pending, not answered")
-                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} (heuristic)" + why + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
+                how = "(part labels)" if cov.method == "part_label" else "(heuristic)"  # the reading the record states, so feedback can tell them apart
+                findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} {how}" + why + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
         # Command terms C6: evaluate / discuss / to what extent / assess / examine / justify / recommend / give a judgement
         # need a judgement or position on degree. A judgement-role claim counts; so does a point, thesis, link or analysis
         # claim that states a position (verdict cue); a bare claim does not. A claim roled 'other' (a note, a self-report) never counts.
@@ -2421,6 +2642,9 @@ class TranslatorChannel:
                                         message=f"synthesis payload does not re-validate against the synthesis contract and is not delivered: {_shape_reason(exc, 'synthesis')}",
                                         claim_ids=[sid] if sid else [], agent_ids=[cid] if cid else [])]
                 return out + (_vocabulary_findings(data, exc) if isinstance(exc, ValidationError) else []), None
+        hidden = synthesis_hidden_findings(image)  # rule hidden-text (round 9, c2): refused like a text-rule failure, before any content check
+        if hidden:
+            return hidden, None
         return [], image
 
     def _synthesis_id_reuse(self, synthesis: Synthesis, msg: AgentMessage, findings: list[IntegrityFinding]) -> list[IntegrityFinding]:
@@ -2754,7 +2978,10 @@ class TranslatorChannel:
                     _n, miss = nearest_text(ex, {d: t})
                     # a short one (one or two words) needs a near form of its missing word in the text, or, for two words, the
                     # word it holds next to a near form of the other (rule short-near-miss: «crecen amigos» for «crecen amistades»)
-                    if 0 < len(miss) <= 2 and len(miss) < words and (words >= 3 or all(near_form(w, t.text) for w in miss) or (words == 2 and displaced_word(ex, t.text))) \
+                    # rule held-words (round-9 clearance c2b): three words or more alter a text only when the words it holds include two
+                    # of four letters or more (or figures), as the aligned reading requires (``adapters.sources``): "wind of change"
+                    # holds only "of" of a request and alters nothing
+                    if 0 < len(miss) <= 2 and len(miss) < words and ((words >= 3 and _holds_long_words(ex, miss)) or (words < 3 and (all(near_form(w, t.text) for w in miss) or (words == 2 and displaced_word(ex, t.text))))) \
                             and (not altered or len(miss) < len(missing)):
                         near, missing, altered = d, miss, True
                 # The sentence that carries the quotation (a parser may deliver the quotation as its own evidence claim and
@@ -3053,7 +3280,16 @@ class TranslatorChannel:
         sections = _answer_sections(report.original_response)
         section_of = _claim_sections(report.original_response, sections, material) if sections else {}
         answer_labels = {lab for _start, labels in sections for lab in labels}
-        item_labels = {part_label(i.text) or question_label(i.text) for i in req.items} - {None}
+
+        paths_in_answer = any("." in lab for lab in answer_labels)
+
+        def keys_of(lab: Optional[str]) -> set[str]:
+            # a sub-part named with its part ("a.i", rule nested-parts) is read by its own label too only when the answer never
+            # names a sub-part with its part (an answer that labels its sub-parts "(i)" and "(ii)" alone, under no part's label)
+            if lab is None:
+                return set()
+            return {lab, lab.split(".")[-1]} if "." in lab and not paths_in_answer else {lab}
+        item_labels = {k for i in req.items for k in keys_of(item_label(i.text))}
         by_part = bool(item_labels & answer_labels)  # the answer labels its parts (or its questions) as the request does
         claim_terms: dict[str, set[str]] = {}
         for c in material:
@@ -3069,9 +3305,10 @@ class TranslatorChannel:
             if echoed:  # a restated request addresses nothing, whatever words it shares with the items
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
-            lab = part_label(item.text) or question_label(item.text)
+            lab = item_label(item.text)
             if by_part and lab is not None:
-                hits = [c.claim_id for c in material if lab in section_of.get(c.claim_id, ())]
+                keys = keys_of(lab)
+                hits = [c.claim_id for c in material if keys & section_of.get(c.claim_id, frozenset())]
                 out.append(CoverageRecord(item_id=item.item_id, addressed=bool(hits), addressed_by_claim_ids=hits, method="part_label"))
                 continue
             it = _terms(_ITEM_LABEL_RE.sub("", item.text))

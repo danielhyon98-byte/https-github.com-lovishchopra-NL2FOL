@@ -77,16 +77,16 @@ def _cases(claims) -> dict[str, dict[str, Any]]:
         return mapping([{"claim_id": "s0", "text": a.claim_text, "source_claim_ids": [a.claim_id], "transformation": "carried"}, good_b], conflicts=[c])
 
     return {
-        "text ending in NUL and RLO": with_text(a.claim_text + "\x00‮"),
+        "text ending in NUL and RLO": with_text(a.claim_text + "\x00\u202e"),
         "text holding bell and escape": with_text("London \x07\x1b[2J was large."),
-        "text starting with RLO": with_text("‮" + a.claim_text),
-        "text holding LRI": with_text("London ⁦was large."),
+        "text starting with RLO": with_text("\u202e" + a.claim_text),
+        "text holding LRI": with_text("London \u2066was large."),
         "blank text": with_text("   "),
-        "dropped reason with controls": with_reason("context \x1b[2J\x07‮"),
+        "dropped reason with controls": with_reason("context \x1b[2J\x07\u202e"),
         "blank dropped reason": with_reason("   "),
         "blank conflict description": with_conflict("   "),
-        "overridden conflict description": with_conflict("‮the figures disagree"),
-        "overridden conflict basis": with_conflict("the figures disagree", basis="‮the census rules"),
+        "overridden conflict description": with_conflict("\u202ethe figures disagree"),
+        "overridden conflict basis": with_conflict("the figures disagree", basis="\u202ethe census rules"),
         "merged claim citing one source twice": mapping([{"claim_id": "s0", "text": a.claim_text, "source_claim_ids": [a.claim_id, a.claim_id],
                                                           "transformation": "merged"}, good_b]),
         "student text holding a bell": mapping([good_b], text=b.claim_text + "\x07"),
@@ -113,7 +113,7 @@ def test_a_synthesis_outside_the_text_or_citation_rule_is_rejected_on_every_path
     assert req009 and req009[0].severity == "error", rc.findings
     rule = SYNTHESIS_CITATION_RULE if "twice" in name else "the synthesis text rule"
     assert rule in req009[0].message, req009[0].message
-    for bad in ("\x00", "\x07", "\x1b", "‮", "⁦"):
+    for bad in ("\x00", "\x07", "\x1b", "\u202e", "\u2066"):
         assert bad not in req009[0].message and bad not in rc.summary  # the rule is stated, never the text
     assert "syn-t" not in ch.syntheses
 

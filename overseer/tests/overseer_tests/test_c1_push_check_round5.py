@@ -589,7 +589,8 @@ def test_the_physics_text_control_is_refused_by_the_label_rule_alone_and_the_rul
     them with the label rule's reason last.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_the_physics_text_control_keeps_the_label_and_the_rule_names_nothing``; its assertions are unchanged: the old name
+    ``test_the_physics_text_control_keeps_the_label_and_the_rule_names_nothing``; the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the old name
     stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     report, decision = _physics_text(PHYS)
     assert [(c.claim_id, c.claim_role, c.materiality) for c in report.claims] == [("s1.1", "quantitative", "material")]

@@ -78,7 +78,8 @@ def test_a_fast_clean_answer_is_refused_by_the_label_rule_alone_and_its_signed_r
     label, and its signed receipt verifies (withheld without an overseer agent, overseer-selected and delivered with one).
     Renamed after the pre-commit review of the c1 landing from
     ``test_a_fast_clean_answer_is_delivered_formally_checked_with_a_signed_receipt``, whose name stated the opposite of what it
-    asserts since rule ``formal-label-withheld``; its assertions are unchanged. It used to say: a fast answer whose every
+    asserts since rule ``formal-label-withheld``; its assertions were changed to the stricter rule (see below; the round-9 clearance
+    corrected this docstring, which said they were unchanged). It used to say: a fast answer whose every
     claim is clean travels FORMALLY CHECKED with a signed receipt.
 
     Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
@@ -205,7 +206,8 @@ def test_a_report_with_several_claims_is_refused_by_the_label_rule_alone_only_wh
     fallback (its overseer agent is called); the answer with an unresolved claim is refused for that claim as before.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean``; its assertions are unchanged:
+    ``test_a_report_with_several_claims_is_formally_checked_only_when_every_one_is_clean``; its assertions were changed to the
+    stricter rule (the round-9 clearance corrected this docstring, which said they were unchanged):
     the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     policy, agents = with_agents(clock, pack)
     run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", THREE, evidence=False))], verify=Verifier(clock, delays={"*": 10}))
@@ -264,7 +266,7 @@ def test_inside_the_budget_the_formal_path_names_no_budget_reason(clock, pack, s
     """A translation that ends at or before 240 s on the policy's clock: the formal path names no budget reason.
     Renamed after the pre-commit review of the c1 landing from ``test_inside_the_budget_there_is_no_fallback``: since rule
     ``formal-label-withheld`` the fallback runs inside the budget too (for the label rule only), which the test asserts; its
-    assertions are unchanged.
+    assertions were changed to the stricter rule (the round-9 clearance corrected this docstring, which said they were unchanged).
 
     Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
     claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
@@ -593,7 +595,7 @@ def test_a_formal_path_never_waits_for_another_deliverables_overseer_stage(clock
     translation time spent waiting); A is decided when its agent replies. Renamed after the pre-commit review of the c1
     landing from ``test_a_decision_never_waits_for_another_deliverables_overseer_stage``: since rule ``formal-label-withheld``
     B's DECISION (its fallback) waits for A's overseer stage, which the test asserts; only B's formal path never waits. Its
-    assertions are unchanged.
+    assertions were changed to the stricter rule (the round-9 clearance corrected this docstring, which said they were unchanged).
 
     Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
     claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs

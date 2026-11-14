@@ -219,7 +219,19 @@ Specialist revisions (design section 53 of ``overseer/docs/OVERSEER_DESIGN.md``)
 ``revision_feedback.py``) the revision pass (``revision_pass``) replays the genuine traffic on an audited hub of its own,
 re-issues every revision request and compares it with the recorded feedback, delivers each recorded revision
 (``revisions/<task>.json``) and reports each outcome in ``revisions`` (results.json) and "Specialist revisions" (summary.md),
-apart from every other measure: it adds no record and moves no transport count, so the headline rate excludes it.
+apart from every other measure: it adds no record and moves no transport count, so the headline rate excludes it. Each
+request is re-issued under the budget its recorded feedback was issued under (``replay_budgets``: the signed block's
+``max_rounds``), a revision file that does not record the digest of what its specialist read fails gate
+``feedback_as_read`` (``UNRECORDED_READ_FLAG``), and ``--fail-on-revision-gates`` makes a failed gate the exit status 1
+(arena round 9, c2: the replay re-issued feedback issued under one round under the default of two, and the gate failed on
+configuration for every revision).
+
+Overseer agents for the delivery pass: ``--overseer-provider MODULE:FACTORY`` (``--overseer-pack ZIP``) configures them
+through the overseer package's runner and verdict intake, and the pass is reported beside its withheld baseline without
+them (``deliveries_baseline``, ``delivery_comparison``). Without the option the harness calls no model, and the pass says
+that the overseer-selected fallback and its threshold were not exercised (``fallback_exercised``,
+``fallback_not_exercised``; arena round 9, c2: all 22 decisions withheld for that reason alone, read as a test of the 90%
+rule).
 
 The overseer sub-project. The delivery pass and the revision pass are the overseer's (its transfer auditor and delivery
 policy); every other pass and measure is the translator's own. Where the overseer is not installed (the translator runs
@@ -243,7 +255,7 @@ import traceback
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
@@ -290,6 +302,32 @@ def overseer_installed() -> bool:
         return importlib.util.find_spec("epinoic_overseer") is not None
     except (ImportError, ValueError):
         return False
+
+
+#: Why a run fails where a pass of the overseer was not run because the overseer is not installed (round-9 clearance c2b, the
+#: router fixer's handoff: every harness run of the restored environment ran without the delivery and revision measures, said only by
+#: two "not run" lines, and exited 0). ``--without-overseer`` says the operator means it: recorded as a configuration, exit 0.
+WITHOUT_OVERSEER_FAILURE = ("FAILED: the delivery pass and the revision pass were not run: the overseer is not installed "
+                            "(run with --without-overseer to replay without it)")
+
+
+def find_overseer_beside() -> Optional[str]:
+    """Rule ``overseer-beside`` (the router fixer's handoff, round-9 clearance c2b): where the overseer cannot be located and the
+    repository this harness lives in holds its sub-project (``overseer/src/epinoic_overseer``), that source tree is put on the path,
+    as the repository's own test configuration does, so the documented ``python -I scripts/arena/run_arena.py <round>`` runs the
+    overseer's passes inside the repository. It is APPENDED: an installed overseer always wins. A finder that refuses the name keeps
+    refusing it (the overseer stays not installed). Returns the path put on ``sys.path``, else None. Never imports the overseer."""
+    if overseer_installed():
+        return None
+    src = Path(__file__).resolve().parents[2] / "overseer" / "src"
+    if not (src / "epinoic_overseer" / "__init__.py").is_file() or str(src) in sys.path:
+        return None
+    sys.path.append(str(src))
+    importlib.invalidate_caches()
+    return str(src)
+
+
+OVERSEER_FOUND_BESIDE = find_overseer_beside()
 
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
@@ -423,18 +461,36 @@ def mutate(text: str, kind: str, texts=()) -> tuple[str, str]:
     raise ValueError(kind)
 
 
-def quotation_expectation(kind: str, expected: str, *, own_texts: bool, any_text: bool) -> str:
+def quotation_expectation(kind: str, expected: str, *, own_texts: bool, any_text: bool, request_words: bool = False) -> str:
     """The code a quotation mutation must be named by, from what the task supplies. A task with a supplied text of its own
     refutes an invented or altered quotation: INT-REQ-003 ('not found in the supplied texts'), never only the
     unverifiable CORE-SRC-003. A task whose only supplied text is a relayed peer report keeps ``mutate``'s expectation
     (an invented quotation credited to 'the narrator' when no narrated text was supplied is unverifiable, not refuted, so
     either code; an altered quotation of the report INT-REQ-003). Without any supplied text a quotation is unverifiable
-    rather than refuted: CORE-SRC-003. Other mutations and a skipped one are returned unchanged."""
+    rather than refuted: CORE-SRC-003, except an altered quotation whose every word the request holds (``request_words``,
+    :func:`alters_request_words`): the request's own words are a text a quotation can alter, and the channel refutes the
+    alteration against them (round-8 clearance c1, ps-t14), so INT-REQ-003, never only CORE-SRC-003 (round-9 clearance c2b:
+    maa-t15's quoted label 'at least one blue', which the core pack now reads as a mention, draws no CORE-SRC-003, while the
+    channel still refutes its alteration). Other mutations and a skipped one are returned unchanged."""
     if kind not in QUOTATION_MUTATIONS or expected == "SKIP":
         return expected
     if own_texts:
         return "INT-REQ-003"
+    if kind == "altered_quotation" and request_words and not any_text:
+        return "INT-REQ-003"
     return expected if any_text else "CORE-SRC-003"
+
+
+def alters_request_words(text: str, question: str, texts=()) -> bool:
+    """Whether the quotation the altered_quotation mutation changes (:func:`quotation_to_alter`) is made of the request's own
+    words: ``question`` holds every word of it, as the channel's reading of the text a quotation alters reads them
+    (``adapters.sources.nearest_text``, the request as one more text)."""
+    from epinoic_logic.adapters.sources import nearest_text
+    q = quotation_to_alter(text, texts)
+    if q is None or not question:
+        return False
+    _near, missing = nearest_text(q[2], {"the request": SuppliedText(document_id="the request", title=None, author="router", text=question)})
+    return not missing
 
 
 class Injection(NamedTuple):
@@ -917,6 +973,30 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else [] if value is None else [value]
 
 
+#: The name of the deployed combinator port's composer of the student-facing text (``integration.combinator_port``),
+#: ``student_facing_text(claim_texts) -> str``, when the port has one. Until it does, the port writes the text inline in
+#: ``synthesis_payload`` as the claims' texts joined by a space.
+PORT_TEXT_COMPOSER = "student_facing_text"
+
+
+def student_facing_text(texts: list[str]) -> str:
+    """The student-facing text of a relayed synthesis, composed from its synthesized claims' texts (in order) exactly as the
+    deployed combinator port composes it, so the arena relays the text production would relay and never composes one of
+    its own: the port's composer when it has one (:data:`PORT_TEXT_COMPOSER`), else the claims' texts joined by a space,
+    which is how ``combinator_port.synthesis_payload`` writes it.
+
+    Arena round 9 (c2, communication fidelity, minor): the joined text handed the student every quotation twice when the
+    combinator carried a quotation claim beside the sentence that quotes it (ll-t15: '"I learned to swim ..."' and then
+    'The column opens with a memory rather than an argument: "I learned to swim ..."'), and the hub names such a text
+    (INT-LEDGER-017, rule duplicated-content). Since the round-9 clearance's second fix pass the deployed port composes the
+    text itself (``combinator_port.student_facing_text``: such a claim is rendered only inside the sentence that quotes it),
+    and the harness follows the port's composer unchanged (``test_the_arena_composes_the_student_facing_text_as_the_port_does``),
+    so the arena relays the text production relays."""
+    from epinoic_logic.integration import combinator_port as CB
+    compose = getattr(CB, PORT_TEXT_COMPOSER, None)
+    return compose(list(texts)) if callable(compose) else " ".join(texts)
+
+
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None,
                     created_at: str | None = None):
     """The dummy combinator's synthesis for a hub task, as the JSON the router receives (a mapping of the synthesis/1.0
@@ -930,8 +1010,9 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
     JSON) is a REJECTED receipt with its codes (INT-REQ-009, and INT-SYNTH-014 for a value outside a closed vocabulary),
     never an exception, and a citation of a claim no delivered report holds reaches the hub, which names it
     (INT-LEDGER-001). A member's syntheses file that is not JSON (``UnreadableSynthesis``) is what the router would
-    receive for the group: its text is returned as the payload. Synthesized claim ids and the merged student-facing text
-    are the harness's (the format leaves them to it); ``source_report_ids`` lists the report of every delivered member
+    receive for the group: its text is returned as the payload. Synthesized claim ids are the harness's (the format leaves
+    them to it), and the student-facing text is composed from the claims' texts as the deployed combinator port composes
+    it (``student_facing_text``); ``source_report_ids`` lists the report of every delivered member
     of the group, whichever member's file holds the output; a missing certainty or transformation keeps the defaults it
     always had (SYNTHESIS_CLAIM_DEFAULTS: "established", "paraphrased"). A member's disclosed ``conflicts`` (the
     combinator sub-project's format) become the synthesis's conflict records, ``unresolved`` with the id
@@ -999,7 +1080,7 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
             conflicts.append({"conflict_id": f"{prefix}k{k_i}", "status": "unresolved", **k} if isinstance(k, dict) else k)
     if notes is not None:
         notes["evidence_refs_copied"] = copied
-    s_text = " ".join(c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)) or "(empty)"
+    s_text = student_facing_text([c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)]) or "(empty)"
     out = {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
            "created_at": created_at if created_at is not None else relay_clock()}
@@ -2075,6 +2156,93 @@ def _delivery_auditor():
     return TransferAuditor(keyring, replay_mode="inline", eager=True, hand_built_translators=DELIVERY_HAND_BUILT, inline_final_release=True)
 
 
+#: The keys of ``delivery_overseer`` that ``DeliveryPolicy`` takes; ``label`` (what the records name the overseer agents by)
+#: is the harness's own.
+DELIVERY_POLICY_KEYS = ("pack", "provider_factory", "pool_config", "router", "advisor")
+_PROVIDER_SPEC_RE = re.compile(r"(?P<module>[A-Za-z_][A-Za-z0-9_]{0,99}(?:\.[A-Za-z_][A-Za-z0-9_]{0,99}){0,20}):(?P<attr>[A-Za-z_][A-Za-z0-9_]{0,99})")
+
+
+def load_provider_factory(spec: str):
+    """The provider factory ``MODULE:FACTORY`` names (``agent_id -> completion provider``, the factory the delivery policy
+    builds its overseer agents' pool from): the operator's own code, imported by its dotted module name, never text from a
+    round or an agent. A malformed name, a module that cannot be imported or an attribute that is not callable is a
+    ValueError or ImportError, before any pass runs."""
+    m = _PROVIDER_SPEC_RE.fullmatch(spec or "")
+    if m is None:
+        raise ValueError(f"expected MODULE:FACTORY (a dotted module name and a callable in it), not {spec!r}")
+    factory = getattr(importlib.import_module(m.group("module")), m.group("attr"), None)
+    if not callable(factory):
+        raise ValueError(f"{spec} is not callable")
+    return factory
+
+
+def delivery_overseer_config(provider_spec: str, pack_path: Path | None = None) -> dict:
+    """The delivery pass's overseer agents for ``--overseer-provider``: the provider factory ``provider_spec`` names
+    (``load_provider_factory``) and where the knowledge pack comes from (``pack_zip``): the exported zip ``pack_path``, or,
+    by default, the installed pack exported to a temporary directory and loaded from its zip, as the deployed policy loads
+    it (``DeliveryPolicy(pack=load_pack(<zip>), provider_factory=...)``). The pack is loaded by ``delivery_pass`` itself
+    (the harness imports the overseer only inside its delivery pass). The agents then run through the package's runner
+    and verdict intake, so every verdict the pass counts is runner-attested; the records name the provider by
+    ``provider_spec`` (``label``). A name that is not a callable factory, or a pack file that does not exist, is refused
+    here, before any pass runs; a pack that does not load is the pass's own named error."""
+    if not overseer_installed():
+        raise ImportError(OVERSEER_NOT_INSTALLED)
+    factory = load_provider_factory(provider_spec)
+    if pack_path is not None and not Path(pack_path).is_file():
+        raise ValueError(f"no exported pack at {pack_path}")
+    return {"provider_factory": factory, "label": provider_spec, "pack_zip": Path(pack_path) if pack_path is not None else None}
+
+
+def _withheld_why(label: str | None, wording_by_cause: dict) -> str | None:
+    """The cause a withheld decision's label states (``wording_by_cause``: the policy's fixed wording per cause,
+    ``no_candidate``, ``no_accuracy``, ``no_acceptable``, ``below_threshold`` ...), or None when the label states none."""
+    for kind, wording in (wording_by_cause or {}).items():
+        if label and wording in label:
+            return kind
+    return None
+
+
+def fallback_accounting(tasks: list[dict], configured: bool) -> dict:
+    """Whether the delivery pass exercised the overseer-selected fallback (the founder's rule: deliver the most accurate
+    acceptable candidate only above the threshold, labelled honestly), counted from its records: the decisions whose
+    overseer stage ran and established an accuracy (no time-out, no error), the overseer-selected ones and the withheld
+    ones by cause. Without overseer agents the fallback establishes no accuracy, so nothing of it is exercised and the
+    pass says so: arena round 9's results audit found every c2 decision withheld for that reason alone, read as if the
+    90% rule had been tested."""
+    ran = [t for t in tasks if (t.get("overseer") or {}).get("ran") and not t["overseer"].get("timed_out") and not t["overseer"].get("error")]
+    # an accuracy is established only by a counted verdict: a stage whose every run failed (a provider error, say) ran, but
+    # established nothing, whatever cause the decision's label states
+    established = [t for t in ran if t["overseer"].get("verdicts_counted")]
+    by_why: dict[str, int] = {}
+    for t in tasks:
+        if t.get("mode") == "withheld":
+            why = t.get("withheld_why") or "other"
+            by_why[why] = by_why.get(why, 0) + 1
+    out = {"fallback_exercised": bool(established), "decided_on_established_accuracy": len(established),
+           "overseer_selected": sum(1 for t in tasks if t.get("mode") == "overseer_selected"), "withheld_by_cause": by_why,
+           "overseer_stage_without_counted_verdict": [t["file"] for t in ran if not t["overseer"].get("verdicts_counted")]}
+    if not established:
+        out["fallback_not_exercised"] = ("no overseer agent is configured (the harness calls no model): no accuracy was established, so neither the "
+                                         "overseer-selected fallback above the threshold nor the below-threshold rule was exercised" if not configured else
+                                         "the overseer agents established no accuracy on any answer (their stage did not run, ran out of its budget, failed, "
+                                         "or no verdict of theirs was counted), so neither the overseer-selected fallback nor the below-threshold rule was "
+                                         "exercised")
+    return out
+
+
+def delivery_comparison(configured: dict, baseline: dict) -> dict:
+    """The configured delivery pass beside the withheld baseline (the same pass without overseer agents): per task, the
+    baseline's mode and the configured pass's, and the tasks whose decision the overseer agents changed."""
+    base = {t["file"]: t for t in baseline.get("tasks", [])}
+    rows = []
+    for t in configured.get("tasks", []):
+        b = base.get(t["file"]) or {}
+        rows.append({"file": t["file"], "baseline_mode": b.get("mode"), "mode": t.get("mode"), "withheld_why": t.get("withheld_why"),
+                     "baseline_withheld_why": b.get("withheld_why")})
+    return {"tasks": rows, "changed": [r["file"] for r in rows if r["mode"] != r["baseline_mode"]],
+            "by_mode": configured.get("by_mode", {}), "baseline_by_mode": baseline.get("by_mode", {})}
+
+
 def _candidate_line(c: dict) -> str:
     flags = [f for f, on in (("refuted", c.get("refuted")), ("faulted", c.get("faulted") and not c.get("refuted")),
                              ("not deliverable", not c.get("deliverable", True))) if on]
@@ -2086,7 +2254,7 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
     translation and overseer times, the formal path's reasons and claims, every candidate with its accuracy and the one
     chosen, the reasons, the signed receipt's id and whether it verifies, and whether the delivery pass's receipt is the
     genuine record's (status and codes)."""
-    from epinoic_overseer.delivery_policy import verify_delivery_receipt
+    from epinoic_overseer.delivery_policy import DeliveryPolicy, verify_delivery_receipt
     r = decision.receipt
     fb = r.fallback
     codes = sorted({f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}) if rc is not None else None
@@ -2094,7 +2262,9 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
     same = genuine is not None and genuine.get("status") == status and genuine.get("codes") == codes
     out = {
         "file": item["_path"].name, "task_id": item["task_id"], "group": group_of(item), "agent_id": item["agent_id"], "subject": item["subject"],
-        "mode": decision.mode, "delivered": decision.delivered, "label": decision.label, "time_to_decision_s": r.time_to_decision_s,
+        "mode": decision.mode, "delivered": decision.delivered, "label": decision.label,
+        "withheld_why": _withheld_why(decision.label, getattr(DeliveryPolicy, "_WITHHELD_WHY", {})) if decision.mode == "withheld" else None,
+        "time_to_decision_s": r.time_to_decision_s,
         "translation_s": r.translation_s, "overseer_s": r.overseer_s,
         "formal": {"complete": r.formal.complete, "within_budget": r.formal.within_budget, "reasons": list(r.formal.reasons),
                    "claims": [{"claim_id": c.claim_id, "outcome": c.outcome, "display_status": c.display_status, "translation_status": c.translation_status,
@@ -2107,7 +2277,9 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
                        for c in (fb.candidates if fb is not None else [])],
         "chosen": ({"message_id": r.delivered_message_id, "agent_id": r.delivered_agent_id} if r.delivered else None),
         "overseer": ({"configured": fb.overseer.configured, "ran": fb.overseer.ran, "timed_out": fb.overseer.timed_out, "error": fb.overseer.error,
-                      "instances": list(fb.overseer.instances)} if fb is not None else None),
+                      "instances": list(fb.overseer.instances), "runs": [dict(x) for x in fb.overseer.runs],
+                      "verdicts_counted": sum(1 for v in fb.overseer.verdicts if v.counted), "verdicts": len(fb.overseer.verdicts)}
+                     if fb is not None else None),
         "why_fallback": list(fb.why) if fb is not None else [], "selection": list(fb.selection) if fb is not None else [], "reasons": list(r.reasons),
         "delivery_receipt_id": r.receipt_id, "receipt_verifies": verify_delivery_receipt(r, keyring),
         "delivery_pass_status": status, "delivery_pass_codes": codes, "receipt_matches_genuine_record": same,
@@ -2126,21 +2298,39 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     "pool_config": ...}``) configures the fallback's overseer agents; without it (the command line: the harness calls no
     model) the fallback establishes no accuracy, so an answer the formal path does not complete is withheld. The pass
     changes no record of the round and no transport count: its records are ``deliveries``, a measure of its own. Where
-    the overseer is not installed the pass is not run and says so (:data:`OVERSEER_NOT_INSTALLED`)."""
+    the overseer is not installed the pass is not run and says so (:data:`OVERSEER_NOT_INSTALLED`).
+
+    Whether the pass exercised the overseer-selected fallback is counted from its records (``fallback_accounting``:
+    ``fallback_exercised``, the decisions taken on an established accuracy, the overseer-selected ones and the withheld
+    ones by cause, ``withheld_why`` on each task), and a pass that did not says why (``fallback_not_exercised``), so a
+    withheld baseline is never read as a test of the threshold. ``overseer`` may name its agents (``label``: the
+    ``--overseer-provider`` the command line was given); its other keys are the policy's (:data:`DELIVERY_POLICY_KEYS`)."""
     if not overseer_installed():
         return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "by_mode": {}, "errors": []}
     from epinoic_overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
     t_pass = time.perf_counter()
     cfg = DeliveryConfig()
+    label = (overseer or {}).get("label")
     out = {"policy": DELIVERY_POLICY_VERSION, "translation_budget_s": cfg.translation_budget_s, "overseer_budget_s": cfg.overseer_budget_s,
            "min_selected_accuracy": cfg.min_selected_accuracy,
-           "overseer": "configured" if overseer else "not configured (the harness calls no model): the fallback establishes no accuracy",
+           "overseer": (f"configured ({label}, through the overseer package's runner and verdict intake)" if label else "configured") if overseer else
+                       "not configured (the harness calls no model): the fallback establishes no accuracy",
            "tasks": [], "by_mode": {m: 0 for m in ("formally_checked", "overseer_selected", "not_checked", "withheld")}, "errors": []}
     genuine = {r["file"]: r for r in records if r.get("variant") == "genuine"}
     try:
         auditor = _delivery_auditor()
         hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor)
-        policy = DeliveryPolicy(config=cfg, clock=time.monotonic, **(overseer or {}))
+        agents = {k: v for k, v in (overseer or {}).items() if k in DELIVERY_POLICY_KEYS}
+        if agents.get("provider_factory") is not None and agents.get("pack") is None:  # --overseer-provider: load the exported pack here
+            import tempfile
+
+            from epinoic_overseer import export_pack, load_pack
+            if (overseer or {}).get("pack_zip") is not None:
+                agents["pack"] = load_pack(Path(overseer["pack_zip"]))
+            else:
+                with tempfile.TemporaryDirectory(prefix="arena-overseer-pack-") as tmp:
+                    agents["pack"] = load_pack(export_pack(Path(tmp), zip_archive=True).zip_path)
+        policy = DeliveryPolicy(config=cfg, clock=time.monotonic, **agents)
     except Exception as exc:  # a failure of the pass never ends the round
         out["errors"].append({"error": f"the delivery pass could not start: {type(exc).__name__}: {exc}"})
         return out
@@ -2189,6 +2379,7 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
             pass
     out["receipts_matching_genuine_records"] = sum(1 for t in out["tasks"] if t.get("receipt_matches_genuine_record"))
     out["decided"] = sum(1 for t in out["tasks"] if "delivery_receipt_id" in t)
+    out.update(fallback_accounting(out["tasks"], bool(overseer)))
     out["wall_s"] = round(time.perf_counter() - t_pass, 3)  # the pass's own wall time (a measure for the optimisation checks)
     return out
 
@@ -2203,6 +2394,7 @@ def delivery_lines(d: dict) -> list[str]:
              f"Overseer agents: {d.get('overseer')}. A separate measure: it changes no transport count. Modes: "
              + ", ".join(f"{k} {v}" for k, v in d.get("by_mode", {}).items()) + f"; receipts identical to the genuine records' (status and codes): "
              f"{d.get('receipts_matching_genuine_records', 0)} of {d.get('decided', 0)}; the pass took {d.get('wall_s', 0):g} s.", "",
+             fallback_line(d), "",
              "| task | mode | time to decision (s) | translation (s) | overseer (s) | candidates (accuracy) | chosen | why |",
              "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for t in d.get("tasks", []):
@@ -2218,6 +2410,37 @@ def delivery_lines(d: dict) -> list[str]:
         lines.append(f"- delivery pass error: {e.get('file', '')} {e.get('error')}")
     if not d.get("tasks"):
         lines.append("(no task)")
+    return lines
+
+
+def fallback_line(d: dict) -> str:
+    """summary.md's statement of what the delivery pass exercised of the overseer-selected fallback (``fallback_accounting``)."""
+    causes = ", ".join(f"{k} {v}" for k, v in sorted((d.get("withheld_by_cause") or {}).items())) or "none"
+    empty = d.get("overseer_stage_without_counted_verdict") or []
+    tail = (f" The overseer stage ran with no counted verdict (nothing established, whatever cause the label states) on: {', '.join(empty)}."
+            if empty else "")
+    if not d.get("fallback_exercised"):
+        return (f"Overseer-selected fallback: NOT exercised in this pass: {d.get('fallback_not_exercised') or 'no accuracy was established'}. "
+                f"Withheld by cause: {causes}.{tail}")
+    return (f"Overseer-selected fallback: exercised: {d.get('decided_on_established_accuracy', 0)} decision(s) on an accuracy the overseer agents' "
+            f"counted verdicts established; overseer-selected {d.get('overseer_selected', 0)}; withheld by cause: {causes}.{tail}")
+
+
+def delivery_baseline_lines(base: dict, comparison: dict) -> list[str]:
+    """summary.md's section on the withheld baseline: the same delivery pass without overseer agents, beside the
+    configured pass above, with every decision the overseer agents changed."""
+    if base.get("skipped"):
+        return ["## Delivery decisions without overseer agents (the withheld baseline)", "", f"(not run: {base['skipped']})"]
+    lines = ["## Delivery decisions without overseer agents (the withheld baseline)", "",
+             "The same pass with no overseer agent: every answer whose formal path does not complete is withheld. Modes: "
+             + ", ".join(f"{k} {v}" for k, v in base.get("by_mode", {}).items()) + f"; with the overseer agents: "
+             + ", ".join(f"{k} {v}" for k, v in comparison.get("by_mode", {}).items()) + ".", ""]
+    changed = set(comparison.get("changed", []))
+    lines += [f"- {r['file']}: {r['baseline_mode']}" + (f" ({r['baseline_withheld_why']})" if r.get("baseline_withheld_why") else "") + f" -> {r['mode']}"
+              + (f" ({r['withheld_why']})" if r.get("withheld_why") else "") for r in comparison.get("tasks", []) if r["file"] in changed]
+    if not changed:
+        lines.append("(the overseer agents changed no decision)")
+    lines += [f"- baseline pass error: {e.get('file', '')} {e.get('error')}" for e in base.get("errors", [])]
     return lines
 
 
@@ -2239,6 +2462,106 @@ FEEDBACK_COMPARED = ("issued", "reason", "round", "max_rounds", "rendered_sha256
 #: The shadow's codes on a transfer it does not reproduce (OVS-RCPT-004 a finding missing, 005 a finding the shadow does not
 #: raise, 008 another status or other structured results).
 SHADOW_CODES = ("OVS-RCPT-004", "OVS-RCPT-005", "OVS-RCPT-008")
+#: The flag of a revision file that does not record the digest of the message its specialist read (``feedback_sha256``):
+#: without it no replay can show that the specialist read the feedback as issued, so gate ``feedback_as_read`` fails.
+UNRECORDED_READ_FLAG = ("the revision file does not record the feedback its specialist read (no feedback_sha256): the replay cannot show "
+                        "that the specialist read the feedback as issued")
+
+
+def _is_budget(value) -> bool:
+    from epinoic_logic.channel.contracts import HARD_MAX_REVISION_ROUNDS
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= HARD_MAX_REVISION_ROUNDS
+
+
+def recorded_feedback_budget(doc) -> int | None:
+    """The revision budget a recorded feedback file (``feedback/<task>.json``) was issued under: the signed block's
+    ``max_rounds`` when the file holds a block (what the specialist read: 'Revision request 1 of 1'), else the file's own
+    ``max_rounds`` (``feedback_document`` records the plan's budget for an answer that got no request too, such as
+    ``no_actionable_flaw``). None when the file records neither, or a value that is no budget (not an integer from 1 to
+    the hard maximum; a bool is no integer here)."""
+    if not isinstance(doc, dict):
+        return None
+    block = doc.get("block")
+    for value in ((block.get("max_rounds") if isinstance(block, dict) else None), doc.get("max_rounds")):
+        if _is_budget(value):
+            return value
+    return None
+
+
+def replay_budgets(items: list[dict], recorded: dict) -> tuple[list[dict], dict[str, dict]]:
+    """The revision pass's items, each re-issued under the budget its recorded feedback was issued under (arena round 9,
+    c2: the feedback was issued under one revision round, 'Revision request 1 of 1', while the round's tasks.json recorded
+    no ``revision_rounds``, so the replay re-issued every request under the default budget and gate ``feedback_as_read``
+    failed on configuration for all 15 revisions, not on custody). Per task with a recorded budget
+    (``recorded_feedback_budget``): the round's own setting (the specialist file's or tasks.json's ``revision_rounds``) when
+    it agrees (source ``round``), else the recorded budget (source ``feedback``), naming the round's other setting
+    (``round_budget``) when there is one. Returns copies of the items (the caller's are never changed) and ``{task id:
+    {"max_rounds", "source", "round_budget"?}}``. A group's plan carries one budget (``group_plan``: the smallest its
+    members set), so a group whose recorded files disagree reproduces at most one of them, and the comparison names the
+    others."""
+    out_items: list[dict] = []
+    budgets: dict[str, dict] = {}
+    for it in items:
+        it = dict(it)
+        budget = recorded_feedback_budget(recorded.get(it["task_id"]))
+        if budget is not None:
+            own = it.get("revision_rounds")
+            if own == budget and _is_budget(own):
+                budgets[it["task_id"]] = {"max_rounds": budget, "source": "round"}
+            else:
+                budgets[it["task_id"]] = {"max_rounds": budget, "source": "feedback"} | ({"round_budget": own} if own is not None else {})
+                it["revision_rounds"] = budget
+        out_items.append(it)
+    return out_items, budgets
+
+
+class UnreadableFile(str):
+    """Why a recorded feedback or revision file could not be read as JSON (``_json_file``): kept in its file's place, so
+    the revision pass names it as a difference or an error instead of raising."""
+
+
+def _json_file(p: Path):
+    """``(value, None)`` for a JSON file, ``(None, why)`` for one that cannot be read as JSON (never raised: a round's
+    feedback and revision files are recorded material, and one bad file never stops the pass)."""
+    try:
+        return json.loads(p.read_text(encoding="utf-8")), None
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        return None, f"not JSON ({type(exc).__name__})"
+
+
+def record_revision_budget(round_dir: Path, items: list[dict], revision_rounds: int, task_ids=None) -> dict:
+    """Record in the round the revision budget its feedback is issued under (arena round 9, c2: the feedback was issued
+    under one revision round while the round recorded none, so no replay could re-issue it as the specialists read it).
+    Every covered task (``task_ids``, else every task of the round) of ``<round>/tasks.json`` gets ``revision_rounds``,
+    the round's setting ``load_items`` reads; a task that already records another budget (in tasks.json or in its
+    specialist file) is refused with ValueError, before anything is written, never overwritten. The items of the covered
+    groups carry the budget too, so the replay that issues the feedback plans with it. A round without tasks.json records
+    the budget in its feedback files only (each one's ``max_rounds`` and signed block), which the revision pass reads
+    (``recorded_feedback_budget``). Returns ``{"revision_rounds", "recorded_in", "tasks"}``."""
+    if not _is_budget(revision_rounds):
+        raise ValueError(f"revision_rounds must be an integer from 1 to the hard maximum, not {revision_rounds!r} (0 disables feedback: issue none)")
+    covered = set(task_ids) if task_ids else {it["task_id"] for it in items}
+    tasks_file = round_dir / "tasks.json"
+    tasks = json.loads(tasks_file.read_text(encoding="utf-8")) if tasks_file.exists() else None
+    entries = [t for t in (tasks if isinstance(tasks, list) else []) if isinstance(t, dict) and t.get("task_id") in covered]
+    # every conflict is refused before anything is written or changed
+    for where, task_id, own in ([("its specialist file or tasks.json", it["task_id"], it.get("revision_rounds")) for it in items if it["task_id"] in covered]
+                                + [("tasks.json", t["task_id"], t.get("revision_rounds")) for t in entries]):
+        if own is not None and own != revision_rounds:
+            raise ValueError(f"task {task_id} records revision_rounds {own!r} in {where}; refusing to issue its feedback under {revision_rounds}")
+    groups = {group_of(it) for it in items if it["task_id"] in covered}
+    for it in items:
+        if group_of(it) in groups and it.get("revision_rounds") is None:
+            it["revision_rounds"] = revision_rounds
+    changed = False
+    for t in entries:
+        if t.get("revision_rounds") is None:
+            t["revision_rounds"] = revision_rounds
+            changed = True
+    if changed:
+        tasks_file.write_text(json.dumps(tasks, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    recorded = sorted(t["task_id"] for t in entries)
+    return {"revision_rounds": revision_rounds, "recorded_in": "tasks.json" if recorded else None, "tasks": recorded}
 
 
 def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, auditor=None, task_ids=None):
@@ -2321,6 +2644,8 @@ def _keep_of(doc: dict | None) -> list | None:
 def feedback_differences(recorded: dict, current: dict | None) -> list[str]:
     """The fields of FEEDBACK_COMPARED in which the re-issued request differs from the recorded feedback file (empty when the
     specialist read what this code issues): a difference means the feedback differs from what the specialist read."""
+    if not isinstance(recorded, dict):
+        return ["the recorded feedback file is not a JSON object"]
     if current is None:
         return ["the answer was not replayed"]
     out = []
@@ -2331,14 +2656,21 @@ def feedback_differences(recorded: dict, current: dict | None) -> list[str]:
     return out
 
 
-def revision_feedback(round_dir: Path, task_ids=None) -> dict:
+def revision_feedback(round_dir: Path, task_ids=None, *, revision_rounds: int | None = None) -> dict:
     """Build, through the audited hub, the infrastructure's feedback on every genuine answer of the round (or on
     ``task_ids``) and write ``<round>/feedback/<task_id>.json`` (``feedback_document``). Returns the files and the count by
-    reason. Nothing is sent to a specialist: the pipeline sends ``rendered`` as the specialist's next turn."""
+    reason. Nothing is sent to a specialist: the pipeline sends ``rendered`` as the specialist's next turn.
+
+    ``revision_rounds`` issues the feedback under that budget and records it in the round first
+    (``record_revision_budget``: tasks.json's ``revision_rounds`` of every covered task; a task that records another
+    budget is refused before anything is written), so a replay re-issues the requests exactly as the specialists read
+    them. Without it the round's own setting applies (tasks.json or the specialist file), else the channel's default.
+    Either way each feedback file records the budget it was issued under (``max_rounds``, and the signed block's)."""
     items = load_items(round_dir / "specialists")
     wanted = set(task_ids) if task_ids else None
+    budget = record_revision_budget(round_dir, items, revision_rounds, wanted) if revision_rounds is not None else None
     hub, entries = _feedback_replay(items, load_recorded_relays(round_dir, items), task_ids=wanted)
-    out = {"files": [], "by_reason": {}, "issued": 0}
+    out = {"files": [], "by_reason": {}, "issued": 0, "budget": budget}
     try:
         (round_dir / FEEDBACK_DIR).mkdir(exist_ok=True)
         for task_id, entry in entries.items():
@@ -2373,18 +2705,41 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
     revision's outcome (fixed, removed, evaded, persisted, not re-checked; introduced flaws, preservation findings, claims
     lost; the next step) and its consolidation before and after are recorded with the times. The pass adds no record to
     the round and moves no transport count: the headline rate excludes it. Where the overseer is not installed the pass
-    is not run and says so (:data:`OVERSEER_NOT_INSTALLED`)."""
+    is not run and says so (:data:`OVERSEER_NOT_INSTALLED`).
+
+    Each request is re-issued under the budget its recorded feedback was issued under (``replay_budgets``; each check
+    names its ``max_rounds`` and where the budget came from), so gate ``feedback_as_read`` decides custody, not the
+    round's configuration (arena round 9, c2). A revision file that does not record the digest of the message its
+    specialist read is flagged (:data:`UNRECORDED_READ_FLAG`) and fails that gate. A file in ``feedback/`` or
+    ``revisions/`` whose name is no task of the round and that carries no ``task_id`` (an exercise's own summary, say) is
+    no feedback or revision file: it is listed under ``ignored_files``, never compared; a feedback or revision file that is
+    not JSON is a named difference or error, never an exception."""
     fb_dir, rev_dir = round_dir / FEEDBACK_DIR, round_dir / REVISIONS_DIR
     if not fb_dir.is_dir():
         return {"skipped": "the round has no feedback/ directory (scripts/arena/revision_feedback.py was not run)", "tasks": [], "checks": [], "errors": []}
     if not overseer_installed():
         return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "checks": [], "errors": []}
     t_pass = time.perf_counter()
-    recorded = {p.stem: json.loads(p.read_text()) for p in sorted(fb_dir.glob("*.json"))}
-    revisions = {p.stem: json.loads(p.read_text()) for p in sorted(rev_dir.glob("*.json"))} if rev_dir.is_dir() else {}
-    out: dict = {"tasks": [], "checks": [], "errors": [], "answers_checked": 0, "feedback_issued": 0, "negative_controls": 0}
+    task_names = {it["task_id"] for it in items}
+    ignored: list[dict] = []
+
+    def read_dir(d: Path, kind: str) -> dict:
+        found: dict = {}
+        for p in sorted(d.glob("*.json")) if d.is_dir() else []:
+            value, why = _json_file(p)
+            if p.stem not in task_names and not (isinstance(value, dict) and "task_id" in value):
+                ignored.append({"file": f"{d.name}/{p.name}", "why": f"no {kind} file: its name is no task of the round and it carries no task_id"
+                                                                       + (f" ({why})" if why else "")})
+                continue
+            found[p.stem] = value if why is None else UnreadableFile(why)  # an unreadable file is kept as its reason, never raised on
+        return found
+    recorded = read_dir(fb_dir, "feedback")
+    revisions = read_dir(rev_dir, "revision")
+    out: dict = {"tasks": [], "checks": [], "errors": [], "answers_checked": 0, "feedback_issued": 0, "negative_controls": 0, "ignored_files": ignored}
+    replay_items, budgets = replay_budgets(items, {k: v for k, v in recorded.items() if isinstance(v, dict)})
+    out["budgets"] = budgets
     try:
-        hub, entries = _feedback_replay(items, recorded_relays)
+        hub, entries = _feedback_replay(replay_items, recorded_relays)
     except Exception as exc:
         out["errors"].append({"error": f"the revision pass could not start: {type(exc).__name__}: {exc}"})
         return out
@@ -2399,22 +2754,36 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
                 out["negative_controls"] += 1
         for task_id, rec in recorded.items():
             entry = entries.get(task_id)
-            diff = feedback_differences(rec, feedback_document(entry) if entry is not None else None)
-            out["checks"].append({"task_id": task_id, "identical": not diff, "differences": diff})
+            if isinstance(rec, UnreadableFile):
+                diff = [f"the recorded feedback file is {rec}"]
+            else:
+                diff = feedback_differences(rec, feedback_document(entry) if entry is not None else None)
+            check = {"task_id": task_id, "identical": not diff, "differences": diff}
+            if task_id in budgets:
+                check["budget"] = dict(budgets[task_id])
+            out["checks"].append(check)
         groups: dict[str, list[str]] = {}
         for task_id, rev in revisions.items():
             entry = entries.get(task_id)
             issue = (entry or {}).get("issue")
             rec = {"task_id": task_id, "agent_id": (entry or {}).get("item", {}).get("agent_id"), "delivered": False}
+            if not isinstance(rev, dict):
+                rec["error"] = f"the revision file is {rev}" if isinstance(rev, UnreadableFile) else "the revision file is not a JSON object"
+                rec["flag"] = UNRECORDED_READ_FLAG
+                out["tasks"].append(rec)
+                continue
             missing = [k for k in REVISION_FILE_REQUIRED if k not in rev]
             if missing or issue is None or not issue.allowed:
                 rec["error"] = (f"the revision file lacks {missing}" if missing else
                                 f"no revision request was issued for this answer ({issue.reason if issue is not None else (entry or {}).get('error')}): "
                                 "a revision of a flawless answer, or of one whose chain ended, is never delivered")
+                if "feedback_sha256" in missing:
+                    rec["flag"] = UNRECORDED_READ_FLAG
                 out["tasks"].append(rec)
                 continue
             rec["feedback_read"] = rev["feedback_sha256"] == issue.revision.rendered_sha256
-            if not rec["feedback_read"] or (task_id in recorded and recorded[task_id].get("rendered_sha256") != issue.revision.rendered_sha256):
+            held = recorded.get(task_id)
+            if not rec["feedback_read"] or (task_id in recorded and (not isinstance(held, dict) or held.get("rendered_sha256") != issue.revision.rendered_sha256)):
                 rec["flag"] = "feedback differs from what the specialist read"
             key = entry["key"]
             rec["consolidation_before"] = _consolidation_state(hub, key, [entry["request"].message_id])
@@ -2505,21 +2874,42 @@ def revision_lines(d: dict) -> list[str]:
              "| task | revision | flaws (bucket) | introduced | INT-REV-002 | next | flag |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for t in d.get("tasks", []):
         if "error" in t and not t.get("delivered"):
-            lines.append(f"| {t['task_id']} | not delivered | - | - | - | - | {t['error'][:160]} |")
+            lines.append(f"| {t['task_id']} | not delivered | - | - | - | - | {t['error'][:160]}" + (f"; {t['flag']}" if t.get("flag") else "") + " |")
             continue
         fl = "; ".join(f"{x['code']} {x['bucket']}" for x in t.get("buckets", [])) or "-"
         lines.append(f"| {t['task_id']} | {t.get('revision_status')} | {fl} | {', '.join(t.get('introduced', [])) or '-'} | {len(t.get('preservation', []))} | "
                      f"{t.get('next', '-')} | {t.get('flag', '')} |")
     diffs = [c for c in d.get("checks", []) if not c["identical"]]
     lines += [f"- feedback differs from what the specialist read: {c['task_id']} ({', '.join(c['differences'])})" for c in diffs]
+    lines += [budget_line(d.get("budgets") or {})] if d.get("budgets") else []
+    lines += [f"- not a feedback or revision file, so not compared: {x['file']} ({x['why']})" for x in d.get("ignored_files", [])]
     lines += [f"- revision pass error: {e.get('error')}" for e in d.get("errors", [])]
     return lines
 
 
+def budget_line(budgets: dict[str, dict]) -> str:
+    """summary.md's line on the budgets the requests were re-issued under (``replay_budgets``): how many came from the
+    round's own setting and how many from the recorded feedback files, naming each task whose round records another."""
+    by_source: dict[str, list[str]] = {}
+    for task_id, b in sorted(budgets.items()):
+        by_source.setdefault(b["source"], []).append(f"{task_id} {b['max_rounds']}" + (f" (the round records {b['round_budget']})" if "round_budget" in b else ""))
+    parts = []
+    if by_source.get("round"):
+        parts.append(f"{len(by_source['round'])} under the budget the round records (tasks.json or the specialist file), equal to the recorded feedback's")
+    if by_source.get("feedback"):
+        parts.append(f"{len(by_source['feedback'])} under the budget recorded in its feedback file, which the round does not record as its own: "
+                     + ", ".join(by_source["feedback"]))
+    return "- revision budgets the requests were re-issued under: " + "; ".join(parts)
 
-def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_record: bool = True) -> dict:
+
+
+def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_record: bool = True, delivery_baseline: bool = False,
+              without_overseer: bool = False) -> dict:
     """Run one recorded round (module docstring). ``delivery_overseer`` configures the delivery pass's overseer agents
-    (``delivery_pass``); the command line passes none. ``task_record`` (default True, as production): the claim verifier
+    (``delivery_pass``); the command line passes none unless ``--overseer-provider`` names a provider factory.
+    ``delivery_baseline`` (with ``delivery_overseer``; the command line sets it with ``--overseer-provider``) also runs the
+    same pass without overseer agents and reports the configured pass's decisions beside that withheld baseline
+    (``deliveries_baseline``, ``delivery_comparison``). ``task_record`` (default True, as production): the claim verifier
     receives the task record of the request each report answers and hands it to the translator; False replays with the
     two-argument verifier of the replays before round 8's clearance (``--without-task-record``), for comparison only."""
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
@@ -2638,7 +3028,9 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
         answered = not item.get("peer_of") or task_id in peer_docs
         quote_texts = list(texts)  # the texts the altered quotation is chosen from (mutate) and recognised by (injection)
         variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k, quote_texts) for k in MUTATIONS]
-        variants = [(k, t, quotation_expectation(k, e, own_texts=bool(supplied(item)), any_text=bool(texts))) for k, t, e in variants] if answered else []
+        variants = [(k, t, quotation_expectation(k, e, own_texts=bool(supplied(item)), any_text=bool(texts),
+                                                 request_words=k == "altered_quotation" and not texts and alters_request_words(item["response_text"], item["question"], quote_texts)))
+                    for k, t, e in variants] if answered else []
         if answered and is_stem_subject(item["subject"]):  # STEM faults, only on STEM subjects (after the shared ones: their indices are unchanged)
             variants += [(k,) + stem_variant(item["response_text"], item["question"], k) for k in STEM_MUTATIONS]
         for vi, (kind, text, expected) in enumerate(variants):
@@ -2778,6 +3170,8 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer) if DELIVERY_PASS else
                   {"skipped": "the delivery pass is switched off (DELIVERY_PASS is False: a harness that replaces this module's hub or verifier "
                               "runs this round)", "tasks": [], "by_mode": {}, "errors": []})
+    # with overseer agents configured, the same pass without them: the withheld baseline the configured decisions are read beside
+    baseline = (delivery_pass(items, make_verify_fn, recorded_relays, records) if DELIVERY_PASS and delivery_overseer and delivery_baseline else None)
     # the specialist revisions (design section 53): a pass of its own, only when the round recorded the feedback its specialists
     # read; it adds no record and moves no transport count
     revisions = (revision_pass(round_dir, items, recorded_relays) if REVISION_PASS else
@@ -2830,12 +3224,16 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
            "recorded_relay_checks": recorded_relay_checks,
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "deliveries": deliveries,
+           **({"deliveries_baseline": baseline, "delivery_comparison": delivery_comparison(deliveries, baseline)} if baseline is not None else {}),
            "revisions": revisions,
            "failures": [r for r in records if not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
     out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record)
     out["qualifications"] = out["metrics"]["qualifications"]
     out["qualified"] = bool(out["qualifications"])
+    # the overseer's configuration (rule overseer-beside): where it was found, and whether the operator replays without it on purpose
+    out["overseer"] = {"found_beside": OVERSEER_FOUND_BESIDE is not None, "without_overseer": bool(without_overseer),
+                       "passes_not_run": overseer_passes_not_run(out)}
     (round_dir / "results.json").write_text(json.dumps(out, indent=2, default=str))
     lines = [title_line(round_dir.name, out["metrics"]), "",
              f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%}). This is the transport measure only: fixture coverage, "
@@ -2877,7 +3275,13 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
             lines.append(f"  - info-level: {u['unexplained_info']}")
     if not out["mutations_with_unexplained_findings"]:
         lines.append("(none)")
+    if out["overseer"]["passes_not_run"]:
+        lines += ["", "Overseer configuration: " + ("replayed without the overseer on purpose (--without-overseer): " if without_overseer else
+                                                    "NOT installed, and --without-overseer was not given, so the command line fails the run: ")
+                  + ", ".join(out["overseer"]["passes_not_run"]) + " not run."]
     lines += [""] + delivery_lines(out["deliveries"])
+    if baseline is not None:
+        lines += [""] + delivery_baseline_lines(baseline, out["delivery_comparison"])
     lines += [""] + revision_lines(out["revisions"])
     lines += ["", "## Failures", ""] + ([f"- {r['file']} [{r['variant']}]: {'; '.join(([r['error']] if r.get('error') else []) + (r.get('failure_reasons') or [])) or ('status ' + str(r.get('status')) + ' codes ' + str(r.get('codes')))}" for r in out["failures"]] or ["(none)"])
     (round_dir / "summary.md").write_text("\n".join(lines))
@@ -2896,9 +3300,32 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--without-task-record", action="store_true",
                     help="do not pass the task record to the translator (production passes it): the configuration of the replays before round 8's "
                          "clearance, for a comparison with them only; results.json and summary.md say so")
+    ap.add_argument("--without-overseer", action="store_true",
+                    help="replay where the overseer is not installed on purpose: its delivery pass and revision pass are recorded as not run and "
+                         "the run exits 0; without it a pass not run because the overseer is not installed fails the run (exit status 1); "
+                         "results.json and summary.md record the configuration")
+    ap.add_argument("--fail-on-revision-gates", action="store_true",
+                    help="exit with status 1 when the revision pass ran (the round holds feedback/) and one of its gates failed or it recorded an "
+                         "error, so a feedback exercise whose specialists cannot be shown to have read the feedback as issued fails")
+    ap.add_argument("--overseer-provider", metavar="MODULE:FACTORY",
+                    help="configure the delivery pass's overseer agents with this provider factory (agent_id -> completion provider), run "
+                         "through the overseer package's runner and verdict intake: the pass's decisions are reported beside the withheld "
+                         "baseline of the same pass without overseer agents. Without it the harness calls no model")
+    ap.add_argument("--overseer-pack", type=Path, metavar="ZIP",
+                    help="the exported overseer knowledge pack the overseer agents are built from (with --overseer-provider); by default the "
+                         "installed pack is exported to a temporary directory and loaded from its zip, as the deployed policy loads it")
     args = ap.parse_args(argv)
     rd = args.round_dir.resolve()
-    res = run_round(rd, task_record=not args.without_task_record)
+    if args.overseer_pack is not None and not args.overseer_provider:
+        ap.error("--overseer-pack needs --overseer-provider")
+    overseer = None
+    if args.overseer_provider:
+        try:
+            overseer = delivery_overseer_config(args.overseer_provider, args.overseer_pack)
+        except (ValueError, ImportError, OSError) as exc:
+            ap.error(f"--overseer-provider: {exc}")
+    res = run_round(rd, task_record=not args.without_task_record, delivery_overseer=overseer, delivery_baseline=overseer is not None,
+                    without_overseer=args.without_overseer)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
     dl = res.get("deliveries") or {}
@@ -2907,7 +3334,18 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("delivery decisions (a separate measure):", ", ".join(f"{k} {v}" for k, v in (dl.get("by_mode") or {}).items()),
               f"| receipts identical to the genuine records': {dl.get('receipts_matching_genuine_records', 0)} of {dl.get('decided', 0)}",
-              f"| delivery pass errors: {len(dl.get('errors') or [])}")
+              f"| delivery pass errors: {len(dl.get('errors') or [])}",
+              f"| overseer-selected fallback: {'exercised' if dl.get('fallback_exercised') else 'NOT exercised (' + str(dl.get('fallback_not_exercised')) + ')'}")
+        base = res.get("deliveries_baseline")
+        if base:
+            print("  without overseer agents (the withheld baseline):", ", ".join(f"{k} {v}" for k, v in (base.get("by_mode") or {}).items()),
+                  f"| decisions that differ with the overseer agents: {len((res.get('delivery_comparison') or {}).get('changed', []))}")
+    rv = res.get("revisions") or {}
+    if rv.get("skipped"):
+        print(f"specialist revisions (a separate measure): not run ({rv['skipped']})")
+    else:
+        print("specialist revisions (a separate measure):", f"answers revised {rv.get('answers_revised', 0)}, flaws fed back {rv.get('flaws_fed_back', 0)},",
+              "gates:", ", ".join(f"{k} {'PASS' if v else 'FAIL'}" for k, v in (rv.get("gates") or {}).items()), f"| errors: {len(rv.get('errors') or [])}")
     ge = res["genuine_receipts_with_errors"]
     print("genuine transmissions, peer relays and syntheses with errors or warnings:", len(res["genuine_with_errors"]), "| mutation records with unexplained findings:", len(res["mutations_with_unexplained_findings"]))
     print(f"genuine records with an error-level finding: {ge['with_error_findings']} of {ge['genuine_records']}, {ge['with_error_findings_counted_functional']} counted functional (the rate does not judge whether a finding is true)",
@@ -2919,7 +3357,35 @@ def main(argv: list[str] | None = None) -> int:
     if res["qualified"] and args.fail_on_qualification:
         print("FAILED: the run is qualified (--fail-on-qualification):", ", ".join(q["code"] for q in res["qualifications"]))
         return 1
+    if overseer_passes_not_run(res) and not args.without_overseer:
+        print(WITHOUT_OVERSEER_FAILURE)
+        return 1
+    if args.fail_on_revision_gates:
+        failing = revision_gate_failures(rv)
+        if failing:
+            print("FAILED: the revision pass's gates (--fail-on-revision-gates):", "; ".join(failing))
+            return 1
     return 0
+
+
+def overseer_passes_not_run(res: dict) -> list[str]:
+    """The passes of the overseer this run did not run because the overseer is not installed (``deliveries`` and ``revisions``
+    skipped for :data:`OVERSEER_NOT_INSTALLED`); a pass switched off by a harness (``DELIVERY_PASS``/``REVISION_PASS`` False) or a
+    round with no ``feedback/`` is not among them."""
+    return [name for name in ("deliveries", "revisions") if (res.get(name) or {}).get("skipped") == OVERSEER_NOT_INSTALLED]
+
+
+def revision_gate_failures(rv: dict) -> list[str]:
+    """What fails ``--fail-on-revision-gates``: every gate of the revision pass that failed and every error it recorded
+    (nothing when the pass was not run because the round holds no feedback/: no feedback exercise ran; a pass not run for
+    any other reason while the round holds feedback/ fails, since its gates were never decided)."""
+    if rv.get("skipped"):
+        return [] if str(rv["skipped"]).startswith("the round has no feedback/ directory") else [f"the revision pass was not run ({rv['skipped']})"]
+    out = [f"gate {k} FAIL" for k, v in (rv.get("gates") or {}).items() if not v]
+    out += [f"error: {e.get('error')}" for e in rv.get("errors") or []]
+    if not rv.get("gates") and not out:
+        out.append("the revision pass decided no gate")
+    return out
 
 
 if __name__ == "__main__":

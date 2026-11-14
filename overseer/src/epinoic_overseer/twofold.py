@@ -325,12 +325,16 @@ class TemporaryContext:
     validated assessments; holds, beside the shown record, the confirming finding references validation needs (rule
     ``carried-fault``), and drops both when it is discarded."""
 
-    def __init__(self, *, channel_uid: str, record: dict, refs: dict[tuple[str, str], list[Any]]) -> None:
+    def __init__(self, *, channel_uid: str, record: dict, refs: dict[tuple[str, str], list[Any]], mode: Optional[str] = None) -> None:
         self.channel_uid = channel_uid
         self._record = record
         self._refs = refs
         self.digest: str = record["context_sha256"]
         self.discarded = False
+        #: the review mode the context was built in (:meth:`build`); None for a context built otherwise. The intake never shows a
+        #: blind dossier a context that holds a fault of a kind in :data:`BLIND_HIDDEN_KINDS`, whatever this says (round-9 clearance
+        #: c2b, the c4f276c push check: ``build`` defaults to ``informed`` and the intake did not read the mode)
+        self.mode: Optional[str] = mode
 
     @property
     def record(self) -> dict:
@@ -424,7 +428,7 @@ class TemporaryContext:
         digest = sha256_hex(canonical_json(body))
         record = {**body, "context_sha256": digest}
         TemporaryContextRecord.model_validate(record)
-        return cls(channel_uid=layout.channel_uid, record=record, refs=refs)
+        return cls(channel_uid=layout.channel_uid, record=record, refs=refs, mode=mode)
 
 
 def teaches_n_fold(pack: Any) -> bool:

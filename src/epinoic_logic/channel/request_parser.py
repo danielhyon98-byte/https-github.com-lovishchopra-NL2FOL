@@ -26,6 +26,27 @@ from .cues import VERDICT_CUES  # noqa: F401  re-exported: the verdict cue list 
 
 _WORD_RE = re.compile(r"(?P<q>no more than|at most|maximum of|max(?:imum)?|up to|under|within|at least|minimum of|min(?:imum)?|exactly|about|around|approximately|in)\s+(?P<n>\d{1,5})\s+words", re.IGNORECASE)
 _RANGE_RE = re.compile(r"between\s+(?P<a>\d{1,5})\s+and\s+(?P<b>\d{1,5})\s+words", re.IGNORECASE)
+#: Word bounds written in the languages of the Language B courses (round-9 clearance c2, sp-t15: "Escribe entre 450 y 600 palabras."
+#: set no bound, so a reply of any length passed): Spanish and French, each phrase read as its English counterpart. Every run is
+#: bounded, so a scan is linear.
+_RANGE_LB_RE = re.compile(r"\bentre[ \t]{1,3}(?P<a>\d{1,5})[ \t]{1,3}(?:y[ \t]{1,3}(?P<b>\d{1,5})[ \t]{1,3}palabras|et[ \t]{1,3}(?P<c>\d{1,5})[ \t]{1,3}mots)\b",
+                          re.IGNORECASE)
+_WORD_LB_RE = re.compile(
+    r"\b(?P<q>no[ \t]{1,3}m[aá]s[ \t]{1,3}de|como[ \t]{1,3}m[aá]ximo|(?:un[ \t]{1,3})?m[aá]ximo[ \t]{1,3}de|hasta|como[ \t]{1,3}m[ií]nimo"
+    r"|(?:un[ \t]{1,3})?m[ií]nimo[ \t]{1,3}de|al[ \t]{1,3}menos|unas|alrededor[ \t]{1,3}de|aproximadamente|cerca[ \t]{1,3}de|exactamente"
+    r"|pas[ \t]{1,3}plus[ \t]{1,3}de|au[ \t]{1,3}maximum|au[ \t]{1,3}plus|au[ \t]{1,3}moins|au[ \t]{1,3}minimum|environ|exactement)"
+    r"[ \t]{1,3}(?P<n>\d{1,5})[ \t]{1,3}(?P<unit>palabras|mots)\b", re.IGNORECASE)
+#: The kind of each phrase of :data:`_WORD_LB_RE`, keyed by its words with the accents dropped and blanks collapsed.
+_LB_KIND = {"no mas de": "max", "como maximo": "max", "un maximo de": "max", "maximo de": "max", "hasta": "max", "pas plus de": "max",
+            "au maximum": "max", "au plus": "max", "como minimo": "min", "un minimo de": "min", "minimo de": "min", "al menos": "min",
+            "au moins": "min", "au minimum": "min", "unas": "about", "alrededor de": "about", "aproximadamente": "about", "cerca de": "about",
+            "environ": "about", "exactamente": "exact", "exactement": "exact"}
+
+
+def _lb_kind(phrase: str) -> str:
+    """The kind of a Language B bound phrase (:data:`_LB_KIND`): max, min, about or exact."""
+    plain = " ".join(phrase.casefold().translate(str.maketrans("áí", "ai")).split())
+    return _LB_KIND[plain]
 _PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in|write|produce|give|compose)\s+(?P<n>one|two|three|four|five|six|a single|\d{1,2})\s+(?:\w+\s+){0,2}?paragraphs?\b", re.IGNORECASE)
 #: A request to cite the supplied texts: "quote", "quoting exactly from the extract" (round-8 clearance c1: lit-t14 and ll-t14
 #: asked for quotations with "quoting", which set no constraint), "quotations", "cite", "textual evidence".
@@ -72,7 +93,7 @@ _TOPIC_AFTER_RE = re.compile(r"^\s*(?:on|about|regarding)\s+\S")
 
 
 def _constraint_spans(sentence: str) -> list[tuple[int, int]]:
-    spans = [m.span() for rx in (_RANGE_RE, _WORD_RE, _PARA_RE, _CITE_RE) for m in rx.finditer(sentence)]
+    spans = [m.span() for rx in (_RANGE_RE, _WORD_RE, _RANGE_LB_RE, _WORD_LB_RE, _PARA_RE, _CITE_RE) for m in rx.finditer(sentence)]
     return sorted(spans)
 
 
@@ -207,7 +228,9 @@ def per_part_bound(c: Constraint) -> bool:
 #: (round-8 clearance c1: en-t14's 276 words against "about 250" was an error by one word), so a measure outside the band
 #: but within a quarter of N is reported at warning; a gross miss (146 words for "about 250", round 5) stays an error, as
 #: does every hard bound ("no more than", "at least", "exactly").
-_ABOUT_TEXT_RE = re.compile(r"\b(?:about|around|approximately)\s{1,3}(?P<n>\d{1,5})\s{1,3}words\b", re.IGNORECASE)
+_ABOUT_TEXT_RE = re.compile(r"\b(?:about|around|approximately)\s{1,3}(?P<n>\d{1,5})\s{1,3}words\b"
+                            r"|\b(?:unas|alrededor\s{1,3}de|aproximadamente|cerca\s{1,3}de)\s{1,3}(?P<es>\d{1,5})\s{1,3}palabras\b"
+                            r"|\benviron\s{1,3}(?P<fr>\d{1,5})\s{1,3}mots\b", re.IGNORECASE)
 
 
 def about_target(c: Constraint) -> int | None:
@@ -215,7 +238,7 @@ def about_target(c: Constraint) -> int | None:
     if c.kind not in ("max_words", "min_words"):
         return None
     m = _ABOUT_TEXT_RE.search(c.text or "")
-    return int(m.group("n")) if m else None
+    return int(m.group("n") or m.group("es") or m.group("fr")) if m else None
 
 
 def about_band(c: Constraint) -> bool:
@@ -274,6 +297,25 @@ def extract_constraints(text: str) -> list[Constraint]:
             add("max_words", str(int(int(m.group("n")) * 1.1)), span, ex)
         else:  # "in 350 words": a soft maximum with 10% tolerance
             add("max_words", str(int(int(m.group("n")) * 1.1)), span, ex)
+    # Language B bounds (Spanish, French), each read as its English counterpart above
+    for m in _RANGE_LB_RE.finditer(text):
+        span, ex = _bound_span(text, m)
+        add("min_words", m.group("a"), span, ex)
+        add("max_words", m.group("b") or m.group("c"), span, ex)
+    for m in _WORD_LB_RE.finditer(text):
+        kind = _lb_kind(m.group("q"))
+        span, ex = _bound_span(text, m)
+        words = int(m.group("n"))
+        if kind == "max":
+            add("max_words", str(words), span, ex)
+        elif kind == "min":
+            add("min_words", str(words), span, ex)
+        elif kind == "exact":
+            add("min_words", str(words), span, ex)
+            add("max_words", str(words), span, ex)
+        else:  # "unas 300 palabras", "environ 300 mots": the band of "about 300 words"
+            add("min_words", str(math.ceil(words * 0.9)), span, ex)
+            add("max_words", str(int(words * 1.1)), span, ex)
     for m in _PARA_RE.finditer(text):
         raw = m.group("n").lower()
         val = str(_WORD_NUM.get(raw, raw))
@@ -358,13 +400,65 @@ _FORM_ONLY_RE = re.compile(
     r"(?:[ \t]{1,3}(?:in|using)[ \t]{1,3}[^\W\d_]{2,20})?(?:[ \t]{1,3}now)?$", re.IGNORECASE)
 
 
+#: A short label before a colon that opens a request's sentence ("Paper 1 writing practice:", "Exam practice:", "Task:"; round-9
+#: clearance c2, sp-t15): the form instruction after it is read as if it opened the sentence. At most 48 characters, no sentence
+#: mark, opening with a letter.
+_LABEL_LEAD_RE = re.compile(r"^[^\W\d_][^:.?!\n]{0,47}:[ \t]{1,3}")
+
+
 def is_context_sentence(sentence: str) -> bool:
     """True for a sentence of the request that is context or form, not content asked for (:data:`_CONTEXT_SENTENCE_RE`,
-    :data:`_FORM_ONLY_RE`); a sentence that asks a question is never context."""
+    :data:`_FORM_ONLY_RE`, read after a short label lead such as "Paper 1 writing practice:", :data:`_LABEL_LEAD_RE`); a
+    sentence that asks a question is never context."""
     s = sentence.strip()
     if not s or "?" in s or "¿" in s:
         return False
-    return bool(_CONTEXT_SENTENCE_RE.search(s[:2000]) or _FORM_ONLY_RE.match(s.rstrip(".! \t")[:400]))
+    if _CONTEXT_SENTENCE_RE.search(s[:2000]) or _FORM_ONLY_RE.match(s.rstrip(".! \t")[:400]):
+        return True
+    lead = _LABEL_LEAD_RE.match(s)
+    return bool(lead is not None and _FORM_ONLY_RE.match(s[lead.end():].rstrip(".! \t")[:400]))
+
+
+#: Task verbs of the Language B courses (round-9 clearance c2, sp-t15: "Escribe un artículo ... en el que expongas las ventajas ... y
+#: propongas dos medidas ..." made no item, so a reply that left a task out crossed unnamed): an imperative that opens a sentence
+#: (Spanish and French; a choice of text type, "Elige", is form and is not read) and the subjunctive of a task verb in a clause
+#: that names what the text must do ("... en el que expongas ...", "... que propongas ..."). Closed lists; matched at word
+#: boundaries, case folded.
+_LB_IMPERATIVE_RE = re.compile(
+    r"^(?:escribe|redacta|explica|describe|compara|analiza|prop[oó]n|justifica|comenta|resume|argumenta|eval[uú]a|discute|exp[oó]n|presenta|"
+    r"indica|menciona|defiende|[eé]cris|r[eé]dige|explique|d[eé]cris|justifie|commente|résume|argumente|[eé]value|pr[eé]sente)\b",
+    re.IGNORECASE)
+#: Only verb forms no English word shares ("compares", "justifies", "proposes" and "exposes" are left out), read only in a sentence
+#: whose clause marker "que" stands before the first of them (:func:`language_b_items`).
+_LB_SUBJUNCTIVE_RE = re.compile(
+    r"\b(?:expongas|propongas|expliques|describas|analices|justifiques|comentes|argumentes|eval[uú]es|discutas|resumas|presentes|"
+    r"defiendas|menciones|indiques|d[eé]crives)\b", re.IGNORECASE)
+_LB_QUE_RE = re.compile(r"\bque\b", re.IGNORECASE)
+#: A conjunction left at the end of a clause cut before the next task verb ("... para tu ciudad y").
+_LB_TAIL_RE = re.compile(r"[ \t,;]{1,6}(?:y|e|et)?[ \t]{0,3}$", re.IGNORECASE)
+
+
+def language_b_items(sentence: str) -> list[str] | None:
+    """The items a sentence of a Language B request asks for (:data:`_LB_IMPERATIVE_RE`, :data:`_LB_SUBJUNCTIVE_RE`): one per
+    task verb in the subjunctive, each from its verb to the next one ("expongas las ventajas y los inconvenientes del turismo
+    para tu ciudad", "propongas dos medidas para mejorar la convivencia entre vecinos y visitantes."), the clause that only
+    names the text to write ("Escribe un artículo de opinión ... en el que") being its form; else the whole sentence when it
+    opens with a task imperative ("Explica las causas de la crisis."); None for a sentence that asks for no task in these
+    languages. Linear: one scan for the verbs."""
+    verbs = list(_LB_SUBJUNCTIVE_RE.finditer(sentence))
+    que = _LB_QUE_RE.search(sentence)
+    if verbs and que is not None and que.start() < verbs[0].start():
+        out = []
+        for k, m in enumerate(verbs):
+            end = verbs[k + 1].start() if k + 1 < len(verbs) else len(sentence)
+            piece = sentence[m.start():end]
+            piece = _LB_TAIL_RE.sub("", piece) if k + 1 < len(verbs) else piece.strip()
+            if piece.strip():
+                out.append(piece.strip())
+        return out or None
+    if _LB_IMPERATIVE_RE.match(sentence.strip()):
+        return [sentence.strip()]
+    return None
 
 
 def question_pieces(text: str) -> list[tuple[bool, str]]:
@@ -391,6 +485,29 @@ def part_label(text: str) -> str | None:
     if m is None:
         return None
     return m.group(1).strip("().").casefold()
+
+
+#: A compound part label: a lettered part with its roman sub-part ("(a)(i)", "(a) (i)", "a(i)", "a)(i)"; round-9 clearance c2,
+#: ge-t15: the answer's "(a)(i) [1]" and "(a)(ii) [2]" were read as no label, so the request's items (a), (i) and (ii) were reported
+#: unaddressed). Bounded, anchored at the start.
+_COMPOUND_LABEL_RE = re.compile(r"^\W{0,4}(?:part[ \t]{1,3})?\(?(?P<a>[a-h])\)?[ \t]{0,2}\((?P<b>i{1,3}|iv|vi{0,3}|ix|x)\)(?=[\s*:—–-]|$)", re.IGNORECASE)
+#: A lettered part label and a roman sub-part label, as :func:`part_label` returns them.
+_LETTER_LABEL_RE = re.compile(r"[a-h]")
+_ROMAN_LABEL_RE = re.compile(r"i{1,3}|iv|vi{0,3}|ix|x")
+
+
+def compound_label(text: str) -> str | None:
+    """The compound label an item or an answer section opens with ("(a)(i) Calculate ..." -> "a.i", "a(ii)" -> "a.ii"),
+    lower-cased, the part and its sub-part joined by a full stop; None when it opens with none (:data:`_COMPOUND_LABEL_RE`)."""
+    m = _COMPOUND_LABEL_RE.match(text.strip()[:40])
+    if m is None:
+        return None
+    return f"{m.group('a').casefold()}.{m.group('b').casefold()}"
+
+
+def item_label(text: str) -> str | None:
+    """The label coverage reads an item by: its compound label ("a.i"), else its part label, else its question label."""
+    return compound_label(text) or part_label(text) or question_label(text)
 
 
 _QUESTION_LABEL_RE = re.compile(r"^\W{0,4}question[ \t]{1,3}(\d{1,2})(?!\d)(?!\.\d)", re.IGNORECASE)
@@ -430,10 +547,12 @@ def request_parts(text: str) -> list[tuple[str | None, str]]:
     return out
 
 
-def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = ()) -> list[tuple[str, str, bool]]:
+def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = (), *, split_language_b: bool = False) -> list[tuple[str, str, bool]]:
     """``(item text, kind, is_item)`` per sentence of an unlabelled piece: questions, imperatives and requests ("Please
     ..."), a constraint span removed; a sentence that is only a constraint is not an item. ``extra_imperatives`` (a
-    branch's hook) are further imperative verbs, read at the start of a sentence or after a part label."""
+    branch's hook) are further imperative verbs, read at the start of a sentence or after a part label. A task sentence of a
+    Language B request is an item too (:func:`language_b_items`), and with ``split_language_b`` (an unlabelled piece, whose items
+    are kept apart) each of its subjunctive task clauses is an item of its own."""
     out: list[tuple[str, str, bool]] = []
     for sent in (s.strip() for s in _ITEM_SENT_RE.split(chunk.strip()) if s.strip()):
         if is_constraint_only(sent) and not _PLEASE_RE.match(sent):
@@ -444,6 +563,11 @@ def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = ()) -> list
         if is_context_sentence(item_text):
             out.append((item_text, "instruction", False))  # context or form: never an item of an unlabelled piece
             continue
+        if "?" not in item_text and "¿" not in item_text:
+            lb = language_b_items(item_text)
+            if lb is not None:
+                out += [(t, "instruction", True) for t in (lb if split_language_b else [item_text])]
+                continue
         low = item_text.lower()
         is_q = item_text.endswith("?") or "?" in item_text or low.startswith(("how ", "why ", "what ", "to what extent", "in what ways", "¿"))
         is_imp = any(low.startswith(v) or f" {v} " in f" {low} " for v in _IMPERATIVES) or _asks_for_content(item_text, topic_follows) or bool(_PLEASE_RE.match(item_text)) \
@@ -483,12 +607,13 @@ def extract_items(text: str, *, extra_imperatives: tuple[str, ...] = ()) -> list
             if body and re.search(r"[^\W\d_]", body):
                 add(body, "question" if "?" in body else "instruction")
             continue
-        for label, chunk in parts:
+        parent: str | None = None
+        for k, (label, chunk) in enumerate(parts):
             if label is None:
                 head = _QUESTION_HEAD_RE.match(chunk.lstrip()) if is_question else None
                 if head is not None:  # a question's stem before its lettered parts: its parts are the items
                     chunk = chunk.lstrip()[head.end():]
-                for item_text, kind, is_item in _sentence_items(chunk, extra_imperatives):
+                for item_text, kind, is_item in _sentence_items(chunk, extra_imperatives, split_language_b=True):
                     if is_item:
                         add(item_text, kind)
                 continue
@@ -496,6 +621,20 @@ def extract_items(text: str, *, extra_imperatives: tuple[str, ...] = ()) -> list
             body = " ".join(kept).strip()
             if not body or not re.search(r"[^\W\d_]", body):
                 continue
+            # rule nested-parts (round-9 clearance c2, ge-t15): a lettered part opens the context of the roman sub-parts after it
+            # ("(a) (i) Calculate ... (ii) Calculate ..."); each sub-part is an item named with its part ("(a)(i) Calculate ..."),
+            # and a lettered label with no words of its own before its sub-parts is their parent, not an item
+            if _LETTER_LABEL_RE.fullmatch(label):
+                parent = label
+                nxt = parts[k + 1][0] if k + 1 < len(parts) else None
+                bare = not re.search(r"[^\W\d_]", re.sub(r"\[[^\]]{0,20}\]", "", re.sub(r"^\W{0,4}\(?[a-hA-H]\)", "", body)))
+                if bare and nxt is not None and _ROMAN_LABEL_RE.fullmatch(nxt):
+                    continue
+            elif parent is not None and _ROMAN_LABEL_RE.fullmatch(label):
+                rest = re.sub(r"^\W{0,4}\(?(?:i{1,3}|iv|vi{0,3}|ix|x)\)[ \t]*", "", body, count=1, flags=re.IGNORECASE)
+                body = f"({parent})({label}) {rest}".strip()
+            else:
+                parent = None
             add(body, "question" if "?" in body else "instruction")
     if not items:
         items.append(RequestItem(item_id="i1", text=text.strip()[:4000], kind="instruction"))

@@ -77,6 +77,12 @@ _IGNORABLE_RANGES = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x11
 _INVISIBLE = {chr(c): " " for a, b in _IGNORABLE_RANGES for c in range(a, b + 1)}
 _SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | _INVISIBLE | SIGN_FORMS
 _DASHES = frozenset({"–", "‒"})
+#: round-9 clearance (rule spaced-dash): the dashes a model writes for a minus between two numbers with a blank on each side ('20 – 4.0',
+#: '10⁴ — 5', '(3.0) ‐ (1.5)'): the en dash, the figure dash, the em dash and U+2010 HYPHEN
+_SPACED_DASHES = frozenset({"–", "‒", "—", "‐"})
+#: what may stand right before the blank before such a dash (the end of a number, a closing bracket) and right after the blank after it
+_DASH_LEFT_END = frozenset("0123456789)]⁰¹²³⁴⁵⁶⁷⁸⁹")
+_DASH_RIGHT_START = frozenset("0123456789(.")
 #: characters after which '+/-' written before a number is a plus-or-minus sign (STEM repair 4)
 _PLUS_MINUS_BEFORE = frozenset(" \t\n(=:,;[")
 #: characters after which an en dash is a minus sign
@@ -93,10 +99,16 @@ def reading_view(text: str) -> str:
         rep = _SIMPLE.get(ch)
         if rep is not None:
             out[i] = rep
-        elif ch in _DASHES:
+        elif ch in _DASHES or ch in _SPACED_DASHES:
             prev = text[i - 1] if i > 0 else " "
             nxt = text[i + 1] if i + 1 < n else ""
-            if (prev in _MINUS_BEFORE or prev in _SIMPLE) and nxt and (nxt.isalnum() or nxt in "(√\\"):
+            if ch in _DASHES and (prev in _MINUS_BEFORE or prev in _SIMPLE) and nxt and (nxt.isalnum() or nxt in "(√\\"):
+                out[i] = "-"
+            elif prev in " \t" and nxt in (" ", "\t") and i >= 2 and text[i - 2] in _DASH_LEFT_END and i + 2 < n and text[i + 2] in _DASH_RIGHT_START:
+                # round-9 clearance (rule spaced-dash): a dash with one blank on each side between the end of a number and the start of one
+                # ('Δv = 20 – 4.0 = 16 m s⁻¹') is a minus sign: it had cut the left operand, so '4.0 = 16 m s⁻¹' was checked and failed
+                # (INT-SUBJ-001 on correct work). A dash written between words, a dash with no blank ('3–5 s', a range) and a dash before a
+                # word ('= 5.0 m s⁻² — the acceleration') stay dashes
                 out[i] = "-"
     if "+/-" in text:
         k = text.find("+/-")

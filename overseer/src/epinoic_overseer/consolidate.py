@@ -725,19 +725,40 @@ def _only_duplicate_collisions(t: Transfer, answer_report_ids: set[str]) -> bool
     return True
 
 
-def _superseded_by_revision(view: OverseerView, answers: Sequence[Transfer]) -> dict[str, str]:
+def _superseded_by_revision(view: OverseerView, answers: Sequence[Transfer], evaded: frozenset = frozenset()) -> dict[str, str]:
     """Rule ``superseded-by-revision`` (design section 53): answer message id -> the delivered revision that superseded it.
     A revision supersedes the answer its revision request revises when the channel recorded the supersession on its
     delivery (the event's ``superseded_added``): a REJECTED revision, or one that answers nothing, leaves the answer as it
-    was. The superseded answer is excluded, so the revision stands alone instead of reading as a conflicting answer."""
+    was. The superseded answer is excluded, so the revision stands alone instead of reading as a conflicting answer. A revision
+    whose outcome is evaded (``evaded``: it weakened a statement the feedback named instead of correcting it; rule
+    evaded-escalates) supersedes nothing: the answer it revises keeps its own standing and the revision is excluded."""
     out: dict[str, str] = {}
     for t in answers:
         req = view.by_message.get(t.in_reply_to or "")
         block = req.request.revision if req is not None and req.request is not None else None
-        if block is None or not t.delivered or t.status == "REJECTED" or not t.report_id:
+        if block is None or not t.delivered or t.status == "REJECTED" or not t.report_id or (t.message_id or "") in evaded:
             continue
         if (block.revises_report_id, t.report_id) in set(t.event.superseded_added):
             out[block.revises_message_id] = t.message_id or ""
+    return out
+
+
+def _evaded_revisions(view: OverseerView, answers: Sequence[Transfer], audit: Any, keyring: KeyRing, repeats: Any) -> dict[str, str]:
+    """Rule ``evaded-escalates``: revision message id -> the flaws its revision outcome reads as evaded, for every delivered
+    revision among ``answers`` whose outcome (``feedback.revision_outcome``, re-derived here from the view and the task audit)
+    escalates for that reason. A revision whose outcome cannot be derived is left to the other rules."""
+    from .feedback import revision_outcome
+    out: dict[str, str] = {}
+    for t in answers:
+        req = view.by_message.get(t.in_reply_to or "")
+        if req is None or req.request is None or req.request.revision is None or not t.delivered or t.status == "REJECTED":
+            continue
+        try:
+            outcome = revision_outcome(view, t.message_id or "", task_audit=audit, keyring=keyring, repeats=repeats)
+        except Exception:  # noqa: BLE001 - an outcome that cannot be derived leaves the revision to the other rules
+            continue
+        if outcome.escalation_reason == "evaded_after_feedback":
+            out[t.message_id or ""] = ", ".join(f"{f.code} on {f.claim_ids[:4]}" for f in outcome.flaws if f.bucket == "evaded")
     return out
 
 
@@ -767,7 +788,8 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
         raise ValueError("the repeat report does not cover this channel")
     last_seq = view.transfers[-1].seq if view.transfers else 0
     answer_report_ids = {t.report_id for t in answers if t.report_id}
-    superseded_by = _superseded_by_revision(view, answers)
+    evaded = _evaded_revisions(view, answers, audit, keyring, repeats)
+    superseded_by = _superseded_by_revision(view, answers, frozenset(evaded))
     run_ids: list[str] = []
     findings: list[IntegrityFinding] = []
     excluded: list[ExcludedOutput] = []
@@ -795,6 +817,8 @@ def consolidate(view: OverseerView, *, keyring: KeyRing, store: ResultStore, aud
             reasons.append(f"it repeats {len(reps)} fault(s) of earlier answers (OVS-REP-001)")
         if t.message_id in superseded_by:
             reasons.append(f"superseded by its revision {superseded_by[t.message_id]}")
+        if (t.message_id or "") in evaded:
+            reasons.append(f"a revision that evaded its feedback ({evaded[t.message_id or '']}: weakened instead of corrected; rule evaded-escalates)")
         agent = t.sender_agent_id
         if reasons:
             codes = sorted({f.code for f in receipt_errors} | {f.code for f in audit_errors} | ({"OVS-REP-001"} if reps else set()))

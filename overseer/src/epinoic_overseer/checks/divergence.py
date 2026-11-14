@@ -27,6 +27,11 @@ Excluded from the diff:
 * INT-HANDOFF-007 when the task has no delivered synthesis: "a selected agent delivered no report, any synthesis is
   incomplete" has nothing to diverge from before a synthesis exists (deviation from the design text, which names the
   combinator case only);
+* rule ``task-in-scope`` (round-9 clearance c2): the document id ``task`` (the task record) in an INT-HANDOFF-004 of the
+  formalization binding. The task record is always in a translation's scope (a ``task_setting`` premise is validated against
+  it by design; the translator's prompt grounds a fact the task states in ``task``), while the integrity package counts only
+  the plan's documents, so a plan with a non-empty scope gave a false OVS-DIV-001 error for every premise grounded in the
+  task (c2 ess-p9c: five of them failed a correct answer's audit). Any other document outside the scope still diverges;
 * INT-INTERNAL-001 is not a rule: it becomes AUDIT-001.
 
 INT-SYNTH-006 for a synthesized claim whose synthesis receipt itself states the entailment check as NOT performed
@@ -63,11 +68,30 @@ from ..view import REPORT_KINDS
 from . import CheckContext
 from .joint import derived_pool
 
-__all__ = ["check_divergence", "classify", "EXCLUDED_FAMILIES", "TIME_DEPENDENT", "RULE_OWNERSHIP"]
+__all__ = ["check_divergence", "classify", "task_in_scope", "EXCLUDED_FAMILIES", "TIME_DEPENDENT", "RULE_OWNERSHIP", "TASK_DOCUMENT_IDS"]
 
 EXCLUDED_FAMILIES = ("INT-LEDGER", "INT-CONFLICT", "INT-GLOSSARY")
+#: The document ids of the task record (rule ``task-in-scope``, round-9 clearance c2): always in the retrieval scope of a translation.
+TASK_DOCUMENT_IDS = frozenset({"task"})
 TIME_DEPENDENT = frozenset({"INT-HANDOFF-005", "INT-HANDOFF-016", "INT-HANDOFF-017"})
 RULE_OWNERSHIP = frozenset({"INT-SYNTH-004", "INT-SYNTH-005", "INT-SYNTH-006", "INT-HANDOFF-007", "INT-HANDOFF-008", "INT-HANDOFF-009"})
+
+
+def task_in_scope(f: IntegrityFinding) -> Optional[IntegrityFinding]:
+    """Rule ``task-in-scope`` (round-9 clearance c2): ``f`` as the divergence reads it. The task record is always in a translation's scope
+    (a task_setting premise is validated against it by design, and the translator's prompt grounds a fact the task states in document
+    ``task``), so a formalization's INT-HANDOFF-004 (it names claims) that names only ``task`` is no divergence (None), and one naming
+    other documents too names only those; every other finding is returned as it is (c2 ess-p9c: five false OVS-DIV-001 errors failed a
+    correct answer's audit)."""
+    if f.code != "INT-HANDOFF-004" or not f.claim_ids:
+        return f
+    outside = [d for d in f.document_ids if d not in TASK_DOCUMENT_IDS]
+    if not outside:
+        return None
+    if len(outside) == len(f.document_ids):
+        return f
+    return f.model_copy(update={"document_ids": outside, "message": f"formalization of claim(s) {sorted(f.claim_ids)} grounds premises in documents "
+                                                                    f"outside the retrieval scope: {outside} (the task record, always in scope, left out)"})
 
 
 def classify(f: IntegrityFinding, synthesized_ids: set[str]) -> tuple[str, str]:
@@ -151,6 +175,9 @@ def check_divergence(ctx: CheckContext) -> list[Divergence]:
         if f.code == "INT-SYNTH-006" and f.claim_ids and f.claim_ids[0] in performed:
             continue
         if f.code == "INT-HANDOFF-007" and synthesis is None:
+            continue
+        f = task_in_scope(f)  # rule task-in-scope (round-9 clearance c2)
+        if f is None:
             continue
         key = (f.code, frozenset(f.claim_ids))
         if key in carried or key in seen:

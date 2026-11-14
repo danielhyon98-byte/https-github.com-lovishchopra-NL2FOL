@@ -168,7 +168,8 @@ def test_with_every_claim_clean_the_recorded_en_t14_answer_is_refused_by_the_lab
     them with the label rule's reason last.
 
     Renamed after the re-review of the c1 landing, from
-    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; its assertions are unchanged: the
+    ``test_the_recorded_en_t14_answer_alone_reaches_the_label_with_every_claim_clean``; the rename left its assertions as rewritten above to the stricter rule
+    (the round-9 clearance corrected 'unchanged' here): the
     old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
     _clean_recorded_claims(monkeypatch)
     _rc, _report, decision, _audit = _deliver(EN_T14)
@@ -732,13 +733,21 @@ def test_the_recorded_answers_the_6b_rules_alone_keep_off_the_label(monkeypatch,
     Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the policy
     never grants FORMALLY CHECKED in the round-8 release. Where this test pinned the label it now pins that the label rule is
     the formal path's ONLY reason (every other condition holds, as before); where it pinned the reasons of a refusal it pins
-    them with the label rule's reason last."""
+    them with the label rule's reason last.
+
+    Round-9 clearance c2b: the History pack now names hi-t14's "A war of three years and one month" (h1.12) unchecked
+    (CORE-QNT-001: the paragraph dates the war's beginning, never its end; another owner's chronology fix), and the formal path
+    names that unchecked working beside the 6b rules' reasons. The 6b reasons are still required of every answer; the one other
+    reason allowed is that one, exactly, on hi-t14 alone (the other four answers still carry the 6b reasons and nothing else)."""
     _clean_every_claim(monkeypatch)
     decision = _recorded(name)
     assert decision.mode != "formally_checked"
     assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
-    assert decision.receipt.formal.reasons[:-1] and all(r.startswith((NON_MATERIAL_REASON, LEAD_REASON)) for r in decision.receipt.formal.reasons[:-1]), \
-        decision.receipt.formal.reasons
+    reasons = decision.receipt.formal.reasons[:-1]
+    other = [r for r in reasons if not r.startswith((NON_MATERIAL_REASON, LEAD_REASON))]
+    assert len(other) < len(reasons), decision.receipt.formal.reasons  # the 6b rules' reasons are there
+    unchecked_h1_12 = ["the receipt names working that was not checked: CORE-QNT-001 (claims h1.12)"]
+    assert other in (([], unchecked_h1_12) if name == "hi-t14" else ([],)), decision.receipt.formal.reasons
 
 
 def test_the_recorded_answer_the_label_rule_alone_refuses(monkeypatch):

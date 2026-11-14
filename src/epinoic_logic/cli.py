@@ -83,16 +83,32 @@ def _emit_error(message: str) -> None:
     sys.stderr.write(json.dumps({"error": message}) + "\n")
 
 
-def _read_bytes(path: str) -> bytes:
+#: The most bytes the command line reads of a report or fixtures file (round 9, c2: the class sweep of the over-long
+#: response, queued q211b): a larger file is refused before it is parsed, never read whole. A problem file is read up to
+#: the validator's own limit and one byte more, so the engine reports it too large (E306) exactly as it did.
+MAX_INPUT_FILE_BYTES = 16_000_000
+#: The contract's limit on a specialist's response text (``SpecialistReport.original_response``), held before the adapter
+#: parses an envelope's ``response``.
+MAX_RESPONSE_CHARS = 400_000
+
+
+def _read_bytes(path: str, limit: Optional[int] = None) -> bytes:
+    """The bytes of ``path``, at most ``limit`` + 1 of them when a limit is given (one read, bounded)."""
     try:
-        return Path(path).read_bytes()
+        if limit is None:
+            return Path(path).read_bytes()
+        with open(path, "rb") as fh:
+            return fh.read(limit + 1)
     except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as exc:
         raise CliError(f"cannot read {path}: {type(exc).__name__}") from None
 
 
 def _read_json(path: str) -> Any:
+    raw = _read_bytes(path, MAX_INPUT_FILE_BYTES)
+    if len(raw) > MAX_INPUT_FILE_BYTES:
+        raise CliError(f"{path} is over the command line's limit of {MAX_INPUT_FILE_BYTES} bytes; it was not read")
     try:
-        return json.loads(_read_bytes(path).decode("utf-8"))
+        return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError):
         raise CliError(f"{path} is not valid JSON") from None
 
@@ -170,7 +186,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from .engine.policies import LINEAR, NAMED_POLICIES, UnknownPolicyError, named_policy
     from .engine.runner import verify
 
-    raw = _read_bytes(args.problem)
+    from .engine.validator import DEFAULT_MAX_BYTES
+    raw = _read_bytes(args.problem, DEFAULT_MAX_BYTES)  # one byte over the limit is enough for the engine to refuse it (E306)
     try:
         limits, config = named_policy(LINEAR if args.policy is None else args.policy, _solver_config(args))
     except UnknownPolicyError:
@@ -241,6 +258,8 @@ def _load_report(path: str, adapter: Optional[Any]) -> Any:
         raise CliError(f"{path} has invalid supplied_texts") from None
     if not isinstance(document["response"], str):
         raise CliError(f"{path} 'response' must be a string")
+    if len(document["response"]) > MAX_RESPONSE_CHARS:
+        raise CliError(f"{path} 'response' has {len(document['response'])} characters, over the contract's limit of {MAX_RESPONSE_CHARS}; it was not parsed")
     try:
         return adapter.parse_response(
             document["response"],

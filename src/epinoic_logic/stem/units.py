@@ -35,6 +35,7 @@ character, and factors are table constants.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from fractions import Fraction
 from functools import lru_cache
@@ -237,6 +238,9 @@ COUNT_NOUNS = frozenset({
     "atom", "atoms", "ion", "ions", "electron", "electrons", "photon", "photons", "nucleus", "nuclei", "decay", "decays", "pixel", "pixels",
     "colour", "colours", "color", "colors", "breath", "breaths", "visitor", "visitors", "worker", "workers", "customer", "customers",
     "species", "specimen", "specimens", "snail", "snails", "worm", "worms", "fish", "mice", "rat", "rats", "larva", "larvae",
+    # round-9 clearance: the counts of Computer Science working ('6 000 000 bytes ÷ 1500 bytes per packet = 4000 packets'); before, the
+    # unread noun turned the '=' after it into a label binding, and the line was neither checked nor named
+    "packet", "packets", "character", "characters", "instruction", "instructions", "record", "records",
 })
 for _n in COUNT_NOUNS:
     _WORDS.setdefault(_n, "count")
@@ -343,9 +347,52 @@ def english_word_atom(word: str) -> bool:
 #: convention, so each has two readings (ST-UNIT-002, the decimal first): (decimal, binary) factors in bits
 _DATA_DECIMAL: dict[str, tuple[str, int]] = {"kB": ("kilobyte", 1), "KB": ("kilobyte", 1), "MB": ("megabyte", 2), "GB": ("gigabyte", 3),
                                              "TB": ("terabyte", 4)}
+#: round-9 clearance: the decimal multiples of the bit ('40 Mbit/s', '1 kbit = 1000 bits'), one reading each (an SI prefix on the bit is
+#: decimal by convention, as the IEC binary forms Kibit, Mibit are written apart); before, 'Mbit' was an unknown atom, so a rate line was
+#: named ST-PARSE-001 and '1 Mbit = 10⁶ bits' was read against the megabyte of the line before
+_DATA_BITS: dict[str, tuple[str, int]] = {"kbit": ("kilobit", 1), "Kbit": ("kilobit", 1), "Mbit": ("megabit", 2), "Gbit": ("gigabit", 3),
+                                          "Tbit": ("terabit", 4)}
 _SUPERSCRIPT_DIGITS = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 #: the symbols of the amounts of data (bits, bytes and their multiples)
-DATA_UNIT_SYMBOLS = frozenset({"bit", "byte", "KiB", "MiB", "GiB", "TiB", *_DATA_DECIMAL})
+DATA_UNIT_SYMBOLS = frozenset({"bit", "byte", "KiB", "MiB", "GiB", "TiB", *_DATA_DECIMAL, *_DATA_BITS})
+
+
+#: rule data-convention (round-9 clearance): '1 GB = 1000 MB', '1 MB = 10⁶ bytes', '1 kB = 1 000 bytes': a multiple of the byte stated
+#: as a power of 1000 of a smaller one (anchored at the '1', bounded runs; at most 32 statements are read)
+_DATA_LEVEL = {"bytes": 0, "byte": 0, "B": 0, "kB": 1, "KB": 1, "MB": 2, "GB": 3, "TB": 4}
+_DATA_CONVENTION_RE = re.compile(
+    r"(?<![\w.,])1[ \t]?(?P<a>[kKMGT]B)[ \t]{0,3}=[ \t]{0,3}(?P<n>10[ \t]?\^[ \t]?\{?[0-9]{1,2}\}?|10[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2}|[0-9]{1,3}(?:[ ,][0-9]{3}){0,4}|[0-9]{1,13})"
+    r"[ \t]{0,3}(?P<b>bytes?|[kKMGT]?B)\b")
+_SUPERSCRIPT_VALUES = {c: str(i) for i, c in enumerate("⁰¹²³⁴⁵⁶⁷⁸⁹")}
+
+
+def decimal_data_stated(text: str) -> bool:
+    """Rule ``data-convention`` (round-9 clearance): the text states the decimal convention for the multiples of the byte ('Take 1 GB = 1000
+    MB', 'taking 1 MB = 10⁶ bytes'): a multiple stated as a power of 1000 of a smaller one, and none stated as a power of 1024. Linear: one
+    scan of at most the first 20,000 characters, at most 32 statements read."""
+    decimal = binary = False
+    for k, m in enumerate(_DATA_CONVENTION_RE.finditer(text[:20000])):
+        if k >= 32:
+            break
+        a, b = _DATA_LEVEL.get(m.group("a")), _DATA_LEVEL.get(m.group("b"), _DATA_LEVEL.get(m.group("b").rstrip("s")))
+        if a is None or b is None or a <= b:
+            continue
+        raw = m.group("n")
+        if "^" in raw or any(c in _SUPERSCRIPT_VALUES for c in raw):
+            digits = "".join(_SUPERSCRIPT_VALUES.get(c, c) for c in raw[2:] if c in "0123456789" or c in _SUPERSCRIPT_VALUES)
+            if not digits:
+                continue
+            value = 10 ** int(digits)
+        else:
+            plain = raw.replace(" ", "").replace(",", "")
+            if not plain.isascii() or not plain.isdigit():
+                continue
+            value = int(plain)
+        if value == 1000 ** (a - b):
+            decimal = True
+        elif value == 1024 ** (a - b):
+            binary = True
+    return decimal and not binary
 
 
 def is_data_unit(unit: Optional["UnitExpr"]) -> bool:
@@ -356,18 +403,27 @@ def is_data_unit(unit: Optional["UnitExpr"]) -> bool:
 
 
 def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega",), tonne: bool = False,
-             counts: bool = False) -> list[tuple[UnitDef, str]]:
+             counts: bool = False, decimal_data: bool = False) -> list[tuple[UnitDef, str]]:
     """Every (unit, prefix) reading of a letter run, best first: an exact symbol, then prefix +
     symbol (longest prefix first). The bare ``M`` and the tonne follow the profile. The count nouns of rule count-noun are read
     only with ``counts`` (the STEM front end's readings): the table's other readers (the translator's figures, the ledger) keep
-    reading 'items' or 'plants' after a number as words."""
+    reading 'items' or 'plants' after a number as words. With ``decimal_data`` (round-9 clearance, rule data-convention: the request
+    or the answer states the decimal convention, '1 GB = 1000 MB', '1 MB = 10⁶ bytes') a multiple of the byte has its decimal reading
+    only."""
     out: list[tuple[UnitDef, str]] = []
     if word in _OHM_ALIASES:
         return [(UNITS["Ω"], "")]
+    if word in _DATA_BITS:
+        name, n = _DATA_BITS[word]
+        power = str(3 * n).translate(_SUPERSCRIPT_DIGITS)
+        return [(UnitDef(word, f"{name} (10{power} bits)", DIMENSIONLESS, Fraction(10 ** (3 * n)), prefixable=False), "")]
     if word in _DATA_DECIMAL:
         name, n = _DATA_DECIMAL[word]
         power = str(3 * n).translate(_SUPERSCRIPT_DIGITS)
-        return [(UnitDef(word, f"{name} (10{power} bytes)", DIMENSIONLESS, Fraction(8 * 10 ** (3 * n)), prefixable=False), ""),
+        decimal = (UnitDef(word, f"{name} (10{power} bytes)", DIMENSIONLESS, Fraction(8 * 10 ** (3 * n)), prefixable=False), "")
+        if decimal_data:
+            return [decimal]
+        return [decimal,
                 (UnitDef(word, f"{name} (1024{str(n).translate(_SUPERSCRIPT_DIGITS) if n > 1 else ''} bytes, the binary convention)", DIMENSIONLESS,
                          Fraction(8 * 1024 ** n), prefixable=False), "")]
     if word == "M":
@@ -442,9 +498,9 @@ def _glued_split(word: str, tonne: bool) -> Optional[list[tuple[UnitDef, str, st
 
 
 def lookup_atom(word: str, profile_key: str = "", *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False,
-                counts: bool = False) -> list[UnitAtom]:
+                counts: bool = False, decimal_data: bool = False) -> list[UnitAtom]:
     """Readings of one letter run as a single unit atom (power 1): empty when the run is no unit."""
-    return [UnitAtom(word, u, p) for u, p in _resolve(word, profile_key, bare_m, tonne, counts)]
+    return [UnitAtom(word, u, p) for u, p in _resolve(word, profile_key, bare_m, tonne, counts, decimal_data)]
 
 
 #: unit symbols of the table that are not Latin letters and take an SI prefix (the ohm). The lexer reads a Greek letter as
@@ -664,14 +720,14 @@ def _ascii_exponent(s: str, j: int, n: int) -> tuple[int, Optional[int]]:
 
 
 def parse_unit(text: str, *, bare_m: tuple[str, ...] = ("mega",), tonne: bool = False, profile_key: str = "",
-               ascii_exponents: bool = False, counts: bool = False) -> Optional[UnitExpr]:
+               ascii_exponents: bool = False, counts: bool = False, decimal_data: bool = False) -> Optional[UnitExpr]:
     """Parse a unit expression as written (``"m s⁻²"``, ``"kg·m/s²"``, ``"J mol⁻¹ K⁻¹"``,
     ``"\\text{m s}^{-1}"``, ``"ms⁻¹"``, ``"kJ m⁻² yr⁻¹"``). Returns None when the text is not
     a unit expression at all (empty, malformed, a digit inside, too long, no known atom).
     Unknown atoms are kept and listed in ``unknown`` (ST-UNIT-001). With ``ascii_exponents`` an
     exponent glued to its atom with no caret is read too (``"m s-1"``, ``"mol dm-3"``, ``"cm3"``,
     ``"g/cm3"``; :func:`_lex_unit`)."""
-    return _parse_unit_cached(text, bare_m, tonne, ascii_exponents, counts)
+    return _parse_unit_cached(text, bare_m, tonne, ascii_exponents, counts, decimal_data)
 
 
 def stem_parse_unit(text: str, **kw: object) -> Optional[UnitExpr]:
@@ -690,7 +746,8 @@ def stem_lookup_atom(word: str, profile_key: str = "", **kw: object) -> list[Uni
 
 
 @lru_cache(maxsize=1024)
-def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_exponents: bool = False, counts: bool = False) -> Optional[UnitExpr]:
+def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_exponents: bool = False, counts: bool = False,
+                       decimal_data: bool = False) -> Optional[UnitExpr]:
     if not text or len(text) > _MAX_UNIT_CHARS:
         return None
     lx = _lex_unit(text, ascii_exponents)
@@ -750,7 +807,7 @@ def _parse_unit_cached(text: str, bare_m: tuple[str, ...], tonne: bool, ascii_ex
         if per:
             power = -power
             per = False
-        direct = [UnitAtom(word, u, p, power) for u, p in _resolve(word, "", bare_m, tonne, counts)]
+        direct = [UnitAtom(word, u, p, power) for u, p in _resolve(word, "", bare_m, tonne, counts, decimal_data)]
         glued = _glued(word, tonne) if word != "M" else None
         if direct and glued and power < 0 and word in _GLUED_AMBIGUOUS and len(glued) == 2 and direct[0].prefix and len(direct) == 1:
             # 'ms⁻¹': by SI binding a millisecond to the power -1; as evidently meant, metre second⁻¹

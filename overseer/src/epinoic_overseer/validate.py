@@ -106,6 +106,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -134,7 +135,8 @@ from .view import OverseerView
 __all__ = [
     "validate_overseer_verdict", "VerdictAssessment", "AccusationAssessment", "EngineStatementAssessment", "FindingRef", "OUTCOME_CODES",
     "Outcome", "RefutedBy", "build_verdicts_audit", "assessment_digest", "finding_matches", "RESULT_KINDS", "LIVE_KINDS", "SHADOW_KINDS",
-    "TRANSLATION_CHECKS_NEEDED", "RemainderAssessment", "coverage_split", "agent_label",
+    "TRANSLATION_CHECKS_NEEDED", "RemainderAssessment", "coverage_split", "agent_label", "DECLARED_INCOMPLETE_RULE", "declared_incomplete",
+    "FALSE_CONFLICT_GAP_RULE",
 ]
 
 Outcome = Literal["confirmed", "refuted", "unverifiable", "unresolved"]
@@ -158,6 +160,41 @@ TRANSLATION_CHECKS_NEEDED: dict[str, tuple[str, ...]] = {
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+#: Rule ``declared-incomplete`` (round-9 clearance c2b, the c2 STEM-integration lens: verdicts on green-lit STEM transfers said "Not
+#: completed: ... STEM formal-check and ST-code review (I98) ... Items inside the scope that passed are not certified; they are simply not
+#: accused" or "Partial review ... only grep-based inspection", and the fallback counted every unaccused claim of the transfers they listed
+#: accurate): a verdict whose own notes declare its review incomplete. It is read only to trust the verdict LESS (its ``transfers_reviewed``
+#: then certifies nothing on its silence; its accusations and engine statements are assessed as ever), never more, so no wording of an
+#: agent's notes can raise an accuracy. Closed list of phrases, each run of blanks bounded: linear.
+DECLARED_INCOMPLETE_RULE = "declared-incomplete"
+_INCOMPLETE_PHRASES = (
+    ("not completed", r"not[ \t]{1,3}(?:yet[ \t]{1,3})?(?:completed?|finished|done)"),
+    ("incomplete", r"incomplete"),
+    ("partial review", r"partial(?:ly)?[ \t]{1,3}(?:review(?:ed)?|inspect(?:ed|ion)|check(?:ed)?|coverage|reading)|partly[ \t]{1,3}(?:review|inspect|check)(?:ed)?"),
+    ("not certified", r"not[ \t]{1,3}certified"),
+    ("did not finish", r"(?:i|we)[ \t]{1,3}(?:did[ \t]{1,3}not|didn['’]t|could[ \t]{1,3}not|couldn['’]t|was[ \t]{1,3}unable[ \t]{1,3}to|were[ \t]{1,3}unable[ \t]{1,3}to"
+                        r"|have[ \t]{1,3}not|haven['’]t)[ \t]{1,3}(?:complete|completed|finish|finished|check|checked|review|reviewed|inspect|inspected|verify|verified"
+                        r"|run|perform|performed)"),
+    ("grep-based", r"grep[- ]based|only[ \t]{1,3}(?:a[ \t]{1,3})?(?:grep|cursory|superficial|spot[- ]check|sample)"),
+    ("skipped", r"(?:i|we)[ \t]{1,3}(?:have[ \t]{1,3})?skipped"),
+)
+_INCOMPLETE_RE = re.compile("|".join(f"(?P<p{i}>\\b(?:{rx})\\b)" for i, (_name, rx) in enumerate(_INCOMPLETE_PHRASES)), re.IGNORECASE)
+#: The most characters of a verdict's notes the rule reads (the verdict contract bounds them already).
+_INCOMPLETE_MAX_CHARS = 20_000
+
+
+def declared_incomplete(notes: Optional[str]) -> Optional[str]:
+    """Rule ``declared-incomplete`` (:data:`DECLARED_INCOMPLETE_RULE`): the closed-list name of the first phrase by which a verdict's
+    ``notes`` declare its review incomplete ("not completed", "partial review", "not certified", ...), or None. The agent's own words are
+    never returned. One bounded scan."""
+    if not notes:
+        return None
+    m = _INCOMPLETE_RE.search(str(notes)[:_INCOMPLETE_MAX_CHARS])
+    if m is None:
+        return None
+    return next(_INCOMPLETE_PHRASES[i][0] for i in range(len(_INCOMPLETE_PHRASES)) if m.group(f"p{i}") is not None)
 
 
 # ============================================================================================ the assessment contract
@@ -264,6 +301,9 @@ class VerdictAssessment(BaseModel):
     notes: list[str] = Field(default_factory=list)
     created_at: str
     audit: Optional[OverseerAudit] = None
+    #: rule ``declared-incomplete`` (round-9 clearance c2b): the closed-list phrase by which the verdict's own notes declare its review
+    #: incomplete, or None; such a verdict's ``transfers_reviewed`` certifies nothing on its silence (the delivery policy's accuracy)
+    declared_incomplete: Optional[str] = None
 
     def outcome_of(self, accusation_id: str) -> Optional[AccusationAssessment]:
         return next((a for a in self.accusations if a.accusation_id == accusation_id), None)
@@ -601,6 +641,10 @@ def _coverage_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) 
                 return "a named result is not retained, so its content cannot be checked"
     if kind in ("contradiction_unnamed", "false_conflict") and any(f.code == "OVS-JOINT-002" for f in base.findings):
         return "the independent joint check was undecided, not buildable or over its limits"
+    if kind == "false_conflict":
+        gap = _false_conflict_gap(ids, ctx)
+        if gap is not None:
+            return gap
     if kind == "contradiction_unnamed":
         claims = set(ids["claim_ids"])
         if not claims:
@@ -622,6 +666,53 @@ def _coverage_gap(kind: str, ids: dict[str, list[str]], base: _Base, ctx: _Ctx) 
         if gap is not None:
             return gap
     return None
+
+
+#: Rule ``false-conflict-gap`` (round-9 clearance c2b; the c2 adversarial lens, previous bug 21 of rounds 7 and 8): OVS-JOINT-003, the
+#: check behind ``false_conflict``, decides only what it can read apart (glosses naming different quantities, a candidate a claim rejects,
+#: a value a claim evaluates or checks at that a premise of its own fixes: rule ``evaluation-point``). Its silence shows that the conflict
+#: holds under those readings, never that a conflict resting on a check, an evaluation point or a supposition the claim states is real: a
+#: correct accusation of maa-t15's m5.3 "Check: at x = 0, ..." against m7.1 was refuted "by deterministic check". Such an accusation, when
+#: the check names no false conflict, is left unresolved for human review, never refuted. A named conflict whose claims state none of these
+#: is refuted as before (its encoding's conflict is the claims' own).
+FALSE_CONFLICT_GAP_RULE = "false-conflict-gap"
+#: A claim that states a check, a trial, a supposition or an example ("Check: ...", "To verify, substitute ...", "Suppose x = 2", "Assume
+#: ...", "Let x = 3", "if we take x = 1", "for example"); each run of blanks bounded (linear).
+_LOCAL_VALUE_RE = re.compile(
+    r"\b(?:check(?:s|ed|ing)?|verif(?:y|ies|ied|ying|ication)|substitut(?:e|es|ed|ing)|test(?:s|ed|ing)?|tr(?:y|ies|ied|ying))[ \t]{0,3}"
+    r"(?:[:,]|\b(?:at|with|by|that|whether|in|into)\b|[A-Za-z][A-Za-z0-9_]{0,15}[ \t]{0,3}=)"
+    r"|\b(?:suppose|supposing|assume|assuming|hypothetical(?:ly)?|for[ \t]{1,3}(?:example|instance)|e\.g\.)\b"
+    r"|\b(?:let|say)[ \t]{1,3}[A-Za-z][A-Za-z0-9_]{0,15}[ \t]{0,3}=|\bif[ \t]{1,3}we[ \t]{1,3}(?:take|put|set|try|use|choose|pick)\b",
+    re.IGNORECASE)
+
+
+def _false_conflict_gap(ids: dict[str, list[str]], ctx: "_Ctx") -> Optional[str]:
+    """Rule ``false-conflict-gap`` (:data:`FALSE_CONFLICT_GAP_RULE`): why the absence of OVS-JOINT-003 cannot refute a ``false_conflict``
+    accusation naming ``ids``: a conflict a receipt named among the accused claims rests on a claim whose text (as the latest delivered
+    report holding it states it) states a check, an evaluation point (rule ``evaluation-point``) or a supposition. None otherwise."""
+    from .checks.joint import evaluation_points
+    accused = set(ids.get("claim_ids", ()) or ())
+    if not accused:
+        return None
+    named: set[str] = set()
+    synthesized: set[str] = set()
+    texts: dict[str, str] = {}
+    for t in ctx.view.transfers:
+        if t.synthesis is not None:
+            synthesized.update(c.claim_id for c in t.synthesis.claims)
+        rep = getattr(t, "report", None)
+        if rep is not None and t.delivered:
+            for c in rep.claims:
+                texts[c.claim_id] = c.claim_text
+        for f in (getattr(t.receipt, "findings", None) or []) if t.receipt is not None else []:
+            if f.code in ("INT-CONFLICT-001", "INT-CONFLICT-005") and accused & set(f.claim_ids):
+                named.update(c for c in f.claim_ids if c not in synthesized)
+    local = sorted(c for c in named if c in texts and (_LOCAL_VALUE_RE.search(texts[c][:4000]) or evaluation_points(texts[c])))
+    if not local:
+        return None
+    return (f"the named conflict rests on claim(s) {', '.join(local[:6])}, whose text states a check, an evaluation point or a supposition: "
+            "OVS-JOINT-003 reads apart only a value a premise of the claim fixes, so its silence does not show the conflict is the claims' own "
+            f"(rule {FALSE_CONFLICT_GAP_RULE}); human review")
 
 
 #: The transformations whose synthesized claim the ledger holds to its one cited source's text (INT-LEDGER-010 names any
@@ -1187,7 +1278,11 @@ def validate_overseer_verdict(message: AgentMessage, view: OverseerView, store: 
         task_id=verdict.task_id, request_id=issue.request_id, channel_uid=view.channel_uid, lens=verdict.lens, mode=issue.mode, pack=verdict.pack,
         dossier_sha256=verdict.dossier_sha256, valid=True, task_audit_id=task_audit.audit_id if task_audit is not None else None,
         superseding_audit_id=superseding.audit_id if superseding is not None else None, transfers_reviewed=list(verdict.transfers_reviewed),
-        accusations=results, engine_statements=statements, findings=findings, notes=notes, created_at=_now())
+        accusations=results, engine_statements=statements, findings=findings, notes=notes, created_at=_now(),
+        declared_incomplete=declared_incomplete(verdict.notes))
+    if assessment.declared_incomplete is not None:
+        assessment.notes.append(f"the verdict's notes declare its review incomplete ({assessment.declared_incomplete!r}, a closed-list reading): the "
+                                f"transfers it lists are not certified by its silence (rule {DECLARED_INCOMPLETE_RULE})")
     reference = superseding if superseding is not None else (latest if latest is not None else (task_audit if audit_ok else None))
     assessment.audit = build_verdicts_audit(reference=reference, channel_uid=view.channel_uid, task_id=assessment.task_id, request_id=assessment.request_id,
                                             findings=findings, keyring=keyring, message_ids=[m for m in seq_m],

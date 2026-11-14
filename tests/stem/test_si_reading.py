@@ -115,7 +115,7 @@ ADVERSARIAL = [
     ("tower", "y = 10^10^10 = " + "10^" * 3000 + "10"),
     ("digits", "x = " + "7" * 10_000 + ' m s⁻¹ "' * 3),
     ("latex", "$$\\begin{align} x &= \\frac{{{ \\left( \\sqrt[ \\text{ \\unknown{ $$ " * 300),
-    ("confusables", "а = 3 ν = 2 х = 5 Ꮪ = 1 ０ = １ ‮x = 3 ″′\"" * 200),
+    ("confusables", "а = 3 ν = 2 х = 5 Ꮪ = 1 ０ = １ \u202ex = 3 ″′\"" * 200),
     ("quotes", '1" 2" 3" "a" ' * 3000),
 ]
 

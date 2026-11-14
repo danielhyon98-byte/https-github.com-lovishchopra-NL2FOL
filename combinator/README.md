@@ -26,14 +26,17 @@ It combines the specialists' answers to this one request and nothing else; it wr
 of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized` (a category, never a description of the edit);
 certainty is never stronger than the weakest source; every figure, unit, mark, date and quotation is kept exactly as
 the source states it; qualifiers (a hedge, a frequency such as "usually", a bound such as "at least", "a minority") and attributions are
-kept, and no specialist or text is credited with what it does not say; a note, a self-certification, a decline or a
-question is never carried back as a claim (a source claim whose `role` is `other` is a note and is never cited in
+kept, and no specialist or text is credited with what it does not say; a note, a self-certification, a word count or
+a question is never carried back as a claim (a source claim whose `role` is `other` is a note and is never cited in
 `claims`), and no verification label ("Verified:", "(checked)", "(Z3: proved)", "[OK]") is put on one (a source claim
-that carries one is written without it, as `narrowed`); a synthesized claim cites each source claim once; a
-contradiction is never merged or hidden but listed in `conflicts`, and a conflict is listed only when the claims
-really disagree; every dropped claim is listed with its reason, written in words (a transformation word or "dropped"
-is no reason); its texts are words (never only spaces, no control character but a tab or a line break); it writes the
-exact output format and nothing else:
+that carries one is written without it, as `narrowed`); the one note it carries is a decline or a deferral of the work
+the student asked for ("I can't write your introduction ..., because the proposal must be your own work", "Reply
+'approve' and I will write the full evaluation"), word for word, as a synthesized claim of its own (`carried`, citing
+only that claim), whatever its role, so the student still learns that the work was withheld and why (rule 7, since pack
+1.3); a synthesized claim cites each source claim once; a contradiction is never merged or hidden but listed in
+`conflicts`, and a conflict is listed only when the claims really disagree; every dropped claim is listed with its
+reason, written in words (a transformation word or "dropped" is no reason); its texts are words (never only spaces, no
+control character but a tab or a line break); it writes the exact output format and nothing else:
 
 ```
 {"claims": [{"text": "...", "source_claim_ids": ["..."], "certainty": "...", "transformation": "..."}],
@@ -45,6 +48,16 @@ exact output format and nothing else:
 contract's word for word (tested). The end-to-end simulation of 16 October 2026 showed why this matters: its
 combinator was told the field without its values and wrote free text in all 62 synthesized claims, so every synthesis
 was refused.
+
+Arena round 9 (integrated round c2) showed why a decline is carried: under pack 1.2, whose note rule listed a decline
+among the notes to leave out, the ps-t15 synthesis dropped the Psychology specialist's "I can't write your research
+question, introduction or ethical safeguards, or any other part of the proposal, because it must be your own work." as
+a note, so the answer the student read no longer said that the requested work was withheld. Pack 1.3 splits that rule:
+self-certifications, verification labels, word counts, questions and other remarks stay notes (rule 6); a decline or a
+deferral is carried (rule 7). The faithful fake (`FaithfulFakeProvider`) follows it: it carries a note that
+`providers.withheld_work` reads as a decline or a deferral (the forms the hub records as one, restated here since this
+package never imports the translator; a conformance test checks that the two readings agree on the round's material
+and on its examples), and still drops every other note.
 
 ## What the runner guarantees
 
@@ -65,9 +78,17 @@ document with a closed `reason` and its `KIT-CB` code; it never raises (only a `
 The agent is called once (no retry). Its output is validated against the published contract twice before it leaves:
 in the agent's own, stricter format, then as the port message. **The runner checks the contract, never the
 faithfulness**: an inflated certainty, a dropped qualifier, a merged contradiction, an invented figure, a figure in
-another unit, a wrong attribution, a carried self-certification or note, a verification label on a claim or an invented
-conflict is in contract and leaves, and the translator's hub, the independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`;
-the forms each check reads are in the translator's `src/epinoic_logic/integrity/README.md`). One limit: a contradiction is
+another unit, a wrong attribution, a carried self-certification or note, a verification label on a claim, a dropped
+decline of the requested work or an invented conflict is in contract and leaves, and the translator's hub, the
+independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`;
+a dropped decline is `INT-LEDGER-019`, rule framing-content, `tests/test_withheld_work.py` here;
+the forms each check reads are in the translator's `src/epinoic_logic/integrity/README.md`). Since the round-9
+clearance's second fix pass (c2b) the translator's ledger reads both of rule 7's forms: a decline carried word for word,
+alone, as `carried` is a note for the student, never a note carried back as a claim (no `INT-LEDGER-029`;
+`test_through_the_hub_a_decline_carried_word_for_word_is_no_self_report`), and a synthesis that leaves out a deferral the
+specialist's receipt records (`INT-REQ-004`, "the item is pending, not answered") is named as one that leaves out a
+decline is (`INT-LEDGER-019`; `test_through_the_hub_a_synthesis_that_leaves_out_a_recorded_deferral_is_named`, the
+round-8 clearance c1's ps-p8d synthesis); both tests were strict xfails until then. One limit: a contradiction is
 named as undisclosed (`INT-CONFLICT-002`) only between claims the hub formalized; one between claims in prose ("signed
 in June 1919" against "signed in July 1919") is named only through the figures a synthesis changes or leaves out
 (`INT-LEDGER-023`, `INT-LEDGER-024`); and a conflict the combinator lists over claims in which the hub found no
@@ -114,9 +135,16 @@ The suite shows: the instructions and their format (`test_pack_and_export.py`), 
 (`test_contract.py`, the translator's canonical vectors included), the runner (`test_runner.py`: every malformed output
 a named refusal, every provider failure, determinism, no retry, generated provider texts never letting anything out of
 contract leave), the port (`test_port.py`), the independence from the translator (`test_independence.py`: it runs with
-`python -I` and only its own `src/`), and conformance with the translator's port (`test_conformance.py`: the
+`python -I` and only its own `src/`), conformance with the translator's port (`test_conformance.py`: the
 combinator-port vectors, copied into `tests/vectors/` by the translator's `integration/tools/vectors.py`, and generated
-outputs, give the same verdict on both sides).
+outputs, give the same verdict on both sides), and rule 7 on the recorded material of arena round 9
+(`test_withheld_work.py`, `tests/data/round9_ps_t15.json` copied verbatim from the round: the instructions no longer
+list a decline among the notes to leave out, the faithful fake carries the recorded decline and drops every other note,
+its reading is linear on hostile input, and through the hub the receipts record the decline and a deferral, the recorded
+synthesis that drops the decline is named while the one rule 7 asks for is not, a deferral carried word for word draws
+no finding, and the decline carried in any other form than rule 7's is still named; since the round-9 clearance's second
+fix pass the decline carried as rule 7 asks draws no `INT-LEDGER-029` and a synthesis that leaves out a deferral is named,
+both pinned by tests that were strict xfails until the translator's ledger changed).
 
 ## Releasing a change
 
