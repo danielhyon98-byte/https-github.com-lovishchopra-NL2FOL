@@ -413,7 +413,9 @@ Above the engine, the package turns specialist reports into IR. This translation
     assumptions and source references; never the router's supplied texts) holds a bidirectional
     embedding, override or isolate (U+202A to U+202E, U+2066 to U+2069, the bidirectional class of
     that rule), raw text before it is parsed (rule bidi-text, `channel.bus.bidi_control_message`):
-    a reader may be shown such text in another order than every check reads it; INT-REQ-014 is a failed check in the response
+    a reader may be shown such text in another order than every check reads it (each text rule fails closed: a reader that
+    raises gives INT-REQ-009 at error severity naming the rule, never an empty list; round-9 push check on the c2 clearance
+    commit); INT-REQ-014 is a failed check in the response
     gate; INT-HANDOFF-013 also refuses a router forward that replies to another message than the
     delivery of the report it carries.
   - **Claim ids:** the generic parser qualifies its claim ids with the agent

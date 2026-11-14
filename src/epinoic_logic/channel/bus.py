@@ -647,9 +647,18 @@ def bidi_control_message(what: str, text: str) -> Optional[str]:
 
     Round 9 (c2): a text holding no bidirectional control is held to rule hidden-text as well (:func:`hidden_text_message`),
     so every caller of the response rule (``respond_text`` before parsing, and the Overseer's re-derivation, which binds this
-    function) refuses both alike."""
+    function) refuses both alike. Fails closed (round-9 push check on the c2 clearance commit): a reader that raises gives a
+    refusal naming the rule and the exception's type, never None and never the exception."""
     if not isinstance(text, str) or not text:
         return None
+    try:
+        return _bidi_control_message(what, text)
+    except Exception as exc:  # noqa: BLE001 - fail closed: a text rule that cannot read the text refuses it
+        return (f"{what} could not be read by rule bidi-text or rule hidden-text ({type(exc).__name__}): the text was neither checked nor "
+                "delivered (a text rule that cannot read the text refuses it, never passes it)")
+
+
+def _bidi_control_message(what: str, text: str) -> Optional[str]:
     if _BIDI_CONTROL_RE.search(text) is None:
         return hidden_text_message(what, text)
     n = _bidi_count(text)
@@ -704,22 +713,44 @@ def _report_class_findings(report: SpecialistReport, pattern: "re.Pattern[str]",
                              claim_ids=[c for c in claims if isinstance(c, str)][:64], report_ids=[rid] if rid else [], agent_ids=[aid] if aid else [])]
 
 
+def _reader_failed(rule: str, exc: BaseException, *, payload: str, ids: Optional[str], agent: Optional[str]) -> IntegrityFinding:
+    """The refusal a text rule's reader gives when it fails (round-9 push check on the c2 clearance commit: the readers of rules
+    bidi-text and hidden-text returned [] on an exception, so a failure let the text through with no INT-REQ-009): INT-REQ-009
+    (error, blocking), naming the rule and the exception's type, never its message (which may hold the text). Never raises."""
+    try:
+        kind = type(exc).__name__[:64]
+    except Exception:  # noqa: BLE001 - a type whose name cannot be read names nothing
+        kind = "an exception"
+    return IntegrityFinding(code="INT-REQ-009", severity="error",
+                            message=(f"{payload} payload could not be read by rule {rule} ({kind}): the text was neither checked nor delivered (a text "
+                                     "rule that cannot read the text refuses it, never passes it)"),
+                            claim_ids=[ids] if ids else [], agent_ids=[agent] if agent else [])
+
+
 def report_bidi_findings(report: SpecialistReport) -> list[IntegrityFinding]:
     """Rule bidi-text on a report (a response received as a structured payload, or handed to ``respond``): INT-REQ-009
     (error, blocking) when the specialist's own text (:func:`_report_texts`) holds a bidirectional embedding, override or
     isolate, naming the first place and the claims holding one; [] otherwise. Round 9 (c2): rule hidden-text likewise, a
     second INT-REQ-009 when that text holds a Unicode tag character (:data:`HIDDEN_TEXT_CLASS`), so
-    the Overseer's re-derivation, which binds this function, agrees with the receipt. Never raises: a report built around
-    its contract's validation is the re-validation's to refuse."""
-    try:
-        return (_report_class_findings(report, _BIDI_CONTROL_RE, _bidi_count, 4, "bidirectional embedding, override or isolate character(s)",
-                                       "a reader may be shown the text it governs in another order than the order every check of the hub reads, so it was "
-                                       "neither checked nor delivered (rule bidi-text: the text rule the combinator port holds a synthesis to)")
-                + _report_class_findings(report, _HIDDEN_TEXT_RE, _hidden_count, 5, "invisible tag character(s)",
-                                         "they can spell text the recipient receives but no reader sees and every check of the hub reads past, so it was "
-                                         "neither checked nor delivered (rule hidden-text)"))
-    except Exception:
-        return []
+    the Overseer's re-derivation, which binds this function, agrees with the receipt. Never raises, and fails closed (the
+    round-9 push check on the c2 clearance commit): a rule whose reader raises (a report built around its contract's
+    validation, a reader fault) gives an INT-REQ-009 refusal of its own (:func:`_reader_failed`), never an empty list; each rule
+    runs on its own, so one rule's failure never discards the other's finding."""
+    out: list[IntegrityFinding] = []
+    rules = (("bidi-text", lambda: _report_class_findings(
+                 report, _BIDI_CONTROL_RE, _bidi_count, 4, "bidirectional embedding, override or isolate character(s)",
+                 "a reader may be shown the text it governs in another order than the order every check of the hub reads, so it was "
+                 "neither checked nor delivered (rule bidi-text: the text rule the combinator port holds a synthesis to)")),
+             ("hidden-text", lambda: _report_class_findings(
+                 report, _HIDDEN_TEXT_RE, _hidden_count, 5, "invisible tag character(s)",
+                 "they can spell text the recipient receives but no reader sees and every check of the hub reads past, so it was "
+                 "neither checked nor delivered (rule hidden-text)")))
+    for rule, read in rules:
+        try:
+            out += read()
+        except Exception as exc:  # noqa: BLE001 - fail closed: a reader that fails refuses the text
+            out.append(_reader_failed(rule, exc, payload="report", ids=_text_attr(report, "report_id"), agent=_text_attr(report, "agent_id")))
+    return out
 
 
 def synthesis_hidden_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
@@ -727,7 +758,8 @@ def synthesis_hidden_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
     claim's text, a ledger entry's reason, a conflict's description or basis, the student-facing text) holds a Unicode tag
     character (:data:`HIDDEN_TEXT_CLASS`), naming code points, offsets and claims, never the
     text; [] otherwise. The synthesis contract's text rule (``integrity.contracts.SYNTHESIS_TEXT_PATTERN``) is the combinator
-    port's published rule and does not name the class yet, so the channel holds it on relay. Never raises."""
+    port's published rule and does not name the class yet, so the channel holds it on relay. Never raises, and fails closed: a
+    reader that raises gives an INT-REQ-009 refusal (:func:`_reader_failed`), never an empty list."""
     try:
         places: list[tuple[str, Optional[str], str]] = [("the text of synthesized claim", c.claim_id, c.text) for c in synthesis.claims]
         places += [("a ledger entry's reason", None, e.reason) for e in synthesis.ledger if e.reason]
@@ -754,8 +786,9 @@ def synthesis_hidden_findings(synthesis: Synthesis) -> list[IntegrityFinding]:
                                           "can spell text the student receives but no reader sees and every check of the hub reads past, so it was neither checked "
                                           "nor delivered (rule hidden-text)"),
                                  claim_ids=([sid] if sid else []) + [c for c in claims if isinstance(c, str)][:63], agent_ids=[comb] if comb else [])]
-    except Exception:
-        return []
+    except Exception as exc:  # noqa: BLE001 - fail closed (round-9 push check on the c2 clearance commit): a reader that fails refuses
+        return [_reader_failed("hidden-text", exc, payload="synthesis", ids=_text_attr(synthesis, "synthesis_id"),
+                               agent=_text_attr(synthesis, "combinator_agent_id"))]
 
 
 def _named(ids: list[str]) -> str:

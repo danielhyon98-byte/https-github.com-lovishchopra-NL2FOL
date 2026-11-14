@@ -276,7 +276,43 @@ def test_round_4_claim_channel_inputs_are_refused_by_the_claim_rules(monkeypatch
     eligible claim, rule unverified-claims for any other)."""
     _clean_recorded_claims(monkeypatch)
     _rc, report, decision, _audit = _deliver(_with(row))
+    if _named_by_the_one_reader(row):
+        # rewritten to a stricter rule (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit): an input the
+        # one self-report reader names ("Accuracy: 100%.") is no claim any more but a self-report, refused by the self-report rules
+        assert decision.mode != "formally_checked" and any(r.startswith(SELF_REPORT_REASON) or "self-certification-gate" in r
+                                                           for r in decision.receipt.formal.reasons), decision.receipt.formal.reasons
+        return
     assert_claim_refusal(decision, report, row["text"])
+
+
+def _named_by_the_one_reader(row) -> bool:
+    from epinoic_logic.api.adapters import is_self_certification
+    return is_self_certification(row["text"].split("\n\n")[-1].strip())
+
+
+def now_a_self_report(added: str) -> bool:
+    """Hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: whether the shared self-report reader now names
+    an input it did not before (a correctness word said of the answer, a bare verdict: "There is nothing to fix in this answer,
+    not a single slip.", "All good.", "..., and nothing above needs fixing.")."""
+    from epinoic_logic.api.adapters import is_self_certification
+    return is_self_certification(added.strip().split("\n\n")[-1].strip())
+
+
+def assert_self_report_refusal(decision, report=None, added: str = "") -> None:
+    """The refusal of an input the shared self-report reader names (rewritten to that stricter rule in hold-fix round 3): the
+    answer is never FORMALLY CHECKED and is refused beyond the label rule, by rule self-report-disclosed (a reason naming the
+    self-report code) or, where the self-report sits inside the verified claim, by the exclusion of the answer whose receipt
+    names it at error level; a claim holding it carries the advisory status; no reason holds its words."""
+    assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
+    reasons = decision.receipt.formal.reasons
+    assert any(r.startswith(SELF_REPORT_REASON) or "self-certification-gate" in r or " is excluded: " in r for r in reasons if r != FORMAL_LABEL_REASON), reasons
+    if report is not None and added:
+        probe = " ".join(added.split())[:20]
+        holding = [c for c in report.claims if probe and probe in " ".join(c.claim_text.split())]
+        assert all(c.advisory_verification_status is not None for c in holding), [(c.claim_id, c.claim_role) for c in holding]
+    probe = " ".join(added.split())[:16]
+    if len(probe) >= 12:
+        assert all(probe not in r for r in reasons), reasons
 
 
 def _visible(t: str) -> str:
@@ -291,6 +327,11 @@ def test_every_open_round_4_input_is_a_claim_of_the_english_parser(row):
     ins = row["text"].split("\n\n")[-1].strip()
     probe = _visible(ins)[:14]
     units = [u for u in english_units(text) if probe and probe in _visible(u.text)]
+    if _named_by_the_one_reader(row):
+        # rewritten to a stricter rule (hold-fix round 2): an input the one self-report reader names is set aside as a self-report,
+        # never read as a claim of the answer
+        assert units and not any(u.claim for u in units), (row["text"], [(u.text[-60:], u.claim) for u in units])
+        return
     assert units and any(u.claim for u in units), (row["text"], [(u.text[-60:], u.claim) for u in units])
     assert unread_non_material_blocks(text, english_units(text), grounding=TUNER_GROUNDING, task_wording=EN_T14_Q) == []
     assert unread_lead_blocks(text, TUNER_GROUNDING) == []
@@ -408,7 +449,9 @@ def test_the_physics_answer_delivered_as_text_for_real(row):
         assert_label_withheld_only(decision)
         return
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
-    assert reasons and all(r.startswith((NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON)) for r in reasons), reasons
+    # hold-fix round 3 (stricter): an input the shared self-report reader now names is also named a self-report on the receipt
+    allowed = (NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON) + ((SELF_REPORT_REASON,) if now_a_self_report(row["added"]) else ())
+    assert reasons and all(r.startswith(allowed) for r in reasons), reasons
     assert any(r.startswith((NON_MATERIAL_REASON, LEAD_REASON)) for r in reasons), reasons
 
 
@@ -423,6 +466,11 @@ def test_physics_text_claim_channel_inputs_are_refused_for_real(row):
     positive outcome of a signed engine result, and names it by id; "LGTM." also turns the result into a point the verifier
     does not translate (condition 3 names it)."""
     report, decision = _physics_text(_physics_text_answer(row))
+    if now_a_self_report(row["added"]):
+        # rewritten to the stricter rule in hold-fix round 3: the shared self-report reader names the input, so the STEM parser sets
+        # it aside as a self-report (role other, the advisory status) and rule self-report-disclosed refuses the answer
+        assert_self_report_refusal(decision, report, row["added"].strip())
+        return
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
     reasons = decision.receipt.formal.reasons
     added = [c.claim_id for c in report.claims if c.claim_role != "other" and c.claim_text != "The speed is 15 km/h."]
@@ -456,7 +504,12 @@ def test_the_open_physics_text_inputs_are_claims_of_the_stem_parser_and_their_ba
     runs no delivery at the base, so the suite does not re-measure them (this tree cannot run the base)."""
     report, _decision = _physics_text(_physics_text_answer(row))
     probe = _visible(row["added"]).lstrip(";")[:10].strip()
-    assert any(c.claim_role != "other" and probe in _visible(c.claim_text) for c in report.claims), [(c.claim_role, c.claim_text) for c in report.claims]
+    if now_a_self_report(row["added"]):
+        # hold-fix round 3 (stricter): the shared self-report reader names the input, so the STEM parser sets it aside (role other)
+        assert all(c.claim_role == "other" and c.advisory_verification_status is not None for c in report.claims if probe in _visible(c.claim_text)), \
+            [(c.claim_role, c.claim_text) for c in report.claims]
+    else:
+        assert any(c.claim_role != "other" and probe in _visible(c.claim_text) for c in report.claims), [(c.claim_role, c.claim_text) for c in report.claims]
     assert row["base_16d5a4a"] == {"mode": "withheld", "codes": ["OVS-TRN-005"]}
 
 

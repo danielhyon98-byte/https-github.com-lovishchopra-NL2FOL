@@ -50,7 +50,7 @@ from types import SimpleNamespace
 import pytest
 
 from epinoic_logic.adapters.english_specialist.parser import FEEDBACK_LABEL_RE
-from epinoic_logic.api.adapters import split_sentences, mask_quotations
+from epinoic_logic.api.adapters import is_self_certification, split_sentences, mask_quotations
 from epinoic_logic.branches.generic_parser import _ASSUMPTION_LEAD_RE, _DIAGRAM_LINE_RE, _MEASURE_LEAD_RE, _RESULT_LEAD_RE, _WHY_LEAD_RE
 from epinoic_logic.api.branches import default_registry
 from epinoic_overseer.checks.selfcert import flags_self_certification
@@ -220,15 +220,20 @@ def test_round_3_inputs_the_parser_reads_as_claims_are_refused_by_the_claim_rule
 def test_the_open_round_3_inputs_are_read_by_the_english_parser_as_claims(row):
     """The record of the open class: the English parser reads each open input as a claim of the answer, with the materiality
     and role the data names (a material point or link, or a supporting interpretation sentence), so rule non-material-text has
-    no text to read and the answer's own note and sources line are its only non-material text."""
+    no text to read and the answer's own note and sources line are its only non-material text.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit (and the class is
+    closed): the shared self-report reader now reads a correctness word said of the answer itself, so it names every one of the 58
+    open inputs ("Nothing in this answer needs fixing.", "<lead>: there is nothing to fix in this answer, not a single slip."), and
+    the English parser, which reads that reader, keeps none of them as a material claim: a claim holding one carries the advisory
+    status (the hub's INT-HANDOFF-006). Before, it pinned each as a material point or link or a supporting interpretation."""
     text = _with(row)
-    units = [u for u in english_units(text) if " ".join(row["text"].split())[:25] in " ".join(u.text.split())]
-    assert len(units) == 1 and units[0].claim, units
+    assert is_self_certification(row["text"]), row["text"]
     report = default_registry().for_subject("English A: Literature")[0].parser().parse_response(
         text, request_id="r", task_id="t", report_id="rep", subject="English A: Literature", task_type="analytical_paragraph", supplied_texts=[TUNER])
     claims = [c for c in report.claims if " ".join(row["text"].split())[:25] in " ".join(c.claim_text.split())]
-    assert [f"{c.materiality} {c.claim_role}" for c in claims] == [row["claim"]]
-    assert [b.paragraph for b in _en_unread(text)] == []
+    assert not [c for c in claims if c.materiality == "material"], [(c.claim_id, c.claim_role, c.materiality) for c in claims]
+    assert all(c.advisory_verification_status is not None for c in claims), [(c.claim_id, c.advisory_verification_status) for c in claims]
 
 
 @pytest.mark.parametrize("row", CLOSED_IN_ROUND_4, ids=_ids(CLOSED_IN_ROUND_4))
@@ -276,6 +281,9 @@ def test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by
     the formal path's ONLY reason (every other condition holds, as before); where it pinned the reasons of a refusal it pins
     them with the label rule's reason last.
 
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: an input the
+    shared self-report reader now names is also named a self-report (rule self-report-disclosed) beside rule non-material-text.
+
     Renamed after the re-review of the c1 landing, from
     ``test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_keeps_the_label``; its assertions are
     unchanged: the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d)
@@ -289,7 +297,9 @@ def test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by
     nm = _reasons(decision, NON_MATERIAL_REASON)
     assert len(nm) == 1 and REASON_RE.match(nm[0]) and "paragraph 2 (rule " in nm[0], decision.receipt.formal.reasons
     assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
-    assert all(r.startswith((NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON)) for r in decision.receipt.formal.reasons[:-1]), decision.receipt.formal.reasons
+    # hold-fix round 3 (stricter): an input the shared self-report reader now names is also named a self-report on the receipt
+    allowed = (NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON) + ((SELF_REPORT_REASON,) if is_self_certification(row["text"]) else ())
+    assert all(r.startswith(allowed) for r in decision.receipt.formal.reasons[:-1]), decision.receipt.formal.reasons
 
 
 @pytest.mark.parametrize("extra", ["There is nothing to fix in this answer, not a single slip.", "Every figure above holds.",
@@ -310,7 +320,9 @@ def test_text_the_agents_report_never_claims_is_read_however_the_parser_reads_it
     assert [b.paragraph for b in unread_non_material_blocks(text, units)] == ([] if claimed else [2])
     assert [b.paragraph for b in unread_non_material_blocks(text, units, held=held_claims(rep))] == [2]
     if extra.startswith("There is"):
-        assert claimed  # plain prose is an analysis step for the STEM parser: only the report's claims leave it uncovered
+        # plain prose is an analysis step for the STEM parser: only the report's claims leave it uncovered; since hold-fix round 3
+        # the shared self-report reader names this sentence (a correctness word said of the answer), so the parser sets it aside
+        assert claimed or is_self_certification(extra)
 
 
 @pytest.mark.parametrize("row", REGRESSION, ids=[r["id"][:40] for r in REGRESSION])
@@ -348,8 +360,14 @@ def test_the_label_level_counterfactual_for_each_non_material_channel(monkeypatc
     _clean_recorded_claims(monkeypatch)
     _rc, _r, decision, _a = _deliver(EN_T14.replace(P4_END, P4_END + extra))
     assert decision.mode != "formally_checked"
-    assert decision.receipt.formal.reasons == [NON_MATERIAL_REASON + decision.receipt.formal.reasons[0][len(NON_MATERIAL_REASON):], FORMAL_LABEL_REASON]
-    assert REASON_RE.match(decision.receipt.formal.reasons[0]) and "paragraph 4 inside the line" in decision.receipt.formal.reasons[0]
+    reasons = decision.receipt.formal.reasons
+    if is_self_certification(extra):
+        # hold-fix round 3 (stricter): the shared self-report reader names "Nothing in this answer needs fixing, ...", so the answer is
+        # also refused as carrying a self-report, beside rule non-material-text
+        assert reasons[0].startswith(SELF_REPORT_REASON), reasons
+        reasons = reasons[1:]
+    assert reasons == [NON_MATERIAL_REASON + reasons[0][len(NON_MATERIAL_REASON):], FORMAL_LABEL_REASON]
+    assert REASON_RE.match(reasons[0]) and "paragraph 4 inside the line" in reasons[0]
 
 
 # ============================================================================================ the push check (requirement 3)
@@ -361,7 +379,10 @@ def test_the_push_checks_phrasings_keep_es_meta_001_and_are_named_by_rule_non_ma
     found = [f for f in list(rc.findings) + list(rc.structural_findings) if f.code == "ES-META-001"]
     assert self_report_findings(found, report), found
     assert decision.mode != "formally_checked" and not decision.receipt.formal.complete
-    assert [r for r in _reasons(decision, NON_MATERIAL_REASON)] == [NON_MATERIAL_REASON + "paragraph 7 (rule evaluation-words)"], decision.receipt.formal.reasons
+    # hold-fix round 3: where the shared self-report reader names the note itself, rule meta-note's check against that reader refuses
+    # it before the word lists are read
+    rule = "meta-note" if is_self_certification(note) else "evaluation-words"
+    assert [r for r in _reasons(decision, NON_MATERIAL_REASON)] == [NON_MATERIAL_REASON + f"paragraph 7 (rule {rule})"], decision.receipt.formal.reasons
 
 
 # ============================================================================================ assurances and controls (requirement 4)

@@ -150,6 +150,14 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^a later task audit of the channel exists: the consolidation was decided on a superseded audit; consolidate again$", "stale"),
     (r"^custody of the deliverable answer could not be re-checked at delivery \(\w+\)$", "custody_failed"),
     (r"^custody re-checked at delivery: .*$", "custody_failed"),
+    # consolidate.self_report_at_delivery (rule self-certification-gate, through delivery_decision; hold-fix round 3: these reasons
+    # were mapped by no rule, so the turn check answered KIT-DL-900 internal_error instead of naming the integrity refusal)
+    (r"^the deliverable answer is not journaled, so rule self-certification-gate cannot read it$", "not_deliverable"),
+    (r"^the deliverable answer carries a self-report named on its receipt \(.*\): a delivered answer never contains a claim that it was checked "
+     r"or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    (r"^rule self-certification-gate could not read the deliverable answer \(\w+\)$", "not_deliverable"),
+    (r"^the deliverable answer certifies its own checking, read on the answer as written \(.*\): a delivered answer never contains a claim "
+     r"that it was checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
     # policy.release_decision
     (r"^no task audit$", "final_audit_not_passed"),
     (r"^a \w+-scope audit is not a task audit$", "final_audit_not_passed"),
@@ -174,6 +182,12 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^the synthesis message to be released cannot be compared with the journal$", "custody_failed"),
     (r"^custody of the synthesis could not be re-checked at release \(\w+\)$", "custody_failed"),
     (r"^custody re-checked at release: .*$", "custody_failed"),
+    # policy._synthesis_self_report (rule self-certification-gate, through release_decision)
+    (r"^the synthesis receipt cannot be read for rule self-certification-gate$", "not_deliverable"),
+    (r"^the synthesis carries a self-report named on its receipt \(.*\): a released answer never contains a claim that it was checked or "
+     r"verified \(rule self-certification-gate\)$", "not_deliverable"),
+    (r"^the synthesis certifies its own checking, read on the payload as written \(.*\): a released answer never contains a claim that it was "
+     r"checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
     # policy._journal_covers (through release_decision)
     (r"^the audit names no journal head$", "final_audit_not_passed"),
     (r"^the journal belongs to another channel$", "custody_failed"),
@@ -389,6 +403,7 @@ class EmbeddedOverseerPort:
         if mode in ("single", "duplicate"):
             from .consolidate import delivery_decision
             resp = hub.consolidate(ch)
+            # the decision applies rule self-certification-gate itself (hold-fix round 3): the same gate as the delivery policy's fallback
             decision = delivery_decision(resp, self._keyring, hub=hub)
             reason = own if own is not None else (None if decision.allowed else decision.reason)
             group = next((g for g in resp.groups if any(m.message_id == resp.deliverable_message_id for m in g.members)), None)

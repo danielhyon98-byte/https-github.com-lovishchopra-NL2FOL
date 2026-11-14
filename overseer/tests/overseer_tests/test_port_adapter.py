@@ -138,8 +138,10 @@ def _render(node: ast.AST, source: str) -> list[str]:
 def _reasons() -> list[str]:
     """Every refusal reason of the overseer's delivery rule, read from the code."""
     out: list[str] = []
-    targets = {"policy.py": ("release_decision", "_journal_covers"), "consolidate.py": ("delivery_decision", "_current_at_delivery"),
-               "port.py": ("_final_refusal",)}
+    # rule self-certification-gate's reasons too (hold-fix round 3: they were mapped by no rule, so the turn check answered
+    # KIT-DL-900 internal_error instead of naming the refusal)
+    targets = {"policy.py": ("release_decision", "_journal_covers", "_synthesis_self_report"),
+               "consolidate.py": ("delivery_decision", "_current_at_delivery", "self_report_at_delivery"), "port.py": ("_final_refusal",)}
     for name, functions in targets.items():
         source = (PACKAGE / name).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -150,7 +152,8 @@ def _reasons() -> list[str]:
                         if isinstance(node.args[1], ast.Name):  # a reason computed above (``why``): read where it is assigned
                             continue
                         out += _render(node.args[1], source)
-                elif isinstance(node, ast.Return) and node.value is not None and fn.name in ("_journal_covers", "_current_at_delivery", "_final_refusal"):
+                elif isinstance(node, ast.Return) and node.value is not None and fn.name in ("_journal_covers", "_current_at_delivery", "_final_refusal",
+                                                                                              "self_report_at_delivery", "_synthesis_self_report"):
                     out += _render(node.value, source)
                 elif isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "why" for t in node.targets):
                     if isinstance(node.value, ast.IfExp):
@@ -173,6 +176,8 @@ def test_every_reason_of_the_delivery_rule_maps_onto_exactly_one_closed_refusal(
     assert labels["the FINAL audit is AUDIT_PENDING: not passed"] == "clearance_pending"
     assert labels["status CONFLICTING: the answers conflict and are disclosed, not chosen"] == "consolidation_conflicting"
     assert labels["status NO_DELIVERABLE_OUTPUT: no answer may be delivered"] == "no_deliverable_output"
+    gate = [r for r in labels if "rule self-certification-gate" in r]
+    assert len(gate) >= 7 and {labels[r] for r in gate} == {"not_deliverable"}, gate
 
 
 @pytest.mark.parametrize("reason", ["", "something nobody wrote", "status CONFLICTING: no answer may be delivered and more"])

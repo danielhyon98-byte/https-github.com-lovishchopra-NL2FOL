@@ -6097,6 +6097,52 @@ now does too: maa-t15 m2.4 ("4k < 36" from m2.3) and m7.2 ("2x + 2 = x − 3" fr
 line, not restatements (the floor reads them (None, ()) and the translator ENTAILED), while a premise no previous line states is
 still read by the floor (control).
 
+**Decision 158 (one self-report reader for every gate; the round-9 push-check hold on the c2 clearance commit).** The push check
+held round 9's upload: on the History and Economics branches "All calculations have been verified by the system and are confirmed.",
+"All values were verified on a GDC and are confirmed correct." and "I recalculated every one of these values myself and confirm that
+all are correct." travelled as a deliverable fallback candidate with no integrity reason. The parsers named them only by their
+advisory status (INT-HANDOFF-006, info, read by no gate), the core pack's CORE-SELF-001 read only the verification vocabulary and
+labels, and rule `self-certification-gate` read only its own lists, which named none of them although the translator's
+`is_self_certification` names all three. Two lists that can drift are replaced by one reader: the gate asks the translator's
+reader through its public API (`meta_notes.self_certifying_sentence`), on every claim of any role, on every claim's advisory
+verification status and on the answer as written (sentences, lines and table cells; `meta_notes.self_certifying_sentences`), and
+the formal path reads the same, so such an answer is neither deliverable by the fallback, whatever the agents' measured accuracy,
+nor FORMALLY CHECKED. The translator's core pack names every such sentence CORE-SELF-001 on every branch, and its reader now reads
+a table row cell by cell, an active check by a tool of the answer's own items ("The system has validated all of the calculations
+above.") and "proven" as a checking participle. The channel's text rules bidi-text and hidden-text fail closed (a reader that
+raises gives INT-REQ-009 at error severity, never an empty list).
+
+**Decision 159 (the one reader reads by class, and every release path reads it; hold-fix round 2 of the same hold).** The round-1
+lenses reproduced dozens of further phrasings no reader named, on every branch and on the overseer-selected (above 0.90) and NOT
+CHECKED paths, a self-certifying eleventh material claim scored "accurate" on a silent review that lifted 9/10 to 10/11, the
+combined answer and the service's turn check releasing a self-certifying text, and correct work refused (a census office's check
+reported as evidence, a narrator's claim under analysis, a worked check line). Adding phrasings one at a time does not converge, so
+the translator's reader (`epinoic_logic.adapters.self_report`) now normalises the text as the student sees it and reads by
+vocabulary class: a positive checking word with an internal or no agent and the answer, its parts or a pronoun for them as its
+theme; a named outside party's check narrated in the past or of an outside source's items, a negated, questioned or modal check,
+an attributed or analysed quotation and a worked check that shows its computation are not self-reports. The template rules are
+kept, held to the same vetoes. The gate's own word lists and labels hold to those vetoes (`meta_notes.self_report_reading`); a
+self-report is never scored in the accuracy (`delivery_policy._self_reporting_claim`); `policy.release_decision` refuses a
+synthesis carrying one (receipt codes at any severity, or the journaled payload's claims and text); and
+the port's single and duplicate delivery, which the service's turn check reads, refuses a deliverable answer carrying one
+(`consolidate.self_report_at_delivery`; the delivery policy's formal path reads the gate itself). D34 in `integration/DECISIONS.md` records the effect on the kit's turn check.
+
+**Decision 160 (one reading everywhere, the class widened; hold-fix round 3 of the same hold).** The round-2 lenses reproduced
+forty phrasings no reader named (a calculator named by its make or model, a theorem prover, an examiner or a colleague as the
+checker, "vetted", "signed off", "reran", "I can vouch for", "passed verification", "Z3 says every step is valid.", "There are no
+errors in this answer.", Spanish first-person forms, an em-dash label), a gate that read two readers by the parser's role, a
+self-report scored accurate, the router's documented decision allowing a self-certifying answer (the gate lived only in the port's
+caller), the port's gate reasons mapped by no refusal rule (KIT-DL-900 internal_error at the turn check), and correct work refused
+(a named outside body's check of the quoted figures in the perfect tense, historians checking dates against records, worked checks,
+a source's own claim quoted under analysis, a statistics office's check reported as evidence). The gate's reading now defers to the
+translator's one reader on every claim of every role and every piece of the answer (`meta_notes.self_report_reading`,
+`meta_notes.claim_self_report`), the reader's classes were widened (internal checkers by class of head: personal tools whatever
+their make, unnamed people who mark a student's work, a check itself; checking verbs with sign-off, vetting, vouching, re-running,
+reproducing and cross-referencing; an answer passing a check; a tool's relayed verdict; a correctness word said of the answer's own
+items), and it reads sentence by sentence. A named outside party's check narrated in the active voice or the past is evidence (the
+perfect or present passive of the answer's own items still states their status, a self-report); a worked check is working
+whoever narrates it. `consolidate.delivery_decision` applies the gate itself, and every gate reason maps onto `not_deliverable`.
+
 **Left to other owners or for later (the pass's handoff).** Done by the pass's handoff fixer: the channel's compound part labels
 ("(a)(i)", rule nested-parts), ess-p9c's judgement line (a "Judgement:" line is its part's material judgement), the coverage-gap
 reading (decision 156), one INT-SUBJ-003 per fault (decision 154) and the translator's compound units ("kJ m⁻² yr⁻¹" read whole);

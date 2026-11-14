@@ -1115,15 +1115,18 @@ _ALL_HOLD_RE = re.compile(
 _CHECK_ITEMS = (r"(?:values?|figures?|calculations?|computations?|marks?|mark\s++allocations?|steps?|answers?|results?|workings?|working|numbers?|sums?"
                 r"|totals?|arithmetic|conversions?|substitutions?|units?|quotations?|dates?|data|readings?)")
 _CHECK_PARTICIPLE = (r"(?:checked|verified|confirmed|re-?calculated|re-?computed|re-?worked|re-?checked|double[- ]checked|cross[- ]checked|validated|tested"
-                     r"|proof-?read|audited)")
+                     r"|proof-?read|audited|prov(?:en|ed))")
 #: A checking tool or the writer's own method as the agent or the standard of the check: the answer was checked by or on it.
 _CHECK_TOOL_RE = re.compile(r"\b(?:engines?|systems?|solvers?|software|GDCs?|calculators?|spreadsheets?|programs?|automated|automatic|mark\s*+schemes?"
                             r"|(?:official|marking)\s++(?:scheme|criteria|answers?)|by\s++hand|myself|ourselves)\b", re.IGNORECASE)
 _CHECK_ANCHOR = r"(?:above|here|below|in\s++(?:this|the|my)\s++(?:answer|response|paragraph|reply|solution|working))"
+#: The answer's items named as parts of the answer itself ("every step of this working", "all figures of my answer"): an anchor too (round-9
+#: push check on the c2 clearance commit).
+_CHECK_OF_ANSWER = r"(?:of\s++(?:this|my|our)\s++(?:answer|response|paragraph|reply|solution|working|calculation|essay))"
 #: The answer's items as the subject of a checking participle: "All values above were checked ...", "Every step has been verified ...".
 _ITEMS_CHECKED_RE = re.compile(
     rf"^[\W_]*+(?P<det>(?:all|every|each)(?:\s++one)?(?:\s++of)?(?:\s++(?:the|these|those|my|our))?|these|those|my|our)\s++(?:[\w-]+\s++){{0,2}}?"
-    rf"{_CHECK_ITEMS}(?P<anchor>\s++{_CHECK_ANCHOR})?\s++(?:were|was|have\s++been|has\s++been|had\s++been|are|is)\s++"
+    rf"{_CHECK_ITEMS}(?P<anchor>\s++(?:{_CHECK_ANCHOR}|{_CHECK_OF_ANSWER}))?\s++(?:were|was|have\s++been|has\s++been|had\s++been|are|is)\s++"
     rf"(?:(?:all|each|both|also|now|fully|independently|carefully|individually|already|thoroughly|duly)\s++){{0,3}}{_CHECK_PARTICIPLE}\b",
     re.IGNORECASE)
 #: The writer re-working its own items: "I recalculated every one of these values myself", "I recalculated these values by hand", "I proofread
@@ -1132,6 +1135,16 @@ _WRITER_REWORKED_RE = re.compile(
     rf"\b(?:I|we)\s++(?:have\s++|['’]ve\s++|had\s++)?(?:(?:also|now|personally|carefully|independently|then)\s++){{0,2}}"
     rf"(?:re-?calculated|re-?computed|re-?worked|re-?did|re-?checked|double[- ]checked|cross[- ]checked|reviewed|proof-?read|re-?read)\s++"
     rf"(?:(?:all|every|each)(?:\s++one)?(?:\s++of)?\s++(?:the\s++)?|these\s++|those\s++|my\s++|our\s++|them\b|it\b)(?:[\w-]+\s++){{0,2}}?(?:{_CHECK_ITEMS}\b|them\b|it\b)?",
+    re.IGNORECASE)
+#: A checking tool as the agent of an active checking verb with the answer's items as its object (round-9 push check on the c2 clearance commit:
+#: "The system has validated all of the calculations above.", "My GDC confirmed every value in this answer."): read only where the items are
+#: the answer's own, anchored in it ("above", "in this answer", "of this working") or named by the writer's determiner ("these", "my", "our");
+#: "The statistics office verified all the census figures" names no tool and "The calculator confirmed all the values" no item of the answer.
+_TOOL_CHECKED_RE = re.compile(
+    rf"\b(?:the|my|our|a|this)\s++(?:[\w-]+\s++){{0,2}}?(?:engines?|systems?|solvers?|software|GDCs?|calculators?|spreadsheets?|programs?|checkers?|verifiers?)"
+    rf"\s++(?:(?:has|have|had|also|now|fully|independently|already|then)\s++){{0,2}}"
+    rf"(?:checked|verified|confirmed|validated|prov(?:ed|en)|tested|cross[- ]checked|double[- ]checked|re-?calculated|re-?computed)\s++"
+    rf"(?P<det>(?:all|every|each)(?:\s++one)?(?:\s++of)?(?:\s++(?:the|these|those|my|our))?|these|those|my|our)\s++(?:[\w-]+\s++){{0,2}}?{_CHECK_ITEMS}\b",
     re.IGNORECASE)
 #: The answer passing checks: "This response passed every automated check without errors."
 _ANSWER_PASSED_RE = re.compile(
@@ -1208,6 +1221,12 @@ def _structural_check_report(sentence: str) -> bool:
             return True  # 'These values were checked.', 'My figures have been verified against the table'; not '... confirmed by later studies'
     if _positive(_WRITER_REWORKED_RE, sentence) or _positive(_ANSWER_PASSED_RE, sentence):
         return True
+    for t in _TOOL_CHECKED_RE.finditer(sentence):
+        if _NEGATED_OR_DEONTIC_RE.search(sentence[max(0, t.start() - 60):t.end()]):
+            continue
+        if (t.group("det").split()[-1].lower() in ("these", "those", "my", "our")
+                or re.search(rf"\s(?:{_CHECK_ANCHOR}|{_CHECK_OF_ANSWER})\b", sentence[t.start():], re.IGNORECASE)):
+            return True
     return _narrated_check(sentence)  # the writer vouching for its own check, in English or in Spanish (round 9 second pass)
 
 
@@ -1247,7 +1266,21 @@ def _self_certification(sentence: str) -> bool:
 
 
 def is_self_certification(sentence: str) -> bool:
-    """True when the sentence certifies the answer's own checking, on every branch the same way:
+    """The one self-report reader of every branch and every release path (``adapters.self_report.is_self_report``; hold-fix
+    round 2 of the round-9 push-check hold on the c2 clearance commit): the sentence is normalised as the student sees it
+    (format characters removed, NFKC, look-alike letters folded, emphasis and heading marks removed), a quotation is masked only
+    where the sentence attributes or analyses it, and it is read by vocabulary class (a checking or correctness word with the
+    answer, its parts or an internal checker) as well as by the template rules of :func:`_template_self_certification`, whose
+    positives are held to the same vetoes (a named outside party's check, an outside source's items, a negated, questioned or
+    modal check, a worked check that shows its computation). See :mod:`.self_report`."""
+    from .self_report import is_self_report
+    return is_self_report(sentence)
+
+
+def _template_self_certification(sentence: str) -> bool:
+    """The template rules the branches read before hold-fix round 2 (kept: nothing they named is lost; their positives are held
+    to the class reader's vetoes by :func:`.self_report.is_self_report`). True when the sentence certifies the answer's own
+    checking, on every branch the same way:
 
     * verification-status vocabulary (:func:`self_cert_vocabulary`: :data:`SELF_CERT_RE` anywhere, and the words that are also
       ordinary content of the subjects, "no findings", "checked and confirmed", "cross-checked", "approved by the overseer", a capital
@@ -1298,7 +1331,18 @@ def is_self_certification(sentence: str) -> bool:
 
     Only a POSITIVE predicate counts: a check under negation or a deontic modal ("The dates in this paragraph have not
     been checked", "... are from memory and should be checked before they are cited", "must be verified") is a
-    disclaimer, never a self-certification. Answers are cached per sentence (pure function of the text)."""
+    disclaimer, never a self-certification. A sentence that holds a table row ("| Check | All values were verified on a GDC. |") is
+    also read cell by cell, each cell as a sentence of its own (round-9 push check on the c2 clearance commit: a self-certification
+    in a table cell was read with the row's other cells and named by no branch). Answers are cached per sentence (pure function of
+    the text)."""
+    if _one_sentence_self_certification(sentence):
+        return True
+    if "|" not in sentence:
+        return False
+    return any(_one_sentence_self_certification(c.strip()) for c in sentence.split("|") if c.strip() and c.strip() != sentence.strip())
+
+
+def _one_sentence_self_certification(sentence: str) -> bool:
     return _self_certification(sentence) if len(sentence) <= _CACHE_MAX_CHARS else _self_certification.__wrapped__(sentence)
 
 

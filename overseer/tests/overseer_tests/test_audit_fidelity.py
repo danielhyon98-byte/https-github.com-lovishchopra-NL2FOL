@@ -180,8 +180,16 @@ def test_t8_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
     # caught by the merged adapters' detector (next test), so FID-009, the auditor's heuristic for what the detector
     # misses, is asserted on phrasings the merged detector misses.
     from epinoic_logic.api.adapters import is_self_certification
-    assert not is_self_certification(sentence)  # the adapters' detector misses it
     claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
+    if is_self_certification(sentence):
+        # rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the one
+        # self-report reader now reads a first-person comparison of the answer's own items ("I compared every figure with the census
+        # tables."), so the merged detector catches it and the audit names it FID-005, the error, as for the round-5 phrasings
+        _ch, rc, audit = _send(auditor, english_report(EN_TEXT + " " + sentence, _claims(claim)))
+        f = findings(audit, "OVS-FID-005")
+        assert f and f[0].severity == "error" and f[0].claim_ids == ["en-cert"] and not findings(audit, "OVS-FID-009")
+        assert audit.transfer_states[rc.message_id] == "AUDIT_FAILED"
+        return
     _ch, rc, audit = _send(auditor, english_report(EN_TEXT + " " + sentence, _claims(claim)))
     f = findings(audit, "OVS-FID-009")
     assert f and f[0].severity == "warning" and f[0].claim_ids == ["en-cert"]

@@ -1466,6 +1466,20 @@ behaviour or a gate.
   with the delivered answer counts as caught (a gate change); (c) keep both as they are, so G-FAULT stays FAIL and the
   simulation never exits 0.
 - **Until decided:** the kit and the overseer keep their behaviour; G-FAULT reports FAIL with the 12 case ids.
+- **Changed since (self-certifications only; hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit):** the
+  repository's rule that agent self-reports are advisory settles the self-certification half of option (a) on the overseer's
+  side, without a kit change: the overseer port's consolidated delivery (`epinoic_overseer.port`, single and duplicate mode,
+  through `epinoic_overseer.consolidate.self_report_at_delivery`; the turn check reads it) and its release of a combined answer
+  (`epinoic_overseer.policy.release_decision`) refuse an answer whose receipt names CORE-SELF-001, INT-REQ-014 or INT-LEDGER-029
+  at any severity, or whose text the translator's one self-report reader names (rule `self-certification-gate`, the delivery
+  policy's gate). With the real port the turn check no longer delivers hi-s1 with a self-certifying paragraph appended
+  (`tests/integration/test_c2_hold_round2_turn_check.py`). The kit's decision table, the test double, the vectors and G-FAULT's
+  expectation are unchanged, and the invented-quotation half (CORE-SRC-003) is still open. The simulation was not re-run for
+  this change, so G-FAULT's current result is not stated here. Hold-fix round 3: the gate is in the overseer's
+  `consolidate.delivery_decision` itself, and its reasons map onto the protocol's `not_deliverable` refusal
+  (`epinoic_overseer.port.REFUSAL_RULES`), so the turn check now answers `refuse_integrity` with KIT-DL-006 for such an answer
+  (before, the unmapped reason made it KIT-DL-900, internal_error); the hi-s1, en-s1 and ph-s1 items are pinned in
+  `tests/integration/test_c2_hold_round2_turn_check.py`.
 
 ---
 

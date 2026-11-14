@@ -295,12 +295,20 @@ def test_a_disclaimer_a_credit_or_content_is_no_self_report_on_a_synthesis(sente
     assert not _synthesis_reads_a_self_report(sentence), (sentence, md.synthesis_label(sentence))
 
 
-@pytest.mark.parametrize("form", ["which the engine confirms", "All checks passed", "a signed engine result", "QA: pass", "(vérifié)",
+@pytest.mark.parametrize("form", ["All checks passed", "a signed engine result", "QA: pass", "(vérifié)",
                                   "definitely correct", "as the overseer approved"])
 def test_the_synthesis_forms_are_not_read_on_a_specialists_branch(form):
     """On a specialist's branch the same words may be content (a Language B gloss, a history of the overseers): unchanged there."""
     sentence = SYNTHESIS_FORMS[form]
     assert not md.is_self_certification(sentence) and md.verification_label(sentence) is None, sentence
+
+
+def test_an_unnamed_checker_confirming_the_claim_is_a_self_report_on_every_branch():
+    """Rewritten to a stricter rule (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit): "..., which the engine
+    confirms." was pinned above as content on a specialist's branch; an unnamed checker (the engine) confirming the claim is a
+    self-report wherever it stands, so the one reader names it on every branch as on a synthesis."""
+    sentence = SYNTHESIS_FORMS["which the engine confirms"]
+    assert md.is_self_certification(sentence) and _synthesis_reads_a_self_report(sentence), sentence
 
 
 COMMON = dict(request_id="req", task_id="task", report_id="rep", agent_id="history-specialist", subject="History", task_type="short_answer")

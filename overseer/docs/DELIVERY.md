@@ -115,7 +115,10 @@ other conditions still run and name their reasons on the receipt:
    delivery policy keeps such a statement from the FORMALLY CHECKED label wherever a pack, the auditor or one of the rules
    below names it, and wherever the branch's own parser reads it as no claim of the answer (rules `meta-note`,
    `lead-blocks` and `non-material-text`); a statement the parser reads as a claim of the answer (any role but `other`)
-   reaches no 6b reader. Rule `unverified-claims` beside this condition (6c, attack round 5) refuses such a claim when no
+   reaches no 6b reader except rule `self-certification-gate` (since the round-9 push check on the c2 clearance commit): the
+   formal path reads the answer as written with the translator's shared self-report reader, sentence by sentence, line by line
+   and cell by cell, and every claim's advisory verification status, whatever the parser's roles, and refuses the label to an
+   answer that certifies its own checking. Rule `unverified-claims` beside this condition (6c, attack round 5) refuses such a claim when no
    signed engine result decides it positively, and also when its text holds a character outside the claim alphabet or a
    note lead after a clause mark, whatever its outcome; it passes words glued into a claim the engine decides positively
    with neither. That channel predated rule `meta-note` on an answer without a closing note,
@@ -593,6 +596,67 @@ A candidate may be delivered only if it passes the **integrity gates**:
   verdict on the student's answer names nothing: no closing line of the recorded c1 and c2 answers is read so, while two
   first-person check narrations the parsers set aside are (c1 maa-p8b "I checked this by hand: ...", c2 bi-p9b "I recalculated
   these values by hand ... and they agree"). A fallback delivery never contains a claim that it was checked or verified.
+  Since the round-9 push check on the c2 clearance commit (results-audit bug 13 with adversarial-live bug 10: on the History
+  and Economics branches "All calculations have been verified by the system and are confirmed.", "All values were verified on
+  a GDC and are confirmed correct." and "I recalculated every one of these values myself and confirm that all are correct."
+  left the candidate deliverable with no reason, the gate's own word lists naming none of them) the gate has ONE reader with
+  the translator: `meta_notes.self_report_reading` asks the translator's `is_self_certification` (through
+  `epinoic_logic.api.adapters`, with quotations masked; `meta_notes.self_certifying_sentence`) besides its own lists, so it
+  names at least every sentence the translator names. The gate also reads, whatever the branch, the parser's roles or the
+  receipt made of it: every claim of any role and materiality one of whose sentences that reader names, every claim carrying
+  an advisory verification status (INT-HANDOFF-006: the agent's own "verified", or the parser's "self-certified in the
+  response text"), and every paragraph of the answer as written one of whose sentences, lines or table cells that reader
+  names (`meta_notes.self_certifying_sentences`, fail closed: a text or reader that fails names the answer as a whole). The
+  gate reads text and fields only: the overseer agents' measured accuracy, above 0.90 or not, never lifts it. On the
+  translator's side the core pack, which every branch carries, names every such sentence CORE-SELF-001, so every subject
+  branch (History and Economics included, and Geography and Language B through the generic branch) names it on the receipt.
+  Hold-fix round 2 replaced the reader's listed phrasings with ONE reader by vocabulary class (`epinoic_logic.adapters.self_report`;
+  `is_self_certification` is it, reached through `epinoic_logic.api.adapters`): the text is normalised as the student sees it
+  (format characters such as the soft hyphen, zero-width space and word joiner removed, NFKC, Cyrillic and Greek look-alike letters
+  and fullwidth forms folded to Latin, emphasis and heading marks removed); a quotation is masked only where its sentence attributes
+  or analyses it (a bare quoted self-report, or scare quotes inside the writer's own sentence, is the writer's); and a sentence that
+  pairs a checking word (verify, check, double-check, cross-check, confirm, validate, audit, prove, recalculate, review, test, go back
+  over, run through, match, agree; verificar, comprobar, validar, revisar, confirmar, ...) with the answer, its parts (figures,
+  values, calculations, steps, points, facts, answers, working) or an internal checker (I, we, my teacher, the system, the engine,
+  Z3, a calculator, a GDC) is a self-report wherever it stands (its own paragraph, the end of the answer's paragraph, a heading, a
+  table cell, parentheses, bold, quotation marks), as is a status label ("Self-check: passed.", "Accuracy: 100%"). What is not: a
+  named outside party's check reported as evidence (the census office, the National Audit Office, independent auditors, Source A),
+  a third party's check that is the subject matter (the Hollerith tabulating system and the 1890 census; a narrator or a memoir
+  quoted or reported under analysis), a negated, questioned, conditional or modal check, and a worked check that shows its
+  computation ("Check: 2(4) + 3 = 11 ✓"). The gate reads every claim of any role with that reader (a claim that is nothing but a
+  quotation drawn out of its sentence is read in that sentence), and its own word lists and labels hold to the same vetoes. A
+  self-report never counts toward the accuracy: a claim the reader names, or one carrying an advisory verification status, is
+  never scored, neither accurate on a review's silence nor in the denominator (the paths lens: an eleventh self-certifying
+  material claim lifted 9/10 to 10/11). Every other release path applies the same gate with the same reader: the combined answer
+  (`policy.release_decision` refuses a synthesis whose receipt names CORE-SELF-001, INT-REQ-014 or INT-LEDGER-029 at any
+  severity, or whose journaled payload holds a self-report in a synthesized claim or in the student-facing text) and the overseer
+  port's consolidated delivery, which the service's turn check reads (`port.deliver` in single and duplicate mode through
+  `consolidate.self_report_at_delivery`: the deliverable answer's receipt codes, its answer as written and its claims' advisory
+  statuses). NOT CHECKED is a fallback mode and is refused the same.
+  Hold-fix round 3 made the gate ONE reader everywhere and widened that reader by class, not by phrasing. The gate's reading
+  (`meta_notes.self_report_reading`) now defers to the translator's one reader, read on the text and on each of its sentences, lines
+  and table cells, so it names exactly what that reader names whatever the branch, the parser's role or the layout (its own word
+  lists read only claims roled `other`, so "There are no errors in this answer." was gated on History and delivered on Economics);
+  every claim of every role is read alike (`meta_notes.claim_self_report`), and the accuracy filter reads the same. The reader names
+  a calculator by its make or model ("a TI-84 calculator", "a Casio fx-991", "a TI-Nspire"), a theorem prover, an examiner, a
+  colleague, a classmate or "an independent check" as an internal checker; vetting, signing off, vouching for, re-running,
+  reproducing, cross-referencing and re-doing as checks; an answer that "passed verification" or "holds up under scrutiny"; a
+  tool's relayed verdict ("Z3 says every step is valid."); a correctness word said of the answer or its own items ("There are no
+  errors in this answer.", "Nothing above needs fixing.", "Every claim above is correct."); first-person performatives ("I can
+  vouch for ..."); Spanish first-person and participle forms ("corroborado", "me aseguré", "he vuelto a hacer", "lo calculé dos
+  veces"); and a label with any dash ("Status — verified ✓"). It reads each sentence on its own, so a neighbouring sentence's "we"
+  or computation never decides another's reading. What is not a self-report, consistently: a named outside party's check of the
+  figures the answer quotes, narrated in the active voice or in the past, in either word order ("The World Bank has verified every
+  figure above.", "All of the GDP figures quoted above were validated by Eurostat.", "..., the ONS, which verified them"; only the
+  perfect or present passive of the answer's own items, "All figures have been checked by the Institute ...", states their status
+  and stays a self-report, as since the c1 clearance), historians checking dates against
+  records, and a worked check that shows its computation, whoever narrates it ("I checked this by hand: 2(4) + 3 = 11." as "I verify
+  by substituting back: 2(4) + 3 = 11.", a deliberate reading: the computation is working for the engine to verify). A self-report
+  quoted inside a source under analysis is the source's for the core pack's vocabulary and label readings too, and the auditor's
+  structural detector (OVS-FID-009) and the English pack's narration rule hold to the same vetoes. The router's documented
+  decision itself (`consolidate.delivery_decision`, so `may_deliver` and the port) applies the gate, and its reasons, with
+  `policy.release_decision`'s, map onto the protocol's `not_deliverable` refusal (`port.REFUSAL_RULES`), so the service's turn
+  check answers `refuse_integrity` with KIT-DL-006, never KIT-DL-900.
 - Its journaled payload carries its envelope's digest.
 
 A failed translation is a warning on the receipt, never an exclusion. This covers invalid, unsupported, ambiguous,

@@ -339,7 +339,8 @@ class ConsolidationDecision:
     message_id: Optional[str] = None
 
 
-def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None) -> ConsolidationDecision:
+def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None,
+                      self_report_gate: bool = True) -> ConsolidationDecision:
     """The router may deliver ``message_id`` (or, when None, the response's deliverable answer) only when the response
     verifies under the consolidation key, its status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS, the message is its
     deliverable answer, and, at delivery (review round 3, as ``may_release`` does for a synthesis), against ``hub`` (the
@@ -347,7 +348,12 @@ def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] 
     the channel's latest task audit, and the deliverable answer's custody (and that of the transfers it depends on)
     still holds in the live channel (``ChannelJournal.live_custody``). An excluded or repeated answer, a member that is
     not the representative, a CONFLICTING or NO_DELIVERABLE_OUTPUT response, an unsigned or edited response, a stale
-    response and an answer altered after the consolidation are never delivered. Never raises."""
+    response and an answer altered after the consolidation are never delivered; nor is an answer that certifies its own checking
+    (rule ``self-certification-gate``, :func:`self_report_at_delivery`: hold-fix round 3 of the round-9 push-check hold on the c2
+    clearance commit, where this decision allowed a deliverable answer whose receipt named CORE-SELF-001 at warning severity and
+    only the port's caller added the gate). ``self_report_gate=False`` is for the delivery policy alone, which reads the same gate
+    on the same answer itself with its own reasons (its formal path and its fallback), so its receipt does not name it twice; every
+    other caller keeps the default. Never raises."""
     if not isinstance(resp, ConsolidatedResponse):
         return ConsolidationDecision(False, "not a consolidated response")
     try:
@@ -369,7 +375,41 @@ def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] 
     why = _current_at_delivery(resp, target, hub)
     if why is not None:
         return ConsolidationDecision(False, why, resp.status, target)
+    why = self_report_at_delivery(resp, target, hub) if self_report_gate else None  # rule self-certification-gate (hold-fix round 3)
+    if why is not None:
+        return ConsolidationDecision(False, why, resp.status, target)
     return ConsolidationDecision(True, "ok", resp.status, target)
+
+
+def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -> Optional[str]:
+    """Rule ``self-certification-gate`` at the port's consolidated delivery (hold-fix round 2 of the round-9 push-check hold on the
+    c2 clearance commit: the overseer port's single and duplicate delivery, which the service's turn check reads, delivered an
+    answer whose receipt named its self-certification only at warning severity; since hold-fix round 3 :func:`delivery_decision`
+    itself applies it, so every caller of the router's documented decision, the port included, has it): why the deliverable answer
+    ``target`` of ``resp`` may not be delivered, or None. The deliverable answer's receipt naming a
+    self-report (:data:`.meta_notes.SELF_REPORT_RECEIPT_CODES`, any severity), or its journaled report holding a sentence the
+    translator's one reader names, a claim the gate's claim reading names or a claim with an advisory verification status
+    (:func:`.meta_notes.payload_self_reports`), is never delivered. Read from the journal; an answer the journal cannot show is refused (fail closed)."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, payload_self_reports
+    try:
+        import json
+        event = next((e for e in hub._require_auditor().journal(resp.channel_uid).events() if e.message_id == target), None)
+        if event is None:
+            return "the deliverable answer is not journaled, so rule self-certification-gate cannot read it"
+        receipt = json.loads(event.receipt_json) if event.receipt_json else {}
+        codes = sorted({f.get("code") for k in ("findings", "structural_findings") for f in receipt.get(k) or []
+                        if isinstance(f, dict) and f.get("code") in SELF_REPORT_RECEIPT_CODES})
+        if codes:
+            return (f"the deliverable answer carries a self-report named on its receipt ({', '.join(codes)}): a delivered answer never contains a "
+                    "claim that it was checked or verified (rule self-certification-gate)")
+        payload = json.loads(event.envelope_json)["payload"] if event.envelope_json else None
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        return f"rule self-certification-gate could not read the deliverable answer ({type(exc).__name__})"
+    named = payload_self_reports(payload)
+    if named:
+        return (f"the deliverable answer certifies its own checking, read on the answer as written ({'; '.join(named[:8])}): a delivered answer "
+                "never contains a claim that it was checked or verified (rule self-certification-gate)")
+    return None
 
 
 def _current_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -> Optional[str]:

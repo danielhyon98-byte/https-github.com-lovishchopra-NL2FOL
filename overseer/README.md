@@ -602,7 +602,14 @@ reference pattern, which restarted at every space and cost 7.4 s on 20,000 space
 most two line starts per run of blank lines (the same figures; 40,000 blank lines cost about 19 s per receive and per audit). The
 delivery policy's formal path never completes over working the receipt names as not checked (rule `unchecked-working`:
 `NOT_CHECKED_CODES`, ST-UNDEC-002 or ST-PARSE-001 among them) nor over an agent's self-report (rule `self-report-disclosed`:
-CORE-SELF-001, ES-META-001, INT-REQ-014 at any severity; the task audit's FID-005 and FID-009). The live receipt check re-derives
+CORE-SELF-001, ES-META-001, INT-REQ-014 at any severity; the task audit's FID-005 and FID-009; and, since the round-9 push check
+on the c2 clearance commit, rule `self-certification-gate` on the answer as written: any sentence, line or table cell the
+translator's shared self-report reader names, and any claim carrying an advisory verification status, also keep the answer from
+every fallback mode whatever the agents' measured accuracy; hold-fix round 2: that reader reads by vocabulary class on text
+normalised as the student sees it, a self-report is never scored in the accuracy, and the combined answer's release and the port's
+consolidated delivery apply the same gate; hold-fix round 3: the gate reads that one reader on every claim of every role and on
+every piece of the answer, the router's own `consolidate.delivery_decision` applies it, and its reasons map onto the protocol's
+`not_deliverable` refusal; `docs/DELIVERY.md`). The live receipt check re-derives
 the channel's stated-precision rule before it names an absent INT-CONFLICT-001 (rule `stated-precision-conflict`: when the event
 captured a signed CONSISTENT re-check, the channel's own `check_cross_report_consistency` on the journaled pool, as an auditor
 run), and the replay decides a joint problem recorded under the integrity layer's stated-precision bounds under those bounds (rule

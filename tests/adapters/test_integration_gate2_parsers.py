@@ -553,10 +553,21 @@ def _synthesis_reads_a_self_report(sentence: str) -> bool:
     return md.is_synthesis_self_certification(sentence) or md.synthesis_label(sentence) is not None
 
 
+#: Forms the one self-report reader names on every branch since hold-fix round 2 of the round-9 push-check hold on the c2 clearance
+#: commit (a checking word with a pronoun for the answer and no agent is a self-report wherever it stands). This test was rewritten to
+#: that stricter rule: before, it pinned "This has been verified." as content on a specialist's branch. Hold-fix round 3 made it
+#: stricter again: a correctness word said of the writer's own answer ("This answer is complete and correct.", "This answer is 100%
+#: correct.") is a self-report on every branch too (before, it pinned that sentence as content on a specialist's branch).
+NAMED_ON_EVERY_BRANCH = {"this has been verified, alone", "this answer is complete and correct, alone"}
+
+
 @pytest.mark.parametrize("form", list(VERDICT_FORMS))
 def test_the_combinators_verdict_on_what_it_wrote_is_a_self_report_on_a_synthesis_only(form):
     sentence = VERDICT_FORMS[form]
     assert _synthesis_reads_a_self_report(sentence), sentence
+    if form in NAMED_ON_EVERY_BRANCH:
+        assert md.is_self_certification(sentence), sentence
+        return
     # on a specialist's branch the same words may be content ("the formula is satisfiable (sat)"): the specialists' reading is unchanged
     assert not md.is_self_certification(sentence) and md.verification_label(sentence) is None, sentence
 

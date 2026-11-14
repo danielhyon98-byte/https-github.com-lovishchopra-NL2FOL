@@ -124,8 +124,9 @@ from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
 from .meta_notes import (
-    LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, glued_note_lead, self_certifying_meta, self_report_findings, self_reporting_note_blocks,
-    self_reporting_notes, source_list_grounding, unread_lead_blocks,
+    LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, claim_self_report, glued_note_lead, self_certifying_meta, self_certifying_sentence, self_certifying_sentences,
+    self_report_findings,
+    self_reported_statuses, self_reporting_note_blocks, self_reporting_notes, source_list_grounding, unread_lead_blocks,
 )
 from .non_material import NON_MATERIAL_RULE, claim_key, held_claims, parser_claims, parser_units, unread_non_material_blocks
 from .policy import MAX_PENDING_WAIT_MS, act_decision, receipt_digest
@@ -801,7 +802,13 @@ SELF_CERTIFICATION_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014"}
 #: the answer from the fallback; so does a claim the parser roles ``other`` that a self-report reader names
 #: (:func:`.meta_notes.self_reporting_notes`), and a block of the answer as written that a note lead opens and a self-report reader
 #: names with its word lists (:func:`.meta_notes.self_reporting_note_blocks`: "NB: I can't see the image. Nothing above needs
-#: fixing."). The writer's own word count is no certification; a genuine study suggestion or caveat names nothing.
+#: fixing."). The writer's own word count is no certification; a genuine study suggestion or caveat names nothing. Since the round-9
+#: push check on the c2 clearance commit (History and Economics: "All calculations have been verified by the system and are
+#: confirmed." travelled as a deliverable fallback candidate), the gate also reads, whatever the branch, role or receipt made of
+#: it: every claim of any role one of whose sentences the translator's shared reader names (:func:`.meta_notes.self_reporting_notes`),
+#: every claim carrying an advisory verification status (:func:`.meta_notes.self_reported_statuses`, INT-HANDOFF-006), and every
+#: paragraph of the answer as written one of whose sentences, lines or table cells that reader names
+#: (:func:`.meta_notes.self_certifying_sentences`). The gate reads text and fields only: no accuracy and no agent verdict lifts it.
 _META_CODES: frozenset = frozenset({"ES-META-001"})
 #: Rule ``coverage-gap`` (round-9 clearance c2; read since its second fix pass, c2b): the engine's advisory coverage warnings on a
 #: COUNTEREXAMPLE (W110: it only reassigns a figure the problem never asserts; W111: it only reassigns conclusion symbols no premise
@@ -819,6 +826,43 @@ UNCHECKED_WORKING_RULE = "unchecked-working"
 def is_translation_fault(code: str) -> bool:
     """Whether an audit code is a finding about a translation of a claim (rule ``translation-faults``)."""
     return str(code).startswith(_TRANSLATION_FAULT_PREFIX)
+
+
+def _self_reporting_claim(c: Any, report: Any = None) -> bool:
+    """Whether claim ``c`` is a self-report (rule ``self-certification-gate``): it carries an advisory verification status, or the one
+    self-report reader names its text or one of its sentences (:func:`.meta_notes.self_certifying_sentence`), or the gate's claim
+    reading names it (:func:`.meta_notes.claim_self_report`, the very reading the gate applies to the same claim: hold-fix round 3,
+    "There are no errors in this answer." as an eleventh material claim lifted 9/10 to 10/11). Such a claim is
+    never scored in the accuracy (hold-fix round 2: "All calculations confirmed." as an eleventh material claim, counted accurate on
+    a silent review, lifted 9/10 to 10/11, above 0.90). Fails closed: a claim that cannot be read is a self-report."""
+    try:
+        if getattr(c, "advisory_verification_status", None) is not None:
+            return True
+        from epinoic_logic.api.adapters import quotation_only, split_sentences
+        text = str(getattr(c, "claim_text", "") or "")
+        if quotation_only(text):
+            # a quotation drawn from a sentence is read in that sentence: a self-report when the answer as written names the
+            # place that holds it (an unattributed quoted self-report), never when its sentence attributes it to a source
+            from epinoic_logic.api.adapters import self_report_spots
+            inner = " ".join(text.strip().strip("\"'\u201c\u201d\u2018\u2019\u00ab\u00bb").split())[:200]
+            return any(inner[:60] in " ".join(p.split()) for _n, p in self_report_spots(getattr(report, "original_response", "") or ""))
+        return any(self_certifying_sentence(p) for p in [text, *split_sentences(text)]) or claim_self_report(text)
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
+
+
+def _self_certification_refusals(t: Transfer) -> list[str]:
+    """Rule ``self-certification-gate`` read on the answer itself, whatever its branch, its parser's roles or its receipt named (the
+    round-9 push check on the c2 clearance commit): each paragraph of the journaled answer as written one of whose sentences, lines
+    or table cells the translator's shared self-report reader names (:func:`.meta_notes.self_certifying_sentences`), and each claim
+    that carries an advisory verification status (:func:`.meta_notes.self_reported_statuses`). Read by the fallback (such an answer
+    is never deliverable, whatever the agents' measured accuracy) and by the formal path (never FORMALLY CHECKED). An answer with no
+    journaled report is named as a whole (fail closed)."""
+    if t.report is None:
+        return ["the answer as a whole (no journaled report)"]
+    out = list(self_certifying_sentences(getattr(t.report, "original_response", None)))
+    out += [f"claim {cid} (a self-reported verification status)" for cid in self_reported_statuses(t.report)]
+    return out
 
 
 def _lead_block_refusals(view: OverseerView, t: Transfer) -> list[str]:
@@ -1481,7 +1525,8 @@ class DeliveryPolicy:
         if consolidation is not None:
             if consolidation.status in DELIVERABLE_STATUSES and consolidation.deliverable_message_id:
                 deliverable = view.by_message.get(consolidation.deliverable_message_id)
-                dec = delivery_decision(consolidation, keyring, hub=session.hub)
+                # the policy reads rule self-certification-gate on this answer itself, with its own reasons (formal path and fallback)
+                dec = delivery_decision(consolidation, keyring, hub=session.hub, self_report_gate=False)
                 if not dec.allowed:
                     reasons.append(f"the consolidation does not allow the delivery: {_cut(dec.reason, 300)}")
             else:
@@ -1523,6 +1568,11 @@ class DeliveryPolicy:
         self_reports = guarded(META_NOTE_RULE, lambda: self_report_findings(_receipt_findings_of(rec, SELF_REPORT_CODES), t.report))
         if self_reports:
             reasons.append(f"the answer carries a self-report or a relayed check result no check established: {_cut(_code_claims(self_reports), 400)}")
+        # rule self-certification-gate on the answer as written: the backstop of the receipt's codes (an advisory verification status,
+        # or a sentence no receipt code names), read when no self-report code already refuses the label
+        certified = [] if self_reports else guarded(SELF_CERTIFICATION_RULE, lambda: _self_certification_refusals(t))
+        if certified:
+            reasons.append(f"the answer certifies its own checking, read on the answer as written (rule {SELF_CERTIFICATION_RULE}): {_listed(certified)}")
         unread = guarded(LEAD_BLOCKS_RULE, lambda: _lead_block_refusals(view, t))  # rules self-report-disclosed and lead-blocks
         if unread:
             reasons.append("the answer carries a block opened by a note or sources lead that is read neither as a note nor as a pure source list "
@@ -1673,6 +1723,7 @@ class DeliveryPolicy:
             certs += self_certifying_meta(_receipt_findings_of(t.receipt, _META_CODES), t.report) if t.receipt is not None else []
             notes = [f"claim {cid}" for cid in self_reporting_notes(t.report)]
             notes += self_reporting_note_blocks(getattr(t.report, "original_response", None) if t.report is not None else None)
+            notes += [x for x in _self_certification_refusals(t) if x not in notes and x.split(" (")[0] not in notes]
         except Exception as exc:  # noqa: BLE001
             notes = [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
         audit_self = [f for f in _audit_findings_naming(audit, t.message_id or "") if f.code in SELF_REPORT_AUDIT_CODES]
@@ -1700,8 +1751,10 @@ class DeliveryPolicy:
             listing = [va for va in counted if t.message_id in va.transfers_reviewed]
             reviewed_by = sorted({va.agent_id for va in listing if not getattr(va, "declared_incomplete", None)})
             incomplete_by = sorted({va.agent_id for va in listing if getattr(va, "declared_incomplete", None)} - set(reviewed_by))
-            mats = material_claims(t.report)
-            scored = list(mats) + _unchecked_supporting(t, mats)  # rule unchecked-working: unchecked supporting working is scored too
+            # rule self-certification-gate (hold-fix round 2): a claim that certifies the answer's own checking never counts toward the
+            # accuracy, neither as accurate on a review's silence nor in the denominator that could lift a candidate above the threshold
+            mats = [c for c in material_claims(t.report) if not _self_reporting_claim(c, t.report)]
+            scored = list(mats) + [c for c in _unchecked_supporting(t, mats) if not _self_reporting_claim(c, t.report)]  # rule unchecked-working
             claims = [_assess_claim(t, c, reviewed_by=reviewed_by, counted=counted, all_assessed=assessed, audit=audit, keyring=keyring, view=view,
                                     incomplete_by=incomplete_by) for c in scored]
             accurate = sum(1 for c in claims if c.assessment == "accurate")

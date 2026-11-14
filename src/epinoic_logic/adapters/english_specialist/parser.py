@@ -568,7 +568,16 @@ def is_meta_sentence(sentence: str) -> bool:
     if is_json_shaped(sentence):
         return True
     plain = strip_quotations(sentence)
-    return is_self_certification(plain) or bool(META_NARRATION_RE.search(plain))
+    # the one self-report reader masks a quotation itself, only where the sentence attributes or analyses it (hold-fix round 2): an
+    # unattributed quoted sentence or a scare quote is the writer's own words
+    if is_self_certification(sentence):
+        return True
+    # the narration rule held to the one reader's vetoes (hold-fix round 3): "The census results were checked and confirmed by the
+    # statistics office." reports an outside party's check as evidence, never the writer's narration
+    if META_NARRATION_RE.search(plain) is None:
+        return False
+    from ..self_report import not_a_self_report, reading_form
+    return not not_a_self_report(reading_form(sentence))
 
 
 def is_note_only(sentence: str) -> bool:
@@ -658,7 +667,13 @@ def is_meta_block(block: str) -> bool:
         return True
     if word_count(s) > _MAX_META_WORDS:
         return False
-    return bool(META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s) or META_NARRATION_RE.search(s))
+    if META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s):
+        return True
+    if META_NARRATION_RE.search(s) is None:
+        return False
+    # held to the one reader's vetoes, as in :func:`is_meta_sentence` (hold-fix round 3): an outside party's check is evidence
+    from ..self_report import not_a_self_report, reading_form
+    return not all(not_a_self_report(reading_form(x)) for x in (sentences or [s]))
 
 
 def is_list_block(block: str) -> bool:
@@ -1151,7 +1166,7 @@ def parse_response(
                             assumptions=[*notes, "the quotation is a label relayed in a note, not evidence for the argument; it supports no claim"], parent_claim_id=None)
                         evidence_ids[q.excerpt] = qid
                 add(sid, sentence.text, "other", proposed_claim_kind="unknown", materiality="supporting", certainty="possible", parent_claim_id=None,
-                    advisory_verification_status=_SELF_REPORT if (is_json_shaped(sentence.text) or is_self_certification(strip_quotations(sentence.text))) else None)
+                    advisory_verification_status=_SELF_REPORT if (is_json_shaped(sentence.text) or is_self_certification(sentence.text)) else None)
                 continue
             plain = strip_quotations(sentence.text)
             named = documents_named(plain, docs)

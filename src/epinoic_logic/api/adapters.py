@@ -1,4 +1,4 @@
-"""Public API of the translator, adapters: the specialist adapters' readings the overseer re-derives: the English parser's segmentation, the Markdown readers (quotations, JSON blocks, self-certification labels) and the excerpt check against supplied sources.
+"""Public API of the translator, adapters: the specialist adapters' readings the overseer re-derives: the English parser's segmentation, the Markdown readers (quotations, JSON blocks, self-certification labels), the one self-report reader (``self_report``) and the excerpt check against supplied sources.
 
 Part of :mod:`epinoic_logic.api` (``docs/PUBLIC_API.md``). Each name resolves to the internal module and attribute
 listed below when it is imported; the internal name may differ (a name that is private inside the translator has a
@@ -21,6 +21,13 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'is_json_block': ('epinoic_logic.adapters.markdown', 'is_json_block'),
     'is_meta_sentence': ('epinoic_logic.adapters.english_specialist.parser', 'is_meta_sentence'),
     'is_self_certification': ('epinoic_logic.adapters.markdown', 'is_self_certification'),
+    'claim_is_self_report': ('epinoic_logic.adapters.self_report', 'claim_is_self_report'),
+    'is_self_report': ('epinoic_logic.adapters.self_report', 'is_self_report'),
+    'quotation_only': ('epinoic_logic.adapters.self_report', 'quotation_only'),
+    'not_a_self_report': ('epinoic_logic.adapters.self_report', 'not_a_self_report'),
+    'reading_form': ('epinoic_logic.adapters.self_report', 'reading_form'),
+    'self_report_spots': ('epinoic_logic.adapters.self_report', 'self_report_spots'),
+    'template_form': ('epinoic_logic.adapters.self_report', 'template_form'),
     'mask_quotations': ('epinoic_logic.adapters.markdown', 'mask_quotations'),
     'opens_note_paragraph': ('epinoic_logic.adapters.markdown', 'opens_note_paragraph'),
     'segment': ('epinoic_logic.adapters.english_specialist.parser', 'segment'),

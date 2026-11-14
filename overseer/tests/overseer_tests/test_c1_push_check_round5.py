@@ -59,7 +59,7 @@ from .delivery_support import (
 from .test_c1_push_check_meta_note import (
     TUNER, UNVERIFIED_REASON, _clean_formal_claims, _clean_recorded_claims, _deliver, assert_claim_refusal,
 )
-from .test_c1_push_check_round4 import _physics_text
+from .test_c1_push_check_round4 import _physics_text, assert_self_report_refusal, now_a_self_report
 
 ROUND5 = json.loads((Path(__file__).parent / "data" / "meta_note_attack_round5.json").read_text(encoding="utf-8"))
 BYPASS = ROUND5["bypass"]
@@ -461,7 +461,12 @@ def test_words_glued_into_the_verified_claim_are_refused_by_rule_formal_label_wi
     into a real test of the refusal: rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds the label
     from every answer, so the answer is withheld, and the label rule is the formal path's ONLY reason (no other rule reads the
     glued words: the input stays open for the label policy of round 9)."""
-    _report, decision = _physics_text(text)
+    report, decision = _physics_text(text)
+    if now_a_self_report(text):
+        # rewritten to the stricter rule in hold-fix round 3 (no longer open): the shared self-report reader names the glued words
+        # ("..., and nothing above needs fixing."), so the claim carries the advisory status and the answer is refused for it
+        assert_self_report_refusal(decision, report, text)
+        return
     assert decision.mode == "withheld" and decision.receipt.formal.reasons == [FORMAL_LABEL_REASON], decision.receipt.formal.reasons
     assert_label_withheld_only(decision)
 
@@ -493,6 +498,10 @@ def test_every_review_lens_row_on_the_physics_report_object_is_refused_for_real(
     if _is_control(row["name"]):
         assert decision.mode == "withheld" and decision.receipt.formal.reasons == [FORMAL_LABEL_REASON], decision.receipt.formal.reasons
         assert_label_withheld_only(decision)
+        return
+    if now_a_self_report(PHYS + row["added"]) and not now_a_self_report(PHYS):
+        # hold-fix round 3 (stricter): the shared self-report reader names the added words, so the answer is refused for its self-report
+        assert_self_report_refusal(decision)
         return
     assert_refused_beyond_the_label(decision, SIX_B_DECIDING + (UNVERIFIED_REASON,))
 
@@ -575,6 +584,11 @@ def test_the_physics_text_paths_claim_channel_is_refused_for_real(extra):
     report, decision = _physics_text(PHYS + extra)
     reasons = decision.receipt.formal.reasons
     assert decision.mode != "formally_checked", reasons
+    if now_a_self_report(extra):
+        # rewritten to the stricter rule in hold-fix round 3: the shared self-report reader names the input ("All good.", "There is
+        # nothing to fix in this answer, ..."), so the STEM parser sets it aside as a self-report and rule self-report-disclosed refuses
+        assert_self_report_refusal(decision, report, extra.strip())
+        return
     added = [c.claim_id for c in report.claims if c.claim_role != "other" and c.claim_text != PHYS]
     assert added and any(r.startswith(UNVERIFIED_REASON) and any(f" {i} (supporting " in " " + r[len(UNVERIFIED_REASON):] for i in added)
                          for r in reasons), reasons
