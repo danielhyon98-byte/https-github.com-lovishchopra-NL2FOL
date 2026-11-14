@@ -1,4 +1,4 @@
-# Resume notes (14 Nov ~07:5x UTC: phase2-c2c3 = wf_e6995188-011 RUNNING, resumed with the round 9 HOLD REMEDY inserted before round 10's agents; see the first section). Older sections below are history.
+# Resume notes (14 Nov 16:47 UTC: second round 9 hold remedy running; phase2-c2c3 = wf_e6995188-011 RUNNING, resumed with the round 9 HOLD REMEDY inserted before round 10's agents; see the first section). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
@@ -24,7 +24,11 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   (STEM repro list, W110/W111, maa-t13 roles, plain-space thousands, CORE-SRC-002 severity, harness mutations). Round 10's commit
   message bullets are clipped at word boundaries (be91e89's were cut mid-word; it cannot be amended: already on origin).
 - Resume after a restart: Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js, resumeFromRunId: "wf_e6995188-011"}) (same args:
-  none). Decisions still needed from Daniel: D9/D10 (Geography and Language B branches), the release tag (HTTP 403).
+  none).
+- 14 Nov 16:47: cycle 1 committed bef76ad (suite 31929 passed; harness = records) but its push check HELD too (class open;
+  quoted/relayed self-certifications reopened). Cycle 2 (holdRemedyC2b, the judge's design) runs before round 10; its check may
+  supersede both be91e89 and bef76ad. SCRIPT SIZE: phase2-c2c3.js is 523880 bytes and the Workflow limit is 524288: before any
+  further patch, remove dead text that is NOT inside a prompt (never change a prompt of a completed call: the cache keys on it). Decisions still needed from Daniel: D9/D10 (Geography and Language B branches), the release tag (HTTP 403).
 
 ## 13 Nov 16:15 UTC: CONTINUATION LAUNCHED
 - Workflow({scriptPath: S/wf-scripts/phase2-c2c3.js}) with no args -> run wf_e6995188-011, task wcuzu8b61 (script sha256 48809ecf5afc75a1).

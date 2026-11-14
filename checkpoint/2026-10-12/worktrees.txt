@@ -1,4 +1,4 @@
-/home/user/https-github.com-lovishchopra-NL2FOL                                            350c7092 [claude/z3-verification-engine-plan-nk3luq]
+/home/user/https-github.com-lovishchopra-NL2FOL                                            60dfc699 [claude/z3-verification-engine-plan-nk3luq]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/c1-metanote                     f2329df8 [c1-metanote-fix]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/import                          650d1d36 [import/translator-baseline]
 /home/user/https-github.com-lovishchopra-NL2FOL/.worktrees/overseer                        502fcff9 [overseer-build]
