@@ -2326,3 +2326,11 @@ Work in progress after it is labelled as such.
 - All five of round 9's review lenses have reported: 88 major and 54 minor findings counted per lens, 61 of them marked
   critical, before duplicates across lenses are merged. The overseer reviewers are being re-scored against the
   translation-fidelity reference; round 9's fix stage follows.
+
+### Progress, 08:00 UTC (14 November)
+- Round 9's fixes are committed as be91e89 after a full verification: 25,195 tests passed, 1 skipped and 1 expected
+  failure, and every recorded arena round replays to its recorded result (round 9: 188 of 188).
+- The independent push check held the upload on one critical finding: on the History and Economics branches an answer
+  whose own text claims it was verified can still be delivered through the overseer-selected fallback. A targeted fix,
+  attacked from three sides and verified in full, runs before round 10; it is uploaded only if a new independent check
+  clears it.
