@@ -243,7 +243,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `subjects` | `epinoic_logic.translate.subjects` | (the module itself) |
 | `truncate` | `epinoic_logic.translate.common` | `truncate` |
 
-## `epinoic_logic.api.adapters` (18 names)
+## `epinoic_logic.api.adapters` (25 names)
 
 | public name | internal module | internal name |
 |---|---|---|
@@ -253,16 +253,23 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `PARAGRAPH_SPLIT_RE` | `epinoic_logic.adapters.english_specialist.parser` | `_PARAGRAPH_SPLIT_RE` |
 | `TAIL_CLAIM_ID` | `epinoic_logic.adapters.english_specialist.parser` | `TAIL_CLAIM_ID` |
 | `check_excerpt` | `epinoic_logic.adapters.sources` | `check_excerpt` |
+| `claim_is_self_report` | `epinoic_logic.adapters.self_report` | `claim_is_self_report` |
 | `find_json_spans` | `epinoic_logic.adapters.markdown` | `find_json_spans` |
 | `find_quotation_spans` | `epinoic_logic.adapters.markdown` | `find_quotation_spans` |
 | `is_json_block` | `epinoic_logic.adapters.markdown` | `is_json_block` |
 | `is_meta_sentence` | `epinoic_logic.adapters.english_specialist.parser` | `is_meta_sentence` |
 | `is_self_certification` | `epinoic_logic.adapters.markdown` | `is_self_certification` |
+| `is_self_report` | `epinoic_logic.adapters.self_report` | `is_self_report` |
 | `mask_quotations` | `epinoic_logic.adapters.markdown` | `mask_quotations` |
+| `not_a_self_report` | `epinoic_logic.adapters.self_report` | `not_a_self_report` |
 | `opens_note_paragraph` | `epinoic_logic.adapters.markdown` | `opens_note_paragraph` |
+| `quotation_only` | `epinoic_logic.adapters.self_report` | `quotation_only` |
+| `reading_form` | `epinoic_logic.adapters.self_report` | `reading_form` |
 | `segment` | `epinoic_logic.adapters.english_specialist.parser` | `segment` |
 | `self_cert_vocabulary` | `epinoic_logic.adapters.markdown` | `self_cert_vocabulary` |
+| `self_report_spots` | `epinoic_logic.adapters.self_report` | `self_report_spots` |
 | `split_sentences` | `epinoic_logic.adapters.english_specialist.parser` | `split_sentences` |
+| `template_form` | `epinoic_logic.adapters.self_report` | `template_form` |
 | `truncate_claim_text` | `epinoic_logic.adapters.markdown` | `truncate_claim_text` |
 | `verification_label` | `epinoic_logic.adapters.markdown` | `verification_label` |
 

@@ -240,6 +240,16 @@ def test_every_round_6_input_on_the_physics_text_path_is_never_formally_checked(
     if counterfactual != "real":
         _clean_eligible_claims(monkeypatch)
     _report, decision = _physics_text(row["text"])
+    from epinoic_logic.api.adapters import is_self_certification
+    if is_self_certification(row["text"]):
+        # rewritten to a stricter rule (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit): an input the one
+        # self-report reader names ("The speed is 15 km/h, which the solver proved.") is a self-report the parser sets aside, so the
+        # answer carries no material claim (INT-REQ-012) and is excluded before the label rule: never FORMALLY CHECKED, never delivered
+        rec = decision.receipt
+        assert decision.mode != "formally_checked" and rec.mode != "formally_checked" and not rec.formal.complete and not decision.delivered
+        assert not decision.label.lower().startswith("formally checked")
+        assert_honest(decision)
+        return
     assert_withheld_by_the_rule(decision)
 
 
@@ -257,6 +267,17 @@ def test_every_round_6_regression_input_is_never_formally_checked(monkeypatch, r
         _clean_eligible_claims(monkeypatch)
     answer = _regression_answer(row)
     decision = _deliver_en_free(answer) if row["vehicle"] == "en-free" else _physics_text(answer)[1]
+    from epinoic_logic.api.adapters import is_self_certification
+    if row["vehicle"] != "en-free" and is_self_certification(answer) and not decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON:
+        # rewritten to a stricter rule (hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit): the one
+        # self-report reader now names the glued words ("..., and nothing above needs fixing."), so the answer's receipt names the
+        # self-report at error level and the answer is excluded before the label rule: never FORMALLY CHECKED, never delivered
+        rec = decision.receipt
+        assert decision.mode != "formally_checked" and rec.mode != "formally_checked" and not rec.formal.complete and not decision.delivered
+        assert any(" is excluded: " in r for r in rec.formal.reasons), rec.formal.reasons
+        assert not decision.label.lower().startswith("formally checked")
+        assert_honest(decision)
+        return
     assert_withheld_by_the_rule(decision)
 
 

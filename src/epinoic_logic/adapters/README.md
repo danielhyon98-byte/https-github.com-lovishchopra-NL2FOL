@@ -433,7 +433,48 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
 - **Self-reports read by their structure** (`is_self_certification`, `_structural_check_report`): the answer's values, marks, steps or
   results checked by an engine, a system, a GDC or the writer ("All values above were checked with a GDC.", "Each step was re-derived and
   confirmed."), the answer passing checks, and the Spanish status words in capitals; content about checking ("I recalculated the mean
-  ...", "These results were confirmed by later studies") is none.
+  ...", "These results were confirmed by later studies") is none. Since the round-9 push check on the c2 clearance commit the reader
+  also reads a table row cell by cell ("| Check | All values were verified on a GDC. |"), a checking tool as the agent of an active
+  check of the answer's own items ("The system has validated all of the calculations above.", anchored in the answer or named by the
+  writer's determiner), the items named as parts of the answer ("every step of this working") and "proven" as a checking participle.
+  It is the ONE self-report reader of the branches and of the overseer's gate: the core pack names every sentence it names
+  CORE-SELF-001 on every branch, and the overseer's rule `self-certification-gate` asks it through `epinoic_logic.api.adapters`.
+- **The one self-report reader, by vocabulary class** (`self_report.py`; hold-fix round 2 of the round-9 push-check hold):
+  `is_self_certification` normalises the text as the student sees it (`reading_form`: format characters removed, NFKC, Cyrillic and
+  Greek look-alikes and fullwidth forms folded, emphasis and heading marks removed, a quotation masked only where its sentence
+  attributes or analyses it, an outside party's reported speech masked) and reads it clause by clause around each checking word
+  (`class_self_report`): a positive check (no negation, modal, question, condition or infinitive before it) whose agent is internal
+  (I, we, my or our anything, an unnamed or generic tool: the system, the engine, Z3, a calculator, a GDC, a teacher) or none, and
+  whose theme is the answer, its parts or a pronoun for them, is a self-report; a named outside party's check (a party with
+  content of its own, or a tool qualified by its subject matter: "the Hollerith tabulating system", "data-logging software"),
+  narrated in the past or of an outside source's items, is evidence; a worked check that shows its computation is working. The
+  template rules (`_template_self_certification`) are kept and their positives held to the same vetoes (`not_a_self_report`).
+  `self_report_spots` reads the answer as written paragraph by paragraph, line by line and cell by cell; the core pack names a
+  heading, line or cell no sentence of its reading holds, and the overseer's gate, the combined answer's release and the port's
+  consolidated delivery read the same functions through `epinoic_logic.api.adapters`.
+- **The class widened, sentence by sentence** (hold-fix round 3 of the same hold): internal checkers are read by the class of their
+  head, not by listed modifiers: a personal computing tool whatever its make or model ("a TI-84 calculator", "a Casio fx-991
+  calculator", "a TI-Nspire", "the Z3 theorem prover", "Excel"), an unnamed person who marks the student's work ("an experienced IB
+  examiner", "a colleague"; "his tutor" and "Darwin's tutor" are another party's), a check itself ("an independent check"), and an
+  engine or checker named by a product name ("the Epinoic engine"); a generic tool qualified by its subject matter stays an outside
+  party. Checking words gained sign-off, vetting, vouching, re-running, reproducing, cross-referencing, re-doing and their gerunds,
+  an answer that passed or holds up under a check, and the Spanish stems corroborar, constatar, certificar, aprobar, asegurar with
+  first-person forms ("he vuelto a hacer", "lo calculé dos veces"). New readings: a first-person performative before a bare verb ("I
+  confirm", "I can vouch for"), a tool's relayed verdict ("Z3 says every step is valid."), a correctness word said of the answer or
+  its own items in its own clause ("There are no errors in this answer.", "Nothing above needs fixing."; "argues that the court is
+  correct" is said of the court, "the correct answer is" names a value), a bare checking label with a verdict ("Sanity-checked: all
+  fine."), and a label with any dash. Each sentence of a piece is read on its own. A named outside party's check narrated in the active
+  voice or in the past is evidence ("The World Bank has verified every figure above."; only the perfect or present passive of the
+  answer's own items, "Todas las cifras han sido comprobadas por el Instituto ...", states their status and stays a self-report), a
+  bare verdict set off after a sentence's content by a dash, a parenthesis, a bracket or a semicolon ("... — 100% accurate.") is the
+  writer's (a bare checking participle so set off, "... 1919 (verified).", stays a label on content for the label readers, and a
+  colon introduces content: "the routine prints: VERIFIED"),
+  coordinated participles share their agent ("checked and confirmed by the auditors"), a sentence-initial name that is the subject of an
+  active check is such a party ("Eurostat validated ..."), a relative pronoun stands for its antecedent ("the ONS, which verified
+  them"), and a worked check that shows an arithmetic operation with its result is working whoever narrates it (`is_worked_check`;
+  the core pack asks it of the statement as written where the STEM reading masks the computation). The core pack's vocabulary and
+  label readings and the English pack's narration rule read the sentence with an attributed quotation masked and hold to the same
+  vetoes.
 - **Altered quotations in any position** (`sources.nearest_text`): when a text holds every word of a quotation somewhere, the words that
   differ from the text's aligned window of the quotation's length are named (`_aligned_changes`: one or two places differing, at least
   three agreeing, two of them a word of four letters or more or a figure), so a word changed to another word the text uses elsewhere

@@ -209,6 +209,8 @@ __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_
            "read_source_list", "source_list_grounding", "reader_text", "hides_text", "lead_starts", "answer_paragraphs", "normalised_answer",
            "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
            "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
+           "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
+           "claim_self_report",
            "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
            "require_response_limit"]
 
@@ -395,8 +397,25 @@ def assurance_words(text: str) -> list[str]:
             if t in _ASSURANCE_WORDS or t.startswith(_ASSURANCE_STEMS):
                 if _negated_here(clause, i, negators):
                     continue  # "the dates have not been checked", "these cannot be verified": a disclaimer
+                if _hedged_here(clause, i):
+                    continue  # "each step can be verified by differentiating", "unclear whether ... were ever checked": no check done
                 found.append(t)
     return found
+
+
+#: A modal or an infinitive right before an assurance word: a method or an offer, no check done (hold-fix round 2: "Each step above
+#: can be verified by differentiating the result." was read as an assurance on the History branch).
+_MODALS = frozenset({"can", "could", "may", "might", "should", "must", "would", "will", "shall", "to", "cannot", "ought"})
+#: Words that make a clause a question or a condition: "It is unclear whether the figures above were ever checked."
+_QUESTIONING = frozenset({"whether", "if", "unless", "unclear", "uncertain", "doubtful", "unknown"})
+
+
+def _hedged_here(clause: list[str], i: int) -> bool:
+    """Whether the assurance word at ``i`` follows a modal or an infinitive within its three tokens before, or a questioning word
+    anywhere before it in its clause (a method step, an offer, a question: no check done)."""
+    if any(t in _MODALS for t in clause[max(0, i - 3):i]):
+        return True
+    return any(t in _QUESTIONING for t in clause[:i])
 
 
 def _negated_here(clause: list[str], i: int, negators: int) -> bool:
@@ -1441,18 +1460,21 @@ _FIRST_PERSON_ACT = ("i ", "we ")
 
 def self_report_reading(text: str, *, words: bool = True) -> Optional[str]:
     """Rule ``self-certification-gate``: the rule that names ``text`` (a paragraph, a sentence or a claim of an answer) a
-    self-report, or None. A shared self-report reader names one of its sentences (narration, self-certification vocabulary, a
-    verification label; quotations masked) or it holds a JSON object (a pasted receipt); and, with ``words``, it narrates a
-    check in the first person ("I checked every quotation", "we verified the dates"; rule ``assurance-words``, polarity read:
-    "I did not check" is a disclaimer), or it names the writer's own answer (:data:`_ANSWER_REFERENCE_RE`: "this answer",
-    "above") and carries an assurance word (the writer's own word count apart: a measure the channel takes itself) or an
-    evaluation word (rule ``evaluation-words``: "nothing to fix in this answer", "nothing above needs fixing"). The note's form
-    and grammar (rules ``note-form``, ``note-clauses``, ``answer-evaluation``) are not asked, and a word that evaluates another
-    text ("the answer carries its unit" in a marking answer, "percentage change" in a study suggestion) is not read. Never
-    raises: a text it cannot read is a self-report (fail closed)."""
+    self-report, or None. Hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: this reading DEFERS to the
+    translator's one self-report reader (:func:`self_certifying_sentence`, ``epinoic_logic.api.adapters.is_self_certification``),
+    read on the text and on each of its pieces (:func:`_gate_pieces`: its sentences, lines and table cells), so the gate names on
+    every branch, in every role and on every release path exactly what the one reader names. The gate's own word lists (rules
+    ``assurance-words`` and ``evaluation-words``) read only notes the parser roled ``other`` on some branches, so the same sentence was
+    gated on History and delivered on Economics; and its narration and vocabulary rules read before the one reader's vetoes, so a named
+    outside party's check ("The census results were checked and confirmed by the statistics office.") was gated. The one reader now
+    reads those classes itself (a checking or correctness word with the answer, its parts or an internal checker: "Nothing above
+    needs fixing.", "There are no errors in this answer.", "I checked every quotation against the text: all accurate.") under the
+    same vetoes. Fail closed, as before: a text over the paragraph bound or hiding text, or one holding a JSON object (a pasted
+    receipt), is named (``meta-note``). ``words`` is kept for callers and no longer changes the reading. Never raises: a text it
+    cannot read is a self-report."""
+    del words
     try:
-        from epinoic_logic.api.adapters import META_NARRATION_RE, find_json_spans, is_json_block, mask_quotations
-        from epinoic_logic.api.adapters import self_cert_vocabulary, split_sentences, verification_label
+        from epinoic_logic.api.adapters import find_json_spans, is_json_block
         if not text or not text.strip():
             return None
         if len(text) > _MAX_PARAGRAPH_CHARS or hides_text(text):
@@ -1460,26 +1482,61 @@ def self_report_reading(text: str, *, words: bool = True) -> Optional[str]:
         text = reader_text(text)
         if "{" in text and (is_json_block(text) or find_json_spans(text)):  # a pasted receipt is an object; "[1]" is a mark
             return META_NOTE_RULE
-        masked = mask_quotations(text)
-        if META_NARRATION_RE.search(masked):
-            return META_NOTE_RULE
-        for s in split_sentences(text):
-            if self_cert_vocabulary(s) is not None or verification_label(s) is not None:
-                return META_NOTE_RULE
-        if not words:
-            return None
-        found = [w for w in assurance_words(masked) if w not in _MEASURE_PHRASES]
-        if any(w.startswith(_FIRST_PERSON_ACT) for w in found):
-            return ASSURANCE_RULE
-        if _ANSWER_REFERENCE_RE.search(masked) is None:
-            return None
-        if found:
-            return ASSURANCE_RULE
-        if evaluation_words(masked):
-            return EVALUATION_RULE
+        if any(self_certifying_sentence(p) for p in [text, *_gate_pieces(text)]):
+            return SELF_CERTIFICATION_GATE_RULE
         return None
     except Exception:  # noqa: BLE001 - fail closed: a reader that fails frees nothing
         return META_NOTE_RULE
+
+
+def self_certifying_sentence(sentence: str) -> bool:
+    """Rule ``self-certification-gate``: whether the translator's shared self-report reader
+    (``epinoic_logic.api.adapters.is_self_certification``, the reader every branch's parser and the core pack's CORE-SELF-001 read)
+    names ``sentence`` with its quotations masked (a self-report quoted inside a source being analysed is the source's). Round-9
+    push check on the c2 clearance commit: this gate kept its own word lists, which named none of "All calculations have been
+    verified by the system and are confirmed.", "All values were verified on a GDC and are confirmed correct." and "I recalculated
+    every one of these values myself and confirm that all are correct.", all three of which the translator's reader names; the gate
+    now asks the same reader, so the two never drift. Hold-fix round 2: the reader normalises the sentence itself (format
+    characters, NFKC, look-alike letters) and masks a quotation only where the sentence attributes or analyses it (an
+    unattributed quoted self-report or a scare quote is the writer's own), so the sentence is passed as written. Never raises: a
+    sentence it cannot read is a self-report (fail closed)."""
+    try:
+        from epinoic_logic.api.adapters import is_self_certification
+        return bool(sentence and sentence.strip()) and bool(is_self_certification(sentence))
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
+
+
+def _gate_pieces(para: str) -> list[str]:
+    """The pieces of one paragraph the gate reads: its sentences as the English parser splits the paragraph (its lines joined),
+    and, for a paragraph of several lines, the sentences of each line and of each cell of a table row ("| Total | 45 | ... |"),
+    so a sentence after a line break or in a table cell is read on its own as well as with its neighbours."""
+    from epinoic_logic.api.adapters import split_sentences
+    out = list(split_sentences(para))
+    lines = [ln for ln in para.split("\n") if ln.strip()]
+    if len(lines) > 1 or "|" in para:
+        for ln in lines:
+            cells = [c for c in ln.split("|") if c.strip()] if "|" in ln else [ln]
+            for c in cells:
+                out.extend(split_sentences(c))
+    return out
+
+
+def self_certifying_sentences(text: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on the answer as written, independently of every parser, role and receipt: each
+    paragraph of ``text`` one of whose pieces (:func:`_gate_pieces`: its sentences, and those of each of its lines and table
+    cells; a footnote, a parenthesis and emphasis are read inside their sentence) :func:`self_certifying_sentence` names, as
+    "paragraph N", never its words. A text that cannot be read, or one over the contract's response limit, is named as a whole
+    (fail closed). Linear: each piece is read once per reading, at most twice in all, and the text is bounded by the limit."""
+    if not isinstance(text, str):
+        return ["the answer as a whole (its text could not be read)"]
+    if over_response_limit(text):
+        return [f"the answer as a whole (its text is over the contract's limit of {RESPONSE_MAX_CHARS} characters: rule {RESPONSE_LIMIT_RULE})"]
+    try:
+        return [f"paragraph {i}" for i, (_start, _end, para) in enumerate(answer_paragraphs(text), start=1)
+                if any(self_certifying_sentence(p) for p in _gate_pieces(para))]
+    except Exception as exc:  # noqa: BLE001 - fail closed: a reader that fails names the whole answer
+        return [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
 
 
 def self_certifying_meta(findings: Iterable[Any], report: Any) -> list[Any]:
@@ -1558,15 +1615,76 @@ def self_reporting_note_blocks(text: Any) -> list[str]:
 
 
 def self_reporting_notes(report: Any) -> list[str]:
-    """Rule ``self-certification-gate`` on the claims the parser set aside: the ids of the claims of ``report`` roled ``other``
-    (a note, a label, a remark about the answer) that :func:`self_report_reading` names ("Final note: there is nothing to fix
-    in this answer, not a single slip.", the push check's assurance the parser sets aside as a note). A word count, a question
-    or a heading that narrates no check and does not evaluate the writer's own answer is no certification."""
+    """Rule ``self-certification-gate`` on the claims of ``report``: the ids of the claims, of every role and materiality, that
+    :func:`claim_self_report` names. Hold-fix round 3: one reading for every role (a note roled ``other`` on History and the same
+    sentence roled ``supporting`` analysis on Economics were read by two readers before, and only one gated it). A word count, a
+    question or a heading that narrates no check and does not evaluate the writer's own answer is no certification."""
     out: list[str] = []
     for c in list(getattr(report, "claims", None) or []):
-        if getattr(c, "claim_role", None) == "other" and self_report_reading(str(getattr(c, "claim_text", "") or "")) is not None:
+        if claim_self_report(str(getattr(c, "claim_text", "") or "")):
             out.append(str(getattr(c, "claim_id", "")))
     return out
+
+
+def claim_self_report(text: str) -> bool:
+    """Rule ``self-certification-gate`` on one claim's text, whatever its role: :func:`self_report_reading` names it; a quotation the
+    parser drew out of a sentence is read in that sentence, where its attribution stands (never alone). Fails closed."""
+    try:
+        from epinoic_logic.api.adapters import quotation_only
+        if quotation_only(text):
+            return False
+        return self_report_reading(text) is not None
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
+
+
+def self_reported_statuses(report: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on the claims' own fields: the ids of the claims of ``report`` that carry an advisory
+    verification status (the agent's own "verified", or the parser's "self-certified in the response text"; the hub names each
+    INT-HANDOFF-006, at info severity, as advisory and ignored). The status is an agent's self-report: it never helps an answer be
+    delivered, so the fallback never hands such an answer on. An advisory ELIGIBILITY says nothing about a check and is not read."""
+    return [str(getattr(c, "claim_id", "")) for c in list(getattr(report, "claims", None) or [])
+            if getattr(c, "advisory_verification_status", None) is not None]
+
+
+#: Receipt codes that name a self-report in the text a release path would hand on, as the delivery policy's fallback reads them
+#: (``delivery_policy.SELF_CERTIFICATION_CODES``): CORE-SELF-001 (a specialist's sentence), INT-REQ-014 (a relayed check result),
+#: and INT-LEDGER-029 (a synthesized claim or the synthesis's text). Any severity: a warning is no less a self-report (hold-fix
+#: round 2: the combined answer and the service's turn check released a text the receipt named only at warning severity). The
+#: English pack's ES-META-001 also names notes that certify nothing; the text reader reads the ones that do.
+SELF_REPORT_RECEIPT_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014", "INT-LEDGER-029"})
+
+
+def payload_self_reports(payload: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on a payload a release path would hand on (hold-fix round 2: every release path applies
+    the same gate with the same reader): for a synthesis (a mapping with ``claims`` and ``text``), each synthesized claim the gate's
+    claim reading names (:func:`claim_self_report`, the reading :func:`self_reporting_notes` applies to every claim of every role) and
+    each paragraph of its student-facing text that holds one (``self_report_spots``); for a specialist report (``original_response``),
+    each paragraph of the answer as written that holds one (:func:`self_certifying_sentences`), each claim carrying an advisory
+    verification status and each claim the same claim reading names (hold-fix round 3). Named by place and id, never by the words. A
+    payload it cannot read is named as a whole (fail closed)."""
+    try:
+        if not isinstance(payload, dict):
+            return ["the payload as a whole (it could not be read)"]
+        from epinoic_logic.api.adapters import self_report_spots
+        out: list[str] = []
+        if "original_response" in payload:
+            out += self_certifying_sentences(payload.get("original_response"))
+            out += [f"claim {c.get('claim_id')} (a self-reported verification status)" for c in payload.get("claims") or []
+                    if isinstance(c, dict) and c.get("advisory_verification_status") is not None]
+            out += [f"claim {c.get('claim_id')}" for c in payload.get("claims") or []
+                    if isinstance(c, dict) and c.get("advisory_verification_status") is None and claim_self_report(str(c.get("claim_text") or ""))]
+            return out
+        for c in payload.get("claims") or []:
+            if isinstance(c, dict) and claim_self_report(str(c.get("text") or "")):
+                out.append(f"synthesized claim {c.get('claim_id')}")
+        text = payload.get("text")
+        if not isinstance(text, str):
+            return out + ["the synthesis text as a whole (it could not be read)"]
+        out += [f"paragraph {n} of the synthesis text" for n in sorted({n for n, _p in self_report_spots(text)})]
+        return out
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        return [f"the payload as a whole (the reader failed: {type(exc).__name__})"]
 
 
 # ============================================================================================ rule lead-blocks

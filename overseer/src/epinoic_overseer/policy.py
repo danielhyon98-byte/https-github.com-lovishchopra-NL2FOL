@@ -283,7 +283,40 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
             return PolicyDecision(False, f"custody of the synthesis could not be re-checked at release ({type(exc).__name__})", state)
         if faults:
             return PolicyDecision(False, f"custody re-checked at release: {sorted(set(faults))} (the synthesis or a transfer it depends on was altered after the audit)", state)
+    why = _synthesis_self_report(synthesis_receipt, event, message)
+    if why is not None:
+        return PolicyDecision(False, why, state)
     return PolicyDecision(True, "ok", state)
+
+
+def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any) -> Optional[str]:
+    """Rule ``self-certification-gate`` at release (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit: a
+    synthesis carrying "All calculations have been verified by the system and are confirmed." was released with its
+    INT-LEDGER-029 at warning severity): the same gate, with the same reader, as the delivery policy's fallback. A synthesis whose
+    receipt names a self-report (:data:`.meta_notes.SELF_REPORT_RECEIPT_CODES`, any severity), or whose journaled payload (the
+    message to be released, else the journaled envelope) holds a sentence the translator's one reader names
+    (:func:`.meta_notes.payload_self_reports`), is never released. A payload that cannot be read is refused (fail closed)."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, payload_self_reports
+    try:
+        codes = sorted({f.code for f in synthesis_receipt.findings if f.code in SELF_REPORT_RECEIPT_CODES})
+    except (AttributeError, TypeError):
+        return "the synthesis receipt cannot be read for rule self-certification-gate"
+    if codes:
+        return (f"the synthesis carries a self-report named on its receipt ({', '.join(codes)}): a released answer never contains a claim that it "
+                "was checked or verified (rule self-certification-gate)")
+    try:
+        if message is not None:
+            payload = message.payload
+        else:
+            import json
+            payload = json.loads(event.envelope_json)["payload"] if getattr(event, "envelope_json", None) else None
+    except Exception:  # noqa: BLE001 - fail closed
+        payload = None
+    named = payload_self_reports(payload)
+    if named:
+        return (f"the synthesis certifies its own checking, read on the payload as written ({'; '.join(named[:8])}): a released answer never "
+                "contains a claim that it was checked or verified (rule self-certification-gate)")
+    return None
 
 
 def may_release(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None) -> bool:

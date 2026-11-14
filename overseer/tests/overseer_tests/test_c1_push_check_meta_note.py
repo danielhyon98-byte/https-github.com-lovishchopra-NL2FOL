@@ -58,7 +58,7 @@ from types import SimpleNamespace
 import pytest
 
 import epinoic_overseer.delivery_policy as delivery_policy
-from epinoic_logic.api.adapters import split_sentences, mask_quotations, opens_note_paragraph
+from epinoic_logic.api.adapters import is_self_certification, split_sentences, mask_quotations, opens_note_paragraph
 from epinoic_logic.api.branches import RouterHub
 from epinoic_logic.api.branches import EnglishPack
 from epinoic_logic.api.integrity import WorkPlan
@@ -548,18 +548,25 @@ def test_an_assurance_note_keeps_es_meta_001_blocking_on_the_recorded_en_t14(not
     rule. The English pack names it ES-META-001 at paragraph level and no CORE-SELF-001 fires, so rule meta-note alone
     decides; it keeps the finding (the paragraph is no note), and the delivery decision names the self-report and is never
     FORMALLY CHECKED. Before the fix ``self_report_findings`` returned [] for the push check's three, the first rewrite
-    returned [] for the attack's, and the narrowed rule before its last tightening returned [] for the probe's."""
+    returned [] for the attack's, and the narrowed rule before its last tightening returned [] for the probe's.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the shared
+    self-report reader now reads a correctness word said of the answer itself ("there is nothing to fix in this answer"), so the core
+    pack also names such a note CORE-SELF-001; where it does, the self-report reason names CORE-SELF-001 beside the ES-META-001 it
+    pinned (which is kept as before)."""
     rc, report, decision, _audit = _deliver(EN_T14 + "\n\n" + note)
+    named = is_self_certification(note)
     found = [f for f in list(rc.findings) + list(rc.structural_findings) if f.code in SELF_REPORT_CODES]
-    assert sorted((f.code, meta_paragraph_of(f)) for f in found) == [("ES-META-001", 5), ("ES-META-001", 7)]
-    assert not [f for f in found if f.code == "CORE-SELF-001"]
+    assert sorted((f.code, meta_paragraph_of(f) or 0) for f in found) == ([("CORE-SELF-001", 0)] if named else []) + [("ES-META-001", 5), ("ES-META-001", 7)]
+    assert bool([f for f in found if f.code == "CORE-SELF-001"]) is named
     assert note_paragraphs(report.original_response) == frozenset({5})
     kept = self_report_findings(found, report)
-    assert [meta_paragraph_of(f) for f in kept] == [7]
+    assert [meta_paragraph_of(f) for f in kept if f.code == "ES-META-001"] == [7]
     assert decision.mode != "formally_checked" and not decision.receipt.formal.complete
     assert not decision.label.lower().startswith("formally checked")
-    assert _self_report_reasons(decision) == ["the answer carries a self-report or a relayed check result no check established: ES-META-001 "
-                                              "(the answer as a whole)"], decision.receipt.formal.reasons
+    assert _self_report_reasons(decision) == ["the answer carries a self-report or a relayed check result no check established: "
+                                              + ("CORE-SELF-001 (the answer as a whole); " if named else "") + "ES-META-001 (the answer as a whole)"], \
+        decision.receipt.formal.reasons
 
 
 @pytest.mark.parametrize("note", PUSH_CHECK)
@@ -664,7 +671,11 @@ def test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without
     Renamed after the re-review of the c1 landing, from
     ``test_with_every_claim_clean_the_label_is_formally_checked_only_without_an_assurance``; the rename left its assertions as rewritten above to the stricter rule
     (the round-9 clearance corrected 'unchanged' here):
-    the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds."""
+    the old name stated the label, which rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d) withholds.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: where the shared
+    self-report reader names the assurance (a correctness word said of the answer itself), the self-report reason names
+    CORE-SELF-001 beside the ES-META-001 it pinned."""
     _clean_recorded_claims(monkeypatch)
     _rc, _report, decision, _audit = _deliver(EN_T14 + ("\n\n" + note if note else ""))
     if formally_checked:
@@ -674,8 +685,10 @@ def test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without
         assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
         assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
         reasons = decision.receipt.formal.reasons[:-1]
-        assert len(reasons) == 3 and reasons[0] == ("the answer carries a self-report or a relayed check result no check established: ES-META-001 "
-                                                    "(the answer as a whole)"), reasons
+        # hold-fix round 3: where the shared self-report reader names the note, the core pack names it CORE-SELF-001 too
+        named = "CORE-SELF-001 (the answer as a whole); " if is_self_certification(note) else ""
+        assert len(reasons) == 3 and reasons[0] == ("the answer carries a self-report or a relayed check result no check established: " + named
+                                                    + "ES-META-001 (the answer as a whole)"), reasons
         assert reasons[1].startswith("the answer carries a block opened by a note or sources lead that is read neither as a note nor as a pure "
                                      "source list (rule lead-blocks): paragraph 7 (a note lead: rule "), reasons
         assert reasons[2].startswith("the answer carries text its branch's parser reads as no claim of the answer that is read neither as a note, "
@@ -692,8 +705,25 @@ def assert_claim_refusal(decision, report, added: str, recorded: str = EN_T14) -
     """The refusal of a claim-channel input (attack round 5, rule ``unverified-claims``), with every claim of the recorded answer
     counted clean (:func:`_clean_recorded_claims`): the answer is not FORMALLY CHECKED, and the reasons name, by id only, a
     claim the input added or changed (a claim whose text is no claim of the recorded answer): condition 3 (``claim <id>: ...``)
-    for a material eligible claim, rule unverified-claims for any other. No reason holds the input's words."""
+    for a material eligible claim, rule unverified-claims for any other. No reason holds the input's words.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: an input the
+    shared self-report reader now names (a correctness word said of the answer: "Nothing in this answer needs fixing.", "there is
+    nothing to fix in this answer, not a single slip") is no claim of the answer any more; the parsers set it aside with the
+    advisory status, the receipt names it a self-report, and the refusal is rule self-report-disclosed's (a reason naming the
+    self-report code, never the input's words) rather than the claim rules'. An input the reader does not name is still refused as
+    a claim, as before."""
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked"), decision.receipt.formal.reasons
+    last = added.split("\n\n")[-1]
+    if is_self_certification(last) or is_self_certification(added):
+        reasons = decision.receipt.formal.reasons
+        assert _self_report_reasons(decision), reasons
+        assert not [c for c in report.claims if c.materiality == "material" and " ".join(last.split())[:24] in " ".join(c.claim_text.split())], \
+            [(c.claim_id, c.claim_role, c.materiality) for c in report.claims]
+        probe = " ".join(last.split())[:16]
+        if len(probe) >= 12:
+            assert all(probe not in r for r in reasons), reasons
+        return
     baseline = _recorded_claim_texts(recorded)
     ids = [c.claim_id for c in report.claims if c.claim_role != "other" and c.claim_text not in baseline]
     assert ids, (added, [(c.claim_id, c.claim_role, c.claim_text[-40:]) for c in report.claims])

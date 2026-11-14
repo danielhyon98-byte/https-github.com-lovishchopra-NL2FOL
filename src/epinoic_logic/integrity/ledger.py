@@ -4701,10 +4701,12 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
         s = sentence.strip()
         if not s:
             continue
-        if is_synthesis_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
+        # a label attached to content is read as a label first (hold-fix round 3: the one reader now also names a sentence whose
+        # clause after its content is a bare checking label, "... June 1919 (verified)."; the content stays content beside it)
+        label = synthesis_label(s[:_SELF_REPORT_SENTENCE_CHARS])
+        if (label is None or label.position == "whole") and is_synthesis_self_certification(s[:_SELF_REPORT_SENTENCE_CHARS]):
             out.append(s[:200])
             continue
-        label = synthesis_label(s[:_SELF_REPORT_SENTENCE_CHARS])
         if label is not None:
             out.append(s[:200])
             if labels is not None and label.position != "whole":

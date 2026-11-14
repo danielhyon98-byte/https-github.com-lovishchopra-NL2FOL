@@ -60,7 +60,7 @@ from pathlib import Path
 
 import pytest
 
-from epinoic_logic.api.adapters import segment, split_sentences, mask_quotations
+from epinoic_logic.api.adapters import is_self_certification, segment, split_sentences, mask_quotations
 from epinoic_overseer.checks.selfcert import flags_self_certification
 from epinoic_overseer.delivery_policy import FORMAL_LABEL_REASON, DeliveryPolicy
 from epinoic_overseer.meta_notes import (
@@ -104,6 +104,11 @@ NON_MATERIAL_REASON = ("the answer carries text its branch's parser reads as no 
 _ITEM = r"paragraph \d+(?: line \d+)?(?: inside the line)? \(a (?:note|sources) lead: rule [a-z-]+\)"
 REASON_RE = re.compile(r"^" + re.escape(LEAD_REASON) + _ITEM + r"(?:, " + _ITEM + r")*(?: and \d+ more)?$")
 TUNER_GROUNDING = source_list_grounding(TUNER.title, TUNER.author)
+
+
+def _core_self(reason: str) -> bool:
+    """A reason of rule self-report-disclosed naming only CORE-SELF-001 (the core pack's reading of the shared self-report reader)."""
+    return reason.startswith(SELF_REPORT_REASON) and all(p.strip().startswith("CORE-SELF-001") for p in reason[len(SELF_REPORT_REASON):].split(";"))
 
 
 def _with(row: dict) -> str:
@@ -179,7 +184,12 @@ def test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_che
     Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the policy
     never grants FORMALLY CHECKED in the round-8 release. Where this test pinned the label it now pins that the label rule is
     the formal path's ONLY reason (every other condition holds, as before); where it pinned the reasons of a refusal it pins
-    them with the label rule's reason last."""
+    them with the label rule's reason last.
+
+    Rewritten to the stricter rule after the round-9 push check on the c2 clearance commit: the core pack names CORE-SELF-001 on
+    every sentence the shared self-report reader names (``is_self_certification``), so a block that certifies the answer may be
+    named a self-report (CORE-SELF-001) beside the block's other reasons; the heading the parser reads as meta-text keeps its
+    ES-META-001 and, where the shared reader names it ("## Every quotation above holds ..."), is also named CORE-SELF-001."""
     _clean_recorded_claims(monkeypatch)
     text = _with(row)
     _rc, report, decision, _audit = _deliver(text)
@@ -190,7 +200,9 @@ def test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_che
         decision.receipt.formal.reasons
     lead = _lead_reasons(decision)
     if row["channel"] == META_TEXT_HEADING:
-        assert lead == [] and decision.receipt.formal.reasons[0] == SELF_REPORT_REASON + "ES-META-001 (the answer as a whole)"
+        named = is_self_certification(mask_quotations(row["text"]))  # the shared reader names the heading: CORE-SELF-001 too
+        assert lead == [] and decision.receipt.formal.reasons[0] == SELF_REPORT_REASON + (
+            "CORE-SELF-001 (the answer as a whole); " if named else "") + "ES-META-001 (the answer as a whole)", decision.receipt.formal.reasons
         assert [r for r in decision.receipt.formal.reasons[1:-1] if not r.startswith((NON_MATERIAL_REASON, UNVERIFIED_REASON))] == [], \
             decision.receipt.formal.reasons
         return
@@ -218,9 +230,22 @@ def test_round_2_assurances_with_no_lead_are_refused_by_rule_unverified_claims(m
 
     Its reason rewritten after attack round 4: it called the class "pre-existing at the published base", which holds only for
     an answer without a closing note; measured at the base (``data/meta_note_attack_round4.json``, ``earlier_open``), the same
-    input on en-t14 with its note was withheld, so rule meta-note, which frees that note, makes the channel reachable there."""
+    input on en-t14 with its note was withheld, so rule meta-note, which frees that note, makes the channel reachable there.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the shared
+    self-report reader now reads a correctness word said of the answer or its own items ("Nothing in this paragraph needs fixing.",
+    "There is nothing to fix in this answer ...", "Every quotation above holds ..."), so such an input is no claim of the answer any
+    more: it is named a self-report on the receipt and refused by rule self-report-disclosed, never by its words. An input the reader
+    does not name is still refused as a claim by rule unverified-claims, as before."""
     _clean_recorded_claims(monkeypatch)
     _rc, report, decision, _audit = _deliver(_with(row))
+    if is_self_certification(row["text"]):
+        assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
+        named = [r for r in decision.receipt.formal.reasons if r.startswith(SELF_REPORT_REASON)]
+        assert named, decision.receipt.formal.reasons
+        probe = " ".join(row["text"].split())[:16]
+        assert all(probe not in r for r in decision.receipt.formal.reasons), decision.receipt.formal.reasons
+        return
     assert_claim_refusal(decision, report, row["text"])
 
 
@@ -295,12 +320,21 @@ def test_the_note_masking_path_recorded_after_attack_round_1_is_closed(monkeypat
     Rewritten to the stricter rule after attack round 5 (rule ``unverified-claims``): "every claim counted clean" counted only
     the eligible material claims, and en-t14's supporting claims (its quotations and interpretation sentences) carried no
     outcome, which the label no longer allows; every claim of the recorded answer is now counted clean
-    (``_clean_recorded_claims``), and a claim the input adds keeps its real outcome."""
+    (``_clean_recorded_claims``), and a claim the input adds keeps its real outcome.
+
+    Rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: where the shared
+    self-report reader now names the note ("nothing above needs fixing": a correctness word said of the answer), the English parser
+    reads its paragraph as meta-text and the answer is refused as carrying a self-report; the others are unchanged."""
     _clean_recorded_claims(monkeypatch)
     text = EN_T14 + "\n\n" + note
-    assert [p.kind for p in segment(text)][-1] in ("body", "conclusion")  # the parser's reading is unchanged
+    named = is_self_certification(note)
+    assert [p.kind for p in segment(text)][-1] in (("meta",) if named else ("body", "conclusion"))  # the parser reads the reader's verdict
     _rc, _report, decision, _audit = _deliver(text)
-    assert decision.mode != "formally_checked" and len(_lead_reasons(decision)) == 1 and "paragraph 7 (a note lead" in _lead_reasons(decision)[0]
+    assert decision.mode != "formally_checked"
+    if named:
+        assert [r for r in decision.receipt.formal.reasons if r.startswith(SELF_REPORT_REASON)], decision.receipt.formal.reasons
+        return
+    assert len(_lead_reasons(decision)) == 1 and "paragraph 7 (a note lead" in _lead_reasons(decision)[0]
 
 
 @pytest.mark.parametrize("text", [
@@ -390,7 +424,11 @@ def test_the_label_for_real_on_a_physics_answer_the_formal_path_completes_for(ex
     Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the policy
     never grants FORMALLY CHECKED in the round-8 release. Where this test pinned the label it now pins that the label rule is
     the formal path's ONLY reason (every other condition holds, as before); where it pinned the reasons of a refusal it pins
-    them with the label rule's reason last."""
+    them with the label rule's reason last.
+
+    Rewritten to the stricter rule after the round-9 push check on the c2 clearance commit: an assurance the shared self-report
+    reader names ("every figure verified against it") is also named CORE-SELF-001 on the receipt, a reason of rule
+    self-report-disclosed beside rule lead-blocks' (:func:`_core_self`); rule lead-blocks still names the block."""
     decision = _physics(extra)
     if formally_checked:
         assert decision.mode == "withheld" and decision.receipt.formal.reasons == [FORMAL_LABEL_REASON], decision.receipt.formal.reasons
@@ -400,8 +438,8 @@ def test_the_label_for_real_on_a_physics_answer_the_formal_path_completes_for(ex
         assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
         lead = _lead_reasons(decision)
         assert len(lead) == 1 and REASON_RE.match(lead[0]), decision.receipt.formal.reasons
-        assert [r for r in decision.receipt.formal.reasons[:-1] if r not in lead and not r.startswith((NON_MATERIAL_REASON, UNVERIFIED_REASON))] == [], \
-            decision.receipt.formal.reasons
+        assert [r for r in decision.receipt.formal.reasons[:-1] if r not in lead and not r.startswith((NON_MATERIAL_REASON, UNVERIFIED_REASON))
+                and not _core_self(r)] == [], decision.receipt.formal.reasons
 
 
 # ============================================================================================ rule source-list
@@ -573,14 +611,18 @@ def test_a_lead_rule_meta_note_has_no_reading_of_is_refused(text):
 
 
 def test_the_reason_names_a_block_by_position_lead_and_rule_only():
+    """Rewritten in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the shared self-report reader now
+    names "Nothing above needs fixing." itself (a correctness word said of the answer), so rule meta-note's check of the block's
+    sentences against that reader refuses it before the word lists are read; the rule it names is meta-note, the refusal the same."""
+    rule = "meta-note" if is_self_certification("Nothing above needs fixing.") else "evaluation-words"
     blocks = unread_lead_blocks(EN_T14 + "\n\nNB: I can't see the image. Nothing above needs fixing.\n\nSources: The Tuner extract (supplied text), tickety-boo",
                                 TUNER_GROUNDING)
-    assert [b.where() for b in blocks] == ["paragraph 7 (a note lead: rule evaluation-words)", "paragraph 8 (a sources lead: rule source-list)"]
+    assert [b.where() for b in blocks] == [f"paragraph 7 (a note lead: rule {rule})", "paragraph 8 (a sources lead: rule source-list)"]
     assert "tickety" not in " ".join(b.where() for b in blocks)
     inline = unread_lead_blocks(EN_T14.replace(P4_END, P4_END + " Note: nothing above needs fixing."), TUNER_GROUNDING)
-    assert [b.where() for b in inline] == ["paragraph 4 inside the line (a note lead: rule evaluation-words)"]
+    assert [b.where() for b in inline] == [f"paragraph 4 inside the line (a note lead: rule {rule})"]
     lined = unread_lead_blocks("Body.\nNote: nothing above needs fixing.")
-    assert [b.where() for b in lined] == ["paragraph 1 line 2 (a note lead: rule evaluation-words)"]
+    assert [b.where() for b in lined] == [f"paragraph 1 line 2 (a note lead: rule {rule})"]
 
 
 def test_more_blocks_than_the_bound_refuse_the_answer_unread():

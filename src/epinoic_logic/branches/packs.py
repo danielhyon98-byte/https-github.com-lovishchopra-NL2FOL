@@ -23,8 +23,9 @@ from .. import lexis
 from ..adapters.history_specialist.chronology import chronology_relations
 from ..adapters.history_specialist.sentences import split_sentences as _split_sentences, strip_json_spans
 from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
-                                 find_quotation_spans, is_memory_label, parser_quotation_spans, self_cert_vocabulary, strip_emphasis, unbalanced_double_quotes,
-                                 verification_label)
+                                 find_quotation_spans, is_memory_label, is_self_certification, parser_quotation_spans, self_cert_vocabulary,
+                                 strip_emphasis, unbalanced_double_quotes, verification_label)
+from ..adapters.self_report import is_worked_check, not_a_self_report, reading_form, self_report_spots
 from ..adapters.sources import OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
@@ -1559,24 +1560,54 @@ class CorePack:
     @staticmethod
     def _self_certification(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
         """CORE-SELF-001: verification-status vocabulary in the response body, or a verification label on a sentence
-        (``markdown.verification_label``: "Verified: ...", "... (verified).", "..., as formally verified.", "Checked.").
-        An agent's statement about its own checking is advisory and ignored; status comes only from signed engine
-        results. A label attached to content leaves the content a claim like any other (the parsers keep its role), so
-        its message says so. The message never repeats the certifying words."""
+        (``markdown.verification_label``: "Verified: ...", "... (verified).", "..., as formally verified.", "Checked."), or a
+        sentence the shared self-report reader names (``markdown.is_self_certification`` on the sentence with its quotations
+        masked: "All calculations have been verified by the system and are confirmed.", "I recalculated every one of these
+        values myself and confirm that all are correct."; round-9 push-check hold on the c2 clearance commit: the History and
+        Economics branches named such a sentence only by the parser's advisory status, which no gate read). Every branch
+        carries this pack, so every branch names the same sentences. An agent's statement about its own checking is advisory
+        and ignored; status comes only from signed engine results. A label attached to content leaves the content a claim like
+        any other (the parsers keep its role), so its message says so. The message never repeats the certifying words.
+
+        Hold-fix round 2: the sentence is read by the one reader (``adapters.self_report``: normalised as the student sees it, a
+        quotation masked only where attributed or analysed, read by vocabulary class), the vocabulary and the label are held to its
+        vetoes (a named outside party's check, a worked check that shows its computation, a question), and the answer as written is
+        read once more, paragraph by paragraph, line by line and cell by cell (``self_report.self_report_spots``), so a heading, a
+        line or a cell no sentence of the branch's reading holds ("## All figures verified" in the STEM reading) is named too."""
         out: list[StructuralFinding] = []
         seen: set[str] = set()
+        covered: list[str] = []  # the reading forms of the sentences named, so the answer-wide pass never names one twice
+        # the SI reading reads a view with maths and quantities masked; a worked check ("Check: 2(4) + 3 = 11 ✓") shows its
+        # computation only in the statement as written, so the vetoes also read that
+        written = ({(p, n): report.original_response[a:b] for p, n, a, b in si_statements(report.original_response, reading.profile)}
+                   if reading.si else {})
         for pi, si, sent, _para in _sentences_for(report.original_response, reading):
-            vocabulary = self_cert_vocabulary(sent) is not None  # the receipt and engine vocabulary, its content-word forms only in a frame
-            label = None if vocabulary else verification_label(sent)
-            if not vocabulary and label is None:
+            # an outside party's check, a worked check, a question: never a self-report
+            read = reading_form(sent)
+            vetoed = not_a_self_report(read) or ((pi, si) in written and not_a_self_report(reading_form(written[(pi, si)])))
+            # the vocabulary and the label read the sentence as the one reader does, a quotation attributed to a source or analysed
+            # masked (hold-fix round 3: "Source A ... insists that \"every figure in this report has been checked and verified by the
+            # Ministry\", which a historian should treat with caution" was named by the vocabulary inside the source's own words)
+            vocabulary = self_cert_vocabulary(read) is not None and not vetoed  # the receipt and engine vocabulary, its content-word forms only in a frame
+            label = None if (vocabulary or vetoed) else verification_label(read)
+            # quotations masked only where attributed; a worked check the branch's reading masked is read as written
+            semantic = not vocabulary and label is None and is_self_certification(sent) and not ((pi, si) in written and is_worked_check(written[(pi, si)]))
+            if not vocabulary and label is None and not semantic:
                 continue
             key = " ".join(sent.split())
             if key in seen:
                 continue
             seen.add(key)
+            covered.append(" ".join(reading_form(sent).split()))
+            if (pi, si) in written:  # the statement as written (the SI view masks its quantities)
+                covered.append(" ".join(reading_form(written[(pi, si)]).split()))
             if vocabulary:
                 message = (f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel "
                            "receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material")
+            elif semantic:
+                message = (f"paragraph {pi}, sentence {si} states that the answer or its items were checked, verified or confirmed (an agent certifying "
+                           "its own output); agent self-reports are advisory and ignored, and the sentence is no claim of the answer and no evidence "
+                           "that anything was checked")
             elif label.position == "whole":
                 message = (f"paragraph {pi}, sentence {si} is nothing but a verification-status label (an agent certifying its own output); agent "
                            "self-reports are advisory and ignored, and the label is no claim of the answer and no evidence of a check")
@@ -1586,6 +1617,18 @@ class CorePack:
                            "agent self-reports are advisory and ignored: the label is no evidence that anything was checked, and the content it is "
                            "attached to is a claim like any other")
             out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=message, claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+        # the answer as written, read by the one reader whatever this branch's sentence reading kept (a heading, a line, a table cell)
+        for pno, piece in self_report_spots(report.original_response):
+            key = " ".join(reading_form(piece).split())
+            if not key or any(key in k or k in key for k in covered if k):
+                continue
+            covered.append(key)
+            out.append(StructuralFinding(
+                code="CORE-SELF-001", severity="warning",
+                message=(f"paragraph {pno} of the answer as written holds a line, heading or table cell stating that the answer or its items were "
+                         "checked, verified or confirmed (an agent certifying its own output); agent self-reports are advisory and ignored, and it "
+                         "is no claim of the answer and no evidence that anything was checked"),
+                claim_ids=_claims_mentioning(report, piece)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
