@@ -30,8 +30,8 @@ API_MAJOR = 1
 REQUIRED_API: dict[str, tuple[str, ...]] = {
     'adapters': (
         'BARE_NOTE_LEAD_RE', 'MAX_CLAIM_TEXT_CHARS', 'META_NARRATION_RE', 'PARAGRAPH_SPLIT_RE', 'TAIL_CLAIM_ID', 'check_excerpt',
-        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_certification', 'mask_quotations', 'not_a_self_report',
-        'opens_note_paragraph', 'quotation_only', 'reading_form', 'segment', 'self_cert_vocabulary', 'self_report_spots', 'split_sentences',
+        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_certification', 'label_self_report', 'mask_outside_quotations', 'mask_quotations', 'not_a_self_report',
+        'opens_note_paragraph', 'quotation_only', 'reading_form', 'report_field_self_reports', 'segment', 'self_cert_vocabulary', 'self_report_spots', 'split_sentences',
         'template_form', 'verification_label',
     ),
     'branches': (

@@ -7,6 +7,10 @@ translate -> engine -> (review) -> compose.
 
 Display rules (never relaxed):
 
+* A claim whose text is a self-report (``adapters.self_report``: it says the answer or its items were checked, verified,
+  reviewed, passed QA, produced an engine result or were proved) never shows a success status: eligibility rule 0 keeps it
+  from the solver (``NOT_ELIGIBLE``), and a success status a translator produced for one anyway is displayed as
+  ``NOT_ELIGIBLE`` (second remedy of the round-9 push-check hold; an agent's self-report is advisory).
 * ``TRANSLATED``             -> the engine's status, provided the engine result is
   bound to exactly the translated problem; a missing or mis-bound result is
   ``INTERNAL_ERROR``, and so is a result that is not current-policy evidence (issued
@@ -267,6 +271,19 @@ def unlinked_judgement(verification: Optional[VerificationResult], problem: Opti
     return bool(free) and all(
         v in symbols and symbols[v].sort == "Bool" and symbols[v].grounding is not None and symbols[v].grounding.kind == _JUDGEMENT_GROUNDING
         for v in free)
+
+
+#: Display statuses that read as a success to a reader of the outcome.
+_SUCCESS_DISPLAY = frozenset({VerificationStatus.ENTAILED, VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE})
+
+
+def _self_report_claim(text: str) -> bool:
+    """Whether the claim text is a self-report by the one reader; fails closed (a text it cannot read shows no success)."""
+    try:
+        from ..adapters.self_report import claims_a_check
+        return bool(claims_a_check(text or ""))
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
 
 
 def display_status_for(
@@ -752,6 +769,10 @@ def compose_outcome(
         raise ValueError("review does not belong to the translation")
     findings = list(structural)
     display = display_status_for(translation, verification, signing_key, key_id)
+    if display in _SUCCESS_DISPLAY and _self_report_claim(claim.claim_text):
+        # a self-report never shows a success status (second remedy of the round-9 push-check hold): eligibility rule 0 keeps it from
+        # the solver; a translator that bypassed that rule cannot turn the claim's own words into a verdict
+        display = VerificationStatus.NOT_ELIGIBLE
     review_state = review_currency(review, claim, translation, report, task) if review is not None else None
     trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
     engine_check = (release_check(trusted, translation.problem, signing_key=signing_key, key_id=key_id)

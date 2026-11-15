@@ -78,7 +78,9 @@ LAYOUT = [
 ]
 CONTROLS = [
     "The Ministry of Finance verified the figures in its 2019 report.",
-    'The minister claimed that "all calculations have been verified by the system and are confirmed."',
+    # (second remedy of the hold, round 3: the bare relay of the held sentence is now a self-report, a stricter rule; the minister's
+    # quotation stays the source's when the sentence goes on to analyse it)
+    'The minister claimed that "all calculations have been verified by the system", a boast the archive data contradict.',
     "Source B reports that the statistics office verified the census totals.",
     "According to Source B, the census totals were confirmed by the statistics office.",
     "I did not check the dates against the sources.",

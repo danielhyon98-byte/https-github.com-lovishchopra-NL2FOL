@@ -578,6 +578,26 @@ def _line_heading(body: str, has_following: bool) -> bool:
             and not _COPULA_RE.search(masked) and not find_quotation_spans(body) and not _LABEL_VALUE_RE.search(masked))
 
 
+def _split_outside_quotations(piece: str) -> list[str]:
+    """``piece`` split into sentences (:data:`_SENT_RE`) only at marks outside its quotations: a quotation of several sentences
+    stays in the sentence that attributes it, as the English and History parsers keep it (second remedy of the round-9 hold,
+    round 2: 'The advert's tagline, "Tested. Approved. Trusted.", borrows ...' was cut into the bare labels "Approved." and
+    "Trusted.", each read as a self-report on the Economics, Business, Psychology and generic branches only)."""
+    spans = find_quotation_spans(piece) if any(q in piece for q in "\"“”«»") else []
+    spans = [(a, b) for a, b, _i in spans if b - a > 2]
+    if not spans:
+        return _SENT_RE.split(piece)
+    out: list[str] = []
+    cursor = 0
+    for m in _SENT_RE.finditer(piece):
+        if any(a < m.start() < b - 1 for a, b in spans):
+            continue
+        out.append(piece[cursor:m.start()])
+        cursor = m.end()
+    out.append(piece[cursor:])
+    return out
+
+
 def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
     units: list[_Unit] = []
     lines = _logical_lines(paragraph, state)
@@ -600,7 +620,7 @@ def _units_of(paragraph: str, para_index: int, state: _State) -> list[_Unit]:
         heading = header or (m is None and _line_heading(body, li < len(lines) - 1))
         line_units: list[_Unit] = []
         for piece, is_json in split_json_spans(body.strip()):
-            sents = [piece] if is_json else [s.strip() for s in _SENT_RE.split(piece) if s.strip()]
+            sents = [piece] if is_json else [s.strip() for s in _split_outside_quotations(piece) if s.strip()]
             for s in sents:
                 s = s if is_json else _strip_annotations(s)
                 if not s or (not is_json and _ANNOTATION_ONLY_LINEAR_RE.fullmatch(s)):

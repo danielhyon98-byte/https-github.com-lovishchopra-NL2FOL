@@ -657,6 +657,48 @@ A candidate may be delivered only if it passes the **integrity gates**:
   decision itself (`consolidate.delivery_decision`, so `may_deliver` and the port) applies the gate, and its reasons, with
   `policy.release_decision`'s, map onto the protocol's `not_deliverable` refusal (`port.REFUSAL_RULES`), so the service's turn
   check answers `refuse_integrity` with KIT-DL-006, never KIT-DL-900.
+  The second remedy of the hold (design decision 161) reads ANY assurance word in the answer's own scope, not a list of phrasings:
+  a claim that the answer, the text above or its parts were checked, verified, reviewed, approved, tested, passed QA, produced an
+  engine result or were proved, status words and labels included ("QA: pass.", "All checks passed.", "All claims: PROVED.",
+  "Validation status: green across every claim.", "Z3 found no counterexample to any of the steps.", "Reviewed and approved.",
+  "This has been peer-reviewed by another agent and approved."), is a self-report on every branch and every release path, unless it
+  is a named outside source's check reported as evidence, a third party's check that is the subject matter, a negated or questioned
+  check, an instruction to the student, or a worked check that shows its computation. A quoted or relayed one is read as written
+  whoever it is attributed to when its words refer to this answer or the text above or name a checking engine ('The checker
+  reported: "All calculations in this answer have been verified."', 'In other words, "..."'). The gate also reads the specialist's
+  own fields beside the response (the report's assumptions and unresolved issues, each claim's assumptions and assessment criteria):
+  a self-certification written only there keeps the candidate from every fallback mode and from the router's decision.
+  Round 2 of the second remedy widened the classes again and narrowed the scope where correct work was refused (pinned in
+  `overseer_tests/test_c2_hold_remedy2_round2_gate.py`): a complete check said through a double negation ("No figure was left
+  unchecked."), a first-person "made sure to" check, unlisted checking verbs ("looked over", "gone through", "proofed"), engine-result
+  words and status leads ("No counterexample exists.", "Checks: 12/12 passed.", "Engine verdict: consistent.", "OVERSEER-SELECTED"),
+  a question the writer answers itself ("Checked? Yes."), a verdict relayed by a tool, a reviewer or the hub's own agents ('"Approved,"
+  wrote the overseer.', "The solver reported that no counterexample exists."), a check label on the answer's own lead ("Final answer:
+  15 km/h, checked twice.") and other languages are withheld on every mode; a quotation is masked only when an outside party is its
+  source in its own clause, never for a frame noun alone ('Headline: "All figures verified and correct."'). Correct work stays
+  deliverable: an event told with a pronoun subject ("It was tested at Alamogordo in July 1945."), a check an outside source made
+  ("confirmed in the 2015 OECD report"), subject vocabulary in an outside context or a process ("In TLS, each response is signed
+  ...", "Each value is checked against the range 0 to 100 before it is accepted."), a proof's conclusion, an essay's evaluation of its
+  subject, a source's self-report quoted under analysis, a quoted tagline (no parser cuts a quotation into sentences), a method step
+  and a rejected root.
+  Round 3 of the second remedy reads the class by a property instead of by more phrasings (pinned in
+  `overseer_tests/test_c2_hold_remedy2_round3_gate.py`): a sentence every word of which is meta-vocabulary (checking, verdicts,
+  defects, checkers, the answer and its parts, grading, function words, numbers) says nothing about the subject, so with an
+  assurance mark and no negation, condition, question or instruction it is a self-report ("No errors found.", "Counterexamples
+  found: none.", "The prover closed every goal.", "CI is green.", "Consensus: correct.", "This matches the answer key.", "Python
+  gives the same result.", "x = 4 ✓", and their Spanish, French, German, Portuguese, Dutch, Polish and Turkish forms); a sentence
+  mostly in a script the reader has no vocabulary for fails closed (named). A quotation or report credited to anyone is read as the
+  writer's when its words are such a sentence and default to the answer (its claims, steps, working or calculations, the text
+  above, an engine, a QA or status word, or a bare label: 'The ONS reported: "All claims: PROVED."', 'As Kershaw wrote, all claims:
+  PROVED.'), and whatever they say when the reporter is the writer's own log or notes. The gate reads the verification labels the
+  packs and the combinator's ledger name as well (`label_self_report`), so the delivery paths and the release name the same
+  sentences, and the accuracy scorer never scores a claim the receipt names a self-report (CORE-SELF-001, INT-REQ-014,
+  INT-HANDOFF-006), whatever the reader makes of its text. Correct work stays deliverable: a step proved earlier in the same answer
+  cited before content ("As proved in part (a), f is increasing on [0, 2]."), the writer's check that a theorem's conditions hold,
+  essay signposting ("I have gone through the main arguments ..."), a research construct checked ("Reliability was checked using the
+  test-retest method."), a tool's verdict in a dated historical proof, a worked check on the answer's lead, a Spanish past passive
+  with a named body as its agent ("Todo fue comprobado por el INE en 2021."), and rubric or mark-scheme text ("Award [1] for
+  verifying the answer by substitution.", "Examiners check that each date is correct."), in the response or in a report's fields.
 - Its journaled payload carries its envelope's digest.
 
 A failed translation is a warning on the receipt, never an exclusion. This covers invalid, unsupported, ambiguous,

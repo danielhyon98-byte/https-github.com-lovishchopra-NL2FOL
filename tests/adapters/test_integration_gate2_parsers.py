@@ -558,7 +558,12 @@ def _synthesis_reads_a_self_report(sentence: str) -> bool:
 #: that stricter rule: before, it pinned "This has been verified." as content on a specialist's branch. Hold-fix round 3 made it
 #: stricter again: a correctness word said of the writer's own answer ("This answer is complete and correct.", "This answer is 100%
 #: correct.") is a self-report on every branch too (before, it pinned that sentence as content on a specialist's branch).
-NAMED_ON_EVERY_BRANCH = {"this has been verified, alone", "this answer is complete and correct, alone"}
+# Second remedy of the round-9 push-check hold (rewritten to a stricter rule): an engine-result, signature, logic-check, hub or
+# overseer verdict on the answer is a self-report on every branch, not only on a synthesis (the judge's required fix: any claim in
+# the answer's own scope about an engine result, status labels included). Before, only the two sentences alone were named on every
+# branch and these six were pinned as specialist content.
+NAMED_ON_EVERY_BRANCH = {"this has been verified, alone", "this answer is complete and correct, alone", "(signed engine result)", "(signature valid)",
+                         "(logic check passed)", "(entailment holds)", "(the hub accepted this)", "Overseer verdict: pass."}
 
 
 @pytest.mark.parametrize("form", list(VERDICT_FORMS))

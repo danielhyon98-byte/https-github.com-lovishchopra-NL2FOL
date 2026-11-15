@@ -339,12 +339,16 @@ def test_a_claim_absent_from_the_response_is_still_fid_001():
 def test_a_quoted_claim_of_accuracy_is_analysis_not_a_self_certification():
     from epinoic_logic.api.adapters import is_self_certification, mask_quotations
     sentence = 'The brochure builds trust through an appeal to authority: "Every figure in this brochure has been independently verified."'
-    # hold-fix round 2 of the round-9 push-check hold: the one reader masks a quotation itself where the sentence attributes or
-    # analyses it, so the sentence reads as analysis with or without the caller's masking; the same words about the writer's own
-    # answer are a self-report (this assertion replaced "the reader names the unmasked sentence", which only held while every
-    # caller had to mask)
-    assert not is_self_certification(sentence) and not is_self_certification(mask_quotations(sentence))
+    # Restored as it stood before the first remedy of the round-9 push-check hold (which had flipped it to "not
+    # is_self_certification(sentence)", unlabelled): the one reader reads a quoted claim of checking as written, and only a caller
+    # that decides a quotation is analysis masks it (FID-005 masks quotations outside the answer's own scope). Second remedy: the
+    # same words about the writer's own answer, bare, quoted or relayed, are a self-report whoever they are attributed to.
+    assert is_self_certification(sentence) and not is_self_certification(mask_quotations(sentence))
     assert is_self_certification("Every figure in this answer has been independently verified.")
+    for relayed in ('As the examiner wrote, "every figure in this answer has been independently verified."',
+                    'The checker reported: "Every figure in this answer has been independently verified."',
+                    'In other words, "every figure in this answer has been independently verified."'):
+        assert is_self_certification(relayed), relayed
     doc = SuppliedText(document_id="doc-mill", title="Brochure", author="Mill owners",
                        text="Every figure in this brochure has been independently verified. Nine out of ten customers return within a year.")
     claims = [dict(claim_id="p1-point", claim_text=sentence, claim_role="point", materiality="material"),

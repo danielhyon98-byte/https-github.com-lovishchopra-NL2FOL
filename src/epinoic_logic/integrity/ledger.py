@@ -4679,6 +4679,27 @@ def _source_index(reports: list[SpecialistReport], colliding: set[str]) -> tuple
 
 #: Sentence ends for the self-report reading of a synthesis: a sentence stop followed by space, or a line break.
 _SELF_REPORT_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _split_outside_quotations(text: str) -> list[str]:
+    """``text`` split at :data:`_SELF_REPORT_SENTENCE_RE` only outside its quotations: a quotation of several sentences stays with
+    the sentence that frames it (second remedy of the round-9 hold, round 2: the tagline in 'The advert's tagline, "Tested.
+    Approved. Trusted.", borrows ...' was cut into the bare labels "Approved." and "Trusted.", each named INT-LEDGER-029)."""
+    if not any(q in text for q in "\"“”«»"):
+        return _SELF_REPORT_SENTENCE_RE.split(text)
+    from ..adapters.markdown import find_quotation_spans
+    spans = [(a, b) for a, b, _i in find_quotation_spans(text) if b - a > 2]
+    out: list[str] = []
+    cursor = 0
+    for m in _SELF_REPORT_SENTENCE_RE.finditer(text):
+        if "\n" not in m.group(0) and any(a < m.start() < b - 1 for a, b in spans):
+            continue
+        out.append(text[cursor:m.start()])
+        cursor = m.end()
+    out.append(text[cursor:])
+    return out
+
+
 #: The longest sentence the self-report reading reads (a sentence beyond it is read on its first characters only).
 _SELF_REPORT_SENTENCE_CHARS = 4000
 
@@ -4697,7 +4718,7 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
     split."""
     from ..adapters.markdown import is_synthesis_self_certification, synthesis_label
     out: list[str] = []
-    for sentence in _SELF_REPORT_SENTENCE_RE.split(text or ""):
+    for sentence in _split_outside_quotations(text or ""):
         s = sentence.strip()
         if not s:
             continue

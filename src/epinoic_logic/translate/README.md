@@ -1,7 +1,10 @@
 # translate — from specialist claims to IR
 
 Flow for one claim: `eligibility.decide_eligibility` (deterministic rules by claim
-role and proposed kind) → `subjects.resolve_profile` applies the IB subject policy
+role and proposed kind; rule 0: a claim whose text is a self-report, that the answer or its items were
+checked, verified, reviewed, passed QA or were proved, is NOT_ELIGIBLE and never shows a success status; the outcome also reads
+the core pack's verification labels and receipt vocabulary, `adapters.self_report.label_self_report`, so "Answer (verified): 15 km/h."
+never shows ENTAILED where the hub refuses it, while a label set on content leaves the content eligible) → `subjects.resolve_profile` applies the IB subject policy
 (a class the subject does not allow is downgraded to not eligible) → the
 `Translator` in `pipeline.py` builds a `TranslationRequest` (claim, supporting
 claims, supplied texts, eligibility, subject profile text) → a `TranslationProvider`

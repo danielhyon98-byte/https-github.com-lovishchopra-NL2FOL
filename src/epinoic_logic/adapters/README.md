@@ -475,6 +475,78 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   the core pack asks it of the statement as written where the STEM reading masks the computation). The core pack's vocabulary and
   label readings and the English pack's narration rule read the sentence with an attributed quotation masked and hold to the same
   vetoes.
+- **Any assurance in the answer's own scope** (second remedy of the round-9 push-check hold; `self_report._assurance_sentence`):
+  beside the class reading, ANY assurance word (checking, verification, review, QA, testing, approval, sign-off, proof, an engine
+  or its result, a status word: pass, green, PROVED, ENTAILED, unsat, no counterexample, receipt, signed, validation status) in a
+  clause in the answer's own scope (the answer or the text above named; its parts quantified, anchored or the writer's; the
+  writer; an internal checker, another agent or an unnamed examiner; or a label of nothing but assurance words) is a self-report,
+  unless a veto holds: a question; a negated, modal, conditional or infinitive check; an instruction to the reader; a worked
+  check; a named outside party's check (its subject or its agent; a coordinated second verb shares the outside subject); a
+  comparison with an outside reference; an interpretation borne out by textual evidence; a present-tense description of a
+  method. A quotation is masked only when an outside party reports it and its words are outside the answer's scope
+  (`quotation_in_scope`: this answer, the text above, a checking engine, a receipt, a QA or proof status); "In other words" is no
+  attribution, and an internal reporter keeps it the writer's. `mask_outside_quotations` is the masking of a caller that decides
+  whether quoted words are analysis (the auditor's FID-005); the release gates read `is_self_certification` itself. "Exact" (exact
+  form) is no accuracy word. `report_field_self_reports` reads the specialist's own fields beside the response (the report's
+  assumptions and unresolved issues, each claim's assumptions and assessment criteria; the platform's own notes apart): the core
+  pack names them CORE-SELF-001 and the overseer's gate refuses them. A self-report is never a solver question
+  (`translate.eligibility` rule 0) and never shows a success status (`translate.outcome.compose_outcome`).
+- **Round 2 of the second remedy** (the round-1 lenses reproduced both sides of the class again). Read as classes, each on every
+  branch and release path: a complete check said through a double negation ("No figure was left unchecked.", "There is no value here
+  that I haven't double-checked.", "Ninguna cifra sin verificar."); a first-person "made sure to", "took care to", "took the time to"
+  check (a check done, never a purpose); checking verbs beyond the listed ones (looked over, gone or went through, proofed,
+  authenticated, examined); engine-result words and status leads ("No counterexample exists.", "The negation of each claim is
+  unsatisfiable.", "All proof obligations discharged.", "Checks: 12/12 passed.", "Engine verdict: consistent.", the platform's own
+  labels such as OVERSEER-SELECTED); a question the writer answers itself ("Checked? Yes."); a verdict relayed by an internal
+  reporter, a tool, a reviewer or the hub's own agents, quoted or not ("The solver reported that no counterexample exists.", '"Approved,"
+  wrote the overseer.', "Per Z3, all claims hold."); a check label on the answer's own lead or a repeated or manual check set after
+  content ("Answer (verified): 15 km/h.", "Final answer: 15 km/h, checked twice."); a participle label opening a sentence with no main
+  clause ("Confirmed against the mark scheme.", "Checked by Epinoic."); German, Italian, French and Spanish participles, quality
+  control in those languages, and CJK status words. A quotation is masked only when an OUTSIDE party is its source in its own clause
+  (a named person or body, a third person, a possessive source, a source document: "Stalin claimed that", "The narrator's line,",
+  "printed on the packaging"); a frame noun alone ("Headline:", "The bottom line:", "My verdict, in a word:") is no source, and
+  `quotation_in_scope` now means words that refer to THIS answer ("this answer", "above", "here", "in it", "so far"), never generic
+  checking words. Vetoes, read on the whole sentence by every reader (`not_a_self_report` included): an outside context frame ("In
+  TLS,", "Under TQM,", "In Loftus and Palmer's study,", "According to the official press release,"); a rejected value with its
+  working; an outside party's finding restated ("In other words, the IMF found that ..."); a process described in the present passive
+  with an adjunct ("Each value is checked against the range 0 to 100 before it is accepted."); a writer's or the answer's own check
+  of the subject matter ("This essay has tested Taylor's claim ...", "I have tested this view against Gettier's counterexamples").
+  A pronoun subject ("It was tested at Alamogordo in July 1945.") is the answer's only when nothing but adverbs or an internal
+  checker follows the check; "the solution", "the output" and "the argument" are the answer only as "this", "my", "the whole" or
+  "the final" one; a proof word ("proved", "established") needs a checker, the writer with the answer's items, an anchor in the
+  answer or a label of nothing else; "holds" is a check's result only of the answer's own items with no domain after it; an
+  evaluative verb of the writer (assess, test, examine, review) needs the answer's items as its object; a source's check named
+  after "in" or "published in" (a report, a revision, a meta-analysis, a journal) is evidence. `label_self_report` reads a
+  verification label or the receipt vocabulary as the core pack's CORE-SELF-001 does, so the outcome (`claims_a_check`) and the
+  report's own fields read what the packs name. `report_field_self_reports` reads a field longer than one window in overlapping
+  windows (one too long to read is named), keeps a field that copies a MASKED quotation of the response, and reads a certifying lead
+  ("QA passed: <sentence>"). The generic parser and the ledger's self-report split never cut a sentence inside a quotation.
+- **Round 3 of the second remedy** (the round-2 lenses reproduced 81 more phrasings delivered on every path). The class is read by a
+  property, not by phrasings (`_meta_assurance`): a sentence every word of which is meta-vocabulary (`_META_WORDS`: function words,
+  the writer, the answer and its parts, checking and verdict words, defects, checkers, grading, numbers that are not years, a bare
+  result such as "x = 4", a check mark) says nothing about the subject, so with an assurance mark (a checking or status word, a finding
+  that nothing is wrong, an answer key or grade, a consensus, a re-run with the same result, a check mark) and no negation,
+  condition, modality, question or instruction it is a self-report, read before every content veto ("No errors found.",
+  "Counterexamples found: none.", "The prover closed every goal.", "CI is green.", "Consensus: correct.", "Python gives the same
+  result.", "x = 4 ✓", "Tudo foi verificado e está correto.", "Je l'ai vérifié."). The hub's own words (overseer, hub, router) are
+  meta-vocabulary only beside the answer named or as a label's lead; a generic thing that passed or works ("The engine passed.") is
+  content. A quotation or report credited to anyone (`_relayed_meta`) is read as the writer's when its words are such a sentence
+  and default to the answer (its claims, steps, working, calculations or reasoning, the text above, an engine, a QA or status word,
+  or a bare label), and whatever they say when the reporter is the writer's own log, notes or records; a source's quotation with
+  content of its own, or one the sentence goes on to analyse, stays the source's. A whole-answer endorsement by anyone ("Another model agreed
+  with all of this.", "The combinator signed off on this synthesis.") is a relayed verdict. A sentence mostly in a script the reader
+  has no vocabulary for (Cyrillic, Arabic, Devanagari, Han, kana, Hangul, ...) fails closed. A participle label with a part noun and
+  a reference ("Dates cross-checked with Britannica.") is the writer's check. Vetoes for correct work (`_round3_subject_matter`): rubric
+  and mark-scheme text; a step proved earlier in the same answer cited before content; the writer's check that a statement of the
+  subject holds ("We have verified that the conditions of the theorem hold, ..."); "gone through" or "looked over" with the subject
+  matter as its object; a research construct checked ("Inter-rater reliability was checked ..."); a Spanish past passive with a named
+  body after "por" (the perfect passive still states the items' status); a tool in a dated outside context with content of its own;
+  and a worked check on the answer's lead. `claims_a_check` reads the same marks, and the overseer's gate reads `label_self_report`
+  with the one reader. "OK" is an assurance mark only in a label (after a colon), bracketed ("[OK]", "(OK)") or with a check mark: a
+  bare "OK" or "Okay" opening a sentence is a discourse marker ("OK. Let us look at the poem."), the label readers' rule. A
+  "that"-clause its matrix denies is not the writer's assertion: an odd number of negations and denials in the clause before it ("It
+  is not true that no errors were found in this synthesis.", "I doubt that ...") keeps its assurance words from being read as a claim,
+  and an even one asserts it again ("Nobody can deny that ...", "There is no doubt that ..."; `self_report._denied_complement`).
 - **Altered quotations in any position** (`sources.nearest_text`): when a text holds every word of a quotation somewhere, the words that
   differ from the text's aligned window of the quotation's length are named (`_aligned_changes`: one or two places differing, at least
   three agreeing, two of them a word of four letters or more or a figure), so a word changed to another word the text uses elsewhere

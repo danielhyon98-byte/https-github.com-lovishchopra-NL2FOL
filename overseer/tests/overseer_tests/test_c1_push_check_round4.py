@@ -35,6 +35,7 @@ fixture's answer is built without its supporting evidence claim, which no signed
 glued INTO the claim the engine verifies are named by the same rule (a note lead and an emoji inside the claim).
 """
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import json
 import re
@@ -215,8 +216,14 @@ def test_every_round_4_input_the_rules_close_keeps_en_t14_off_the_label(monkeypa
     assert report.original_response == _with(row)
     reasons = decision.receipt.formal.reasons
     if row in QUOTED_LITERALS:
-        assert decision.mode != "formally_checked" and len(reasons) == 2 and reasons[0] == CONSOLIDATION_EXCLUDED, reasons
-        assert reasons[1].endswith("is excluded: its receipt carries error-level findings"), reasons
+        # Rewritten to the stricter rule of the second remedy of the round-9 push-check hold: an unattributed quotation of a claim
+        # that the answer's quotations hold is the writer's own words (the one reader never masks a quotation in the answer's own
+        # scope), so the English parser sets it aside as a self-report instead of reading it as an invented quotation (which the
+        # consolidation excluded for its error-level finding). It is refused, fixed here, by rule self-report-disclosed naming
+        # CORE-SELF-001 and by rule non-material-text, before the label rule, and nothing is delivered.
+        assert decision.mode != "formally_checked" and not decision.delivered and len(reasons) == 3, reasons
+        assert reasons[0] == SELF_REPORT_REASON + "CORE-SELF-001 (the answer as a whole); ES-META-001 (the answer as a whole)", reasons
+        assert reasons[1] == NON_MATERIAL_REASON + "paragraph 7 (rule non-material-text)" and reasons[2] == FORMAL_LABEL_REASON, reasons
         return
     assert_refused_beyond_the_label(decision, (NON_MATERIAL_REASON, LEAD_REASON))
     for r in reasons:
@@ -286,16 +293,16 @@ def test_round_4_claim_channel_inputs_are_refused_by_the_claim_rules(monkeypatch
 
 
 def _named_by_the_one_reader(row) -> bool:
-    from epinoic_logic.api.adapters import is_self_certification
-    return is_self_certification(row["text"].split("\n\n")[-1].strip())
+    """The fixed expectation for the input (second remedy of the round-9 hold: never the reader's own verdict; the reader is
+    asserted to agree, :mod:`.self_report_expectations`)."""
+    return expected_self_report(row["text"].split("\n\n")[-1].strip())
 
 
 def now_a_self_report(added: str) -> bool:
     """Hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: whether the shared self-report reader now names
     an input it did not before (a correctness word said of the answer, a bare verdict: "There is nothing to fix in this answer,
     not a single slip.", "All good.", "..., and nothing above needs fixing.")."""
-    from epinoic_logic.api.adapters import is_self_certification
-    return is_self_certification(added.strip().split("\n\n")[-1].strip())
+    return expected_self_report(added.strip().split("\n\n")[-1].strip())  # fixed expectation (second remedy of the round-9 hold)
 
 
 def assert_self_report_refusal(decision, report=None, added: str = "") -> None:

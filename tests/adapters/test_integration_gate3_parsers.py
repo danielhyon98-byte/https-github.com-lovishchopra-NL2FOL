@@ -267,7 +267,6 @@ SYNTHESIS_CLEAN = [
     "The engine proved reliable.",
     "The engine passed.",
     "The overseer approved it.",
-    "The overseer approved this claim.",
     "The engine did not confirm it.",
     "The checks cleared.",
     "The safety checks passed.",
@@ -295,12 +294,21 @@ def test_a_disclaimer_a_credit_or_content_is_no_self_report_on_a_synthesis(sente
     assert not _synthesis_reads_a_self_report(sentence), (sentence, md.synthesis_label(sentence))
 
 
-@pytest.mark.parametrize("form", ["All checks passed", "a signed engine result", "QA: pass", "(vérifié)",
-                                  "definitely correct", "as the overseer approved"])
+@pytest.mark.parametrize("form", ["definitely correct", "as the overseer approved"])
 def test_the_synthesis_forms_are_not_read_on_a_specialists_branch(form):
-    """On a specialist's branch the same words may be content (a Language B gloss, a history of the overseers): unchanged there."""
+    """On a specialist's branch the same words may be content (a history of the overseers, a plain judgement): unchanged there."""
     sentence = SYNTHESIS_FORMS[form]
     assert not md.is_self_certification(sentence) and md.verification_label(sentence) is None, sentence
+
+
+@pytest.mark.parametrize("form", ["All checks passed", "a signed engine result", "QA: pass", "(vérifié)"])
+def test_a_check_status_or_engine_result_on_the_answer_is_a_self_report_on_every_branch(form):
+    """Rewritten to a stricter rule (second remedy of the round-9 push-check hold): these four forms were pinned above as content on
+    a specialist's branch, and the overseer's gate, which reuses this reader, delivered "QA: pass." OVERSEER-SELECTED. A check status,
+    a QA verdict or an engine result said of the answer is a self-report wherever it stands (the judge's required fix: "QA: pass" and
+    "All checks passed" are gated at delivery even where a specialist branch kept them non-material)."""
+    sentence = SYNTHESIS_FORMS[form]
+    assert md.is_self_certification(sentence), sentence
 
 
 def test_an_unnamed_checker_confirming_the_claim_is_a_self_report_on_every_branch():
@@ -499,3 +507,13 @@ def test_a_synthesized_claim_with_a_long_run_after_a_verdict_is_read_by_the_ledg
     t = time.perf_counter()
     _ledger_029(FACT + " " + label + " " * 3_500 + "x.")
     assert time.perf_counter() - t < 20.0
+
+
+def test_an_approval_of_this_claim_is_a_self_report_wherever_it_stands():
+    """Rewritten to a stricter rule (second remedy of the round-9 push-check hold): "The overseer approved this claim." was pinned
+    above as content on a synthesis. It says that a claim of this answer was approved, which is a claim in the answer's own scope
+    about a review (an agent's approval is advisory, never evidence), so the one reader names it on every branch. A plantation
+    overseer approving something that is not the answer ("The overseer approved it.", "The overseer confirmed the flogging.") stays
+    content."""
+    assert md.is_self_certification("The overseer approved this claim.")
+    assert not md.is_self_certification("The overseer confirmed the flogging.")
