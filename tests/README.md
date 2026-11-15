@@ -2392,3 +2392,9 @@ Work in progress after it is labelled as such.
   whose own text claims it was verified can still be delivered through the overseer-selected fallback. A targeted fix,
   attacked from three sides and verified in full, runs before round 10; it is uploaded only if a new independent check
   clears it.
+
+### Progress, 07:00 UTC (15 November)
+- Round 9's second remedy for the held self-certification finding is committed as fe2e639 after a full verification:
+  37,089 tests passed, 1 skipped and 1 expected failure, and every recorded arena round replays to its recorded result
+  (round 8: 203 of 203; round 9: 188 of 188). Its independent push check is running; the upload follows only if that
+  check clears the two held round 9 commits.
