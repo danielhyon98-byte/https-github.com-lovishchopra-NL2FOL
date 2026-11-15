@@ -1,6 +1,7 @@
 """L5 claim fidelity: the delivered claims are what the specialist actually said. Normalisation and every named rule
 have their own tests; every FID code has a positive case and a control."""
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import pytest
 
@@ -181,7 +182,7 @@ def test_t8_phrasings_the_adapters_miss_are_fid_009(auditor, sentence):
     # misses, is asserted on phrasings the merged detector misses.
     from epinoic_logic.api.adapters import is_self_certification
     claim = dict(claim_id="en-cert", claim_text=sentence, claim_role="interpretation", materiality="supporting")
-    if is_self_certification(sentence):
+    if expected_self_report(sentence):
         # rewritten to the stricter rule in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the one
         # self-report reader now reads a first-person comparison of the answer's own items ("I compared every figure with the census
         # tables."), so the merged detector catches it and the audit names it FID-005, the error, as for the round-5 phrasings

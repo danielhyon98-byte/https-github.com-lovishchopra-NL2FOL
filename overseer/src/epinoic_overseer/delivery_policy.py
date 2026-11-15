@@ -126,7 +126,7 @@ from .keys import DELIVERY_KEY_ID, KeyRing
 from .meta_notes import (
     LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, claim_self_report, glued_note_lead, self_certifying_meta, self_certifying_sentence, self_certifying_sentences,
     self_report_findings,
-    self_reported_statuses, self_reporting_note_blocks, self_reporting_notes, source_list_grounding, unread_lead_blocks,
+    self_reported_statuses, report_field_refusals, self_reporting_note_blocks, self_reporting_notes, source_list_grounding, unread_lead_blocks,
 )
 from .non_material import NON_MATERIAL_RULE, claim_key, held_claims, parser_claims, parser_units, unread_non_material_blocks
 from .policy import MAX_PENDING_WAIT_MS, act_decision, receipt_digest
@@ -828,15 +828,26 @@ def is_translation_fault(code: str) -> bool:
     return str(code).startswith(_TRANSLATION_FAULT_PREFIX)
 
 
-def _self_reporting_claim(c: Any, report: Any = None) -> bool:
+#: Receipt codes that name a claim a self-report: a self-certification (CORE-SELF-001), a relayed check result (INT-REQ-014) and an
+#: advisory verification status (INT-HANDOFF-006).
+SELF_REPORT_CLAIM_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014", "INT-HANDOFF-006"})
+
+
+def _self_reporting_claim(c: Any, report: Any = None, receipt: Any = None) -> bool:
     """Whether claim ``c`` is a self-report (rule ``self-certification-gate``): it carries an advisory verification status, or the one
     self-report reader names its text or one of its sentences (:func:`.meta_notes.self_certifying_sentence`), or the gate's claim
     reading names it (:func:`.meta_notes.claim_self_report`, the very reading the gate applies to the same claim: hold-fix round 3,
     "There are no errors in this answer." as an eleventh material claim lifted 9/10 to 10/11). Such a claim is
     never scored in the accuracy (hold-fix round 2: "All calculations confirmed." as an eleventh material claim, counted accurate on
-    a silent review, lifted 9/10 to 10/11, above 0.90). Fails closed: a claim that cannot be read is a self-report."""
+    a silent review, lifted 9/10 to 10/11, above 0.90). Second remedy, round 3: it also agrees with the receipt, so a claim the
+    receipt names a self-report (:data:`SELF_REPORT_CLAIM_CODES`: "OK ✓", "Accuracy ✓" named CORE-SELF-001 by a branch) is never
+    scored either, whatever the reader makes of its text. Fails closed: a claim that cannot be read is a self-report."""
     try:
         if getattr(c, "advisory_verification_status", None) is not None:
+            return True
+        cid = getattr(c, "claim_id", None)
+        if receipt is not None and cid is not None and any(cid in list(getattr(f, "claim_ids", []) or [])
+                                                            for f in _receipt_findings_of(receipt, SELF_REPORT_CLAIM_CODES)):
             return True
         from epinoic_logic.api.adapters import quotation_only, split_sentences
         text = str(getattr(c, "claim_text", "") or "")
@@ -862,6 +873,7 @@ def _self_certification_refusals(t: Transfer) -> list[str]:
         return ["the answer as a whole (no journaled report)"]
     out = list(self_certifying_sentences(getattr(t.report, "original_response", None)))
     out += [f"claim {cid} (a self-reported verification status)" for cid in self_reported_statuses(t.report)]
+    out += report_field_refusals(t.report)  # the specialist's own fields beside the response (second remedy of the round-9 hold)
     return out
 
 
@@ -1753,8 +1765,8 @@ class DeliveryPolicy:
             incomplete_by = sorted({va.agent_id for va in listing if getattr(va, "declared_incomplete", None)} - set(reviewed_by))
             # rule self-certification-gate (hold-fix round 2): a claim that certifies the answer's own checking never counts toward the
             # accuracy, neither as accurate on a review's silence nor in the denominator that could lift a candidate above the threshold
-            mats = [c for c in material_claims(t.report) if not _self_reporting_claim(c, t.report)]
-            scored = list(mats) + [c for c in _unchecked_supporting(t, mats) if not _self_reporting_claim(c, t.report)]  # rule unchecked-working
+            mats = [c for c in material_claims(t.report) if not _self_reporting_claim(c, t.report, t.receipt)]
+            scored = list(mats) + [c for c in _unchecked_supporting(t, mats) if not _self_reporting_claim(c, t.report, t.receipt)]  # rule unchecked-working
             claims = [_assess_claim(t, c, reviewed_by=reviewed_by, counted=counted, all_assessed=assessed, audit=audit, keyring=keyring, view=view,
                                     incomplete_by=incomplete_by) for c in scored]
             accurate = sum(1 for c in claims if c.assessment == "accurate")

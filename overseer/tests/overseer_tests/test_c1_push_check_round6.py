@@ -32,8 +32,10 @@ These tests pin, on the real path (audited hub, delivery session, receipt, decis
 removed and its completion re-derived from the remaining reasons, as the tree computed it before this rule.
 """
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -241,7 +243,7 @@ def test_every_round_6_input_on_the_physics_text_path_is_never_formally_checked(
         _clean_eligible_claims(monkeypatch)
     _report, decision = _physics_text(row["text"])
     from epinoic_logic.api.adapters import is_self_certification
-    if is_self_certification(row["text"]):
+    if expected_self_report(row["text"]):
         # rewritten to a stricter rule (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit): an input the one
         # self-report reader names ("The speed is 15 km/h, which the solver proved.") is a self-report the parser sets aside, so the
         # answer carries no material claim (INT-REQ-012) and is excluded before the label rule: never FORMALLY CHECKED, never delivered
@@ -268,7 +270,7 @@ def test_every_round_6_regression_input_is_never_formally_checked(monkeypatch, r
     answer = _regression_answer(row)
     decision = _deliver_en_free(answer) if row["vehicle"] == "en-free" else _physics_text(answer)[1]
     from epinoic_logic.api.adapters import is_self_certification
-    if row["vehicle"] != "en-free" and is_self_certification(answer) and not decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON:
+    if row["vehicle"] != "en-free" and expected_self_report(answer) and not decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON:
         # rewritten to a stricter rule (hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit): the one
         # self-report reader now names the glued words ("..., and nothing above needs fixing."), so the answer's receipt names the
         # self-report at error level and the answer is excluded before the label rule: never FORMALLY CHECKED, never delivered
@@ -295,8 +297,11 @@ def test_the_inputs_the_label_being_off_makes_moot_reach_the_label_without_the_r
     open_physics = [t for t in MOOT_PHYSICS if _physics_text(t)[1].mode == "formally_checked"]
     assert len(open_physics) >= 20, open_physics
     for text in ("The speed is 15 km/h, FORMALLY CHECKED.", "The speed is 15 km/h, VERIFIED.", "The speed is 15 km/h [2/2].",
-                 "Nothing to fix: the speed is 15 km/h.", "The speed is 15 km/h.\n\nScore: 10/10."):
+                 "Nothing to fix: the speed is 15 km/h."):
         assert text in open_physics, text
+    # rewritten to a stricter rule (second remedy of the round-9 hold, round 3): the self-grade "Score: 10/10." is now a self-report
+    # the one reader names, so even without the label rule the answer never reaches FORMALLY CHECKED
+    assert "The speed is 15 km/h.\n\nScore: 10/10." not in open_physics
     _clean_recorded_claims(monkeypatch)
     hidden = [r for r in EN_ROWS if r["class"].startswith(("combining", "hidden"))]
     open_en = [r["class"] for r in hidden if _deliver(_en_t14(r))[2].mode == "formally_checked"]
@@ -304,19 +309,25 @@ def test_the_inputs_the_label_being_off_makes_moot_reach_the_label_without_the_r
 
 
 # ============================================================================================ nothing but the label changes
+def _no_ids(reasons) -> list:
+    """Reasons with each run's own message ids replaced (second remedy of the hold, round 3: an answer now excluded by an
+    error-level self-report names its message id, which differs between the two runs compared; nothing else is dropped)."""
+    return [re.sub(r"\b[0-9a-f]{32}\b", "<message id>", r) for r in reasons]
+
+
 def _projection(decision) -> dict:
     """What the rule must not change: the decision and its receipt without ids, times of day and signatures, the formal
     reasons and the fallback's reasons without the rule's own reason."""
     rec = decision.receipt
     fb = rec.fallback
     return {
-        "mode": decision.mode, "label": decision.label, "delivered": decision.delivered, "reasons": rec.reasons,
-        "formal_reasons": [r for r in rec.formal.reasons if r != FORMAL_LABEL_REASON], "within_budget": rec.formal.within_budget,
+        "mode": decision.mode, "label": decision.label, "delivered": decision.delivered, "reasons": _no_ids(rec.reasons),
+        "formal_reasons": _no_ids([r for r in rec.formal.reasons if r != FORMAL_LABEL_REASON]), "within_budget": rec.formal.within_budget,
         "claims": [(c.claim_id, c.role, c.eligible, c.outcome, c.translation_status, c.display_status) for c in rec.formal.claims],
         "branch_checks": [(c.constraint_id, c.satisfied) for c in rec.formal.branch_checks], "receipt_error_codes": rec.formal.receipt_error_codes,
         "clearance": rec.formal.clearance, "consolidation_status": rec.consolidation_status, "times": (rec.translation_s, rec.overseer_s, rec.time_to_decision_s),
         "fallback": None if fb is None else {
-            "why": [r for r in fb.why if r != FORMAL_LABEL_REASON], "selection": fb.selection, "ran": fb.overseer.ran,
+            "why": _no_ids([r for r in fb.why if r != FORMAL_LABEL_REASON]), "selection": fb.selection, "ran": fb.overseer.ran,
             "candidates": [(c.agent_id, c.deliverable, c.integrity_reasons, c.refuted, c.faulted, c.answer_level_faults, c.accuracy_fraction,
                             c.above_threshold) for c in fb.candidates]},
     }
@@ -341,7 +352,12 @@ def test_an_answer_another_condition_refuses_is_decided_exactly_as_before(monkey
         assert_label_withheld_only(decision)
     else:
         assert _projection(decision) == _projection(before)
-        assert decision.receipt.formal.reasons == [*before.receipt.formal.reasons, FORMAL_LABEL_REASON]
+        if any(" is excluded: " in r for r in before.receipt.formal.reasons) and FORMAL_LABEL_REASON not in decision.receipt.formal.reasons:
+            # second remedy of the round-9 hold, round 3: "Score: 10/10." is now a self-report named at error level, so the answer is
+            # excluded before the label rule is reached and the rule changes nothing at all (stricter than gaining only its reason)
+            assert _no_ids(decision.receipt.formal.reasons) == _no_ids(before.receipt.formal.reasons)
+        else:
+            assert _no_ids(decision.receipt.formal.reasons) == _no_ids([*before.receipt.formal.reasons, FORMAL_LABEL_REASON])
 
 
 def test_with_every_claim_clean_only_the_label_and_its_reason_change(monkeypatch):

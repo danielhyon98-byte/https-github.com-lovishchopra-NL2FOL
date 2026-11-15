@@ -41,6 +41,7 @@ every claim of the recorded answer clean (``_clean_recorded_claims``), not only 
 fixture's answer is built without its supporting evidence claim, which no signed engine result decides.
 """
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import json
 import re
@@ -298,7 +299,7 @@ def test_every_round_3_physics_input_is_refused_for_real_and_the_genuine_note_by
     assert len(nm) == 1 and REASON_RE.match(nm[0]) and "paragraph 2 (rule " in nm[0], decision.receipt.formal.reasons
     assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
     # hold-fix round 3 (stricter): an input the shared self-report reader now names is also named a self-report on the receipt
-    allowed = (NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON) + ((SELF_REPORT_REASON,) if is_self_certification(row["text"]) else ())
+    allowed = (NON_MATERIAL_REASON, LEAD_REASON, UNVERIFIED_REASON) + ((SELF_REPORT_REASON,) if expected_self_report(row["text"]) else ())
     assert all(r.startswith(allowed) for r in decision.receipt.formal.reasons[:-1]), decision.receipt.formal.reasons
 
 
@@ -322,7 +323,7 @@ def test_text_the_agents_report_never_claims_is_read_however_the_parser_reads_it
     if extra.startswith("There is"):
         # plain prose is an analysis step for the STEM parser: only the report's claims leave it uncovered; since hold-fix round 3
         # the shared self-report reader names this sentence (a correctness word said of the answer), so the parser sets it aside
-        assert claimed or is_self_certification(extra)
+        assert claimed or expected_self_report(extra)
 
 
 @pytest.mark.parametrize("row", REGRESSION, ids=[r["id"][:40] for r in REGRESSION])
@@ -361,7 +362,7 @@ def test_the_label_level_counterfactual_for_each_non_material_channel(monkeypatc
     _rc, _r, decision, _a = _deliver(EN_T14.replace(P4_END, P4_END + extra))
     assert decision.mode != "formally_checked"
     reasons = decision.receipt.formal.reasons
-    if is_self_certification(extra):
+    if expected_self_report(extra):
         # hold-fix round 3 (stricter): the shared self-report reader names "Nothing in this answer needs fixing, ...", so the answer is
         # also refused as carrying a self-report, beside rule non-material-text
         assert reasons[0].startswith(SELF_REPORT_REASON), reasons
@@ -381,7 +382,7 @@ def test_the_push_checks_phrasings_keep_es_meta_001_and_are_named_by_rule_non_ma
     assert decision.mode != "formally_checked" and not decision.receipt.formal.complete
     # hold-fix round 3: where the shared self-report reader names the note itself, rule meta-note's check against that reader refuses
     # it before the word lists are read
-    rule = "meta-note" if is_self_certification(note) else "evaluation-words"
+    rule = "meta-note" if expected_self_report(note) else "evaluation-words"
     assert [r for r in _reasons(decision, NON_MATERIAL_REASON)] == [NON_MATERIAL_REASON + f"paragraph 7 (rule {rule})"], decision.receipt.formal.reasons
 
 

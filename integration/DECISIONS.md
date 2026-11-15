@@ -1479,7 +1479,27 @@ behaviour or a gate.
   `consolidate.delivery_decision` itself, and its reasons map onto the protocol's `not_deliverable` refusal
   (`epinoic_overseer.port.REFUSAL_RULES`), so the turn check now answers `refuse_integrity` with KIT-DL-006 for such an answer
   (before, the unmapped reason made it KIT-DL-900, internal_error); the hi-s1, en-s1 and ph-s1 items are pinned in
-  `tests/integration/test_c2_hold_round2_turn_check.py`.
+  `tests/integration/test_c2_hold_round2_turn_check.py`. Second remedy of the same hold: the one reader names any claim in the
+  answer's own scope that it was checked, verified, reviewed, passed QA, produced an engine result or was proved (status labels
+  included), and a quoted or relayed one about this answer whoever it is attributed to, so the real port's turn check refuses
+  "QA: pass.", "Z3 found no counterexample to any of the steps.", "Mathematica confirmed every value." and 'The checker reported:
+  "..."' with KIT-DL-006 on hi-s1, ph-s1 and en-s1 (`tests/integration/test_c2_hold_remedy2_turn_check.py`); a self-certification
+  written only in a report's fields beside the response is refused too, and a self-report claim's outcome label is never a success
+  status (POST /v1/outcomes, `check-report`). Round 2 of the second remedy: the turn check also refuses engine-result and status
+  leads, relayed verdicts of a tool or the hub's own agents, the writer's own quoted headline or caption, double negations and a
+  check label on the answer's lead with KIT-DL-006 on hi-s1, ph-s1 and en-s1, and delivers correct work the first round refused
+  (an event told with a pronoun subject, an outside source's check, a method step:
+  `tests/integration/test_c2_hold_remedy2_round2_turn_check.py`); an outcome reads the core pack's verification labels too, so a
+  claim the hub refuses never shows ENTAILED. Round 3 of the second remedy: the one reader reads a sentence of meta-vocabulary only
+  (a finding that nothing is wrong, an engine's, a test suite's or an agent's verdict, an answer-key match, a re-run with the same
+  result, a check mark on a bare result) as a self-report, reads a quotation or report of one credited to anyone when its words
+  default to the answer, and fails closed on a script it cannot read; the turn check refuses "No errors found.", "Counterexamples
+  found: none.", "Audit: clean.", 'The ONS reported: "All claims: PROVED."', "As noted by the examiner, QA: pass." and
+  "すべて確認済み。" with KIT-DL-006 on hi-s1 and ph-s1, and never refuses with KIT-DL-006 a step proved earlier, a theorem's
+  conditions checked, a research construct, a worked check on the answer's lead, a Spanish past passive with a named body or
+  rubric text (`tests/integration/test_c2_hold_remedy2_round3_turn_check.py`); an outcome of such a claim is NOT_ELIGIBLE, never
+  ENTAILED. The kit's decision table, the test double, the vectors and G-FAULT's expectation are still unchanged, and the
+  invented-quotation half is still open.
 
 ---
 

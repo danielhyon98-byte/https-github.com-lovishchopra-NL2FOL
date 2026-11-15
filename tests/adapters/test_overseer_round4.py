@@ -249,7 +249,6 @@ def test_history_self_certification_reaches_the_router_as_an_advisory_self_repor
 @pytest.mark.parametrize("sentence", [
     "This paragraph argues that the court is correct to uphold the thesis.",
     "Every figure in the sculpture is exact and the sneer is cold.",
-    "Every date given above was checked against the 1929 census.",
     "In May 1930 the figures were checked by the board.",
     "The engine of the economy was confirmed as heavy industry.",
     "Each of these historians argues that the slump was decisive.",
@@ -474,3 +473,11 @@ def test_link_leads_are_exported_beside_the_link_signposts_and_do_not_make_a_con
     assert "Read together" in en_parser.LINK_LEADS and "Read together" not in en_parser.LINK_SIGNPOSTS
     # en-t7's last block opens with "Together," and stays a body paragraph with its own point (the conclusion rule is unchanged)
     assert [p.kind for p in segment(EN_T7["response_text"])] == ["thesis", "body", "body", "body"]
+
+
+def test_a_check_of_the_answers_own_dates_against_a_record_is_a_self_report():
+    """Rewritten to a stricter rule (second remedy of the round-9 push-check hold): "Every date given above was checked against
+    the 1929 census." was pinned above as an argument sentence. It names no checker: the answer's own dates were checked, against a
+    record, by the writer, which is a claim in the answer's own scope that it was checked (the judge's rule: any such claim is a
+    self-report unless it is a named outside source's check reported as evidence; the census is the reference, not the checker)."""
+    assert md.is_self_certification("Every date given above was checked against the 1929 census.")

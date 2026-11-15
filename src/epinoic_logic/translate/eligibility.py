@@ -7,6 +7,10 @@ and simple lexical cues. They are versioned through ``POLICY_VERSION``.
 
 Summary of the rules (applied in this order; the first match decides):
 
+0. nothing but a self-report (the one reader, ``adapters.self_report.wholly_self_report``: every sentence of the claim says the
+   answer or its items were checked, verified, reviewed, passed QA, produced an engine result or were proved) -> NOT_ELIGIBLE_OTHER, route ``unresolved``: an agent's
+   self-report is advisory and never a solver question, so it never shows a success status (second remedy of the round-9
+   push-check hold)
 1. kind ``rubric_judgment``       -> NOT_ELIGIBLE_RUBRIC_JUDGMENT, route ``subject_evaluator``
 2. kind ``factual``               -> NOT_ELIGIBLE_FACTUAL, route ``evidence_service``
 3. role point | thesis | link     -> PROPOSITIONAL_ARGUMENT when supporting claims other than the
@@ -248,6 +252,16 @@ def _other_role(claim: ClaimRecord, reasons: list[str], pv: str) -> EligibilityD
     return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, pv, "unresolved")
 
 
+def _is_self_report(text: str) -> bool:
+    """Whether ``text`` is nothing but a self-report that claims a check (``adapters.self_report.wholly_self_report``); fails
+    closed. A claim that also states content keeps its content's check (its outcome never shows a success status, ``outcome``)."""
+    try:
+        from ..adapters.self_report import wholly_self_report
+        return bool(wholly_self_report(text or ""))
+    except Exception:  # noqa: BLE001 - fail closed: a claim the reader cannot read is never sent to the solver as one it read
+        return True
+
+
 def decide_eligibility(claim: ClaimRecord, policy_version: str = POLICY_VERSION) -> EligibilityDecision:
     """Decide deterministically whether and how ``claim`` may be formalized.
 
@@ -259,6 +273,13 @@ def decide_eligibility(claim: ClaimRecord, policy_version: str = POLICY_VERSION)
         reasons.append(
             f"agent-reported eligibility ({claim.advisory_verification_eligibility}) is advisory and was not used"
         )
+    if _is_self_report(claim.claim_text):
+        # rule 0 (second remedy of the round-9 push-check hold): an agent's claim that its own answer was checked, verified,
+        # reviewed, passed QA, produced an engine result or was proved is advisory, never a solver question; encoding it would show
+        # its own words as ENTAILED ("All values were verified on a GDC and are confirmed correct." with role other)
+        reasons.append("self-report: the claim states that the answer or its items were checked, verified, reviewed or proved; an agent's "
+                       "self-report is advisory and is never a solver question")
+        return _decision(EligibilityClass.NOT_ELIGIBLE_OTHER, False, reasons, policy_version, "unresolved")
     decided = _by_kind_first(claim, reasons, policy_version)
     if decided is not None:
         return decided

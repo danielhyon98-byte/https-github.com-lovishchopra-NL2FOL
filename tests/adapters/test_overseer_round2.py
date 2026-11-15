@@ -84,7 +84,6 @@ def test_self_certification_outside_the_old_vocabulary_is_recognised(sentence, i
     'The noun "command": here it is part of a sneer.',
     "By the criterion of persistence, policy rather than weather decided the scale of the famine.",
     "Shelley's sonnet was written in 1817 and printed in January 1818 in The Examiner.",
-    "Every date given above was checked against the 1929 census.",
     "In May 1930 the figures were checked by the board.",
 ])
 def test_argument_sentences_are_not_self_certification(sentence):
@@ -377,3 +376,11 @@ def test_round2_arena_peer_exchange_text_yields_no_false_source_findings():
     by_doc = {c.source_refs[0].document_id for c in report.claims if c.claim_role == "evidence"}
     assert by_doc == {"doc-ozy", "peer:hi-p1"}
     assert json.dumps(report.model_dump(mode="json"))  # the delivered payload serialises
+
+
+def test_a_check_of_the_answers_own_dates_against_a_record_is_a_self_report():
+    """Rewritten to a stricter rule (second remedy of the round-9 push-check hold): "Every date given above was checked against
+    the 1929 census." was pinned above as an argument sentence. It names no checker: the answer's own dates were checked, against a
+    record, by the writer, which is a claim in the answer's own scope that it was checked (the judge's rule: any such claim is a
+    self-report unless it is a named outside source's check reported as evidence; the census is the reference, not the checker)."""
+    assert md.is_self_certification("Every date given above was checked against the 1929 census.")

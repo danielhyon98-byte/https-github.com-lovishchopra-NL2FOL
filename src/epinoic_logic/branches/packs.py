@@ -25,7 +25,7 @@ from ..adapters.history_specialist.sentences import split_sentences as _split_se
 from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
                                  find_quotation_spans, is_memory_label, is_self_certification, parser_quotation_spans, self_cert_vocabulary,
                                  strip_emphasis, unbalanced_double_quotes, verification_label)
-from ..adapters.self_report import is_worked_check, not_a_self_report, reading_form, self_report_spots
+from ..adapters.self_report import is_worked_check, not_a_self_report, reading_form, report_field_self_reports, self_report_spots
 from ..adapters.sources import OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
@@ -1629,6 +1629,15 @@ class CorePack:
                          "checked, verified or confirmed (an agent certifying its own output); agent self-reports are advisory and ignored, and it "
                          "is no claim of the answer and no evidence that anything was checked"),
                 claim_ids=_claims_mentioning(report, piece)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+        # the specialist's own fields beside the response (second remedy of the round-9 hold): a self-certification written only in
+        # the report's or a claim's assumptions, unresolved issues or assessment criteria is named as well
+        for where, cid in report_field_self_reports(report):
+            out.append(StructuralFinding(
+                code="CORE-SELF-001", severity="warning",
+                message=(f"{where}{' ' + cid if cid else ''} states that the answer or its items were checked, verified or confirmed (an agent "
+                         "certifying its own output in a field beside the response); agent self-reports are advisory and ignored, and it is no "
+                         "evidence that anything was checked"),
+                claim_ids=[cid] if cid else [], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:

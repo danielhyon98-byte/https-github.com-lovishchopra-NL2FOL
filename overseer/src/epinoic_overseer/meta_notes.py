@@ -209,7 +209,7 @@ __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_
            "read_source_list", "source_list_grounding", "reader_text", "hides_text", "lead_starts", "answer_paragraphs", "normalised_answer",
            "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
            "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
-           "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
+           "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "report_field_refusals", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
            "claim_self_report",
            "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
            "require_response_limit"]
@@ -1501,8 +1501,12 @@ def self_certifying_sentence(sentence: str) -> bool:
     unattributed quoted self-report or a scare quote is the writer's own), so the sentence is passed as written. Never raises: a
     sentence it cannot read is a self-report (fail closed)."""
     try:
-        from epinoic_logic.api.adapters import is_self_certification
-        return bool(sentence and sentence.strip()) and bool(is_self_certification(sentence))
+        from epinoic_logic.api.adapters import is_self_certification, label_self_report
+        if not (sentence and sentence.strip()):
+            return False
+        # second remedy, round 3: the gate also reads the verification labels the packs and the combinator's ledger name (a label set
+        # on content, "... (verified).", "x = 4 ✓"), so the delivery paths and the release name the same sentences
+        return bool(is_self_certification(sentence)) or bool(label_self_report(sentence))
     except Exception:  # noqa: BLE001 - fail closed
         return True
 
@@ -1638,6 +1642,21 @@ def claim_self_report(text: str) -> bool:
         return True
 
 
+def report_field_refusals(report: Any) -> list[str]:
+    """Rule ``self-certification-gate`` on the specialist's own fields beside the response (second remedy of the round-9 push-check
+    hold): each of the report's assumptions and unresolved issues, and each claim's assumptions and assessment criteria, that the
+    one reader names (``epinoic_logic.api.adapters.report_field_self_reports``), named by place, never by its words. Before, the
+    gate read only the response, the claims' texts and their advisory status, so a self-certification written only in such a field
+    was delivered NOT CHECKED and OVERSEER-SELECTED. Fails closed: a report it cannot read is named as a whole."""
+    if report is None:
+        return []
+    try:
+        from epinoic_logic.api.adapters import report_field_self_reports
+        return [f"{where}{' ' + cid if cid else ''} (a self-report beside the response)" for where, cid in report_field_self_reports(report)]
+    except Exception as exc:  # noqa: BLE001 - fail closed
+        return [f"the report's own fields as a whole (the reader failed: {type(exc).__name__})"]
+
+
 def self_reported_statuses(report: Any) -> list[str]:
     """Rule ``self-certification-gate`` on the claims' own fields: the ids of the claims of ``report`` that carry an advisory
     verification status (the agent's own "verified", or the parser's "self-certified in the response text"; the hub names each
@@ -1670,6 +1689,7 @@ def payload_self_reports(payload: Any) -> list[str]:
         out: list[str] = []
         if "original_response" in payload:
             out += self_certifying_sentences(payload.get("original_response"))
+            out += report_field_refusals(payload)
             out += [f"claim {c.get('claim_id')} (a self-reported verification status)" for c in payload.get("claims") or []
                     if isinstance(c, dict) and c.get("advisory_verification_status") is not None]
             out += [f"claim {c.get('claim_id')}" for c in payload.get("claims") or []

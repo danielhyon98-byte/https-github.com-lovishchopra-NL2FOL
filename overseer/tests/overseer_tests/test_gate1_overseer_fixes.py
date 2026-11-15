@@ -234,6 +234,14 @@ def test_an_answer_carrying_a_self_report_never_travels_under_the_formal_label(s
         assert code in {f.code for f in rc.findings} | {sf.code for sf in rc.structural_findings}
         d = run.decision
         assert d.mode != "formally_checked" and not d.receipt.formal.complete
+        if sentence.startswith("The engine confirmed"):
+            # Rewritten to a stricter rule (second remedy of the round-9 push-check hold): the one reader now names an internal
+            # checker's confirmation of a value delivered as evidence a self-report, so the task audit names it at error level
+            # (OVS-FID-005, a self-report delivered as content) and the consolidation excludes the answer outright: nothing is
+            # delivered, a stronger refusal than the formal path's self-report reason this row pinned before.
+            assert d.receipt.formal.reasons[0] == "the consolidation is NO_DELIVERABLE_OUTPUT: every answer is excluded", d.receipt.formal.reasons
+            assert any("error-level findings" in r for r in d.receipt.formal.reasons) and not d.delivered, d.receipt.formal.reasons
+            return
         assert any("self-report" in r and code in r for r in d.receipt.formal.reasons), d.receipt.formal.reasons
     finally:
         run.close()

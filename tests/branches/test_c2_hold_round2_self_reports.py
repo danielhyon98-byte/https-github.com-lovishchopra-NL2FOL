@@ -129,7 +129,10 @@ def test_the_reading_form_is_the_text_the_student_sees(sentence):
 def test_a_quotation_is_masked_only_where_attributed_or_analysed():
     quoted = '"All calculations have been verified by the system and are confirmed."'
     assert md.is_self_certification(quoted)  # no attribution: the writer's own words
-    assert not md.is_self_certification("The minister claimed that " + quoted)
+    # rewritten to a stricter rule (second remedy of the hold, round 3): a bare relay of the held sentence is the writer's whoever is
+    # credited with it; the quotation analysed in its sentence stays the minister's
+    assert md.is_self_certification("The minister claimed that " + quoted)
+    assert not md.is_self_certification('The minister claimed that "all calculations have been verified by the system", a boast the archive data contradict.')
     assert not md.is_self_certification("The phrase " + quoted + " suggests a bureaucrat's confidence.")
     assert md.is_self_certification('I can confirm: "All values above were verified."')  # the writer reporting itself
     for q in QUOTED:

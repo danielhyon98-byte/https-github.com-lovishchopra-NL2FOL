@@ -49,6 +49,7 @@ under which en-t14 is now refused by that rule alone); every reader that frees a
 character (only blanks, at most one list mark and the lead's own emphasis before the lead).
 """
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import functools
 import json
@@ -555,7 +556,7 @@ def test_an_assurance_note_keeps_es_meta_001_blocking_on_the_recorded_en_t14(not
     pack also names such a note CORE-SELF-001; where it does, the self-report reason names CORE-SELF-001 beside the ES-META-001 it
     pinned (which is kept as before)."""
     rc, report, decision, _audit = _deliver(EN_T14 + "\n\n" + note)
-    named = is_self_certification(note)
+    named = expected_self_report(note)
     found = [f for f in list(rc.findings) + list(rc.structural_findings) if f.code in SELF_REPORT_CODES]
     assert sorted((f.code, meta_paragraph_of(f) or 0) for f in found) == ([("CORE-SELF-001", 0)] if named else []) + [("ES-META-001", 5), ("ES-META-001", 7)]
     assert bool([f for f in found if f.code == "CORE-SELF-001"]) is named
@@ -686,7 +687,7 @@ def test_with_every_claim_clean_the_label_rule_alone_refuses_en_t14_only_without
         assert decision.receipt.formal.reasons[-1] == FORMAL_LABEL_REASON, decision.receipt.formal.reasons
         reasons = decision.receipt.formal.reasons[:-1]
         # hold-fix round 3: where the shared self-report reader names the note, the core pack names it CORE-SELF-001 too
-        named = "CORE-SELF-001 (the answer as a whole); " if is_self_certification(note) else ""
+        named = "CORE-SELF-001 (the answer as a whole); " if expected_self_report(note) else ""
         assert len(reasons) == 3 and reasons[0] == ("the answer carries a self-report or a relayed check result no check established: " + named
                                                     + "ES-META-001 (the answer as a whole)"), reasons
         assert reasons[1].startswith("the answer carries a block opened by a note or sources lead that is read neither as a note nor as a pure "
@@ -715,7 +716,7 @@ def assert_claim_refusal(decision, report, added: str, recorded: str = EN_T14) -
     a claim, as before."""
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked"), decision.receipt.formal.reasons
     last = added.split("\n\n")[-1]
-    if is_self_certification(last) or is_self_certification(added):
+    if expected_self_report(last) or expected_self_report(added):
         reasons = decision.receipt.formal.reasons
         assert _self_report_reasons(decision), reasons
         assert not [c for c in report.claims if c.materiality == "material" and " ".join(last.split())[:24] in " ".join(c.claim_text.split())], \

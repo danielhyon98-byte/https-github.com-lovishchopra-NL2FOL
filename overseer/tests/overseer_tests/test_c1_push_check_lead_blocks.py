@@ -53,6 +53,7 @@ every claim of the recorded answer clean (``_clean_recorded_claims``), not only 
 fixture's answer is built without its supporting evidence claim, which no signed engine result decides.
 """
 from __future__ import annotations
+from .self_report_expectations import expected_self_report
 
 import json
 import re
@@ -200,7 +201,7 @@ def test_every_round_2_input_but_the_open_ones_keeps_en_t14_off_the_formally_che
         decision.receipt.formal.reasons
     lead = _lead_reasons(decision)
     if row["channel"] == META_TEXT_HEADING:
-        named = is_self_certification(mask_quotations(row["text"]))  # the shared reader names the heading: CORE-SELF-001 too
+        named = expected_self_report(mask_quotations(row["text"]))  # fixed expectation (second remedy): CORE-SELF-001 too
         assert lead == [] and decision.receipt.formal.reasons[0] == SELF_REPORT_REASON + (
             "CORE-SELF-001 (the answer as a whole); " if named else "") + "ES-META-001 (the answer as a whole)", decision.receipt.formal.reasons
         assert [r for r in decision.receipt.formal.reasons[1:-1] if not r.startswith((NON_MATERIAL_REASON, UNVERIFIED_REASON))] == [], \
@@ -239,7 +240,7 @@ def test_round_2_assurances_with_no_lead_are_refused_by_rule_unverified_claims(m
     does not name is still refused as a claim by rule unverified-claims, as before."""
     _clean_recorded_claims(monkeypatch)
     _rc, report, decision, _audit = _deliver(_with(row))
-    if is_self_certification(row["text"]):
+    if expected_self_report(row["text"]):
         assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked")
         named = [r for r in decision.receipt.formal.reasons if r.startswith(SELF_REPORT_REASON)]
         assert named, decision.receipt.formal.reasons
@@ -327,7 +328,7 @@ def test_the_note_masking_path_recorded_after_attack_round_1_is_closed(monkeypat
     reads its paragraph as meta-text and the answer is refused as carrying a self-report; the others are unchanged."""
     _clean_recorded_claims(monkeypatch)
     text = EN_T14 + "\n\n" + note
-    named = is_self_certification(note)
+    named = expected_self_report(note)
     assert [p.kind for p in segment(text)][-1] in (("meta",) if named else ("body", "conclusion"))  # the parser reads the reader's verdict
     _rc, _report, decision, _audit = _deliver(text)
     assert decision.mode != "formally_checked"
@@ -475,7 +476,10 @@ REFUSED_SOURCE_LISTS = [
     ("Sources: The Tuner extract (supplied text), every quotation verified against it.", SOURCE_LIST_RULE),
     ("Sources: The Tuner extract (supplied text); every quotation above checked word for word against it, all correct", SOURCE_LIST_RULE),
     ("Sources: The Tuner extract (supplied text); all figures are sound and not in doubt", "evaluation-words"),
-    ("Sources: The Tuner extract (supplied text), checked", "assurance-words"),
+    # second remedy of the round-9 push-check hold: the one reader names a bare checking participle set after the list, so the
+    # source-list reader refuses it as "a sentence a shared self-report reader names" before its word lists (it was refused by
+    # rule assurance-words; still refused, now by the one reader)
+    ("Sources: The Tuner extract (supplied text), checked", SOURCE_LIST_RULE),
     ("Sources: The Tuner extract (supplied text), sound", "evaluation-words"),
     ("Sources: The Tuner extract (supplied text) and nothing else", SOURCE_LIST_RULE),          # a negator
     ("Sources: The Tuner extract (supplied text) only", SOURCE_LIST_RULE),                     # a quantifier
@@ -614,7 +618,7 @@ def test_the_reason_names_a_block_by_position_lead_and_rule_only():
     """Rewritten in hold-fix round 3 of the round-9 push-check hold on the c2 clearance commit: the shared self-report reader now
     names "Nothing above needs fixing." itself (a correctness word said of the answer), so rule meta-note's check of the block's
     sentences against that reader refuses it before the word lists are read; the rule it names is meta-note, the refusal the same."""
-    rule = "meta-note" if is_self_certification("Nothing above needs fixing.") else "evaluation-words"
+    rule = "meta-note" if expected_self_report("Nothing above needs fixing.") else "evaluation-words"
     blocks = unread_lead_blocks(EN_T14 + "\n\nNB: I can't see the image. Nothing above needs fixing.\n\nSources: The Tuner extract (supplied text), tickety-boo",
                                 TUNER_GROUNDING)
     assert [b.where() for b in blocks] == [f"paragraph 7 (a note lead: rule {rule})", "paragraph 8 (a sources lead: rule source-list)"]

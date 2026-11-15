@@ -112,7 +112,7 @@ import re
 from typing import Optional
 
 from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification, not_a_self_report, quotation_only, reading_form
-from epinoic_logic.api.adapters import template_form
+from epinoic_logic.api.adapters import mask_outside_quotations, template_form
 from epinoic_logic.api.adapters import check_excerpt
 from epinoic_logic.api.branches import GENERIC_MARK_ALLOC as _MARK_ALLOC, GENERIC_MARK_CODE as _MARK_CODE
 from epinoic_logic.api.branches import absent_mentions as _absent_mentions, quote_key as _quote_key
@@ -580,8 +580,9 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             # read with quotations masked, as the adapters decide notes and self-reports: a sentence QUOTING a supplied
             # text's own claim of accuracy (a brochure's "every figure has been verified", a narrator's) is analysis of that
             # text, not the specialist certifying its answer, and a claim that is only such a quotation is evidence
-            # (hold-fix round 2: the one reader masks a quotation itself, only where the claim attributes or analyses it)
-            text_self = not quotation_only(c.claim_text) and is_self_certification(c.claim_text)
+            # (second remedy of the round-9 hold: the one reader reads every quotation as written; this check masks a quotation
+            # outside the answer's own scope, never one that refers to this answer or names a checking engine or status)
+            text_self = not quotation_only(c.claim_text) and is_self_certification(mask_outside_quotations(c.claim_text))
             # the advisory fields are the contract's "agent self-report; ignored, recorded for audit" (INT-HANDOFF-006): on a
             # structured report they are the specialist's own record, so the field alone is a warning; the TEXT being a
             # self-certification delivered as content, or an adapter that set the field yet roled the claim as content (raw
