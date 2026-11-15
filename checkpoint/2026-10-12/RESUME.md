@@ -29,6 +29,9 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   lexicon; 'I went through the answer twice.' regression; expectations table pins check claims False). HELD_OPEN = bef76ad,
   be91e89, fe2e639; all open critical items in CARRY.c3. Round 10 started ~07:35. No third remedy. Pending Daniel: the
   self-certification decision (status line on non-formal answers, or a documented limitation), release tag, D9/D10, policy bump.
+- 15 Nov 10:1x: round 10 lens results-audit:c3 done (32 bugs: 15 major, 17 minor; it reports the run_arena load_items
+  list-file crash itself, so the planned harness-carry restart was dropped). The script on disk equals the running one
+  (sha256 4992fbb36c2fa7a4, 523880 bytes): a resume replays every finished agent from the journal.
 - 14 Nov 16:47: cycle 1 committed bef76ad (suite 31929 passed; harness = records) but its push check HELD too (class open;
   quoted/relayed self-certifications reopened). Cycle 2 (holdRemedyC2b, the judge's design) runs before round 10; its check may
   supersede both be91e89 and bef76ad. SCRIPT SIZE: phase2-c2c3.js is 523880 bytes and the Workflow limit is 524288: before any

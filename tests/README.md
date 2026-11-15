@@ -2464,3 +2464,9 @@ Work in progress after it is labelled as such.
 - Arena round 10: the overseer agents have finished reviewing the round (all three waves). The five review lenses are
   checking it now, starting with the results audit and communication fidelity. Their findings go to the fixers together
   with every open item carried from round 9 and the harness's missing check for a specialist file in list form.
+
+### Progress, 11:00 UTC (15 November)
+- Arena round 10: three of the five review lenses have reported. Results audit: 32 bugs (15 major, 17 minor); 29 of
+  round 9's 40 are fixed, 11 are still open. Communication fidelity: 24 bugs (18 major, 6 minor); 7 of round 9's 19 are
+  fixed. Live adversarial input: 20 bugs (16 major, 4 minor); 10 of round 9's 25 are fixed. All 20 delivery decisions
+  were withheld, as the policy gives. STEM integration and translation fidelity are still checking the round.
