@@ -2453,3 +2453,9 @@ Work in progress after it is labelled as such.
   ('I went through the answer twice.') regressed, and a fixed-expectation table pins some check claims as harmless.
   All three round 9 commits stay held; every open item is carried as critical into round 10's fixes.
 - Arena round 10 started at about 07:35 UTC (specialist answers first).
+
+### Progress, 09:00 UTC (15 November)
+- Arena round 10: all 16 specialist answers are in, and the harness ran: 168 transmissions, 166 functional (98.8%);
+  genuine traffic delivered and decided 40 of 40. One specialist file had been written as a one-element list, which the
+  harness could not load; it was unwrapped (same record) before the run, and the harness's missing check for that shape
+  is listed for round 10's fixes. The overseer agents are reviewing the round now.
