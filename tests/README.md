@@ -2459,3 +2459,8 @@ Work in progress after it is labelled as such.
   genuine traffic delivered and decided 40 of 40. One specialist file had been written as a one-element list, which the
   harness could not load; it was unwrapped (same record) before the run, and the harness's missing check for that shape
   is listed for round 10's fixes. The overseer agents are reviewing the round now.
+
+### Progress, 10:00 UTC (15 November)
+- Arena round 10: the overseer agents have finished reviewing the round (all three waves). The five review lenses are
+  checking it now, starting with the results audit and communication fidelity. Their findings go to the fixers together
+  with every open item carried from round 9 and the harness's missing check for a specialist file in list form.
