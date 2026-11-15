@@ -2446,3 +2446,10 @@ Work in progress after it is labelled as such.
   37,089 tests passed, 1 skipped and 1 expected failure, and every recorded arena round replays to its recorded result
   (round 8: 203 of 203; round 9: 188 of 188). Its independent push check is running; the upload follows only if that
   check clears the two held round 9 commits.
+
+### Progress, 08:00 UTC (15 November)
+- The independent push check held round 9's second remedy (fe2e639) as well: the original findings and the quoted and
+  relayed variants are fixed, but unlisted wordings that claim an engine result or a proof still pass, one wording
+  ('I went through the answer twice.') regressed, and a fixed-expectation table pins some check claims as harmless.
+  All three round 9 commits stay held; every open item is carried as critical into round 10's fixes.
+- Arena round 10 started at about 07:35 UTC (specialist answers first).
