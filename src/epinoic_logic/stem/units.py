@@ -216,6 +216,11 @@ for _sym, _names in (
     ("C", ("coulomb",)), ("V", ("volt",)), ("Ω", ("ohm",)), ("F", ("farad",)), ("T", ("tesla",)), ("L", ("litre", "liter")),
     ("min", ("minute",)), ("h", ("hour",)), ("d", ("day",)), ("rad", ("radian",)), ("Bq", ("becquerel",)), ("eV", ("electronvolt",)),
     ("ha", ("hectare",)),
+    # round-10 clearance (rule tonne-reading): the tonne written as a word is the tonne wherever the tonne is read ('= 0.2444 tonnes per
+    # bus'; the profile's tonne, or rule tonne-reading's switch): before, the word ended the maths and the bare 0.2444 was set against
+    # 2.444 × 10⁵ g (a false error). Like the symbol t, the word is no unit where the tonne is not read (the translator's figures and the
+    # worked arithmetic of the other branches read 'million tonnes per year' as before)
+    ("t", ("tonne",)),
 ):
     for _n in _names:
         _WORDS[_n] = _sym
@@ -395,6 +400,38 @@ def decimal_data_stated(text: str) -> bool:
     return decimal and not binary
 
 
+#: round-10 clearance (rule tonne-reading): the tonne named in words ('in tonnes', '58.7 tonnes of CO₂', 'metric tons')
+_TONNE_WORD_RE = re.compile(r"(?<![A-Za-z])(?:tonnes?|metric[ \t]+tons?)(?![A-Za-z])", re.IGNORECASE)
+#: a lone letter t (no letter, digit, prime or apostrophe glued to it), and one written after a numeral and one blank with nothing glued
+#: after it that would make it a symbol of an expression (a power, a subscript, a bracket): '12 t', '0.2444 t per bus'
+_LONE_T_RE = re.compile(r"(?<![A-Za-z0-9_′'’])t(?![A-Za-z0-9_])")
+_T_AFTER_NUMBER_RE = re.compile(r"\d[ \t]t(?![A-Za-z0-9_²³⁴⁵⁶⁷⁸⁹¹⁰^({′'’])")
+#: the word 'mass' (or 'weighs', 'load'), then at most 40 characters with no full stop, then a numeral and ' t' ('a mass of 12 t', 'the
+#: lorry's mass, 12 t,'): the request names the quantity the figure is a mass of
+_MASS_T_RE = re.compile(r"\b(?:mass|masses|weighs?|load)\b[^.\n]{0,40}?\d[ \t]t(?![A-Za-z0-9_²³⁴⁵⁶⁷⁸⁹¹⁰^({′'’])", re.IGNORECASE)
+#: the characters of each text the tonne reading looks at
+_TONNE_SCAN = 20_000
+
+
+def tonne_stated(*texts: str) -> bool:
+    """Rule ``tonne-reading`` (round-10 clearance): ``t`` after a number is the tonne in a sciences answer when the request or the answer
+    names tonnes in words ('state the fleet's emissions … in tonnes'), or when a text names a mass by a figure followed by 't' ('A lorry
+    has a mass of 12 t.') and every lone letter t either text writes stands after a numeral and a blank ('12 t × 9.8 N kg⁻¹'), so no
+    symbol t is written ('We get v = 3 t then' names no mass: there 't' stays a letter). Before, the tonne was read in ESS and Design
+    Technology only: in Chemistry '2.444 × 10⁵ g = 0.2444 t' was read as '2.444 × 10⁵ g = 0.2444' and failed at error severity (c3 ch-p10c
+    s4.7), and the totals asked for in tonnes were left unread. Linear: four scans of at most the first 20,000 characters of each text."""
+    lone = after = 0
+    mass = False
+    for text in texts:
+        head = (text or "")[:_TONNE_SCAN]
+        if _TONNE_WORD_RE.search(head):
+            return True
+        lone += sum(1 for _m in _LONE_T_RE.finditer(head))
+        after += sum(1 for _m in _T_AFTER_NUMBER_RE.finditer(head))
+        mass = mass or bool(_MASS_T_RE.search(head))
+    return mass and after > 0 and after == lone
+
+
 def is_data_unit(unit: Optional["UnitExpr"]) -> bool:
     """A unit that is an amount of data in every reading: every atom a bit, a byte or a multiple of the byte."""
     if unit is None or unit.unknown or not unit.readings:
@@ -450,11 +487,11 @@ def _resolve(word: str, profile_key: str = "", bare_m: tuple[str, ...] = ("mega"
                     break
     if not out:
         low = word.lower()
-        if low in _WORDS and (counts or low not in _COUNT_WORDS):
+        if low in _WORDS and (counts or low not in _COUNT_WORDS) and (_WORDS[low] != "t" or tonne):
             out.append((UNITS[_WORDS[low]], ""))
         else:
             for pw, _f in _PREFIX_WORDS.items():
-                if low.startswith(pw) and low[len(pw):] in _WORDS:
+                if low.startswith(pw) and low[len(pw):] in _WORDS and (_WORDS[low[len(pw):]] != "t" or tonne):
                     v = UNITS[_WORDS[low[len(pw):]]]
                     if v.prefixable:
                         out.append((v, pw))

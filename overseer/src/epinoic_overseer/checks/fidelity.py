@@ -52,6 +52,24 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   source reference of the claim gives it as its excerpt), quotes no supplied text, as the channel reads it: c2 ec-t15's four
   'Model: "..."' sentences drew four false OVS-FID-004 errors, failed a correct answer's audit and made the feedback ask the
   specialist to remove the quotation marks. A quotation credited to a text stays FID-004 when no text holds it;
+* ``own-text`` (round-10 clearance c3, FID-004; the c3 communication-fidelity, results-audit, adversarial and
+  translation-fidelity lenses: sp-t16 g1.17 to g1.22 and sp-p10d g2.23 drew error-level OVS-FID-004 on correct Spanish B answers,
+  failed their audits, and the feedback asked the specialist to remove its corrections): a quoted span the answer presents as
+  ITS OWN words, read in a bounded window around the span by a closed set of cues (:func:`own_text_quotations`): the corrected
+  form after a correction arrow or "should be" / "becomes" right after a quoted original (``"El primer semana" → "La primera
+  semana"``); a model, topic or line of inquiry under its label, a parenthesis allowed after the label (``Model (one sentence,
+  ...): "..."``, ``Topic: "..."``, ``Line of inquiry: "..."``); a gloss after "means", "meaning", "translates as" or "literally"
+  (``"¡Ojo, que quema!": means "Careful, it's hot!"``); a dictionary form after "imperative of", "infinitive of", "form of",
+  "contracts" or "is short for" (``"mijo" contracts "mi hijo"``), or one the sentence calls a fixed phrase, an expression or an
+  idiom (``"echarle ganas" is a fixed phrase``); a form a language uses (``Standard Spanish says "ya casi"``); a form the sentence
+  recommends (``would normally use ustedes: "¿Cómo están?"``, ``would say "la nueva"``, a span followed by "instead of"); forms
+  named as members of a class (``After "espero que", "me gustaría que" and other wish or hope phrases``); a list of spans joined by
+  commas, "or" or "and" continuing any of these; and every span of a paragraph after a sentence that calls its example invented,
+  made up, hypothetical or imaginary (ll-t16: ``An example on a different, invented body of work ... Topic: "..."``). Such a span
+  quotes no supplied text. A span credited to a text (a source reference of the claim gives it as its excerpt) stays FID-004 when
+  no text holds it, and so does every span no cue reads. The channel's quotation rules (INT-REQ-003, the branches' -SRC- rules)
+  read the same spans with its parsers' readings, which the translator's owners align with this one (the handoff of the c3
+  clearance); until they do, a span both read as no quotation is named by neither;
 * ``referring-bracket`` (round-9 clearance c2, FID-001): a bracketed number right after a noun that refers to a place
   ("paragraph [3]", "row [5]", "line [2]", "source [4]") is that reference, never a mark annotation, so the response is never
   read without it (rule ``mark-annotation`` reads every other closing annotation out as before). c2 ec-t15 g4.2 was delivered as
@@ -112,7 +130,7 @@ import re
 from typing import Optional
 
 from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification, not_a_self_report, quotation_only, reading_form
-from epinoic_logic.api.adapters import mask_outside_quotations, template_form
+from epinoic_logic.api.adapters import OWN_TEXT_RULE, mask_outside_quotations, model_mark_ranges, own_model_spans, own_text_spans, template_form
 from epinoic_logic.api.adapters import check_excerpt
 from epinoic_logic.api.branches import GENERIC_MARK_ALLOC as _MARK_ALLOC, GENERIC_MARK_CODE as _MARK_CODE
 from epinoic_logic.api.branches import absent_mentions as _absent_mentions, quote_key as _quote_key
@@ -129,20 +147,15 @@ from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
            "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify", "own_model_quotations",
-           "strip_edge_emphasis"]
+           "strip_edge_emphasis", "own_text_quotations", "OWN_TEXT_RULE", "writer_credited"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
-                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model", "referring-bracket",
+                  "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model", "referring-bracket", "own-text",
                   "emphasis-figures")
-#: Rule ``own-model`` (round-9 clearance c2, FID-004): the leads with which an answer presents a quoted span as ITS OWN model, example or
-#: suggested wording ("Model: \"A current account deficit is ...\""), read from a closed list, case folded, the lead opening its line or
-#: sentence (only blanks and emphasis marks before it) and closed by a colon right before the opening quotation mark. The window read
-#: before each quotation is bounded (:data:`_OWN_MODEL_WINDOW` characters), so the reading is linear in the response.
-_OWN_MODEL_LEAD_RE = re.compile(r"(?:^|[\n.!?])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model(?:[ \t]{1,3}(?:answer|sentence|paragraph|response))?|"
-                                r"(?:example|sample|suggested|exemplar)[ \t]{1,3}(?:answer|sentence|wording|response|paragraph)|rewrite|rewritten|"
-                                r"suggested[ \t]{1,3}rewrite|(?:for[ \t]{1,3}example,?[ \t]{1,3})?you[ \t]{1,3}could[ \t]{1,3}write|"
-                                r"for[ \t]{1,3}example,?[ \t]{1,3}write)[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}$", re.IGNORECASE)
-_OWN_MODEL_WINDOW = 80
+#: Rules ``own-model`` and ``own-text`` (round-9 clearance c2 and round-10 clearance c3, FID-004): the reader of the writer's own words in
+#: quotation marks is the translator's one reader (``epinoic_logic.adapters.own_text``, through the public API since the round-10
+#: clearance's handoff pass, overseer handoff 1(b)): this module's copy was moved there, so the auditor and the channel's feedback never
+#: drift; :func:`own_model_quotations` and :func:`own_text_quotations` normalise what it reads as this module compares.
 _QUOTE_CHARS = "\"'‘’“”«»"
 _TRUNC_MARKS = ("...", "…")
 _SOURCE_CODES = ("INT-REQ-003", "INT-REQ-010", "INT-REQ-013")
@@ -242,6 +255,11 @@ def _parser_unmarked(text: str) -> str:
     out: list[str] = []
     for line in (text or "").split("\n"):
         ranges = [(a, b) for a, b in annotation_ranges(line) if not referring_bracket(line, a)]
+        # rule model-marks (round-10 clearance c3): the tick after a marking point of a model line, which the STEM parser leaves out of
+        # the claim as it does "[1]" (the translator's one reader, ``adapters.self_report.model_mark_ranges``)
+        marks = model_mark_ranges(line) if any(ch in line for ch in "✓✔☑") else []
+        if marks:
+            ranges = sorted(set(ranges) | set(marks))
         if not ranges:
             out.append(line)
             continue
@@ -307,19 +325,39 @@ def no_quotation_to_verify(quotations: list[str], request_text: Optional[str], m
 def own_model_quotations(text: str) -> set[str]:
     """Rule ``own-model`` (round-9 clearance c2, the c2 results-audit, adversarial and communication lenses: four false OVS-FID-004 errors
     failed the correct ec-t15 answer, and its feedback told the specialist to remove the quotation marks): the inner texts (normalised)
-    of the quotations ``text`` presents as the writer's own model, example or suggested wording (:data:`_OWN_MODEL_LEAD_RE` right before
-    the opening mark). Such a span quotes no supplied text, as the channel reads it: it is the writer's own words in quotation marks.
+    of the quotations ``text`` presents as the writer's own model, example or suggested wording, read by the translator's one reader
+    (``own_model_spans``). Such a span quotes no supplied text, as the channel reads it: it is the writer's own words in quotation marks.
     One pass over the quotation spans, each reading a bounded window."""
-    out: set[str] = set()
-    for start, _end, inner in find_quotation_spans(text or ""):
-        if inner.strip() and _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start]):
-            out.add(normalise(inner.strip()))
-    return out
+    return {normalise(inner.strip()) for _start, _end, inner in own_model_spans(text or "") if inner.strip()}
+
+
+def own_text_quotations(text: str) -> set[str]:
+    """Rule ``own-text`` (round-10 clearance c3; module docstring): the inner texts (normalised) of the quotations ``text`` presents as
+    the writer's own words: rule ``own-model``'s, and those a cue of :data:`OWN_TEXT_RULE` reads around the span (a correction, a
+    labelled model, topic or line of inquiry, a gloss, a dictionary form, a language's form, a recommended form, a class of forms, a
+    list continuing any of them, and every span of a paragraph after a sentence calling its example invented), read by the
+    translator's one reader (``own_text_spans``, linear in the spans)."""
+    return {normalise(inner.strip()) for _start, _end, inner in own_text_spans(text or "") if inner.strip()}
 
 
 def _credited(c: ClaimRecord, q: str) -> bool:
     """Whether the claim credits the quotation ``q`` to a text (a source reference whose excerpt is ``q``)."""
     return any((r.excerpt or "").strip() == q.strip() for r in c.source_refs)
+
+
+#: The note a parser writes when it credits an excerpt no supplied text holds to the one text under analysis because the sentence
+#: names no text (``adapters.sources``): the credit is the parser's default, not the writer's.
+_DEFAULT_ATTRIBUTION = "because the sentence names no supplied text"
+
+
+def writer_credited(c: ClaimRecord, q: str) -> bool:
+    """Rule ``own-text`` (round-10 clearance c3): whether the WRITER credits the quotation ``q`` to a text: a source reference whose
+    excerpt is ``q`` (:func:`_credited`), unless the parser made that reference by default (its assumption says it attributed an
+    excerpt no supplied text holds to the one text under analysis because the sentence names no text: ll-t16's invented example
+    "Topic: ..." was so credited to the student's notes). A span the writer credits is never read as its own words."""
+    if not _credited(c, q):
+        return False
+    return not any(_DEFAULT_ATTRIBUTION in (a or "") for a in c.assumptions)
 
 
 def _strip_carried_numbers(text: str, list_numbers: set[str]) -> str:
@@ -536,7 +574,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     named = _named_claims(t)
     request_text = _request_text(ctx, t)
     mention_keys = {_quote_key(q) for q in _absent_mentions(rep.original_response, find_quotation_spans(rep.original_response))}
-    own_models = own_model_quotations(rep.original_response)  # rule own-model
+    own_models = own_text_quotations(rep.original_response)  # rules own-model and own-text
     ctx.coverage.claims_checked += len(rep.claims)
     claim_texts_norm: list[str] = []
     for c in rep.claims:
@@ -567,9 +605,10 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             if unlocated:  # rule no-quotation-to-verify: the merged core pack's own reading of quoted words
                 exempt = no_quotation_to_verify(unlocated, request_text, mention_keys)
                 unlocated = [q for q in unlocated if q not in exempt]
-            if unlocated and own_models:  # rule own-model: the writer's own model or example, credited to no text, quotes nothing
-                unlocated = [q for q in unlocated if _credited(c, q) or normalise(q) not in own_models
-                             and normalise(strip_enclosing_quotes(q)) not in own_models]
+            if unlocated:  # rules own-model and own-text: the writer's own words, credited to no text, quote nothing
+                own_here = own_models | own_text_quotations(c.claim_text)
+                unlocated = [q for q in unlocated if writer_credited(c, q) or normalise(q) not in own_here
+                             and normalise(strip_enclosing_quotes(q)) not in own_here]
             if unlocated:
                 ctx.ovs(t.seq, "OVS-FID-004", f"claim {c.claim_id} quotes {[q[:80] for q in unlocated[:4]]}, which occur in no supplied text, and no receipt finding names the claim",
                         claim_ids=cid, document_ids=[s.document_id for s in supplied], **ids)

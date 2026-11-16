@@ -34,6 +34,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'check_assertion': ('epinoic_logic.translate.grounding', '_check_assertion'),
     'check_claim_sources': ('epinoic_logic.translate.grounding', 'check_claim_sources'),
     'check_problem_grounding': ('epinoic_logic.translate.grounding', 'check_problem_grounding'),
+    'claim_display_status': ('epinoic_logic.translate.outcome', 'claim_display_status'),
     'compose_outcome': ('epinoic_logic.translate.outcome', 'compose_outcome'),
     'decide_eligibility': ('epinoic_logic.translate.eligibility', 'decide_eligibility'),
     'display_status_for': ('epinoic_logic.translate.outcome', 'display_status_for'),

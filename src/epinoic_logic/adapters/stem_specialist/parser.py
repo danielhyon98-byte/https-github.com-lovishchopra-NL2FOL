@@ -66,6 +66,7 @@ from ..base import AdapterError
 from ..english_specialist.parser import documents_named
 from ..markdown import (JUDGEMENT_LABEL_RE, MAX_CLAIM_TEXT_CHARS, dangling_quote_offset, in_quotation_task, is_note_sentence, is_self_certification,
                         parser_quotation_spans, split_note_clauses)
+from ..self_report import model_mark_ranges
 from ..sources import attribute_excerpt, strip_trailing_punctuation
 from ...stem.layout import ANNOTATION_ONLY_RE, LABEL_ONLY_REST_RE, TABLE_ROW_RE, TABLE_SEPARATOR_RE, plain_line
 
@@ -130,6 +131,10 @@ def _generic():
     """The generic branch's parser module (imported on first use: ``branches`` imports this module through its registry)."""
     from ...branches import generic_parser
     return generic_parser
+
+
+#: The rest of a marks label: a command term between dashes or a mark allocation ("— calculate — 2 marks", "[3]", "(2 marks)").
+_MARKS_LABEL_REST_RE = re.compile(r"\b\d{1,2}[ \t]{0,3}marks?\b|\[[ \t]{0,3}\d{1,2}[ \t]{0,3}(?:marks?)?[ \t]{0,3}\]|[—–][ \t]{0,3}[A-Za-z][A-Za-z ]{0,30}[ \t]{0,3}[—–]", re.IGNORECASE)
 
 
 def _claim_text(text: str, start: int, end: int, markup: list[tuple[int, int]] = ()) -> str:
@@ -358,6 +363,11 @@ class StemTextParser:
         docs = {t.document_id: t for t in supplied}
         view = si_quote_view(text, doc.profile.key) if len(doc.reading) == len(text) else text
         markup = sorted(doc.spans.markup) if len(doc.reading) == len(text) else []
+        # rule model-marks (round-10 clearance c3, ph-t16): the tick after a marking point of a model line is a mark annotation, left out
+        # of the claim as "[1]" is (``adapters.self_report.model_mark_ranges``), so the claim is not read as a verification label
+        model_marks = model_mark_ranges(text)
+        if model_marks:
+            markup = sorted(set(markup) | set(model_marks))
         prose_valued = {pv.statement_id for pv in doc.prose_values}
         report_assumptions: list[str] = []
         rows: list[dict] = []
@@ -480,6 +490,11 @@ class StemTextParser:
                 r["role"], r["material"], r["supports_idx"] = "other", False, []
                 continue
             if r["maths_note"]:
+                r["role"], r["material"], r["supports_idx"] = "other", False, []
+                continue
+            if _MARKS_LABEL_REST_RE.search(r["text"]) and LABEL_ONLY_REST_RE.fullmatch(r["text"].strip()):
+                # the rest of a part's marks label once its label is read ("— calculate — 2 marks" of "Question 1(a) — calculate —
+                # 2 marks"; round-10 clearance, STEM handoff H1.1, ph-t16 s1.1 to s4.1): furniture, never a claim to check
                 r["role"], r["material"], r["supports_idx"] = "other", False, []
                 continue
             if r["kind"] == "code":

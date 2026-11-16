@@ -21,7 +21,7 @@ from typing import Optional
 from .nodes import BinOp, Neg, Node, Num, Pow, Sym
 from .numbers import exact_integer
 
-__all__ = ["antiderivative", "derivative", "polynomial", "polynomial_node"]
+__all__ = ["antiderivative", "derivative", "laurent", "laurent_derivative", "laurent_node", "polynomial", "polynomial_node"]
 
 #: the largest degree read (the parser's bound on an integer power)
 MAX_DEGREE = 12
@@ -120,6 +120,120 @@ def polynomial_node(coeffs: dict[int, Fraction], x: str, start: int = 0, end: in
             term = var
         else:
             term = BinOp("*", _number(mag, start, end), var, start, end, "×")
+        if out is None:
+            out = term if c > 0 else Neg(term, start, end)
+        else:
+            out = BinOp("+" if c > 0 else "-", out, term, start, end, "+" if c > 0 else "−")
+    return out  # type: ignore[return-value]
+
+
+# --------------------------------------------------------------------------- round-10 clearance (rule derivative, Laurent terms)
+
+#: a term's key: (the power of the variable, the constant factors it carries, as a sorted tuple of names: ('π',) for 2πr²)
+LaurentKey = tuple[int, tuple[str, ...]]
+#: the named constants a coefficient may carry (an exact symbol the encoder encloses; the identity then holds for every value of it)
+_COEFFICIENT_CONSTANTS = frozenset({"π"})
+#: the most terms a Laurent polynomial is read with
+_MAX_TERMS = 24
+
+
+def laurent(node: Node, x: str, depth: int = 0) -> Optional[dict[LaurentKey, Fraction]]:
+    """Round-10 clearance (rule derivative, Laurent terms): ``node`` as a sum of terms ``c · K · x^k``, ``c`` rational, ``K`` a product of
+    the named constants of :data:`_COEFFICIENT_CONSTANTS` (π), ``k`` a whole number between ``−MAX_DEGREE`` and ``MAX_DEGREE`` (negative
+    powers included: '660r⁻¹', '660/r²'): ``{(k, K): c}``. None for anything else (another symbol, a function, a root, a division by a sum),
+    so the relation stays outside the encodings. Nothing is evaluated: the input is a parsed node."""
+    if depth > _MAX_DEPTH:
+        return None
+    if isinstance(node, Num):
+        return {(0, ()): node.number.value} if node.number.value else {}
+    if isinstance(node, Sym):
+        if node.name == x and node.kind == "symbol":
+            return {(1, ()): Fraction(1)}
+        if node.kind == "constant" and node.name in _COEFFICIENT_CONSTANTS:
+            return {(0, (node.name,)): Fraction(1)}
+        return None
+    if isinstance(node, Neg):
+        inner = laurent(node.arg, x, depth + 1)
+        return None if inner is None else {k: -c for k, c in inner.items()}
+    if isinstance(node, Pow):
+        if abs(node.exp) > MAX_DEGREE or node.exp == 0:
+            return None if node.exp else {(0, ()): Fraction(1)}
+        base = laurent(node.base, x, depth + 1)
+        if base is None or len(base) != 1:
+            return None  # only a single term is raised to a power here ((r + 1)² is a polynomial's, read by :func:`polynomial`)
+        (k, consts), c = next(iter(base.items()))
+        if consts and node.exp < 0:
+            return None
+        return _clean({(k * node.exp, tuple(sorted(consts * node.exp)) if node.exp > 0 else ()): c ** node.exp})
+    if isinstance(node, BinOp):
+        a = laurent(node.left, x, depth + 1)
+        b = laurent(node.right, x, depth + 1)
+        if a is None or b is None:
+            return None
+        if node.op in ("+", "-"):
+            out = dict(a)
+            for key, c in b.items():
+                out[key] = out.get(key, Fraction(0)) + (c if node.op == "+" else -c)
+            return _clean(out)
+        if node.op == "*":
+            out = {}
+            for (i, ki), ci in a.items():
+                for (j, kj), cj in b.items():
+                    if abs(i + j) > MAX_DEGREE:
+                        return None
+                    key = (i + j, tuple(sorted(ki + kj)))
+                    out[key] = out.get(key, Fraction(0)) + ci * cj
+            return _clean(out)
+        if node.op == "/":
+            if len(b) != 1:
+                return None  # a division by a sum is no Laurent term
+            (j, kj), cj = next(iter(b.items()))
+            if kj or not cj:
+                return None  # a division by a constant symbol or by zero
+            out = {}
+            for (i, ki), ci in a.items():
+                if abs(i - j) > MAX_DEGREE:
+                    return None
+                out[(i - j, ki)] = out.get((i - j, ki), Fraction(0)) + ci / cj
+            return _clean(out)
+    return None
+
+
+def _clean(terms: dict[LaurentKey, Fraction]) -> Optional[dict[LaurentKey, Fraction]]:
+    out = {k: c for k, c in terms.items() if c}
+    return out if len(out) <= _MAX_TERMS else None
+
+
+def laurent_derivative(terms: dict[LaurentKey, Fraction]) -> dict[LaurentKey, Fraction]:
+    """The power rule on each term, negative powers included: ``d/dx c·K·x^k = k·c·K·x^(k−1)``."""
+    out: dict[LaurentKey, Fraction] = {}
+    for (k, consts), c in terms.items():
+        if k:
+            key = (k - 1, consts)
+            out[key] = out.get(key, Fraction(0)) + k * c
+    return {k: c for k, c in out.items() if c}
+
+
+def laurent_node(terms: dict[LaurentKey, Fraction], x: str, start: int = 0, end: int = 0) -> Node:
+    """The node of ``Σ c·K·x^k`` (highest power first; a negative power written as a division by the variable's power)."""
+    items = sorted(((k, consts, c) for (k, consts), c in terms.items() if c), key=lambda t: (-t[0], t[1]))
+    if not items:
+        return Num(exact_integer(0), start, end)
+    out: Optional[Node] = None
+    for k, consts, c in items:
+        mag = abs(c)
+        factors: list[Node] = []
+        if mag != 1 or (not consts and k == 0):
+            factors.append(_number(mag, start, end))
+        factors.extend(Sym(name, "constant", start, end) for name in consts)
+        if k > 0:
+            factors.append(Sym(x, "symbol", start, end) if k == 1 else Pow(Sym(x, "symbol", start, end), k, start, end))
+        term: Node = factors[0] if factors else Num(exact_integer(1), start, end)
+        for f in factors[1:]:
+            term = BinOp("*", term, f, start, end, "×")
+        if k < 0:
+            denominator: Node = Sym(x, "symbol", start, end) if k == -1 else Pow(Sym(x, "symbol", start, end), -k, start, end)
+            term = BinOp("/", term, denominator, start, end, "/")
         if out is None:
             out = term if c > 0 else Neg(term, start, end)
         else:

@@ -4622,3 +4622,146 @@ to 9 unchanged but cs-t15's two warnings) and taken out again: it changes behavi
 names unchecked, ST-PARSE-001; `test_stem_repair2.py` and `test_stem_repair6.py` pin a Given written so as ST-PARSE-001) and its knowledge
 pack's D31, so it is a decision for both owners, recorded with the exact changes in the round's handoff. (The bracketed citation the first
 pass left is fixed: rule locator-number above.)
+
+## 42. The round-10 arena's STEM findings (integrated round c3)
+
+The overseer lenses of the integrated round c3 (arena round 10) found seven error-level INT-SUBJ-001 on correct working in four of the nine
+genuine STEM answers (ch-p10c, ch-t16, maa-t16, mai-t16), injected faults that crossed with no finding, and words of working charged to a
+word bound; the records of rounds 8 and 9 still open were carried in. Each is reproduced through the hub and fixed at its cause in the
+STEM front end; findings whose cause lies in another package are recorded in the round's handoff. `tests/stem/test_clearance_c3_stem.py`
+pins every fix with clean controls (correct working that must hold) and negative controls (wrong working still named), runs the nine
+recorded c3 STEM answers (`tests/fixtures/stem/round10/c3_answers.json`: no INT-SUBJ-001 and no failed check on any of them), and bounds
+every new reading on the standard hostile inputs and this round's own shapes, of about 20,000 characters each.
+
+### 42.1 False errors on correct work
+
+- **Rule tonne-reading** (`units.tonne_stated`, `document.build_document`; `units.py` reads the word 'tonne(s)' as the tonne wherever the
+  tonne is read, like the symbol t: the profile's tonne or this rule's switch; where it is not read, as in the translator's figures and the
+  other branches' worked arithmetic ('10.0 − 4.0 = 6.0 million tonnes per year'), the word is no unit, as before). 't' after a number is the tonne in every sciences profile when the request or the answer names tonnes ('state the fleet's
+  emissions … in tonnes'), or when a text names a mass by a figure and 't' ('A lorry has a mass of 12 t.') and every lone letter t of both
+  texts stands after a numeral (no symbol t is written: 'We get v = 3 t then' keeps 't' a letter). '2.444 × 10⁵ g = 0.2444 t per bus per
+  day' had been read as '2.444 × 10⁵ g = 0.2444' and failed (ch-p10c s4.7); it is a conversion now, and the two results the request asks for
+  in tonnes ('Per day: 240 × 0.24441 t = 58.7 t', 'Per year: 58.66 t × 360 = 2.11 × 10⁴ t'), ST-PARSE-001 before, are checked.
+- **Rule unread-unit-letter** (`checks._truncated_operand`, P4). Where the tonne is not read, a stated value with no unit followed by 't',
+  'kt', 'Mt' or 'Gt' is withheld (ST-PARSE-001), never compared as a bare number.
+- **Rule per-phrase** (`checks._per_phrase_qualifier`). A stated value whose unit ends in a 'per …' phrase written in words ('= 244.4 kg per
+  day') set against a computed side of the dimension of the unit before 'per' states that quantity per day: it is read in the unit before
+  the phrase (read with it, the sides differed in dimension and a correct conversion failed).
+- **Rule stated-margin** (`checks._stated_margin`). '0.05 cm³ + 0.05 cm³ = ±0.10 cm³' states an uncertainty of size 0.10 cm³: a unary ±
+  on the stated side alone is a margin, compared by its size. It had been read as two roots that must both equal 0.10 (ch-t16 s6.1). Both
+  branches are still required when the computed side carries ± (roots), and '= ±0.20 cm³' still fails.
+- **Rule evaluation-head** (`relations._chain_bindings`). Only 'f(x) = …' in the variable defines f; a head that applies f to a closed
+  argument ('f(3) = 27 − 27 − 27 + 27 = 0') evaluates it. The evaluation had been recorded as a formula of f with no variable, so the
+  power-rule checks of f′ and f″ after it differentiated a constant (maa-t16 m3.6/m3.4, m3.11/m3.4).
+- **Rules part-condition for identity words and two-variable-equation** (`relations._stated_identity`, `_request_part_lower`). The
+  request's factorisation words count for the part whose question states them and for its stem ('hence factorise f(x) completely' in part
+  (a) names no identity of part (e)); and an equation with a letter on each side that the other side lacks ('y − 16 = (1/12)(x − 1)') relates
+  two variables, never an identity. maa-t16 m6.5 and m6.6, the normal line and its rearrangement, had failed as identities in x; the
+  rearrangement is a step now (a wrong one, '12y − 192 = x + 1', is still named).
+- **Rules evaluation-point, wherever it stands, and inline-delimiters** (`relations._evaluation_point`, `_chain`). 'at <letter> = <value>'
+  right after the value it is the point of ('dA/dr ≈ −35.6 at r = 3 and ≈ 9.0 at r = 4'), or opening a clause after a comma or 'and' with
+  inline-maths delimiters between ('at $r = 3$ the gradient is about −35.6'), states an evaluation point, no root; and an inline span that
+  opens with its relation sign after prose words in the same statement and line ('$r = 3$ and $\approx 9.0$') continues no chain of an
+  earlier inline span. mai-t16 m21.1/m21.2 had been read as the roots of the equation on the line before.
+
+### 42.2 Injected faults that crossed unnamed
+
+- **Rule show-that-target** (`scope.Formula.target`, `relations._asked_to_show`, `checks._own_target`). A relation the request asks to show,
+  prove or verify is what the steps of its part must establish, never a premise of them; with it as a premise a wrong first line was
+  ENTAILED (both sides equal the target), and the harness's mai-t16 stem_substitution was a counted miss. A target of another part is a
+  result the answer may use ('(b) Show that A = 2πr² + 660/r', then '(c) Find dA/dr'). A link that replaces a symbol by an expression takes
+  that symbol's formula stated before it ('S = x² + 4xh', then '= x² + 4x × 500/x²', with 'h = 500/x²' of part (a)), which the target had
+  supplied before.
+- **Mole ratios written as a ratio of species** (`relations._MOLE_RATIO_RE`). 'Ratio C₁₂H₂₆ : CO₂ = 1 : 24' (and 'C₁₂H₂₆ : CO₂ = 1 : 24') is
+  set against the last balanced equation holding both species (rule mole-ratio, a warning).
+- **Rule si-prefix** (`relations` unit companion). When every numeral of bare working repeats an SI quantity (the request's 2.0 kg and 3.0
+  m s⁻¹, a booklet constant), the result is in the SI unit: a prefixed stated unit ('= 9.0 kJ', '= 19.6 kN', '= 6.8 mm') is set against it
+  by the ST-UNIT-003 companion (a warning). The as-written reading had taken the prefix as a label. A product law whose coefficient faces
+  its value ('(3/2)k_BT = 1.5 × 1.38 × 10⁻²³ × 308 = 6.4 × 10⁻²¹ kJ', c3 ph-t16) is paired by nothing in `nodes.align` (a number there faces
+  only a number), so its numerals had never been read; for this companion alone, and only when the stated unit is prefixed,
+  `relations._factor_pairs` pairs the law's factors in order (a symbol with a numeral, a coefficient with a numeral of its value, at most 12
+  factors), and the kJ is named.
+- **Rule si-dimension** (`relations._si_dimension`). When every numeral of bare working repeats a quantity whose SI unit is known (a
+  binding, the request's quantity, a booklet constant) or one the reference fixes as a pure number, and, so read, the working gives a
+  dimension the stated unit is not of ('P2 = P1 × T2/T1 = 3.0 × 10⁵ × 308/290 = 3.2 × 10⁵ J', the request's 3.0 × 10⁵ Pa; 'W = mg = 2.0 ×
+  9.8 = 19.6 J'), ST-DIM-001 names it (a warning, since the reading is inferred). Such a reading had been taken as incomplete, so a unit of
+  another dimension crossed with no finding. A numeral that is a coefficient of the law is never read so: a fitted law's coefficient
+  carries a unit ('v = 1.5t', then 'v = 1.5 × 2.5 = 3.75 m s⁻¹'; the round-1 repair's clean controls hold). No recorded STEM answer of
+  rounds 7 to 10 changes.
+- **Rule environment-rows** (`relations._row_start`, `spans.DISPLAY_ENVIRONMENTS`, `parser`, `document._operand_char`). The rows of an
+  align, align*, aligned, eqnarray, multline or flalign environment written on one line form a chain as on separate lines (the second row had
+  been read as a labelled line); eqnarray's second alignment mark is layout; an '=' in an environment no span reads (unclosed, mismatched)
+  is named by the unread-relation rule.
+- **Table working past its bound** (`document._table_working`). Cells of working are read up to the report's check budget (128 per table,
+  it was 96 cells of any kind), and the working cells beyond it are named ST-LIM-002 with their count and the first row not read.
+- **Rule table-totals** (`document._table_totals`). A Markdown table with a total column or a total row ('| Actually aluminium | 132 (TP) |
+  12 (FN) | 144 |', '| Total | 150 | 450 | 600 |') states its totals: each is set against the counts it sums (a warning: which cells a total
+  sums is a reading). A wrong total had crossed with no check (cs-p10a). At most 64 rows and 12 columns are read for totals.
+- **Prose shares and changes** (`relations._prose_relations`): rule share-or ('(456 of 600, or 76%)'); rule prose-share with the plural verbs
+  ('The drained 610 ha are about 73% of the bog's 840 ha'); rule change-share ('…, against 6.0 t for drained peat: a fall of 4.5 t ha⁻¹
+  yr⁻¹, or 75%': the change against the difference of the two values, the per cent against the change over the value it starts from; a
+  warning); rule net-difference ('a net sink of about 0.3 t' after two values of its kind; a warning); rule derived-share (a per cent the
+  prose derives after 'so' or 'therefore' whose operands its sentence does not state, 'so 54% of dividing cells are at metaphase, against
+  16% in the control', or a factor against a quantity it does not value, 'about 6 × 10²³ times the energy of one molecule', is named
+  ST-UNDEC-001; a per cent that restates the result of the line before is not); rule rate-total ('a fall of 4.5 t ha⁻¹ yr⁻¹, or 75%. Across
+  the 610 ha drained, that is about 2,745 t CO₂ a year less': the total that 'that is' names after an extent 'Across the' names, against
+  the extent times the last rate before it, in its part and at most 400 characters back, whose unit is per the extent's unit and whose first
+  unit is the total's; a warning, since which rate the total is of is a reading; the rate is found by bisection over the prose values in
+  text order). A possessive or a contraction ('bog's') is part of its word in the lexer, so 'the bog's 840 ha' is a quantity.
+- **Rule whole-sum** (`checks._whole_integer_arithmetic`). A whole number stated with '=' for a sum, difference or product of whole numbers
+  states every digit: '17 + 273 = 300 K' fails (its zero had been read as a rounding place). A line that states its rounding keeps it.
+- **A unit after a bracket bounds its rounding** (`checks._rounding_bound`). '(22.35 + 22.45 + 22.40) cm³ ÷ 3 = 22.50 cm³' fails under rule
+  operand-precision, as the same line without the unit did (τ had stayed 1/100).
+- **Rule derivative, Laurent terms** (`calculus.laurent`, `relations._derivative`). Derivatives with π in a coefficient and negative powers
+  ('d/dr(2πr²) = 4πr', '\dfrac{d}{dr}\left(660r^{-1}\right) = -660r^{-2}', 'dA/dr = 4πr − 660/r²' for the request's A) are formed term by
+  term by the power rule and decided as identities; they had been ST-UNDEC-001 whatever their value (the harness's mai-t16
+  stem_arithmetic_slip miss). The request's function is read at warning severity, unless it is its own part's show-that target.
+- **Rule subscript-product** (`parser`) and **rule booklet-dimension** (`checks._booklet_for`, `_symbol_dims`). 'k_BT' is k_B × T when k_B is
+  a name in scope or a booklet constant and T a name in scope (it had been one symbol 'k_BT' with no value); a symbol bound with a unit is
+  read in that unit before any bare numeral substituted for it elsewhere, and another unbound booklet symbol of the relation takes its
+  constant's dimension ('k_B = R/N_A = 1.38 × 10⁻²³ J K⁻¹' no longer leaves N_A with 'no admissible booklet reading').
+- **Rule abbreviation** (`scope.defined_abbreviations`, `document._abbreviation_bindings`, `boolean.is_boolean_context`). An abbreviation the
+  answer defines in brackets with a number ('true positives (TP) 132') is a name bound to that number, and a span holding such names is
+  arithmetic, never a Boolean derivation, so a substitution that swaps FN for FP is named.
+- **Rule species-label, between unit atoms** (`document._species_labels`). A formula between two atoms of one unit ('610 ha × 6.0 t CO₂
+  ha⁻¹ yr⁻¹ = 3,660 t CO₂ yr⁻¹', ess-t16 s3.1) labels the quantity, as one after the unit already did; the line had been ST-PARSE-001.
+- **A letter of another script between two numerals** (`lexer._between_numerals`): the Cyrillic 'х' drawn as a times sign is a sign outside
+  the grammar there (ST-PARSE-001), as the Latin 'x' is; it had cut the left operand and failed correct work.
+- **Rule control-character** (`normalize.CONTROL_CHARACTERS`, `relations._control_characters`, `checks._control_inside`). The C0 controls
+  other than tab, line feed and carriage return, and DEL, are blanks of the reading view, and the statement that holds one is named
+  ST-PARSE-001 (a NUL had dropped the relation with nothing named). A relation that holds one is withheld and named at its check
+  (ST-PARSE-001), never decided, so correct input a control splits is never failed (the safety pin of `test_checks_safety`); a control
+  outside every relation ('= 5 m s⁻²\x1b[2J') leaves the relation decided. The channel may refuse such a response first (handoff).
+
+### 42.3 The word-count view (rule working-view)
+
+`hub_hooks.word_count_view` replaced each maths span by one word, so the channel's 'plus working' reader no longer found the relation sign
+of a line of working and charged it to the bound, and mark annotations and part labels counted as words (ess-t16: 488 words measured). The
+view keeps the relation sign glued to the span's one word ('Xmath='), and blanks the part label that opens a line (and a numbered point
+right after it) and the mark annotations that close a line or a sentence. ess-t16 measures 457 words, 24 of them its 'Assumption:' note,
+which the channel's note reader is to leave out (handoff); without that line the answer meets its 450-word bound.
+
+### 42.4 The input-stall sweep
+
+No record of this round is an input stall. The new readings were swept for the class anyway: the sweep test found two patterns of this
+round's own, 'share-or' and 'derived-share' (`_SHARE_OR_RE`, `_TIMES_THE_RE`: adjacent unbounded blank runs around an optional group,
+cubic under `finditer` on 20,000 blanks), and the abbreviation reader's runs after its bracket; each is possessive now. The word-count view
+blanks its ranges in one list per line. Every new pattern is anchored, bounded or possessive, and each reader looks a bounded number of
+characters each way; the sweep bounds every touched module's entry points (`units.tonne_stated`, `scope.prescan_names` and
+`defined_abbreviations`, `normalize.reading_view`, `lexer.lex`, `hub_hooks.word_count_view`, `calculus.laurent`, `document.build_document`
+with `checks.build_checks`) on the standard hostile inputs and this round's shapes. Rule rate-total finds each rate by bisection over the
+prose values in text order and looks at most 24 values back (1,500 totals in one answer are read in linear time); `_factor_pairs` stops at
+12 factors.
+
+### 42.5 Tests changed, and what is left
+
+No test was rewritten, weakened or deleted. Left for a later round (each named or a warning, none an error on correct work): the trace-table
+completion times of a Markdown table (completion = start + burst, no relation sign in the cells); a figure the prose takes from the
+request's or a supplied text's data ('from 52 to 21 cells' for the request's 12, 'timber worth about $130,000'); a conversion stated in
+prose ('Since 1 m² = 10⁴ cm², this is 155.83… m²'); a fold written in words ('a fall to about one third'); a plain-text definite
+integral and its bracket; the roots of f′(x) = 0 written after 'when', and a normal's gradient '−1/f′(1)' over the f′(1) the line before
+states; a slip inside a bracketed check ('(0.30 × 2410 = 732, close to 720)', named undecided); the false INT-SUBJ-004 warnings of round
+9's momentum and principle probes; plain thousands spaces (a decision for both owners, section 41.4). The round's
+handoff records the parts outside the STEM paths: the STEM parser's roles of headings, labels and notes, the 'Assumption:' note in word
+bounds, the cross-encoding demotion, the wording of EVD-LACK-001 and the pairing of CORE-QNT-001, the request ids in check descriptions, the
+arena's stale fixtures and the channel's refusal of control characters.

@@ -581,4 +581,98 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   one does; and the boycott, arrest, trial, protest, talks, negotiation, intervention, withdrawal and ceasefire are event nouns a side of an
   order cue is looked up by.
 
+
+## Round 10 (clearance c3)
+
+- **The one self-report reader** (`self_report`, its round-10 section, read by `is_self_report`, `claims_a_check`, the core pack's
+  CORE-SELF-001, the overseer's gate and the service outcome alike): a sentence is read whole and then by its clause parts (after a
+  semicolon, a spaced dash or a spaced hyphen, outside quotations and brackets), so placement never changes the reading (HTML tags are
+  read as markup only when they are tags a page renders; `<q>` reads as quotation marks; 'a<b and c>d' is mathematics). The classes read:
+  engine and proof status said of the answer anywhere in a sentence ('Proof status: QED for all claims.', 'Formal status: discharged.',
+  'The claim that ... is ENTAILED.'); approvals by the hub's own agents (the overseer, the router, the combinator, the hub, QA, a marking
+  or logic-checking agent, a specialist in a label) of this answer or its parts, never of 'it' or 'them' alone and never in a modal,
+  conditional or dated clause; status lines ('QA: pass.', 'Verdict: correct.', a weak value such as 'sound' only after a checker's lead;
+  the value read to its stop, never cut at a decimal point, and a value word that modifies the subject of a content clause is content:
+  'Sense check: the accepted value of −1367 kJ mol⁻¹ means 0.0250 mol of ethanol releases about 34 kJ at most.' is chemistry);
+  the writer's own check in idiom ('I went through it twice.', 'Gave the whole thing a once-over', 'me aseguré de que no hubiera ningún
+  error'), with the answer, its items or a whole-object pronoun as object; check labels after a figure ('The speed is 15 km/h, verified.'),
+  double negations ('not unchecked'), a match with the mark scheme; Spanish, Portuguese, French and Romanian forms; scripts counted by
+  their letters before look-alike letters are folded (Cyrillic, Greek in runs of three), a script with no checking vocabulary failing
+  closed; quotations credited to an internal reporter (the writer's own records, the hub's agents, a frame that names this answer) read
+  as the writer's, and an outside party's quoted words read as the party's unless they make a check claim in this answer's scope or are a
+  bare label of assurance words; a frame set after its quotation is read as one set before it ('"The solver certified each step,"
+  Kershaw wrote.' as 'As Kershaw wrote, "the solver certified each step."'). Another party's records ('Your notes say the camera
+  "..."') are never the writer's own. A sentence too long for one reading window is read as one skeleton of its scope and assurance
+  segments, failing closed. The correct-work vetoes: a
+  definition, an outside study's or a named party's check, a source corroborating a source, a character's or a narrator's words, a
+  proof's closing line, a solver's semantics, a Spanish narrative verdict, a primary source in another script, a dated or owned outside
+  item, a weak subject-matter noun and machine-learning terms ('validation accuracy' is the subject's noun, masked before reading). A
+  clause part of one word is read alone only when it is a check label ('verified', 'QED'): a noun cut off by a semicolon or a line break
+  ('self-certifications; ...') is a fragment. A capital status word in a table row (code literals, columns aligned by runs of blanks, a
+  rule of '=' signs, cells between pipes) is ordinary content, as integration gate 3 decided. A relay by the hub's or the writer's own
+  reporter counts a weak verdict word ('works', 'holds') only with this answer's scope or as a bare label. The trailing check label (",
+  verified." after a figure) is matched at its comma, anchored at the sentence's end (an earlier form searched a lazy run from every
+  position: two minutes on 20,000 characters of mark labels; `tests/branches/test_c3_clearance_self_reports.py` pins the bound). A
+  closing quotation mark is never followed by a letter, and the word runs of the reporting frame and the pipeline readers start after a
+  blank and are read once: an apostrophe or a hyphen inside "a'a'a..." or "a-a-a..." had each started a new scan of the rest (the
+  overseer's meta-note reader went past its 1 s bound). The c3 sweeps also read the joined word runs of
+  `tests/adapters/hostile_inputs.WORD_RUNS` (hyphens, apostrophes, stops, slashes, possessives).
+- **Quotations of the writer's own forms** (`markdown.own_form_flags`, read by `parser_quotation_spans` in any task): a gloss or an
+  expansion ('means', 'contracts', 'short for'), a base form a form is named after ('the informal imperative of "andar"', 'a
+  diminutive-style form of "mero"'), a standard form set beside it ('Standard Spanish says "ya casi"'), a form the text would or should use,
+  a form named as a fixed phrase, every span after an invented example is announced (the English parser records `sources.OWN_EXAMPLE_NOTE`
+  on its claims), and a list of trigger forms closed by 'and other ... phrases' are the writer's own words, never quotations of a supplied
+  text; a span the sentence attributes to a text stays a quotation. A line under a model label with a bracketed note ('Model (one
+  sentence, to show range with your own content; not a replacement for your text):') is the writer's model (`sources.own_model_words`)
+  unless it is an altered quotation of a supplied text (all its words but one or two) or most of its words stand in runs of four or more
+  the text holds; one phrase of the student's text reused in a new sentence leaves it the writer's.
+- **Credits** (`sources`): `specialist_names` names a course by each subject word alone and with its course letter ('spanish
+  specialist', 'spanish b specialist', 'language b specialist' for language-b-spanish-specialist); when several texts hold a quotation's
+  words and the text the sentence names does not credit THIS quotation (it is named after it), the other text that holds it is its source;
+  'Your notes say ...' credits the one non-peer text the student supplied.
+- **Notes and declines** (`markdown`): a decline of a choice the student must make is a decline ('I can't choose your line of inquiry',
+  'I cannot set the question for you'; the object must be the student's: 'I can't choose between them' is none); an omission with its
+  reason about sources ('Troop numbers and aid totals are not quoted, because no approved source in this session confirms them; your
+  textbook will give exact figures to add.'), the writer's own omission in the first person ('I have not quoted tonnages ...', 'I haven't
+  run any code') and how the answer was produced ('I traced the scheduling by hand') are answer notes, and a paragraph of nothing but
+  answer notes is a note as a whole (`answer_note_paragraph`, read by `opens_note_paragraph`, so a word or paragraph bound leaves it out);
+  'Next practice task (...):' and 'For next time:' are bare note leads; a quoted title of a few words in a list of sources is a title,
+  unless a verb of saying in the line frames it ('Sources: ... The narrator also insists that "..."' stays a sentence of the answer whose
+  quotation is checked). On the English
+  branch a decline block is a note delivered as claims of role other (never meta-text), a 'Next step:' block that quotes is a note
+  delivered as claims of role other (its quotations still checked; without a quotation it stays meta-text, which the overseer's meta-note
+  rule reads), a numbered line opens a sentence of its own, and the questions under an 'answer these ...:' lead are material
+  (`judgement`). The History structure check reads a counter-case opened by 'Yet' at a sentence's head.
+- **History chronology**: a qualifier that opens a sentence ('About', 'Nearly', 'Some', ...) is no event's name.
+- **The handoff pass of round 10** (the items the parallel fixers handed over; tests `tests/branches/test_c3_handoff_self_reports.py`,
+  `tests/branches/test_c3_handoff_roles_sources.py`, `overseer/tests/overseer_tests/test_c3_handoff_overseer.py`):
+  - Rule model-marks (`self_report.MODEL_MARKS_RULE`, `model_mark_ranges`, `blank_model_marks`, exported through
+    `epinoic_logic.api.adapters`): in a line opened by a model or markscheme lead ("Model:", "Model answer:", "Mark scheme:", "Marking
+    points:", "Model (...):"), a check-mark run that closes a marking point is a mark annotation, as "[1]" is, when the point holds no
+    checking, correctness or defect word and the one reader names no self-report in it ("Model: I checked every value ✔." keeps its
+    label). ph-t16's model lines drew three CORE-SELF-001 warnings, two ENTAILED outcomes were withheld NOT_ELIGIBLE and the answer was
+    barred from the overseer-selected fallback. `label_self_report`, `claims_a_check`, the core pack's CORE-SELF-001, the overseer's gate
+    and its occurrence rule (OVS-FID-001) read the text with those marks blanked, and the STEM parser leaves them out of its claims as it
+    leaves out "[1]". A line over 4,000 characters is left as it is.
+  - Misses and false positives of the one reader (overseer handoff 2): an internal checker's decision on the answer's own items ("The
+    hub has already decided every relation above: all hold.", `_c3_internal_decision`) is a self-report; a subject's technical term
+    whose words are the vocabulary of checking ("Cross-validation gives a better estimate of accuracy.", a validation set, test accuracy,
+    an estimate of accuracy, a verification step, two-factor authentication) is read as a neutral noun first, so a check of the answer
+    stated beside one is still read; a double negation is read in its quantifier's own clause, and a modal one is no check (bm-t16
+    g16.2's decline "..., so any number I gave would be unverified and should not go into your answer." is no self-report).
+  - One reader of the writer's own words in quotation marks (`adapters/own_text.py`: `own_text_spans`, `own_model_spans`,
+    `OWN_TEXT_RULE`, `OWN_MODEL_RULE`, exported through `epinoic_logic.api.adapters`; overseer handoff 1(b)): the transfer auditor's
+    own-text and own-model rules moved here verbatim, and the auditor imports them instead of its copy. The channel still reads own
+    forms with `markdown.own_form_flags` and the feedback roles; on the recorded c1 and c3 answers the two readers agree except
+    sp-p10d's named interjection '"Ojo"' (the parser's own form, the auditor's quotation; the supplied text holds it).
+  - A question back to the student or the router ("Would you like me to say more about the reparations?", "Which edition are you
+    using?", `markdown.is_question_back`) in a body or conclusion block of its own is a note (role other) on the English branches, as on
+    every other branch (combinator handoff H2); the questions an answer sets the student under an "answer these ...:" lead stay
+    material.
+  - An English answer that declines the analysis it was asked for and coaches instead (`markdown.declined_deliverable`, ll-t16) is held
+    to no strands rule: its coaching paragraphs drew ES-STR-001, fed back as "add a second strand quoted exactly from the text". The same
+    paragraphs in an answer that analyses the text are still named.
+  - The STEM parser roles a marks label line ("— calculate — 2 marks", "Question 1(a) — explain — [3]") as other (STEM handoff H1.1, the
+    ph-t16 rows s1.1 to s4.1), so it is no claim the router reads as unchecked.
+
 Rule sources cited in findings are the agent's working rules, not official IB rules.

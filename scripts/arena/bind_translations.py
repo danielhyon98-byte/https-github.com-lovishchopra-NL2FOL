@@ -105,8 +105,10 @@ def bind(round_dir: Path, listings: dict[str, dict], *, force: bool = False) -> 
     recorded digest that differs from the listing's (``conflicts``; with ``force`` it is replaced by the listing's), or a
     listing of another report than the translations file's (``refused``: never bound, ``force`` or not). Nothing is
     written."""
-    items = {it["_path"].stem: it for it in load_items(round_dir / "specialists")} if (round_dir / "specialists").is_dir() else {}
-    out: dict = {"files": {}, "maps": {}, "conflicts": [], "refused": []}
+    unreadable: list[dict] = []  # a specialist file that is not one JSON object of the round format is named, never raised on
+    items = {it["_path"].stem: it for it in load_items(round_dir / "specialists", refused=unreadable)} if (round_dir / "specialists").is_dir() else {}
+    out: dict = {"files": {}, "maps": {}, "conflicts": [], "refused": [],
+                 "unreadable_specialists": [f"specialists/{b['file']}: the file {b['reason']}" for b in unreadable]}
     for p in sorted((round_dir / "translations").glob("*.json")):
         stem = p.stem
         tr = json.loads(p.read_text(encoding="utf-8"))
@@ -183,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"nothing written: {exc}")
         return 2
     result = bind(rd, listings, force=args.force)
+    for line in result["unreadable_specialists"]:
+        print(f"{line} (no specialist file of the round format: its fixtures are bound under the ids the listing prints only)")
     for name, e in result["files"].items():
         print(f"{name}: {len(e['bound'])} bound, {len(e['kept'])} already bound, {len(e['unbound'])} not in the listing"
               + (f" ({e['why_unbound']})" if e.get("why_unbound") else "") + (f": {e['unbound']}" if e["unbound"] and not e.get("why_unbound") else "")

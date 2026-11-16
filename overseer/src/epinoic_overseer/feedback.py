@@ -299,7 +299,33 @@ def advisory_items(verdicts_audits: Sequence[Any], keyring: KeyRing, answer: Tra
 #:   answer did not state: it does not rest on what the answer states);
 #: * a word or paragraph flaw (INT-REQ-005) when the answer holds text the parser reads as no claim (claims roled ``other``): the measure
 #:   counts it, so it is not the measure of the answer proper.
+#:
+#: Round-10 clearance c3 (the c3 communication-fidelity and adversarial lenses: the feedback asked sp-t16 to remove its corrections,
+#: its labelled model sentence and its suggested forms, sp-p10d its glosses, ll-t16 its invented example, and maa-t16 to answer a part
+#: its "(c)" section answers):
+#:
+#: * a quotation flaw (``src.quote_not_found``, ``src.quote_form``) every quotation of which the answer presents as its own words (the
+#:   transfer auditor's reader, rule ``own-text`` of ``checks.fidelity``: a correction after an arrow, a labelled model, topic or line of
+#:   inquiry, a gloss, a dictionary form, a recommended form, a class of forms, an invented example): it rests on a quotation reading
+#:   the answer contradicts. The quotations are those the finding names (INT-REQ-003's uncredited quotation, OVS-FID-004's list), else
+#:   every quoted span of the claims it names; a span credited to a text, or one no cue reads, keeps the flaw;
+#: * an unaddressed item (INT-REQ-004) whose own label ("(c)", "c)", "Part (c)") opens a line of the answer followed by content: the
+#:   answer's part labels contradict "unanswered";
+#: * a structural flaw (``cov.strands``, ``cov.judgement_move``: ES-STR-001, HI-STR-001) whose named claims all stand in blocks a note
+#:   or sources lead opens (the delivery policy's lead reader, ``meta_notes.lead_starts``): a closing note or a source list is no body
+#:   paragraph, whatever role the parser gave it.
 FEEDBACK_HOLD_RULE = "feedback-hold"
+#: The quotation rules a quotation hold reads (rule ``feedback-hold``, round-10 clearance c3).
+_QUOTATION_FLAW_RULES = frozenset({"src.quote_not_found", "src.quote_form"})
+#: The structural rules a lead-block hold reads.
+_STRUCTURE_FLAW_RULES = frozenset({"cov.strands", "cov.judgement_move"})
+#: INT-REQ-003's uncredited quotation and OVS-FID-004's list of quotations, as their messages write them (bounded).
+_UNCREDITED_QUOTE_RE = re.compile(r"\Aquotation '(?P<q>.{1,240}?)' of claim ")
+_FID004_LIST_RE = re.compile(r"\bquotes \[(?P<l>.{1,1200}?)\], which occur in no supplied text")
+_LIST_ITEM_RE = re.compile(r"'((?:[^'\\]|\\.){0,240})'|\"((?:[^\"\\]|\\.){0,240})\"")
+#: The label an item of the request opens with ("(c) Write down ...", "c) ...", "(ii) ..."), and the minimum content of a section.
+_ITEM_LABEL_RE = re.compile(r"\A[ \t]{0,3}\(?([a-z]|[ivx]{1,4}|\d{1,2})\)", re.IGNORECASE)
+_SECTION_CONTENT_MIN = 12
 
 
 def _coverage_heuristic(receipt: Any) -> bool:
@@ -308,12 +334,100 @@ def _coverage_heuristic(receipt: Any) -> bool:
     return bool(unaddressed) and all(r.method == "lexical_heuristic" for r in unaddressed)
 
 
+def _finding_quotations(c: Any, report: Any) -> list[str]:
+    """The quotations a quotation flaw rests on: the one INT-REQ-003 names for an uncredited quotation, OVS-FID-004's list, else every
+    quoted span (and source excerpt) of the claims the flaw names. Bounded reads of the finding's message."""
+    from epinoic_logic.api.adapters import find_quotation_spans
+    msg = str(getattr(getattr(c, "finding", None), "message", "") or "")
+    m = _UNCREDITED_QUOTE_RE.match(msg)
+    if m:
+        return [m.group("q")]
+    m = _FID004_LIST_RE.search(msg)
+    if m:
+        got = [a if a else b for a, b in _LIST_ITEM_RE.findall(m.group("l"))]
+        if got:
+            return got
+    named = set(c.claim_ids)
+    out: list[str] = []
+    for cl in (report.claims if report is not None else []):
+        if cl.claim_id in named:
+            out += [inner.strip() for _s, _e, inner in find_quotation_spans(cl.claim_text) if inner.strip()]
+            out += [(r.excerpt or "").strip() for r in cl.source_refs if (r.excerpt or "").strip()]
+    return out
+
+
+def _own_words(c: Any, report: Any, own_answer: set) -> bool:
+    """Rule ``feedback-hold`` (round-10 clearance c3): whether every quotation the quotation flaw ``c`` rests on is the writer's own words
+    by the auditor's reader (rule ``own-text``: ``own_answer`` read on the answer, and each named claim read on its own) and none of them
+    is credited to a text by a source reference of a claim it names."""
+    from .checks import normalise
+    from .checks.fidelity import own_text_quotations, strip_enclosing_quotes, strip_trailing_punctuation, writer_credited
+    quotes = [q for q in _finding_quotations(c, report) if q.strip()]
+    if not quotes:
+        return False
+    named = [cl for cl in (report.claims if report is not None else []) if cl.claim_id in set(c.claim_ids)]
+    credited = {normalise((r.excerpt or "").strip()) for cl in named for r in cl.source_refs
+                if (r.excerpt or "").strip() and writer_credited(cl, r.excerpt or "")}
+    own = set(own_answer)
+    for cl in named:
+        own |= own_text_quotations(cl.claim_text)
+    own_bare = {strip_trailing_punctuation(x) for x in own}
+    for q in quotes:
+        forms = {normalise(x) for x in (q, strip_enclosing_quotes(q), strip_trailing_punctuation(q)) if x and x.strip()}
+        bare = {strip_trailing_punctuation(x) for x in forms}
+        # a finding message cuts a long quotation (INT-REQ-003 keeps its first 120 characters): such a cut is read as a prefix
+        cut = len(q) >= 100 and any(x.startswith(f) for f in bare for x in own_bare if f)
+        if forms & credited or not (forms & own or bare & own_bare or cut):
+            return False
+    return True
+
+
+def _answered_label(c: Any, text: str) -> bool:
+    """Rule ``feedback-hold`` (round-10 clearance c3): whether the unaddressed item of ``c`` opens with a label ("(c)") that opens a line
+    of the answer ``text`` (blanks, emphasis, a heading mark or "Part" before it) followed by at least :data:`_SECTION_CONTENT_MIN`
+    characters of content before the next blank line. One anchored search per line start (linear)."""
+    item = dict(c.params).get("item", "") if getattr(c, "params", None) else ""
+    m = _ITEM_LABEL_RE.match(item or "")
+    if m is None or not text:
+        return False
+    label = re.escape(m.group(1))
+    # the item's own words: a section that only restates the question ("(c) Write down the x-intercepts ...") answers nothing
+    asked = re.sub(r"[\W_]+", "", item[m.end():].casefold())[:40]
+    opened = re.compile(r"(?im)^[ \t>*_#-]{0,8}(?:part[ \t]{1,3})?\(?" + label + r"\)[ \t*_:.]{0,6}(?P<rest>[^\n]{0,400})")
+    for hit in opened.finditer(text):
+        after = (hit.group("rest") + text[hit.end():hit.end() + 400]).split("\n\n", 1)[0]
+        content = re.sub(r"[\W_]+", "", after.casefold())
+        if len(content) >= _SECTION_CONTENT_MIN and not (asked and content.startswith(asked[:24])):
+            return True
+    return False
+
+
+def _in_lead_blocks(c: Any, report: Any) -> bool:
+    """Rule ``feedback-hold`` (round-10 clearance c3): whether every claim the structural flaw ``c`` names stands in a block a note or
+    sources lead opens in the answer (the delivery policy's lead reader). Fails toward keeping the flaw."""
+    try:
+        from .meta_notes import answer_paragraphs, lead_starts
+        text = report.original_response or ""
+        claims = [cl for cl in report.claims if cl.claim_id in set(c.claim_ids)]
+        if not claims:
+            return False
+        blocks: list[str] = []
+        for _start, _end, para in answer_paragraphs(text):
+            leads = lead_starts(para)
+            for k, (s0, _kind, _ln, _inline, _e) in enumerate(leads):
+                blocks.append(para[s0:leads[k + 1][0] if k + 1 < len(leads) else len(para)])
+        return bool(blocks) and all(any(cl.claim_text.strip() and cl.claim_text.strip()[:200] in b for b in blocks) for cl in claims)
+    except Exception:  # noqa: BLE001 - a reader that fails holds nothing
+        return False
+
+
 def held_back(answer: Transfer, cands: Sequence[tuple[Any, str]]) -> tuple[list[tuple[Any, str]], list[str]]:
     """Rule ``feedback-hold`` (:data:`FEEDBACK_HOLD_RULE`): ``(kept, held)`` of the candidate flaws of ``answer``; ``held`` names each
     flaw held back (its code, rule and why, the policy's own words). Advisory items are kept as they were."""
     report, receipt = answer.report, answer.receipt
     if report is None or receipt is None:
         return list(cands), []
+    own_answer: Optional[set] = None
     roles = {c.claim_id: c.claim_role for c in report.claims}
     xenc = {cid for f in list(receipt.findings) if f.code == "INT-XENC-001" for cid in f.claim_ids}
     try:
@@ -341,6 +455,17 @@ def held_back(answer: Transfer, cands: Sequence[tuple[Any, str]]) -> tuple[list[
             why = "the check relied on a reading the answer did not state (INT-SUBJ-004): it does not rest on what the answer states"
         elif c.rule in ("cov.word_limit", "cov.paragraphs") and notes:
             why = "the measure counts text the parser reads as no claim of the answer (notes, sources, assumptions): not the answer proper's measure"
+        elif c.rule in _QUOTATION_FLAW_RULES:
+            if own_answer is None:
+                from .checks.fidelity import own_text_quotations
+                own_answer = own_text_quotations(report.original_response or "")
+            if _own_words(c, report, own_answer):
+                why = ("every quotation it rests on is the answer's own words (a correction, a labelled model, a gloss, a dictionary or "
+                       "recommended form, an invented example: rule own-text of the transfer auditor), not a quotation of a text")
+        elif c.rule == "cov.item_unaddressed" and _answered_label(c, report.original_response or ""):
+            why = "the answer opens a section with the item's own label and answers under it: its part labels contradict 'unanswered'"
+        elif c.rule in _STRUCTURE_FLAW_RULES and _in_lead_blocks(c, report):
+            why = "it names only text in blocks a note or sources lead opens (a closing note or a source list): no body paragraph of the answer"
         if why is None:
             kept.append((c, sig))
         else:

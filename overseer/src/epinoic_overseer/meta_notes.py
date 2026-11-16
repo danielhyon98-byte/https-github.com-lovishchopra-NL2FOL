@@ -210,7 +210,7 @@ __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_
            "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
            "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
            "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "report_field_refusals", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
-           "claim_self_report",
+           "claim_self_report", "ANSWER_STATUS_RULE", "answer_status_claim",
            "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
            "require_response_limit"]
 
@@ -1489,6 +1489,68 @@ def self_report_reading(text: str, *, words: bool = True) -> Optional[str]:
         return META_NOTE_RULE
 
 
+#: Rule ``answer-status`` (round-10 clearance c3, the c3 adversarial lens: 8 wordings the last push check listed and two new ones were
+#: named on none of 16 answers, delivered as material point claims on English A, and left every deliverable answer deliverable): the
+#: gate's own reading of a claim in the answer's own scope of a check, a review, a proof or an engine or hub result, read beside the
+#: translator's one reader and never instead of it (it only adds refusals: :func:`answer_status_claim`). Closed vocabularies; every
+#: blank run and free gap is bounded, and a sentence over :data:`_ANSWER_STATUS_MAX` characters is read in its first part only by
+#: these patterns (the shared reader still reads it whole), so the reading is linear.
+ANSWER_STATUS_RULE = "answer-status"
+_ANSWER_STATUS_MAX = 4_000
+#: A checking tool or party the system names (never a person or an outside body): the hub, the engine, a prover, a solver, a verifier,
+#: the overseer, Z3, an SMT solver, a receipt.
+_TOOL = r"(?:hub|engine|prover|solver|verifier|overseer|z3|smt(?:[ \t-]{1,3}solver)?|receipt)"
+_TOOL_RE = re.compile(r"(?<!search )(?<!steam )(?<!search-)\b" + _TOOL + r"\b", re.IGNORECASE)
+#: What such a tool is said to have done or given: decided, closed, proved, discharged, verified, confirmed, checked, signed, passed,
+#: refuted nothing, a verdict ("returned" and "accepted" are no decision: "a search engine returned no results").
+_TOOL_ACT_RE = re.compile(r"\b(?:decided|decides|closed|closes|proved|proves|proven|discharged|verified|verifies|confirmed|confirms|checked|checks|"
+                          r"signed|passed|cleared|verdict|verdicts)\b|\bno[ \t]{1,3}(?:refutations?|counter-?examples?)\b", re.IGNORECASE)
+#: An approval stamp a tool gives ("rubber-stamped by the hub", "approved by the engine"): named whatever its scope.
+_TOOL_STAMP_RE = re.compile(r"\b(?:rubber[ \t-]{0,2}stamped|stamped|approved|certified|signed[ \t]{1,3}off|cleared)[ \t]{1,3}by[ \t]{1,3}(?:the[ \t]{1,3})?"
+                            + _TOOL + r"\b", re.IGNORECASE)
+#: The answer's own scope: a quantifier over its claims, steps, lines, goals, relations, figures, values, calculations, parts or
+#: results; "above"; "this answer"; or a signature mark ("signed", "sig ok").
+_ANSWER_SCOPE_RE = re.compile(r"\b(?:every|all|each|any|no|none|nothing)\b[^.!?;\n]{0,40}?\b(?:claims?|steps?|lines?|goals?|relations?|figures?|values?|"
+                              r"calculations?|answers?|parts?|results?|quotations?|working|statements?)\b|\babove\b|\bthis[ \t]{1,3}(?:answer|response|"
+                              r"working|solution|reply)\b|\bsigned\b|\bsig[ \t]{0,2}ok\b", re.IGNORECASE)
+#: A proof, formal, verification, review, QA, check or engine status label, a bare status label with a status word, and QED over every
+#: step or claim.
+_STATUS_LABEL_RE = re.compile(r"\b(?:proof|formal|verification|review|qa|check|engine|audit)[ \t]{1,3}(?:status|verdict|result|outcome)[ \t]{0,3}:"
+                              r"|(?:^|[\n.;!?])[ \t*_>#-]{0,8}status[ \t]{0,3}:[ \t]{0,3}(?:reviewed|verified|checked|approved|passed|correct|ready|"
+                              r"complete|completed|discharged|proved|proven|ok|okay|done)\b"
+                              r"|\bq\.?[ \t]?e\.?[ \t]?d\b\.?[ \t]{0,3}(?:for|on|in)[ \t]{1,3}(?:all|every|each)\b", re.IGNORECASE)
+#: The writer's own review of the answer: "I went through the answer twice", "I have been over it", "I made certain of it".
+_WRITER_REVIEW_RE = re.compile(r"\b(?:i|we)(?:[ \t]{1,3}(?:have|had)|['’]ve)?[ \t]{1,3}(?:went|gone|been|go)[ \t]{1,3}(?:through|over)[ \t]{1,3}"
+                               r"(?:it|this|everything|all[ \t]{1,3}of[ \t]{1,3}(?:it|this|them)|every[ \t]{1,3}(?:step|line|figure|calculation|claim|"
+                               r"quotation)|(?:the|my)[ \t]{1,3}(?:answer|working|solution|calculations?|figures?|steps?|lines?|response|quotations?))\b"
+                               r"|\b(?:i|we)[ \t]{1,3}made[ \t]{1,3}(?:certain|sure)[ \t]{1,3}(?:of[ \t]{1,3}(?:it|this|that|everything)|that[ \t]{1,3}"
+                               r"(?:it|this|everything|every|all|the[ \t]{1,3}(?:answer|working|figures?|calculations?))\b)", re.IGNORECASE)
+#: The answer's correctness asserted outright: nothing in this answer is wrong; correctness guaranteed; a sanity check done.
+_ANSWER_CORRECT_RE = re.compile(r"\b(?:nothing|none|no[ \t]{1,3}(?:part|line|step|figure|claim))[ \t]{1,3}(?:in|of)[ \t]{1,3}(?:this|my|the)[ \t]{1,3}"
+                                r"(?:answer|response|working|solution|reply)[ \t]{1,3}(?:is|was|has[ \t]{1,3}been)[ \t]{1,3}(?:wrong|incorrect|"
+                                r"mistaken|in[ \t]{1,3}error)\b"
+                                r"|\bcorrectness[ \t]{1,3}(?:is[ \t]{1,3})?(?:guaranteed|assured|certain|certified)\b"
+                                r"|\bsanity[ \t-]{0,3}check(?:ed|s)?[ \t]{0,3}(?::|is|was)?[ \t]{0,3}(?:done|complete|completed|passed|ok|okay)\b",
+                                re.IGNORECASE)
+
+
+def answer_status_claim(sentence: str) -> bool:
+    """Rule ``answer-status`` (:data:`ANSWER_STATUS_RULE`): whether ``sentence`` claims, in the answer's own scope, a check, a review, a
+    proof or a tool's result: a hub, engine, prover, solver, verifier, overseer, Z3 or receipt said to have decided, closed, proved,
+    verified, signed or passed the answer's claims, steps, lines or relations (or found no refutation of them), or to have stamped or
+    approved it; a proof, formal, verification or engine status label, or "Status:" with a status word; QED over every step or claim; the
+    writer's own review of the answer ("I went through the answer twice", "I made certain of it"); or the answer's correctness asserted
+    outright ("nothing in this answer is wrong", "correctness guaranteed", "sanity check done"). It reads the sentence normalised as
+    the gate reads it, and only ever adds a refusal to the shared reader's. A text it cannot read raises, so the gate
+    (:func:`self_certifying_sentence`) fails closed on it: uncertainty never resolves toward delivery."""
+    if not sentence or not sentence.strip():
+        return False
+    s = reader_text(sentence)[:_ANSWER_STATUS_MAX]
+    if _STATUS_LABEL_RE.search(s) or _WRITER_REVIEW_RE.search(s) or _ANSWER_CORRECT_RE.search(s) or _TOOL_STAMP_RE.search(s):
+        return True
+    return bool(_TOOL_RE.search(s) and _TOOL_ACT_RE.search(s) and _ANSWER_SCOPE_RE.search(s))
+
+
 def self_certifying_sentence(sentence: str) -> bool:
     """Rule ``self-certification-gate``: whether the translator's shared self-report reader
     (``epinoic_logic.api.adapters.is_self_certification``, the reader every branch's parser and the core pack's CORE-SELF-001 read)
@@ -1505,8 +1567,10 @@ def self_certifying_sentence(sentence: str) -> bool:
         if not (sentence and sentence.strip()):
             return False
         # second remedy, round 3: the gate also reads the verification labels the packs and the combinator's ledger name (a label set
-        # on content, "... (verified).", "x = 4 ✓"), so the delivery paths and the release name the same sentences
-        return bool(is_self_certification(sentence)) or bool(label_self_report(sentence))
+        # on content, "... (verified).", "x = 4 ✓"), so the delivery paths and the release name the same sentences; round-10 clearance
+        # c3: and its own reading of an answer-scope claim of a check, a review, a proof or a tool's result (rule answer-status), which
+        # only adds refusals
+        return bool(is_self_certification(sentence)) or bool(label_self_report(sentence)) or answer_status_claim(sentence)
     except Exception:  # noqa: BLE001 - fail closed
         return True
 
@@ -1537,8 +1601,12 @@ def self_certifying_sentences(text: Any) -> list[str]:
     if over_response_limit(text):
         return [f"the answer as a whole (its text is over the contract's limit of {RESPONSE_MAX_CHARS} characters: rule {RESPONSE_LIMIT_RULE})"]
     try:
+        from epinoic_logic.api.adapters import blank_model_marks
+        # rule model-marks (round-10 clearance c3, ph-t16; the translator's one reader): the tick after a marking point of a model line is
+        # a mark annotation, read as one on the paragraph before its sentences are cut from it, so a sentence of the model is not read as
+        # carrying a verification label once cut from its "Model:" lead
         return [f"paragraph {i}" for i, (_start, _end, para) in enumerate(answer_paragraphs(text), start=1)
-                if any(self_certifying_sentence(p) for p in _gate_pieces(para))]
+                if any(self_certifying_sentence(p) for p in _gate_pieces(blank_model_marks(para)))]
     except Exception as exc:  # noqa: BLE001 - fail closed: a reader that fails names the whole answer
         return [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
 

@@ -1102,10 +1102,23 @@ class _Literal:
     required: Optional[str] = None
     #: the years the compared symbol's name and meaning name ("p2010", "residents in 2010"): the time the figure is about
     years: frozenset[str] = frozenset()
+    #: whether the compared symbol is about a date or a month (its name or meaning names one): only then does a month's name state
+    #: its number (round-10 clearance c3: the request's "May 2027" validated "P1 burst time is 5 ms")
+    dated: bool = False
 
 
 #: A year written in digits (1500-2099), never part of a longer number.
 _YEAR_TOKEN_RE = re.compile(r"(?<![\d.,])(1[5-9]\d{2}|20\d{2})(?![.,]?\d)")
+
+
+#: A symbol about a date or a month: its name or meaning names one ("month", "date", "monthly", "deadline", a month's name).
+_DATED_RE = re.compile(r"(?:\b|_)(?:months?|monthly|dates?|dated|calendar|deadline|january|february|march|april|may|june|july|august|september"
+                       r"|october|november|december)(?:\b|_)", re.IGNORECASE)
+
+
+def _dated(*texts: Optional[str]) -> bool:
+    """Whether a symbol's name or meaning (``texts``) names a date or a month (:data:`_DATED_RE`)."""
+    return any(t and _DATED_RE.search(t[:1000]) for t in texts)
 
 
 def _years_named(*texts: Optional[str]) -> frozenset[str]:
@@ -1150,7 +1163,7 @@ def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
             sym = symbols.get(name)
             written = lit.value if getattr(node, "op", None) != "neg" else f"-{lit.value}"  # type: ignore[attr-defined]
             out_a.append(_Literal(written, value, declared_reading(sym.meaning if sym is not None else None), name, required,
-                                  _years_named(name, sym.meaning if sym is not None else None)))
+                                  _years_named(name, sym.meaning if sym is not None else None), _dated(name, sym.meaning if sym is not None else None)))
         return out_a
     out: list[_Literal] = []
     stack: list[tuple[object, Optional[str]]] = [(expr, None)]
@@ -1165,7 +1178,8 @@ def _literals(expr, symbols: dict[str, Symbol]) -> list[_Literal]:
             if abs(value) in TRIVIAL_VALUES:
                 continue
             sym = symbols.get(compared) if compared else None
-            out.append(_Literal(node.value, value, declared_reading(sym.meaning if sym is not None else None), compared))  # type: ignore[attr-defined]
+            out.append(_Literal(node.value, value, declared_reading(sym.meaning if sym is not None else None), compared,  # type: ignore[attr-defined]
+                                dated=_dated(compared, sym.meaning if sym is not None else None)))
             continue
         if op in ("eq", "ne", "lt", "le", "gt", "ge"):
             left, right = node.left, node.right  # type: ignore[attr-defined]
@@ -1199,6 +1213,15 @@ def _foreign_number_words_within(sources: list[SourceText], within) -> dict[int,
     return out
 
 
+def _month_name(f) -> bool:
+    """Whether a stated figure is a month's name read as its number (``quantities._calendar_figures``)."""
+    return bool(getattr(f, "word", False)) and str(getattr(f, "written", "")).capitalize() in _MONTH_NAMES
+
+
+#: The month names the figure reader reads as their numbers (``quantities._MONTHS``).
+_MONTH_NAMES = frozenset(("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))
+
+
 def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources: list[SourceText], document_id: Optional[str], method: str,
                    what: str, within: Optional[dict[tuple[str, str], list[tuple[int, int, Optional[frozenset[Fraction]]]]]] = None
                    ) -> tuple[Optional[bool], Optional[GroundingCheck], list[_Literal]]:
@@ -1219,7 +1242,9 @@ def _figures_check(target_id: str, kind: str, literals: list[_Literal], sources:
     found: list[str] = []
     unmatched: list[tuple[_Literal, list[str]]] = []
     for lit in literals:
-        matches, why = literal_matches(lit.value, figures, lit.declared)
+        # round 10 (c3): a month's name states its number only for a symbol about a date or a month ("May 2027" is no 5 ms)
+        usable = figures if lit.dated else [f for f in figures if not _month_name(f)]
+        matches, why = literal_matches(lit.value, usable, lit.declared)
         if matches and lit.required is not None:
             kept = []
             for m in matches:

@@ -46,9 +46,11 @@ def test_named_rules_are_listed():
     # the earlier eleven stay, in order
     # the round-9 clearance (c2) added own-model and referring-bracket (their own tests: tests/overseer_tests/test_clearance_c2_overseer.py)
     # before emphasis-figures, which tests/overseer_tests/test_integration_gate3_handoff.py pins last; the earlier twelve stay, in order
+    # the round-10 clearance (c3) added own-text (its own tests: tests/overseer_tests/test_clearance_c3_overseer.py) before
+    # emphasis-figures; the earlier fourteen stay, in order
     assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free",
                               "carried-list-number", "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model",
-                              "referring-bracket", "emphasis-figures")
+                              "referring-bracket", "own-text", "emphasis-figures")
 
 
 def test_rule_contract_cut():

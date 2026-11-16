@@ -42,8 +42,8 @@ __all__ = [
     "PORT_VERSION", "VOCABULARY", "CERTAINTIES", "MAX_OUTPUT_TEXT_BYTES", "MAX_REFUSAL_DETAIL_CHARS", "REFUSAL_REASONS", "CLAIM_ID_PATTERN", "TEXT_PATTERN",
     "CONTRACT_FILES", "SourceClaim", "SourceReport", "InputIds", "CombinatorInput", "SynthClaim", "EvidenceRef", "Dropped",
     "Conflict", "CombinatorOutput", "CombinatorIdentity", "CombinatorHello", "CombinatorRefusal", "check_input",
-    "check_output", "check_hello", "check_refusal", "to_synthesis_format", "synthesis_payload", "student_facing_text", "source_report",
-    "build_input", "vocabulary_document", "port_rules_document", "contract_documents", "contract_digest",
+    "check_output", "check_hello", "check_refusal", "to_synthesis_format", "synthesis_payload", "student_facing_text", "orphaned_quotations",
+    "source_report", "build_input", "vocabulary_document", "port_rules_document", "contract_documents", "contract_digest",
 ]
 
 PORT_VERSION = "1.0"
@@ -356,17 +356,150 @@ def to_synthesis_format(out: CombinatorOutput) -> dict:
     return body
 
 
-def student_facing_text(claim_texts: Sequence[str]) -> str:
+#: The quotation marks a quotation is read by, the hub's ledger's (``integrity.ledger``), each written '"'; a straight or curly
+#: apostrophe between two letters or digits is part of a word ("speaker's", "don’t"), never a mark.
+_QUOTE_MARKS = "\"'“”‘’«»‹›„‚′″`"
+_QUOTE_TABLE = str.maketrans({mark: '"' for mark in _QUOTE_MARKS})
+_WORD_APOSTROPHE_RE = re.compile(r"(?<=\w)['’](?=\w)")
+#: A stretch between two quotation marks (once they are written '"') long enough to hold three words: found in one C-level scan.
+_BETWEEN_MARKS_RE = re.compile(r'(?<=")[^"]{5,}(?=")')
+#: What the quotation readers set aside at either end of a quotation's words: blanks, and the stops and commas around it.
+_QUOTE_TRIM = " .!?;:,"
+
+
+def _marked(text: str) -> str:
+    """``text`` with every quotation mark written '"' (a word's apostrophe written U+02BC, so it never splits a quotation)."""
+    if "'" in text or "’" in text:
+        text = _WORD_APOSTROPHE_RE.sub("\u02bc", text)
+    return text.translate(_QUOTE_TABLE)
+
+
+def _words(text: str) -> str:
+    """``text`` as the quotation readers compare it: blanks collapsed, case folded, the blanks, stops and commas at either end aside."""
+    return " ".join(text.split()).casefold().strip(_QUOTE_TRIM)
+
+
+def _quotation_words(text: str) -> Optional[str]:
+    """The words of a claim that is one quotation and nothing else, of three words or more: its text opens and closes with a
+    quotation mark (a final stop aside), with no line break and no other quotation mark inside. None for any other text (a
+    shorter quotation may recur legitimately, as the ledger's duplicated-content rule reads it). Linear in the text."""
+    marked = _marked(text).strip().rstrip(_QUOTE_TRIM)
+    if len(marked) < 2 or marked[0] != '"' or marked[-1] != '"' or '"' in marked[1:-1] or "\n" in marked:
+        return None
+    words = _words(marked[1:-1])
+    return words if words.count(" ") >= 2 else None
+
+
+def _quoted_spans(text: str, wanted: Optional[set[str]] = None) -> set[str]:
+    """The words of every stretch of ``text`` between two of its quotation marks, of three words or more (only those in ``wanted``
+    when it is given): what a claim quotes, read once. Linear in the text; a stretch too short to hold three words is passed over
+    unread."""
+    out: set[str] = set()
+    for part in _BETWEEN_MARKS_RE.findall(_marked(text)):  # three words need five characters at least
+        w = _words(part)
+        if w.count(" ") >= 2 and (wanted is None or w in wanted):
+            out.add(w)
+    return out
+
+
+def _pairs(claims: Any) -> list[tuple[str, str]]:
+    """One source report's claims as ``(claim_id, text)`` pairs, from pairs or from a mapping claim id -> text."""
+    items = claims.items() if isinstance(claims, Mapping) else claims
+    return [(str(cid), str(text)) for cid, text in items]
+
+
+def orphaned_quotations(claim_texts: Sequence[str], citations: Sequence[Any], sources: Sequence[Any]) -> dict[int, list[str]]:
+    """The synthesized claims that are orphaned quotations, each with the ids of the source claims that quote it, every one of which
+    the synthesis leaves out (round 10, c3, communication fidelity, lit-t16: the synthesis carried the evidence claim p2-q01, '"The
+    queen is somewhere in the dark"', and dropped the 'Next step' note that quoted it, so the student read the quotation alone at
+    the end of the text, and no finding named it).
+
+    ``claim_texts[i]`` and ``citations[i]`` are synthesized claim i's text and the source claim ids it cites (anything but a list
+    or tuple of strings cites nothing; one citation list per claim, else ``ValueError``); ``sources`` holds, per source report, its
+    claims as ``(claim_id, text)`` pairs, or a mapping claim id -> text. A synthesized claim is an orphaned quotation when its text
+    is one quotation and nothing else, of three words or more (:func:`_quotation_words`); it cites a source claim, and every source
+    claim it cites is that same quotation (the quotation claim of a report: the evidence it carries); no other synthesized claim
+    quotes its words (between two of its quotation marks, as :func:`_quoted_spans` reads them); and in the reports of the claims it
+    cites at least one other claim quotes its words so, while the synthesis cites none of those claims (the claim that used the
+    quotation was dropped or left out). A quotation no other source claim quotes (a specialist's own bare quotation) is never
+    one, nor is one that a carried claim quotes, whatever that claim's synthesized text became, nor one only another report's
+    claim quotes. Linear in the texts' length: each text is read once (a report's claims only when a quotation cites one of
+    them), and each quotation is a lookup in what they quote."""
+    texts = [str(t) for t in claim_texts]
+    if len(citations) != len(texts):
+        raise ValueError("one list of cited source claims per synthesized claim")
+    cited = [[c for c in cs if isinstance(c, str)] if isinstance(cs, (list, tuple)) else [] for cs in citations]
+    quoted = {i: w for i, t in enumerate(texts) if (w := _quotation_words(t)) is not None}
+    if not quoted:
+        return {}
+    reports = [_pairs(claims) for claims in sources]
+    report_of: dict[str, int] = {}
+    text_of: dict[str, str] = {}
+    for r, pairs in enumerate(reports):
+        for cid, text in pairs:
+            report_of.setdefault(cid, r)
+            text_of.setdefault(cid, text)
+    own_words: dict[str, Optional[str]] = {}  # a source claim's own quotation words, read once
+
+    def words_of(cid: str) -> Optional[str]:
+        if cid not in own_words:
+            own_words[cid] = _quotation_words(text_of[cid])
+        return own_words[cid]
+
+    wanted = set(quoted.values())
+    held: dict[str, set[int]] = {}  # each quotation's words, by the synthesized claims that quote them (or are them)
+    for j, t in enumerate(texts):
+        for w in _quoted_spans(t, wanted):
+            held.setdefault(w, set()).add(j)
+    carried = {c for cs in cited for c in cs}
+    quoting_in: dict[int, dict[str, list[str]]] = {}  # per report, read once: a quotation's words -> the claims quoting them
+    out: dict[int, list[str]] = {}
+    for i, w in quoted.items():
+        own = list(dict.fromkeys(c for c in cited[i] if c in report_of))
+        if not own or any(words_of(c) != w for c in own):
+            continue  # it carries no source's quotation claim: its own content, never an orphan
+        if any(j != i and quoted.get(j) != w for j in held.get(w, ())):
+            continue  # another synthesized claim quotes it: the student reads it there
+        quoting: list[str] = []
+        for r in sorted({report_of[c] for c in own}):
+            if r not in quoting_in:
+                index: dict[str, list[str]] = {}
+                for cid, text in reports[r]:
+                    if report_of.get(cid) != r:
+                        continue  # an id another report holds first is that report's claim
+                    for span in _quoted_spans(text, wanted):
+                        if span != words_of(cid):  # the quotation claim itself, or another claim that is the same quotation
+                            index.setdefault(span, []).append(cid)
+                quoting_in[r] = index
+            quoting += quoting_in[r].get(w, [])
+        if quoting and carried.isdisjoint(quoting):
+            out[i] = quoting
+    return out
+
+
+def student_facing_text(claim_texts: Sequence[str], *, citations: Optional[Sequence[Any]] = None, sources: Optional[Sequence[Any]] = None) -> str:
     """The student-facing text of a synthesis composed from its synthesized claims' texts, in order, joined by one space, leaving
     out each claim whose whole text is a quotation that another claim of the same synthesis holds verbatim, before or after it
     (``integrity.ledger.quotations_held_verbatim``): the student reads such a quotation once, inside the sentence that quotes it
     (round 9, c2, ll-t15: the joined text handed the student each of its ten quotation claims twice, once as a stray fragment).
-    Every claim's text still occurs in the text (the hub's INT-LEDGER-017 presence check) and the text stays a composition of its
-    claims (INT-LEDGER-031). Linear in the claims' length, a search per quotation claim."""
+    Such a claim's text still occurs in the text (the hub's INT-LEDGER-017 presence check) and the text stays a composition of its
+    claims (INT-LEDGER-031).
+
+    With the synthesized claims' ``citations`` and the ``sources`` they cite (:func:`orphaned_quotations`), a quotation claim is
+    rendered only inside a claim that quotes it: an orphaned quotation, whose every quoting source claim the synthesis left out, is
+    not rendered on its own either (round 10, c3, lit-t16: the text ended with '"The queen is somewhere in the dark"', the
+    quotation of a dropped 'Next step' note). The hub's presence check then names it (INT-LEDGER-017, a synthesized claim the
+    student does not read), so the synthesis that carries a quotation nothing uses is never accepted silently. A text is never
+    left empty: when every claim would be left out, the orphaned quotations are rendered. Linear in the claims' length, a search
+    per quotation claim (``quotations_held_verbatim``) and a lookup per quotation claim (``orphaned_quotations``)."""
     from ..integrity.ledger import quotations_held_verbatim
     texts = [str(t) for t in claim_texts]
-    held = quotations_held_verbatim(texts)
-    return " ".join(t for i, t in enumerate(texts) if i not in held)
+    left_out = quotations_held_verbatim(texts)
+    if citations is not None and sources is not None:
+        orphans = set(orphaned_quotations(texts, citations, sources))
+        if len(left_out | orphans) < len(texts):
+            left_out = left_out | orphans
+    return " ".join(t for i, t in enumerate(texts) if i not in left_out)
 
 
 def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_id: str, combinator_agent_id: str, created_at: str,
@@ -378,7 +511,8 @@ def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_
     synthesized claim never reuses a source claim's id, INT-LEDGER-015); every material synthesized claim keeps the
     default materiality ``material``; a dropped entry is a ledger entry ``dropped``; a disclosed conflict is an
     ``unresolved`` conflict record; the student-facing text is the claims' texts joined by a space, each quotation claim another
-    claim holds rendered only inside that claim (:func:`student_facing_text`). ``evidence_refs``
+    claim holds rendered only inside that claim, and a quotation claim whose every quoting source claim the output left out not
+    rendered on its own (:func:`student_facing_text` with the claims' citations and the input's sources). ``evidence_refs``
     (synthesized claim index -> references) are the references the service attaches (phase 2: the arena's rule, the
     references of cited material sources whose excerpts the claim reproduces word for word); without them a claim keeps
     the references the combinator gave, if any."""
@@ -396,7 +530,8 @@ def synthesis_payload(out: CombinatorOutput, inp: CombinatorInput, *, synthesis_
         elif c.evidence_refs is not None:
             item["evidence_refs"] = [r.model_dump(exclude_none=True) for r in c.evidence_refs]
         claims.append(item)
-    text = student_facing_text([c.text for c in out.claims])
+    text = student_facing_text([c.text for c in out.claims], citations=[list(c.source_claim_ids) for c in out.claims],
+                               sources=[[(c.claim_id, c.text) for c in s.claims] for s in inp.sources])
     return {
         "synthesis_id": synthesis_id, "request_id": inp.ids.request_id, "task_id": inp.ids.task_id,
         "combinator_agent_id": combinator_agent_id, "source_report_ids": [s.report_id for s in inp.sources], "claims": claims,

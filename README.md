@@ -507,7 +507,14 @@ deployed combinator would refuse it. A peer-dependent agent reads of
 its peer only the delivered report, its document id and the relay status (`relayed/<task>.json`);
 the hub's receipts of the peer's delivery and of the relay stay with the router
 (`router/<task>.json`), so no finding reaches an agent as content. Whether the receipts are
-right is judged by the overseers.
+right is judged by the overseers. A round is read with its plan (`tasks.json`): a planned task that never answered is
+a genuine reply not delivered, its peer relay, when the round never recorded one, a relay not run, and its group's
+synthesis fails naming it, so a round that lost its peer exchanges says so (round c3 had four, and its headline read 40
+of 40); a specialist file that is not one JSON object of the round format is refused by name and the rest of the round
+runs. The claims a mutation changes are listed for the translation agents (`list_claims.py --mutations`) and served the
+translations recorded for the mutated texts (`mutation_translations/`); every changed claim no recorded translation
+reached is named on the replay configuration line, since without one only the deterministic checks can name its
+injection.
 
 The test layers and a running log of bug and stress testing are in `tests/README.md`; the per-round arena record is `docs/ARENA_RESULTS.md`.
 

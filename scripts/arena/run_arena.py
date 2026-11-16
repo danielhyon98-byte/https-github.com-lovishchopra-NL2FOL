@@ -3,6 +3,26 @@
 
 Inputs (one round directory):
   <round>/specialists/*.json   {task_id, subject, agent_id, task_type?, question, supplied_texts:[{document_id,title?,author?,text}], response_text}
+                               one JSON object each (specialist_file_problem): a file that is not (a list, a missing or non-string
+                               field) is refused by name (SpecialistFileError), recorded as a genuine reply not delivered
+                               (answer_unreadable), and every other file runs (round c3: bi-t16.json written as a one-element list
+                               stopped the round with "list indices must be integers or slices, not str" before any record).
+  <round>/tasks.json           optional: the round's plan, every task the router dispatches. The round is read with it
+                               (load_items(..., include_pending=True)): each group's plan is built from every task of the group, as
+                               relay_peer.py builds it, and a planned task with no specialist file is a genuine reply not delivered
+                               (not_answered), its relay, when the round never recorded one, a peer relay not run (relay_not_run),
+                               and its group's synthesis fails naming it (members_not_delivered, members_not_answered); results.json
+                               ``planned_tasks`` and summary.md name every such task with its group and peer (round c3: four
+                               planned peer exchanges never took place, and the headline read 'genuine traffic delivered and
+                               decided: 40 of 40').
+  <round>/mutation_translations/<file stem>/<variant>.json  optional: {task_id, variant, claims: {claim_id: <translator JSON>},
+                               claim_text_sha256: {claim_id: sha256}}: the recorded translations of the claims a mutation changes
+                               (list_claims.py --mutations --json lists them, with the digests and the file to write), served to the
+                               mutated claim of that variant whose text has the digest. Every mutation record names the claims it
+                               changed by what became of their translation (``mutated_claims``) and the replay configuration counts
+                               them (``metrics.replay.mutated_claims``): without a recorded translation a mutated claim gets no
+                               verdict, where production translates it (round 9's push check, major: mutated claims were never
+                               translated by the harness).
   <round>/translations/*.json  optional: {report_id, claims: {claim_id: <translator JSON object>}, claim_text_sha256?: {claim_id: sha256}}
                                The optional claim_text_sha256 map (list_claims.py --json prints the digest of every claim;
                                bind_translations.py records it with each fixture when the translations are recorded) binds each
@@ -164,7 +184,9 @@ relayed and its receipt kept, so the number of transmissions does not depend on 
 hub produced a receipt without raising, the synthesis was delivered (a genuine synthesis of the delivered reports is not
 REJECTED, by the same conservative rule as a genuine response), no check on it failed internally (INT-SYNTH-013, or a
 joint check left undecided with INTERNAL_ERROR), every member of the group was delivered (a member that was not is
-named under ``members_not_delivered``: the router received only part of the group's reports) and every syntheses file
+named under ``members_not_delivered``: the router received only part of the group's reports; a member of the round's plan
+that never answered, or whose file cannot be read, is a member too, named also under ``members_not_answered`` or
+``members_unreadable``) and every syntheses file
 it was made from holds the combinator port's published output contract (a file that does not is named under
 ``combinator_contract`` with its KIT-CB code: the deployed combinator would have refused it). A group with no delivered
 member, or a round that carries syntheses but none for a delivered group, records that group's synthesis as a failure.
@@ -493,6 +515,24 @@ def alters_request_words(text: str, question: str, texts=()) -> bool:
     return not missing
 
 
+def task_variants(item: dict, quote_texts: list) -> list[tuple[str, str, str]]:
+    """Every variant of ``item``'s answer the round delivers, in the order run_round delivers them (the index is part of each
+    report id, ``rep-<task>-<index>``): the genuine answer, then each of MUTATIONS, then, for a STEM subject, each of
+    STEM_MUTATIONS (after the shared ones, so their indices are unchanged), as ``(kind, text, expected)``; ``expected`` is
+    "SKIP" for a mutation the answer has no site for. ``quote_texts`` are the texts the agent was supplied, a relayed peer
+    report included: an altered quotation is chosen from them and the quotation expectations read them. run_round and
+    ``list_claims.py --mutations`` (the listing the translation agents translate the mutated claims from) both build the
+    variants here, so the listing prints exactly the texts the round delivers."""
+    texts = list(quote_texts)
+    variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k, texts) for k in MUTATIONS]
+    variants = [(k, t, quotation_expectation(k, e, own_texts=bool(supplied(item)), any_text=bool(texts),
+                                             request_words=k == "altered_quotation" and not texts and alters_request_words(item["response_text"], item["question"], texts)))
+                for k, t, e in variants]
+    if is_stem_subject(item["subject"]):  # STEM faults, only on STEM subjects
+        variants += [(k,) + stem_variant(item["response_text"], item["question"], k) for k in STEM_MUTATIONS]
+    return variants
+
+
 class Injection(NamedTuple):
     """What identifies an injected fault on a receipt: its words (``markers``) and, for an appended paragraph, regular
     expressions for the place a finding may name it by instead (``locations``: 'paragraph 5, sentence 1')."""
@@ -645,31 +685,181 @@ def supplied(item: dict) -> list[SuppliedText]:
     return [SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none")) for t in item.get("supplied_texts", [])]
 
 
-def load_items(spec_dir: Path, include_pending: bool = False) -> list[dict]:
+#: The fields every specialist file of a round carries (module docstring, "Inputs"): task_id, subject and agent_id are
+#: words (non-blank strings), question and response_text strings (an empty answer is an answer the hub refuses with a
+#: receipt). ``load_items`` refuses a file that is not one JSON object holding them, naming the file. Round c3:
+#: specialists/bi-t16.json, written by its builder as a one-element list, stopped the round in load_items with "list
+#: indices must be integers or slices, not str" before any record was written, and list_claims.py printed the same
+#: TypeError for every file of the round.
+SPECIALIST_FILE_KEYS = ("task_id", "subject", "agent_id", "question", "response_text")
+#: The fields of a specialist file that name it to the router's plan (a planned task of tasks.json carries them too).
+PLAN_KEYS = ("task_id", "subject", "agent_id")
+#: Optional fields of a specialist file the harness reads: each is a word when present (null reads as absent).
+OPTIONAL_WORD_KEYS = ("group", "peer_of", "task_type")
+
+
+class RoundInputError(ValueError):
+    """A round input a tool cannot use (a task it cannot run, a file it cannot read): the message names it and says why,
+    and a command line prints it and exits with status 2, never a traceback."""
+
+
+class SpecialistFileError(RoundInputError):
+    """A file of ``<round>/specialists/`` that is no specialist file of the round format (``specialist_file_problem``). The
+    message names the file and says why; ``load_items`` raises it unless its caller collects such files (``refused``)."""
+
+    def __init__(self, path, reason: str):
+        self.path, self.reason = Path(path), reason
+        super().__init__(f"specialists/{self.path.name} is not a specialist file of the round format: the file {reason}")
+
+
+def _json_kind(value) -> str:
+    """The JSON kind of ``value`` in words ('a list of 1 element(s)', 'a string', ...)."""
+    if isinstance(value, list):
+        return f"a list of {len(value)} element(s)"
+    if isinstance(value, bool):
+        return "a boolean"
+    return {dict: "an object", str: "a string", int: "a number", float: "a number", type(None): "null"}.get(type(value), type(value).__name__)
+
+
+def _is_word(value) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _supplied_text_problem(texts) -> str | None:
+    """Why ``supplied_texts`` cannot be read as the supplied texts of a task (each one a SuppliedText: a document id and a
+    text), or None. Checked with the contract itself, so the harness never reads a text the hub would refuse to build."""
+    if not isinstance(texts, list):
+        return f"supplied_texts is {_json_kind(texts)}, not a list of supplied texts"
+    for i, t in enumerate(texts):
+        if not isinstance(t, dict):
+            return f"supplied_texts[{i}] is {_json_kind(t)}, not a supplied text object"
+        try:
+            SuppliedText(document_id=t["document_id"], title=t.get("title"), author=t.get("author"), text=t["text"], locator_scheme=t.get("locator_scheme", "none"))
+        except KeyError as exc:
+            return f"supplied_texts[{i}] has no {exc.args[0]}"
+        except (ValueError, TypeError) as exc:  # pydantic's ValidationError is a ValueError
+            return f"supplied_texts[{i}] is no supplied text ({type(exc).__name__}: {str(exc).splitlines()[0][:160]})"
+    return None
+
+
+def specialist_file_problem(value) -> str | None:
+    """Why the JSON ``value`` read from a file of ``<round>/specialists/`` is no specialist file of the round format, or
+    None when it is one: one object with the fields SPECIALIST_FILE_KEYS (task_id, subject and agent_id words; question
+    and response_text strings), group, peer_of and task_type words when present, supplied_texts a list of supplied texts
+    when present. The words complete the clause 'the file ...'."""
+    if not isinstance(value, dict):
+        return f"holds {_json_kind(value)} where the round format has one JSON object ({', '.join(SPECIALIST_FILE_KEYS)}, ...)"
+    missing = [k for k in SPECIALIST_FILE_KEYS if k not in value]
+    if missing:
+        return f"has no {', '.join(missing)}"
+    wrong = [(k, "a word") for k in PLAN_KEYS if not _is_word(value[k])]
+    wrong += [(k, "a string") for k in ("question", "response_text") if not isinstance(value[k], str)]
+    wrong += [(k, "a word") for k in OPTIONAL_WORD_KEYS if value.get(k) is not None and not _is_word(value[k])]
+    if wrong:
+        return "holds " + ", ".join(f"{k} as {_json_kind(value[k]) if not isinstance(value[k], str) else 'a blank string'} ({want} expected)"
+                                    for k, want in wrong)
+    if "supplied_texts" in value:
+        return _supplied_text_problem(value["supplied_texts"])
+    return None
+
+
+def read_tasks(tasks_file: Path) -> tuple[list[dict], str | None]:
+    """The entries of a round's ``tasks.json`` (the router's plan of the round) and why it cannot be read, if it cannot: a
+    file that is not JSON, or not a list, plans nothing (an entry that is not an object is left out and named)."""
+    if not tasks_file.exists():
+        return [], None
+    try:
+        value = json.loads(tasks_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        return [], f"{tasks_file.name} cannot be read ({type(exc).__name__}: {str(exc)[:160]})"
+    if not isinstance(value, list):
+        return [], f"{tasks_file.name} holds {_json_kind(value)}, not a list of tasks"
+    entries = [t for t in value if isinstance(t, dict)]
+    if len(entries) != len(value):
+        return entries, f"{len(value) - len(entries)} entr(y/ies) of {tasks_file.name} are not objects"
+    return entries, None
+
+
+def planned_task(task: dict) -> bool:
+    """Whether a tasks.json entry plans a task (a task id, subject and agent: the router can dispatch it); an entry that only
+    records a setting of a task (``{"task_id", "revision_rounds"}``) plans nothing."""
+    return all(_is_word(task.get(k)) for k in PLAN_KEYS)
+
+
+def _pending_item(task: dict, path: Path, refused: dict | None = None) -> dict:
+    """A planned task with no specialist file read (marked ``_pending``), as a group's plan reads it: its fields as tasks.json
+    (or a refused file) gives them, a field the plan reads but cannot use dropped (a non-word group, peer_of or task_type,
+    supplied texts that are no supplied texts). ``refused`` (a refused file of the task) marks it ``_refused`` with the
+    file and the reason: answered, but the answer cannot be read."""
+    item = {k: v for k, v in task.items() if not k.startswith("_")}
+    for k in OPTIONAL_WORD_KEYS:
+        if k in item and not _is_word(item[k]):
+            item.pop(k)
+    if "supplied_texts" in item and _supplied_text_problem(item["supplied_texts"]) is not None:
+        item["supplied_texts"] = []
+    item.update(_path=path, _pending=True)
+    if refused is not None:
+        item.update(_refused=refused["reason"], _refused_file=refused["file"])
+    return item
+
+
+def load_items(spec_dir: Path, include_pending: bool = False, *, refused: list | None = None) -> list[dict]:
     """Specialist files in name order, peer-dependent tasks after the tasks they depend on.
     With ``include_pending``, tasks of <round>/tasks.json that have no specialist file yet are
-    added (marked ``_pending``) so a group's plan can name every agent before all have answered."""
+    added (marked ``_pending``) so a group's plan can name every agent before all have answered.
+
+    Every file must be one JSON object of the round format (``specialist_file_problem``). A file that is not raises
+    ``SpecialistFileError`` naming it and saying why, never a bare TypeError or KeyError; with ``refused`` (a list) the file
+    is appended there instead (``{"file", "path", "task_id", "reason"}``) and the rest of the round is read, so the caller
+    can name it as a failure of its task. With ``include_pending`` as well, a refused file of a task tasks.json plans (by
+    its task id or its file name), or one whose own task id, subject and agent can be read, is that task's pending item,
+    marked ``_refused`` (``_pending_item``): the task belongs to its group's plan, and its answer was not delivered.
+    Pending items take their place in name order with the files, as their files will when they are written, so a group's
+    plan does not depend on which answers are already recorded."""
     items = []
+    bad: list[dict] = []
     for sp in sorted(spec_dir.glob("*.json")):
-        item = json.loads(sp.read_text())
+        try:
+            item = json.loads(sp.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            problem, item = f"is not JSON ({type(exc).__name__}: {str(exc)[:160]})", None
+        else:
+            problem = specialist_file_problem(item)
+        if problem is not None:
+            if refused is None:
+                raise SpecialistFileError(sp, problem)
+            own = item.get("task_id") if isinstance(item, dict) and _is_word(item.get("task_id")) else sp.stem
+            bad.append({"file": sp.name, "path": sp, "task_id": own, "reason": problem, "value": item})
+            continue
         item["_path"] = sp
         items.append(item)
     tasks_file = spec_dir.parent / "tasks.json"
-    if include_pending and tasks_file.exists():
+    tasks, _tasks_problem = read_tasks(tasks_file)
+    if include_pending:
         have = {it["task_id"] for it in items}
-        for task in json.loads(tasks_file.read_text()):
-            if task["task_id"] not in have:
-                items.append({**task, "_path": spec_dir / f"{task['task_id']}.json", "_pending": True})
-    if tasks_file.exists():
+        for task in tasks:
+            if not planned_task(task) or task["task_id"] in have:
+                continue
+            match = next((b for b in bad if b["task_id"] == task["task_id"] or b["path"].stem == task["task_id"]), None)
+            items.append(_pending_item(task, match["path"] if match else spec_dir / f"{task['task_id']}.json", match))
+            have.add(task["task_id"])
+            if match is not None:
+                match["planned"] = True
+        for b in bad:  # a refused file no tasks.json entry plans, whose own fields still name its task to the plan
+            if not b.get("planned") and isinstance(b["value"], dict) and planned_task(b["value"]) and b["value"]["task_id"] not in have:
+                items.append(_pending_item(b["value"], b["path"], b))
+                have.add(b["value"]["task_id"])
+                b["planned"] = True
+    if refused is not None:
+        refused.extend({k: v for k, v in b.items() if k != "value"} for b in bad)
+    if tasks:
         # a task's revision budget (design section 53) is the round's setting: taken from tasks.json when the specialist file
         # does not carry it (no recorded round before round 8 sets one, so their plans are unchanged)
-        try:
-            budgets = {t["task_id"]: t["revision_rounds"] for t in json.loads(tasks_file.read_text()) if isinstance(t, dict) and "revision_rounds" in t}
-        except (ValueError, KeyError, TypeError):
-            budgets = {}
+        budgets = {t["task_id"]: t["revision_rounds"] for t in tasks if "revision_rounds" in t and isinstance(t.get("task_id"), str)}
         for it in items:
             if "revision_rounds" not in it and it["task_id"] in budgets:
                 it["revision_rounds"] = budgets[it["task_id"]]
+    items.sort(key=lambda it: it["_path"].name)
     order = {it["task_id"]: i for i, it in enumerate(items)}
     items.sort(key=lambda it: (1 if it.get("peer_of") else 0, order[it["task_id"]]))
     return items
@@ -741,6 +931,104 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
     return rec, text, relayed
 
 
+def unanswered_reason(item: dict) -> str:
+    """Why the answer of a task of the round's plan was not delivered when the round holds no readable specialist file of it
+    (``load_items``: ``_pending``)."""
+    if item.get("_refused"):
+        return (f"the answer cannot be read: {SpecialistFileError(item['_path'], item['_refused'])}; nothing of it was delivered (rewrite the file as "
+                "one JSON object of the round format and run the round again)")
+    peer = f" (group {item['group']}, peer of {item['peer_of']})" if item.get("peer_of") and item.get("group") else \
+           (f" (peer of {item['peer_of']})" if item.get("peer_of") else (f" (group {item['group']})" if item.get("group") else ""))
+    return (f"never answered: the round's plan (tasks.json) holds task {item['task_id']}{peer}, and the round holds no answer of it "
+            f"(no specialists/{item['_path'].name}), so nothing was delivered for it")
+
+
+def unanswered_record(item: dict, plan) -> dict:
+    """The genuine record of a task of the round's plan whose answer the round does not hold (``load_items``: ``_pending``):
+    planned genuine traffic that was not delivered, a failure of the transport measure, named (``not_answered``, or
+    ``answer_unreadable`` for a file that is no specialist file of the round format) and never left out. Round c3: tasks.json
+    planned four peer-dependent tasks (mai-p10a, ec-p10b, ge-p10c, en-p10d) that never answered; the harness read
+    specialists/ only, so they appeared nowhere and the headline read 'genuine traffic delivered and decided: 40 of 40'."""
+    rec = {"file": item["_path"].name, "task_id": item["task_id"], "subject": item["subject"], "variant": "genuine", "expected": "NONE",
+           "task_type": plan.agent_task_types.get(item["agent_id"], plan.task_type), "channel": group_of(item), "group": group_of(item),
+           "agent_id": item["agent_id"], "functional": False, "error": unanswered_reason(item)}
+    rec["answer_unreadable" if item.get("_refused") else "not_answered"] = True
+    if item.get("peer_of"):
+        rec["peer_of"] = item["peer_of"]
+    return rec
+
+
+def relay_not_run_record(item: dict) -> dict:
+    """The peer relay of a planned peer-dependent task the round never relayed (no ``relayed/<task>.json``) and whose answer it
+    does not hold: the router's relay of the peer's report to that agent is planned genuine traffic that did not take place,
+    a failure named ``relay_not_run``. The replay never runs it in the round's place: the agent's reading of its peer is what
+    a relay records, and this agent read nothing."""
+    peer, task = item["peer_of"], item["task_id"]
+    return {"file": item["_path"].name, "task_id": task, "subject": item["subject"], "variant": "peer_relay", "expected": "NONE", "peer_of": peer,
+            "channel": group_of(item), "group": group_of(item), "functional": False, "relay_not_run": True,
+            "error": (f"the relay of {peer}'s report to {item['agent_id']} (task {task}) was not run: the round records no relay (no relayed/{task}.json, "
+                      f"written by relay_peer.py) and no answer of {task}, so the peer exchange the plan holds did not take place")}
+
+
+def unreadable_file_record(bad: dict) -> dict:
+    """The genuine record of a specialist file that is no specialist file of the round format and names no task of the
+    round's plan (``load_items``'s ``refused``): its answer was not delivered, a named failure, and the round runs on."""
+    return {"file": bad["file"], "task_id": bad["task_id"], "subject": "unknown (the specialist file cannot be read)", "variant": "genuine", "expected": "NONE",
+            "channel": Path(bad["file"]).stem, "group": Path(bad["file"]).stem, "functional": False, "answer_unreadable": True,
+            "error": f"the answer cannot be read: {SpecialistFileError(bad['path'], bad['reason'])}; nothing of it was delivered"}
+
+
+def planned_traffic(items: list[dict], refused: list[dict], records: list[dict], tasks_problem: str | None, has_tasks: bool) -> dict:
+    """results.json ``planned_tasks``: the round's plan (tasks.json, else the specialist files) set against what the round
+    holds and what the replay delivered. ``not_answered``: tasks the plan holds whose answer the round does not hold, each
+    with its group, peer and agent; ``answers_unreadable``: specialist files that are no specialist file of the round format;
+    ``peer_relays``: one expected per planned peer-dependent task, with those run, those delivered, those never run
+    (``not_run``: no recorded relay and no answer) and the answered dependents whose relay the round never recorded
+    (``answered_without_recorded_relay``: the replay relays the peer's report itself, but the round holds no record of what
+    that agent read). Round c3: four planned peer exchanges never took place, and nothing said so."""
+    pend = [it for it in items if it.get("_pending")]
+    relays = [r for r in records if r.get("variant") == "peer_relay"]
+    dependents = [it for it in items if it.get("peer_of")]
+    out = {"source": "tasks.json" if has_tasks else "the specialist files (the round has no tasks.json)",
+           "planned": len(items) + sum(1 for b in refused if not b.get("planned")), "answered": sum(1 for it in items if not it.get("_pending")),
+           "not_answered": [{k: v for k, v in (("task_id", it["task_id"]), ("group", group_of(it)), ("peer_of", it.get("peer_of")), ("agent_id", it["agent_id"]),
+                                              ("subject", it["subject"])) if v is not None} for it in pend if not it.get("_refused")],
+           "answers_unreadable": [{"file": f"specialists/{b['file']}", "task_id": b["task_id"], "reason": b["reason"]} for b in refused],
+           "peer_relays": {"expected": len(dependents), "run": sum(1 for r in relays if not r.get("relay_not_run")),
+                           "delivered": sum(1 for r in relays if r.get("functional")),
+                           "not_run": [r["task_id"] for r in relays if r.get("relay_not_run")],
+                           "answered_without_recorded_relay": [r["task_id"] for r in relays if r.get("document_source") == "forwarded report"
+                                                               and not next((it for it in items if it["task_id"] == r["task_id"]), {}).get("_pending")]}}
+    if tasks_problem:
+        out["tasks_json_problem"] = tasks_problem
+    return out
+
+
+def planned_traffic_lines(p: dict) -> list[str]:
+    """summary.md's section on the round's plan: every planned task never answered (with its group and peer), every answer
+    that cannot be read, the peer relays against those the plan expects, and the dependents answered without a recorded
+    relay."""
+    lines = ["## The round's plan against what the round holds (planned tasks never answered, answers that cannot be read, peer relays)", ""]
+    pr = p["peer_relays"]
+    lines.append(f"- Plan: {p['source']}; {p['planned']} task(s) planned, {p['answered']} answered with a readable specialist file. Peer relays: {pr['run']} of "
+                 f"{pr['expected']} expected run ({pr['delivered']} delivered)" + (f"; NOT run: {', '.join(pr['not_run'])} (no recorded relay and no answer: "
+                                                                                 "the peer exchange the plan holds did not take place)" if pr["not_run"] else "") + ".")
+    for t in p["not_answered"]:
+        lines.append(f"- NOT ANSWERED: {t['task_id']} ({t['subject']}, {t['agent_id']}; group {t['group']}"
+                     + (f", peer of {t['peer_of']}" if t.get("peer_of") else "") + "): planned in tasks.json, no specialist file; counted as a genuine "
+                     "reply not delivered, and its group's synthesis names it (members_not_delivered, members_not_answered).")
+    for b in p["answers_unreadable"]:
+        lines.append(f"- UNREADABLE ANSWER: {b['file']} (task {b['task_id']}): the file {b['reason']}; counted as a genuine reply not delivered.")
+    if pr["answered_without_recorded_relay"]:
+        lines.append(f"- Answered without a recorded relay (relayed/<task>.json): {', '.join(pr['answered_without_recorded_relay'])}: the replay relays the "
+                     "peer's report itself, but the round holds no record of what the dependent agent read.")
+    if p.get("tasks_json_problem"):
+        lines.append(f"- tasks.json: {p['tasks_json_problem']}; the plan is read from the specialist files.")
+    if len(lines) == 3 and not pr["not_run"]:
+        lines.append("- Every planned task answered, every specialist file readable.")
+    return lines
+
+
 #: The keys of <round>/relayed/<task>.json, the only file the peer-dependent agent may read of its peer: its own task id,
 #: the peer task's id, whether the relay delivered, the relay's status, the document id the report is supplied as and
 #: the specialist_report/1.0 payload exactly as the hub relayed it. Nothing of a receipt (findings, subject findings,
@@ -778,11 +1066,32 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
       is never supplied to an agent.
 
     Returns ``{"relayed": <the agent's document>, "router": <the router's record>, "relayed_file": <path>,
-    "router_file": <path>}``."""
-    items = load_items(round_dir / "specialists", include_pending=True)
-    item = next(it for it in items if it["task_id"] == task_id)
-    peer = item["peer_of"]
-    peer_item = next(it for it in items if it["task_id"] == peer)
+    "router_file": <path>}``.
+
+    A relay that cannot be made raises ``RoundInputError`` naming the task or the file, before anything is written: a task
+    the round neither plans nor answers, a task with no peer, a peer that has not answered, or a peer whose specialist
+    file is no specialist file of the round format (``SpecialistFileError``). Another task's unreadable file never stops
+    the relay (the dependent's own answer is normally not written yet)."""
+    refused: list[dict] = []
+    items = load_items(round_dir / "specialists", include_pending=True, refused=refused)
+
+    def refused_file(tid: str) -> dict | None:
+        return next((b for b in refused if b["task_id"] == tid or b["path"].stem == tid), None)
+    item = next((it for it in items if it["task_id"] == task_id), None)
+    if item is None:
+        bad = refused_file(task_id)
+        if bad is not None:
+            raise SpecialistFileError(bad["path"], bad["reason"])
+        raise RoundInputError(f"task {task_id} is no task of the round (no specialist file of it, and tasks.json plans no such task)")
+    peer = item.get("peer_of")
+    if not peer:
+        raise RoundInputError(f"task {task_id} has no peer_of: no peer report is relayed to it")
+    peer_item = next((it for it in items if it["task_id"] == peer), None)
+    if peer_item is None or peer_item.get("_pending"):
+        bad = refused_file(peer)
+        if bad is not None:
+            raise SpecialistFileError(bad["path"], bad["reason"])
+        raise RoundInputError(f"the peer {peer} of task {task_id} has not answered (no specialists/{peer}.json): there is no report to relay")
     group = group_of(item)
     hub = RouterHub(signing_key=KEY, config=CFG)
     plan = group_plan(items, group)
@@ -979,7 +1288,15 @@ def _as_list(value) -> list:
 PORT_TEXT_COMPOSER = "student_facing_text"
 
 
-def student_facing_text(texts: list[str]) -> str:
+def _declares(fn, name: str) -> bool:
+    """Whether the callable ``fn`` declares a parameter ``name`` (a composer that cannot be inspected declares none)."""
+    try:
+        return name in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def student_facing_text(texts: list[str], citations: list | None = None, sources: list | None = None) -> str:
     """The student-facing text of a relayed synthesis, composed from its synthesized claims' texts (in order) exactly as the
     deployed combinator port composes it, so the arena relays the text production would relay and never composes one of
     its own: the port's composer when it has one (:data:`PORT_TEXT_COMPOSER`), else the claims' texts joined by a space,
@@ -991,10 +1308,19 @@ def student_facing_text(texts: list[str]) -> str:
     (INT-LEDGER-017, rule duplicated-content). Since the round-9 clearance's second fix pass the deployed port composes the
     text itself (``combinator_port.student_facing_text``: such a claim is rendered only inside the sentence that quotes it),
     and the harness follows the port's composer unchanged (``test_the_arena_composes_the_student_facing_text_as_the_port_does``),
-    so the arena relays the text production relays."""
+    so the arena relays the text production relays.
+
+    Round-10 clearance (integration handoff H2, c3 lit-t16): the port composes the text with the synthesized claims' citations and the
+    sources they cite (``combinator_port.synthesis_payload``: an orphaned quotation, whose every quoting source claim the synthesis left
+    out, is not rendered on its own), so the arena passes ``citations`` and ``sources`` to the composer whenever it declares them, and
+    the texts alone otherwise (never a ``TypeError`` caught, which would hide one raised inside the composer)."""
     from epinoic_logic.integration import combinator_port as CB
     compose = getattr(CB, PORT_TEXT_COMPOSER, None)
-    return compose(list(texts)) if callable(compose) else " ".join(texts)
+    if not callable(compose):
+        return " ".join(texts)
+    if citations is not None and sources is not None and _declares(compose, "citations") and _declares(compose, "sources"):
+        return compose(list(texts), citations=list(citations), sources=list(sources))
+    return compose(list(texts))
 
 
 def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: dict, plan: WorkPlan, notes: dict | None = None,
@@ -1080,7 +1406,13 @@ def group_synthesis(items: list[dict], group: str, syntheses: dict, delivered: d
             conflicts.append({"conflict_id": f"{prefix}k{k_i}", "status": "unresolved", **k} if isinstance(k, dict) else k)
     if notes is not None:
         notes["evidence_refs_copied"] = copied
-    s_text = student_facing_text([c["text"] for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)]) or "(empty)"
+    kept = [c for c in s_claims if isinstance(c, dict) and isinstance(c.get("text"), str)]
+    # the composer reads the citations as written (anything but a list of strings cites nothing) and the delivered members' claims, in
+    # group order, as ``source_report_ids`` lists them (round-10 clearance, integration handoff H2: the port's composition)
+    citations = [c.get("source_claim_ids") for c in kept]
+    sources = [[(c["claim_id"], c["claim_text"]) for c in delivered[it["_path"].stem].payload.get("claims", [])
+                if isinstance(c, dict) and isinstance(c.get("claim_id"), str) and isinstance(c.get("claim_text"), str)] for it in reporting]
+    s_text = student_facing_text([c["text"] for c in kept], citations, sources) or "(empty)"
     out = {"synthesis_id": f"syn-{group}", "request_id": plan.request_id, "task_id": plan.task_id, "combinator_agent_id": "dummy-combinator",
            "source_report_ids": source_ids, "claims": s_claims, "ledger": ledger, "text": s_text, "text_sha256": sha256_text(s_text),
            "created_at": created_at if created_at is not None else relay_clock()}
@@ -1140,7 +1472,8 @@ _INTERNAL_RE = re.compile(r"\(INTERNAL_ERROR\)")
 
 
 def synthesis_failure_reasons(status: str | None, delivered: bool, findings: list[dict], internal_checks: int = 0,
-                              undelivered: list[str] | tuple = (), *, contract: list[dict] | tuple = ()) -> list[str]:
+                              undelivered: list[str] | tuple = (), *, contract: list[dict] | tuple = (), not_answered: list[str] | tuple = (),
+                              unreadable: list[str] | tuple = ()) -> list[str]:
     """Why a combinator synthesis transmission is not functional (empty when it is): it was not delivered (a synthesis of
     the delivered reports is genuine traffic, so REJECTED is a failure, never re-labelled), a check on it failed
     internally (INT-SYNTH-013; a joint check undecided with INTERNAL_ERROR; ``internal_checks`` formal checks or outcomes
@@ -1148,7 +1481,10 @@ def synthesis_failure_reasons(status: str | None, delivered: bool, findings: lis
     their task ids), so the synthesis the router received covers only part of the group's reports, or a syntheses file
     it was made from is out of the combinator's published contract (``contract``: one ``combinator_contract_problem``
     per file, with its ``file``), which the combinator's runner refuses before anything leaves it, so the deployed path
-    never delivers that synthesis, whatever the hub's receipt says."""
+    never delivers that synthesis, whatever the hub's receipt says. Of the members not delivered, those the round's plan
+    holds but that never answered (``not_answered``: tasks.json plans them and the round holds no specialist file of
+    them) and those whose specialist file cannot be read (``unreadable``) are named apart: the group's exchange did not
+    take place as planned."""
     reasons = []
     if status == TransmissionStatus.REJECTED.value or not delivered:
         refused = sorted({f["code"] for f in findings if f.get("severity") == "error"})
@@ -1160,6 +1496,12 @@ def synthesis_failure_reasons(status: str | None, delivered: bool, findings: lis
         reasons.append(f"{len(internal) + internal_checks} check(s) on the synthesis failed internally (INTERNAL_ERROR){': ' + str(sorted(set(internal))) if internal else ''}")
     if undelivered:
         reasons.append(f"the report(s) of {list(undelivered)} were not delivered through the hub, so the group's synthesis covers only the delivered reports")
+    if not_answered:
+        reasons.append(f"{list(not_answered)} never answered: the round's plan (tasks.json) holds them, and the round holds no specialist file of "
+                       "them, so the group's exchange did not take place as planned")
+    if unreadable:
+        reasons.append(f"the answer(s) of {list(unreadable)} cannot be read (their specialist file is no specialist file of the round format), so "
+                       "they were not delivered")
     for p in contract:
         reasons.append(f"{p['file']} is out of the combinator's published contract ({p['code']} {p['reason']}: {p['detail']}); the combinator's runner "
                        "refuses such an output before it leaves, so the deployed path never delivers this synthesis")
@@ -1190,11 +1532,20 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
     plan = ch.plan
     members = [it for it in items if group_of(it) == group]
     undelivered = [it["task_id"] for it in members if it["_path"].stem not in delivered]
+    # the members the round's plan holds whose answer the round does not hold (load_items: _pending): never answered, or
+    # answered in a file that cannot be read (round c3: the four peer-dependent tasks of tasks.json had no specialist file,
+    # and each p10 group's synthesis of its one delivered report was counted functional with no member named)
+    not_answered = [it["task_id"] for it in members if it.get("_pending") and not it.get("_refused")]
+    unreadable = [it["task_id"] for it in members if it.get("_refused")]
     rec = {"file": item["_path"].name, "task_id": item["task_id"], "subject": plan.subject, "variant": "synthesis", "expected": "NONE", "task_type": plan.task_type,
            "channel": group, "group": group,
            "synthesis_files": [f"syntheses/{it['_path'].stem}.json" for it in members if it["_path"].stem in syntheses]}
     if undelivered:
         rec["members_not_delivered"] = undelivered
+    if not_answered:
+        rec["members_not_answered"] = not_answered
+    if unreadable:
+        rec["members_unreadable"] = unreadable
     t0 = time.perf_counter()
     try:
         notes: dict = {}
@@ -1205,6 +1556,8 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
                            + (f", and the round's syntheses {rec['synthesis_files']} cite reports the router never received" if rec["synthesis_files"] else ""))
             else:
                 rec.update(functional=False, error=f"no synthesis for the delivered group {group!r}: the round carries syntheses, but none for a delivered member of this group")
+            if not_answered or unreadable:
+                rec["failure_reasons"] = synthesis_failure_reasons(None, True, [], 0, (), not_answered=not_answered, unreadable=unreadable)
             return rec
         if notes.get("evidence_refs_copied"):
             rec["evidence_refs_copied"] = notes["evidence_refs_copied"]
@@ -1218,7 +1571,8 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
         findings = [finding_dict(f) for f in rr.findings]
         subject = [finding_dict(sf) for sf in rr.structural_findings]
         internal_checks = sum(1 for fc in rr.formal_checks if fc.formal_status == "INTERNAL_ERROR") + sum(1 for o in rr.outcomes if o.display_status.value == "INTERNAL_ERROR")
-        reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks, undelivered, contract=contract)
+        reasons = synthesis_failure_reasons(rr.status.value, relayed is not None, findings + subject, internal_checks, undelivered, contract=contract,
+                                            not_answered=not_answered, unreadable=unreadable)
         shape = synthesis if isinstance(synthesis, dict) else {}
         if not isinstance(synthesis, dict):
             rec["synthesis_unreadable"] = "a syntheses file of the group is not JSON: its text was relayed as the payload"
@@ -1232,7 +1586,7 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
     except Exception as exc:  # a crash is a translator bug
         rec.update(functional=False, error=f"{type(exc).__name__}: {exc}", trace=traceback.format_exc()[-1500:])
         if undelivered:
-            rec["failure_reasons"] = synthesis_failure_reasons(None, True, [], 0, undelivered)
+            rec["failure_reasons"] = synthesis_failure_reasons(None, True, [], 0, undelivered, not_answered=not_answered, unreadable=unreadable)
     return rec
 
 
@@ -1664,6 +2018,103 @@ def fixture_for_claim(value, recorded_id: str, claim_id: str) -> str:
     return json.dumps(obj)
 
 
+#: Where a round records the translations of its mutated claims: ``<round>/mutation_translations/<file stem>/<variant>.json``,
+#: ``{"task_id", "variant", "claims": {claim id: the translation agent's output}, "claim_text_sha256": {claim id: digest}}``,
+#: the translation agents' output for the claims ``list_claims.py <specialist file> --mutations --json`` lists as changed by
+#: that variant (``translate``), each bound to the mutated claim text by the digest the listing prints. Round 9's push check
+#: (major, carried from c1 translation-fidelity bug r8-8): no recorded translation existed for a mutated text, so the fixture
+#: provider refused the genuine claim's translation as stale and every injected fault on a translated claim was left to the
+#: deterministic checks (24 of 24 STEM injections of c1 ended with no translation; 11 went unnamed).
+MUTATION_TRANSLATIONS_DIR = "mutation_translations"
+
+
+def load_mutation_translations(round_dir: Path) -> tuple[dict[tuple[str, str], dict], list[dict]]:
+    """``(file stem, variant) -> {"file", "claims", "claim_text_sha256"}`` for every recorded mutation translations file of
+    the round (MUTATION_TRANSLATIONS_DIR), and what cannot be served, each named with why: a file that is not one JSON object
+    with a ``claims`` object, a file of a variant the harness does not run, and a translation recorded without the digest of
+    the mutated claim text it was produced for (a translation of a mutated claim is served only to that text: the listing
+    prints the digest). Never raises on a recorded file."""
+    root = round_dir / MUTATION_TRANSLATIONS_DIR
+    out: dict[tuple[str, str], dict] = {}
+    problems: list[dict] = []
+    if not root.is_dir():
+        return out, problems
+    for p in sorted(root.iterdir()):
+        if not p.is_dir():
+            problems.append({"file": f"{MUTATION_TRANSLATIONS_DIR}/{p.name}", "why": "not in a <file stem>/ directory of the round's specialist files"})
+            continue
+        for f in sorted(p.glob("*.json")):
+            rel = f"{MUTATION_TRANSLATIONS_DIR}/{p.name}/{f.name}"
+            if f.stem not in INJECTED_VARIANTS:
+                problems.append({"file": rel, "why": f"{f.stem!r} is no mutation the harness runs ({', '.join(sorted(INJECTED_VARIANTS))})"})
+                continue
+            try:
+                value = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
+                problems.append({"file": rel, "why": f"not JSON ({type(exc).__name__})"})
+                continue
+            if not isinstance(value, dict) or not isinstance(value.get("claims"), dict):
+                problems.append({"file": rel, "why": f"holds {_json_kind(value)}, not an object with a claims object"})
+                continue
+            recorded = value.get("claim_text_sha256") if isinstance(value.get("claim_text_sha256"), dict) else {}
+            claims: dict = {}
+            digests: dict[str, str] = {}
+            for cid, obj in value["claims"].items():
+                digest = recorded.get(cid)
+                if not (isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)):
+                    problems.append({"file": rel, "claim_id": cid, "why": ("no claim_text_sha256 recorded for it: a translation of a mutated claim is served only "
+                                                                           "to the text it was produced for (list_claims.py --mutations --json prints the digest)")})
+                    continue
+                claims[cid], digests[cid] = obj, digest
+            out[(p.name, f.stem)] = {"file": rel, "claims": claims, "claim_text_sha256": digests}
+    return out, problems
+
+
+def mutated_claims(claims: list[ClaimRecord], genuine_texts: dict[str, str], outcomes: list[dict], tag: str | None) -> dict:
+    """The claims of a mutation's delivery whose text no claim of the genuine delivery carries under the same id (in either
+    form of an id the hub may qualify, ``other_id_form``), by what became of their translation: ``translated`` (an outcome
+    from a translation served for the mutated text: a recorded translation of the mutation's, bound to that text),
+    ``not_translated`` (eligible for translation, as the pipeline decides before it asks a provider, but no translation of
+    the mutated text was recorded: the genuine claim's translation is refused as stale, or the claim has none, so it got no
+    verdict where production translates it) and ``not_eligible`` (production translates it no more than the replay)."""
+    by_id = {o["claim_id"]: o for o in outcomes}
+    out: dict[str, list[str]] = {"translated": [], "not_translated": [], "not_eligible": []}
+    for c in claims:
+        same = genuine_texts.get(c.claim_id)
+        if same is None:
+            other = other_id_form(c.claim_id, tag)
+            same = genuine_texts.get(other) if other is not None else None
+        if same == c.claim_text:
+            continue
+        o = by_id.get(c.claim_id)
+        if o is not None and o.get("attempts", 0) > 0 and not o.get("stale_fixture_refused"):
+            out["translated"].append(c.claim_id)
+        elif translation_eligible(c):
+            out["not_translated"].append(c.claim_id)
+        else:
+            out["not_eligible"].append(c.claim_id)
+    return out
+
+
+def mutation_translation_measure(records: list[dict], recorded: dict[tuple[str, str], dict], problems: list[dict]) -> dict:
+    """``metrics.replay.mutated_claims``: of the claims the round's mutations changed that the pipeline would translate, how
+    many were translated from a recorded translation of the mutated text and how many were not (named: file, variant, claim);
+    the recorded mutation translations (``mutation_translations/``) and which of them no mutated claim was served, with what
+    of the directory cannot be served. A replay without recorded mutation translations translates no mutated claim: only the
+    deterministic checks can name an injection on a translated claim, and the line says so."""
+    muts = [r for r in records if r["variant"] in INJECTED_VARIANTS and isinstance(r.get("mutated_claims"), dict)]
+    translated = [f"{r['file']} {r['variant']} {cid}" for r in muts for cid in r["mutated_claims"]["translated"]]
+    missing = [f"{r['file']} {r['variant']} {cid}" for r in muts for cid in r["mutated_claims"]["not_translated"]]
+    served = {(r["file"][:-5] if r["file"].endswith(".json") else r["file"], r["variant"], cid) for r in muts for cid in r["mutated_claims"]["translated"]}
+    unserved = [f"{v['file']} {cid}" for (stem, variant), v in sorted(recorded.items()) for cid in v["claims"] if (stem, variant, cid) not in served]
+    return {"eligible": len(translated) + len(missing), "translated": len(translated), "not_translated": len(missing), "not_translated_claims": missing,
+            "recorded": sum(len(v["claims"]) for v in recorded.values()), "recorded_not_served": unserved, "not_servable": list(problems),
+            "definition": ("a claim a mutation changed that the pipeline translates (eligible) is translated in a replay only from a recorded translation of the "
+                           "mutated text (mutation_translations/<file stem>/<variant>.json, bound by its digest); without one the genuine claim's translation is "
+                           "refused as stale, or the claim has none, and it gets no verdict, where production translates the mutated text: only the "
+                           "deterministic checks can name such an injection")}
+
+
 def fixture_sha256(value) -> str:
     """Digest of a recorded translation fixture as the translations file holds it: the text itself, or the canonical JSON
     of an object (sorted keys, no spacing). An adjudication names the translation it judged by this digest."""
@@ -1974,7 +2425,13 @@ def transport_measure(records: list[dict]) -> dict:
                            "translation is faithful or whether an answer is better"),
             "functional": functional, "transmissions": total, "rate": (functional / total) if total else 0.0,
             "genuine_traffic": {"functional": sum(1 for r in gen if r.get("functional")), "total": len(gen),
-                                "by_variant": {v: sum(1 for r in gen if r["variant"] == v) for v in GENUINE_VARIANTS}},
+                                "by_variant": {v: sum(1 for r in gen if r["variant"] == v) for v in GENUINE_VARIANTS},
+                                "functional_by_variant": {v: sum(1 for r in gen if r["variant"] == v and r.get("functional")) for v in GENUINE_VARIANTS},
+                                # the round's plan against what it holds (round c3): planned replies never answered or unreadable, and
+                                # planned peer relays the round never ran, each a failure counted in the totals above
+                                "not_answered": [r["task_id"] for r in gen if r.get("not_answered")],
+                                "answers_unreadable": [r["file"] for r in gen if r.get("answer_unreadable")],
+                                "peer_relays_not_run": [r["task_id"] for r in gen if r.get("relay_not_run")]},
             "injected_faults": {"functional": sum(1 for r in inj if r.get("functional")), "total": len(inj)}}
 
 
@@ -2021,11 +2478,23 @@ def replay_line(rp: dict) -> str:
             "the task record is NOT passed to the translator (--without-task-record: task-authority premises are validated against the supplied texts "
             "only, unlike production)")
     named = f": {', '.join(rt['claims'])}" if rt["claims"] else ""
+    mc = rp.get("mutated_claims")
+    mutated = ""
+    if mc is not None:
+        shown = mc["not_translated_claims"][:12]
+        more = f" and {len(mc['not_translated_claims']) - len(shown)} more (results.json metrics.replay.mutated_claims)" if len(mc["not_translated_claims"]) > len(shown) else ""
+        mutated = (f"; mutated claims (the claims the injected faults changed that the pipeline translates): {mc['translated']} of {mc['eligible']} translated "
+                   f"from a recorded translation of the mutated text ({MUTATION_TRANSLATIONS_DIR}/: {mc['recorded']} recorded"
+                   + (f", {len(mc['recorded_not_served'])} served to no mutated claim" if mc["recorded_not_served"] else "")
+                   + (f", {len(mc['not_servable'])} not servable" if mc["not_servable"] else "") + ")"
+                   + (f"; {mc['not_translated']} NOT translated (no translation of the mutated text was recorded: refused the genuine claim's translation "
+                      f"as stale, or none, so no verdict, where production translates it; only the deterministic checks can name those injections): "
+                      f"{', '.join(shown)}{more}" if mc["not_translated"] else ""))
     return (f"- Replay configuration (what a recording cannot run as production does is named, never counted as run): {task}; "
             f"{fb['served_with_recorded_digest']} served translations bound to a recorded claim-text digest, {fb['served_by_claim_id_only']} by claim id "
             f"only; retries NOT exercised (a recorded translation is one output, so a retry is served the same output and the outcome is the first "
-            f"attempt's) on {rt['not_exercised_genuine_claims']} genuine claim(s){named} ({rt['not_exercised_all_variants']} over every variant); "
-            "syntheses stamped at relay time.")
+            f"attempt's) on {rt['not_exercised_genuine_claims']} genuine claim(s){named} ({rt['not_exercised_all_variants']} over every variant)"
+            f"{mutated}; syntheses stamped at relay time.")
 
 
 def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
@@ -2048,17 +2517,21 @@ def run_qualifications(coverage: dict, fidelity: dict) -> list[dict]:
     return out
 
 
-def round_measures(records: list[dict], translations: dict[str, dict], adjudications: dict | None, *, task_record: bool = True) -> dict:
+def round_measures(records: list[dict], translations: dict[str, dict], adjudications: dict | None, *, task_record: bool = True,
+                   mutation_translations: tuple[dict, list] | None = None) -> dict:
     """results.json ``metrics``: transport, fixture coverage, translation fidelity, the claim counts and latency, each
     with its own definition and denominator, the qualifications they raise, and the replay's configuration
-    (``replay_configuration``: what it runs as production does and what it cannot)."""
+    (``replay_configuration``: what it runs as production does and what it cannot, the mutated claims translated or not
+    among it: ``mutation_translations`` is ``load_mutation_translations``'s pair)."""
     coverage = round_fixture_coverage(records, translations)
     fidelity = adjudicate(adjudications, records, translations)
+    replay = replay_configuration(records, coverage, task_record=task_record)
+    replay["mutated_claims"] = mutation_translation_measure(records, *(mutation_translations or ({}, [])))
     return {"note": "separate measures, each with its own denominator; none is combined with another into one rate",
             "transport": transport_measure(records), "fixture_coverage": coverage, "translation_fidelity": fidelity,
             "claims": round_claim_measures(records, fidelity), "latency": latency_measures(records),
             "cost": "no translation provider was called (recorded fixtures only)", "qualifications": run_qualifications(coverage, fidelity),
-            "replay": replay_configuration(records, coverage, task_record=task_record)}
+            "replay": replay}
 
 
 def _pct(n: int, d: int) -> str:
@@ -2068,13 +2541,24 @@ def _pct(n: int, d: int) -> str:
 def measure_lines(m: dict) -> list[str]:
     """summary.md's Measures section: one line per measure, each with its own denominator."""
     t, cov, fid, cl, lat = m["transport"], m["fixture_coverage"], m["translation_fidelity"], m["claims"], m["latency"]
-    gv = t["genuine_traffic"]["by_variant"]
+    gt = t["genuine_traffic"]
+    gv, gf = gt["by_variant"], gt.get("functional_by_variant") or {}
+    per = ", ".join(f"{name} {gf[v]} of {gv[v]}" if v in gf else f"{name} {gv[v]}"
+                    for name, v in (("genuine replies", "genuine"), ("peer relays", "peer_relay"), ("syntheses", "synthesis")))
+    lost = []
+    if gt.get("not_answered"):
+        lost.append(f"planned in tasks.json and never answered: {len(gt['not_answered'])} ({', '.join(gt['not_answered'])})")
+    if gt.get("answers_unreadable"):
+        lost.append(f"answers whose specialist file cannot be read: {len(gt['answers_unreadable'])} ({', '.join(gt['answers_unreadable'])})")
+    if gt.get("peer_relays_not_run"):
+        lost.append(f"peer relays the plan holds and the round never ran: {len(gt['peer_relays_not_run'])} (to {', '.join(gt['peer_relays_not_run'])})")
     lines = ["## Measures (each on its own denominator; none is combined with another into one rate)", ""]
     lines.append(f"- Transport (functional transmissions): {t['functional']} of {t['transmissions']} ({_pct(t['functional'], t['transmissions'])}). "
-                 f"Genuine traffic delivered and decided: {t['genuine_traffic']['functional']} of {t['genuine_traffic']['total']} "
-                 f"(genuine replies {gv['genuine']}, peer relays {gv['peer_relay']}, syntheses {gv['synthesis']}); injected faults named: "
-                 f"{t['injected_faults']['functional']} of {t['injected_faults']['total']} mutation records. Transport says the hub delivered and decided "
-                 "every transmission; it does not judge whether a finding is true, whether a translation is faithful or whether an answer is better.")
+                 f"Genuine traffic delivered and decided: {gt['functional']} of {gt['total']} ({per})"
+                 + (f"; of the planned genuine traffic, {'; '.join(lost)}, each counted as not delivered" if lost else "")
+                 + f"; injected faults named: {t['injected_faults']['functional']} of {t['injected_faults']['total']} mutation records. Transport says the hub "
+                 "delivered and decided every transmission; it does not judge whether a finding is true, whether a translation is faithful or whether an "
+                 "answer is better.")
     if cov["recorded"]:
         lost = "; ".join(f"{n} {LOST_LABELS[k]}" for k, n in cov["lost_by_reason"].items())
         other = cov.get("served_under_other_id_form") or 0
@@ -2289,7 +2773,8 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
     return out
 
 
-def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None = None) -> dict:
+def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None = None,
+                  unreadable: list[dict] | tuple = ()) -> dict:
     """The delivery policy (``epinoic_overseer.delivery_policy``, ``docs/DELIVERY.md``) applied to every genuine
     answer of the round, on a hub of its own carrying a transfer auditor: each group's genuine traffic is replayed in the
     genuine pass's order (requests, peer relays, answers with the same fixtures) and, for each answer, a delivery session
@@ -2304,7 +2789,12 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     ``fallback_exercised``, the decisions taken on an established accuracy, the overseer-selected ones and the withheld
     ones by cause, ``withheld_why`` on each task), and a pass that did not says why (``fallback_not_exercised``), so a
     withheld baseline is never read as a test of the threshold. ``overseer`` may name its agents (``label``: the
-    ``--overseer-provider`` the command line was given); its other keys are the policy's (:data:`DELIVERY_POLICY_KEYS`)."""
+    ``--overseer-provider`` the command line was given); its other keys are the policy's (:data:`DELIVERY_POLICY_KEYS`).
+
+    A task of the round's plan whose answer the round does not hold (``_pending``: never answered, or a specialist file that
+    cannot be read), and a specialist file that cannot be read and names no task of the plan (``unreadable``: load_items'
+    refused files), are withheld with the reason (``withheld_why``: ``not_answered`` or ``answer_unreadable``): there is
+    nothing to deliver."""
     if not overseer_installed():
         return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "by_mode": {}, "errors": []}
     from epinoic_overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
@@ -2317,6 +2807,10 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
                        "not configured (the harness calls no model): the fallback establishes no accuracy",
            "tasks": [], "by_mode": {m: 0 for m in ("formally_checked", "overseer_selected", "not_checked", "withheld")}, "errors": []}
     genuine = {r["file"]: r for r in records if r.get("variant") == "genuine"}
+    for bad in unreadable:  # an answer whose file cannot be read never reached the hub: nothing to deliver
+        out["tasks"].append({"file": bad["file"], "task_id": bad["task_id"], "mode": "withheld", "delivered": False, "withheld_why": "answer_unreadable",
+                             "reasons": [f"the answer cannot be read: {SpecialistFileError(bad['path'], bad['reason'])}"]})
+        out["by_mode"]["withheld"] += 1
     try:
         auditor = _delivery_auditor()
         hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor)
@@ -2340,6 +2834,12 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     try:
         for item in items:
             sp, task_id, group = item["_path"], item["task_id"], group_of(item)
+            if item.get("_pending"):  # a planned task whose answer the round does not hold: there is nothing to deliver
+                out["tasks"].append({"file": sp.name, "task_id": task_id, "group": group, "agent_id": item["agent_id"], "subject": item["subject"],
+                                     "mode": "withheld", "delivered": False, "withheld_why": "answer_unreadable" if item.get("_refused") else "not_answered",
+                                     "reasons": [unanswered_reason(item)]})
+                out["by_mode"]["withheld"] += 1
+                continue
             try:
                 if group not in channels:
                     channels[group] = hub.open_task(group_plan(items, group))
@@ -2581,6 +3081,9 @@ def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, 
     for item in items:
         sp, task_id, group = item["_path"], item["task_id"], group_of(item)
         entry = entries[task_id] = {"item": item, "key": group}
+        if item.get("_pending"):  # a planned task whose answer the round does not hold: nothing was delivered to revise
+            entry["error"] = unanswered_reason(item)
+            continue
         try:
             if group not in channels:
                 channels[group] = hub.open_task(group_plan(items, group))
@@ -2665,16 +3168,21 @@ def revision_feedback(round_dir: Path, task_ids=None, *, revision_rounds: int | 
     (``record_revision_budget``: tasks.json's ``revision_rounds`` of every covered task; a task that records another
     budget is refused before anything is written), so a replay re-issues the requests exactly as the specialists read
     them. Without it the round's own setting applies (tasks.json or the specialist file), else the channel's default.
-    Either way each feedback file records the budget it was issued under (``max_rounds``, and the signed block's)."""
-    items = load_items(round_dir / "specialists")
+    Either way each feedback file records the budget it was issued under (``max_rounds``, and the signed block's).
+
+    The round is read with its plan (``load_items(..., include_pending=True)``), as run_round reads it, so each group's plan
+    is the one the replay re-issues the requests under; a planned task whose answer the round does not hold gets no file
+    (nothing was delivered to revise)."""
+    items = load_items(round_dir / "specialists", include_pending=True)
+    answers = {it["task_id"] for it in items if not it.get("_pending")}
     wanted = set(task_ids) if task_ids else None
-    budget = record_revision_budget(round_dir, items, revision_rounds, wanted) if revision_rounds is not None else None
+    budget = record_revision_budget(round_dir, items, revision_rounds, wanted or answers) if revision_rounds is not None else None
     hub, entries = _feedback_replay(items, load_recorded_relays(round_dir, items), task_ids=wanted)
     out = {"files": [], "by_reason": {}, "issued": 0, "budget": budget}
     try:
         (round_dir / FEEDBACK_DIR).mkdir(exist_ok=True)
         for task_id, entry in entries.items():
-            if wanted is not None and task_id not in wanted:
+            if (wanted is not None and task_id not in wanted) or task_id not in answers:
                 continue
             doc = feedback_document(entry)
             path = round_dir / FEEDBACK_DIR / f"{task_id}.json"
@@ -2915,11 +3423,21 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
     syntheses = load_syntheses(syn_dir)  # the combinator's output as written: a file that is not JSON is relayed as text, never raised on
+    # the recorded translations of mutated claims, each bound to its mutated text (served to the variant they were made for)
+    mutation_translations, mutation_translation_problems = load_mutation_translations(round_dir)
     adjudications = load_adjudications(round_dir)
     hub = RouterHub(signing_key=KEY, config=CFG)
     records: list[dict] = []
     t_all = time.perf_counter()
-    items = load_items(spec_dir)
+    # the round as its plan holds it (round c3): every task of tasks.json, those with no specialist file marked _pending
+    # (never answered: named, counted, and members of their group's plan and synthesis), and every file that is no specialist
+    # file of the round format refused by name, never a TypeError that stops the round before any record is written
+    refused_files: list[dict] = []
+    items = load_items(spec_dir, include_pending=True, refused=refused_files)
+    _tasks, tasks_problem = read_tasks(round_dir / "tasks.json")
+    for bad in refused_files:
+        if not bad.get("planned"):  # a file whose task no plan names: its own failed record, and the round runs on
+            records.append(unreadable_file_record(bad))
     # peer-dependent task id -> the relay relay_peer.py recorded: the document that agent read, compared below with the
     # current parse of the peer's raw text (which is what the genuine pass delivers)
     recorded_relays = load_recorded_relays(round_dir, items)
@@ -2930,6 +3448,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     baseline: dict[str, list[dict]] = {}  # file stem -> every finding of the genuine receipt (full messages)
     baseline_constraints: dict[str, dict[str, str]] = {}  # file stem -> {constraint_id: detail} of the genuine receipt
     baseline_ids: dict[str, list[str]] = {}  # file stem -> the claim ids the genuine reply was delivered under
+    baseline_texts: dict[str, dict[str, str]] = {}  # file stem -> {claim id: claim text} of the genuine reply as delivered
     peer_docs: dict[str, SuppliedText] = {}
     last_in_group: dict[str, str] = {}
     # file stem -> {claim_id: sha256 of the claim text each fixture was produced for}: carried by the translations file
@@ -2942,7 +3461,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     qualification_tags: dict[str, str | None] = {it["_path"].stem: qualification_tag(it) for it in items}
     agents_by_stem = {it["_path"].stem: it["agent_id"] for it in items}
 
-    def make_verify_fn(stem: str, capture: bool, verify=None):
+    def make_verify_fn(stem: str, capture: bool, verify=None, *, variant: str | None = None):
         """Translator agent output -> fixture provider; verify eligible claims of the task ``stem`` through the real
         pipeline. With ``capture`` (the genuine pass) each fixture is bound to the claim text it is first served for.
         ``verify`` replaces the module's ``verify_claim`` (the delivery pass passes the one bound at import).
@@ -2955,14 +3474,28 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
         clearance. Round 8's translation-fidelity lens: the two-argument verifier checked a task_setting or
         arithmetic_fact premise against the supplied texts only, never against the question, so seven outcomes of the
         round were not the ones production computes for the same translations (ps-t14's unverified dependency 'cr-obs';
-        E112 on a task figure no check had verified)."""
-        tr = translations.get(stem)
-        if not tr:
-            return None
-        digests = fixture_digests.setdefault(stem, {})
-        provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in tr["claims"].items()}, claim_text_sha256=digests)
+        E112 on a task figure no check had verified).
 
-        def verify_fn(claim, report, task=None, *, _t=Translator(provider), _ids=frozenset(tr["claims"]), _capture=digests if capture else None,
+        ``variant`` (a mutation of the task's answer): the recorded translations of that variant's mutated claims
+        (``mutation_translations/<stem>/<variant>.json``, each bound to the mutated claim text by its digest) are served
+        beside the genuine ones, in their place under the same claim id, so a claim the mutation changed is translated as
+        production translates it instead of being refused the genuine claim's translation as stale (round 9's push check,
+        major: mutated claims were never translated by the harness)."""
+        tr = translations.get(stem)
+        mt = mutation_translations.get((stem, variant)) if variant else None
+        if mt is not None and not mt.get("claims"):
+            mt = None
+        if not tr and mt is None:
+            return None
+        claims = dict((tr or {}).get("claims") or {})
+        digests = fixture_digests.setdefault(stem, {})
+        if mt is not None:
+            # the mutated claims' own translations, each bound to its mutated text; the genuine digests are never changed
+            claims.update(mt["claims"])
+            digests = {**digests, **mt["claim_text_sha256"]}
+        provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in claims.items()}, claim_text_sha256=digests)
+
+        def verify_fn(claim, report, task=None, *, _t=Translator(provider), _ids=frozenset(claims), _capture=digests if capture else None,
                       _tag=qualification_tags.get(stem), _agent=agents_by_stem.get(stem)):
             # the recorded translation of this claim: under its own id, or, for this specialist's own report, under the other
             # form of its STEM id (the hub qualifies a report's ids after another agent's report holding them, which a
@@ -2984,7 +3517,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
             if key != claim.claim_id:
                 # served explicitly under the delivered id: the same recorded translation, its problem naming the claim
                 # (fixture_for_claim), bound to the claim text by the recorded or captured digest of its recorded id
-                translator = Translator(FixtureTranslationProvider({claim.claim_id: fixture_for_claim(tr["claims"][key], key, claim.claim_id)},
+                translator = Translator(FixtureTranslationProvider({claim.claim_id: fixture_for_claim(claims[key], key, claim.claim_id)},
                                                                    claim_text_sha256={claim.claim_id: digests[key]} if key in digests else None))
             # the task record goes on when there is one, the replay passes it and the claim verifier declares it (the
             # channel's own rule, accepts_task): a verifier that replaces verify_claim without a task parameter is called
@@ -3015,24 +3548,28 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
         # never delivered in place of the reply, and only its original_response is used, as the dependent's document.
         recorded_here = [(dep, rel) for dep, rel in recorded_relays.items() if rel["peer_of"] == task_id]
         recorded_doc = recorded_relays[task_id]["payload"].get("original_response") if task_id in recorded_relays else None
+        # A task of the round's plan whose answer the round does not hold (round c3: four peer-dependent tasks of tasks.json):
+        # its relay is run only when the round recorded one (the router relayed, the agent never answered), else named as not
+        # run; its reply is a named failure; nothing of it is mutated; its group's synthesis below names it.
+        pending = bool(item.get("_pending"))
         if pass_kind == "genuine":
-            peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name, recorded_doc)
-            if peer_rec is not None:
-                records.append(peer_rec)
-                if peer_text is not None:
-                    peer_docs[task_id] = peer_text
+            if pending and item.get("peer_of") and task_id not in recorded_relays:
+                records.append(relay_not_run_record(item))
+            else:
+                peer_rec, peer_text, _relayed = relay_from_peer(ch, items, item, delivered, sp.name, recorded_doc)
+                if peer_rec is not None:
+                    records.append(peer_rec)
+                    if peer_text is not None:
+                        peer_docs[task_id] = peer_text
+            if pending:
+                records.append(unanswered_record(item, plan))
         if task_id in peer_docs:
             texts = [*texts, peer_docs[task_id]]
         # A peer-dependent agent whose peer report never reached it through the hub has nothing to answer with: it sends
         # nothing (its peer_relay record says why), but its group's synthesis is still run and recorded below.
-        answered = not item.get("peer_of") or task_id in peer_docs
+        answered = not pending and (not item.get("peer_of") or task_id in peer_docs)
         quote_texts = list(texts)  # the texts the altered quotation is chosen from (mutate) and recognised by (injection)
-        variants = [("genuine", item["response_text"], "NONE")] + [(k,) + mutate(item["response_text"], k, quote_texts) for k in MUTATIONS]
-        variants = [(k, t, quotation_expectation(k, e, own_texts=bool(supplied(item)), any_text=bool(texts),
-                                                 request_words=k == "altered_quotation" and not texts and alters_request_words(item["response_text"], item["question"], quote_texts)))
-                    for k, t, e in variants] if answered else []
-        if answered and is_stem_subject(item["subject"]):  # STEM faults, only on STEM subjects (after the shared ones: their indices are unchanged)
-            variants += [(k,) + stem_variant(item["response_text"], item["question"], k) for k in STEM_MUTATIONS]
+        variants = task_variants(item, quote_texts) if answered else []
         for vi, (kind, text, expected) in enumerate(variants):
             if expected == "SKIP" or (kind == "genuine") != (pass_kind == "genuine"):
                 continue
@@ -3047,7 +3584,9 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                     vch = hub.open_task(plan)  # the hub registers it under plan.task_id: put the group's channel back and key this one
                     hub.channels[plan.task_id] = channels[group]
                     hub.channels[hub_key] = vch
-                    vch.verify_claim_fn = verify_fn
+                    # the recorded translations of this variant's mutated claims, when the round recorded them, beside the genuine ones
+                    vfn = make_verify_fn(sp.stem, False, variant=kind) if (sp.stem, kind) in mutation_translations else verify_fn
+                    vch.verify_claim_fn = vfn
                     channels[hub_key] = vch
                     if item.get("peer_of"):  # the peer's genuine report is delivered and forwarded on this channel too
                         peer_item = next(it for it in items if it["task_id"] == item["peer_of"])
@@ -3058,7 +3597,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                         vch.verify_claim_fn = make_verify_fn(peer_item["_path"].stem, False)
                         preply, _ = hub.receive(hub_key, pm_.message_id, SpecialistReport.model_validate(peer_payload.payload) if peer_payload is not None else peer_item["response_text"],
                                                 agent_id=peer_item["agent_id"], report_id=f"rep-{peer_item['task_id']}-0")
-                        vch.verify_claim_fn = verify_fn
+                        vch.verify_claim_fn = vfn
                         _r, ptext, _m = relay_from_peer(vch, items, item, {peer_item["_path"].stem: preply} if preply is not None else {}, sp.name, recorded_doc)
                         texts = [*supplied(item), *([ptext] if ptext is not None else [])]
                 m, req, rq = hub.dispatch(hub_key, agent, item["question"], texts)
@@ -3094,6 +3633,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                     baseline[sp.stem] = found
                     baseline_constraints[sp.stem] = {c.constraint_id: c.detail for c in rc.constraint_results}
                     baseline_ids[sp.stem] = [c["claim_id"] for c in (reply.payload["claims"] if reply else [])]
+                    baseline_texts[sp.stem] = {c["claim_id"]: c["claim_text"] for c in (reply.payload["claims"] if reply else [])}
                 else:
                     # A fault counts as named only by a finding of the expected code that names an injected claim or
                     # quotes the injected words, and that the genuine record does not already carry, read in the id form
@@ -3107,6 +3647,11 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                     unexplained, absent = diff_against_baseline(found, genuine_found, inj, injected, task_id, baseline_constraints.get(sp.stem))
                     rec.update(injected_claim_ids=injected, named_by=[brief(f) for f in named], unexplained_findings=[brief(f) for f in unexplained],
                                baseline_findings_absent=[brief(f) for f in absent])
+                    # the claims this mutation changed, by what became of their translation: translated from a recorded translation
+                    # of the mutated text, or not (round 9's push check: mutated claims were never translated by the harness)
+                    if reply is not None:
+                        rec["mutated_claims"] = mutated_claims(SpecialistReport.model_validate(reply.payload).claims, baseline_texts.get(sp.stem, {}),
+                                                               [outcome_record(o) for o in rc.outcomes], qualification_tags.get(sp.stem))
                     if expected_codes and not named:
                         # a miss, whatever its cause; when the receipt itself names the injected claims undecided, the
                         # reason quotes it (a limit of the encodings reads as one), and the record is still a failure
@@ -3167,11 +3712,12 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
             records.append(srec)
     # the delivery policy's decision for every genuine answer: a pass of its own, on a hub of its own, after the round's
     # records are complete (it adds no record and moves no transport count)
-    deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer) if DELIVERY_PASS else
+    unplanned = [b for b in refused_files if not b.get("planned")]
+    deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer, unreadable=unplanned) if DELIVERY_PASS else
                   {"skipped": "the delivery pass is switched off (DELIVERY_PASS is False: a harness that replaces this module's hub or verifier "
                               "runs this round)", "tasks": [], "by_mode": {}, "errors": []})
     # with overseer agents configured, the same pass without them: the withheld baseline the configured decisions are read beside
-    baseline = (delivery_pass(items, make_verify_fn, recorded_relays, records) if DELIVERY_PASS and delivery_overseer and delivery_baseline else None)
+    baseline = (delivery_pass(items, make_verify_fn, recorded_relays, records, unreadable=unplanned) if DELIVERY_PASS and delivery_overseer and delivery_baseline else None)
     # the specialist revisions (design section 53): a pass of its own, only when the round recorded the feedback its specialists
     # read; it adds no record and moves no transport count
     revisions = (revision_pass(round_dir, items, recorded_relays) if REVISION_PASS else
@@ -3222,13 +3768,15 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
            "genuine_receipts_with_errors": genuine_error_receipts(records),
            "genuine_with_errors": genuine_findings_summary(records),
            "recorded_relay_checks": recorded_relay_checks,
+           "planned_tasks": planned_traffic(items, refused_files, records, tasks_problem, (round_dir / "tasks.json").exists()),
            "mutations_with_unexplained_findings": unexplained_summary(records),
            "deliveries": deliveries,
            **({"deliveries_baseline": baseline, "delivery_comparison": delivery_comparison(deliveries, baseline)} if baseline is not None else {}),
            "revisions": revisions,
            "failures": [r for r in records if not r.get("functional")], "records": records}
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
-    out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record)
+    out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record,
+                                    mutation_translations=(mutation_translations, mutation_translation_problems))
     out["qualifications"] = out["metrics"]["qualifications"]
     out["qualified"] = bool(out["qualifications"])
     # the overseer's configuration (rule overseer-beside): where it was found, and whether the operator replays without it on purpose
@@ -3242,6 +3790,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     lines += measure_lines(out["metrics"])
     lines += ["", "| variant | functional | total |", "| --- | --- | --- |"]
     lines += [f"| {k} | {v['functional']} | {v['total']} |" for k, v in out["by_variant"].items()]
+    lines += [""] + planned_traffic_lines(out["planned_tasks"])
     lines += ["", "## Translation outcomes (provider-dependent; genuine pass, one outcome per eligible claim with a fixture)", ""]
     lines += [f"- {k}: {n} ({out['provider_dependent_translation_outcomes']['distinct_claims'].get(k, 0)} distinct claims)" for k, n in sorted(genuine_counts.items())] or ["- (no outcome)"]
     only_ungrounded = ungrounded_entailed["resting_only_on_ungrounded_premises_claims"]
@@ -3328,6 +3877,12 @@ def main(argv: list[str] | None = None) -> int:
                     without_overseer=args.without_overseer)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
+    pt = res["planned_tasks"]
+    print(f"planned tasks ({pt['source']}): {pt['planned']}, answered {pt['answered']}",
+          f"| NOT answered: {', '.join(t['task_id'] for t in pt['not_answered']) or 'none'}",
+          f"| unreadable specialist files: {', '.join(b['file'] for b in pt['answers_unreadable']) or 'none'}",
+          f"| peer relays run {pt['peer_relays']['run']} of {pt['peer_relays']['expected']} expected"
+          + (f" (NOT run: {', '.join(pt['peer_relays']['not_run'])})" if pt["peer_relays"]["not_run"] else ""))
     dl = res.get("deliveries") or {}
     if dl.get("skipped"):  # a pass not run is said so, never printed as a pass that decided nothing
         print(f"delivery decisions (a separate measure): not run ({dl['skipped']})")

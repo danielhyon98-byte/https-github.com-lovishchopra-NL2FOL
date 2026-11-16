@@ -55,6 +55,7 @@ from typing import Optional
 from .boolean import TruthTable
 from .constants import BookletReading, booklet_reading, constants_for_symbol, match_written
 from .document import StemDocument
+from .normalize import CONTROL_CHARACTERS
 from .enclosures import EnclosureError, Interval, cross_check, e_interval, enclose
 from .models import MAX_MONOMIALS, all_symbols as model_symbols, denominators as model_denominators, exact_value, exponent_polynomial, exponential, monomial_node
 from .models import render_model
@@ -376,7 +377,16 @@ def build_check(doc: StemDocument, rel: Relation, *, report_id: str = "report", 
         cut = _truncated_operand(doc, rel)
         if cut:
             return _finding("ST-PARSE-001", cut, rel)
+        control = _control_inside(doc, rel)
+        if control:
+            return _finding("ST-PARSE-001", control, rel)
+        qualified = _per_phrase_qualifier(doc, rel)
+        if qualified is not None:
+            rel = qualified
         ctx = _Ctx(doc, rel, report_id, request_id or report_id)
+        if qualified is not None:
+            ctx.detail("the stated value's unit is read without its 'per …' phrase, which qualifies the quantity ('0.2444 t per day' for the mass "
+                       "released each day): read with it, the two sides had different dimensions (rule per-phrase)")
         note = _question_note(rel)
         if note:
             ctx.detail(note)
@@ -396,6 +406,30 @@ def build_check(doc: StemDocument, rel: Relation, *, report_id: str = "report", 
         return _finding(exc.code, exc.reason, rel)
     except Exception as exc:  # defensive: one check's failure never takes the others down
         return _finding("ST-INTERNAL-001", f"the STEM pack failed internally while building this check ({type(exc).__name__})", rel)
+
+
+def _per_phrase_qualifier(doc: StemDocument, rel: Relation) -> Optional[Relation]:
+    """Rule ``per-phrase`` (round-10 clearance): a stated value whose unit ends in a 'per …' phrase written in words ('= 244.4 kg per day',
+    '= 0.2444 t per day') set equal to a computed side of the dimension of the unit before 'per' (a mass in g) states that mass for each day:
+    the phrase qualifies the quantity, so the stated value is read in the unit before it. Read with it, the two sides had different
+    dimensions and the correct conversion failed at error severity. ``rel`` with its stated value so read, else None."""
+    if rel.kind not in ("cnv", "eq") or rel.left is None or rel.right is None or not rel.left.readings or not rel.right.readings:
+        return None
+    snode, cnode = rel.right.readings[0], rel.left.readings[0]
+    if not isinstance(snode, Quantity) or snode.unit.unknown:
+        return None
+    text = " " + " ".join(snode.unit.text.split()) + " "
+    k = text.find(" per ")
+    if k <= 0:
+        return None
+    computed = _dim_of(cnode, {})
+    if computed is None or (snode.unit.dim is not None and snode.unit.dim.same_physical(computed)):
+        return None
+    head = parse_unit(text[:k].strip(), bare_m=doc.profile.bare_m, tonne=doc.profile.tonne, decimal_data=doc.profile.decimal_data)
+    if head is None or head.unknown or head.dim is None or not head.dim.same_physical(computed):
+        return None
+    new = Quantity(snode.number, head, snode.start, snode.end)
+    return replace(rel, right=Operand((new,) + tuple(rel.right.readings[1:]), rel.right.start, rel.right.end))
 
 
 def _question_note(rel: Relation) -> str:
@@ -421,6 +455,25 @@ _SIGNS = frozenset("+-−")
 _DASH_SIGNS = frozenset("–—‐‒")
 #: short words after which a signed expression may start a relation in prose ("so −2x > 4")
 _SHORT_WORDS = frozenset({"so", "is", "as", "to", "of", "or", "if", "at", "by", "we", "it", "be", "in", "on", "ie", "eg", "and", "the", "get", "has"})
+
+
+#: round-10 clearance (rule control-character): the C0 controls the reading view reads as blanks (``normalize.CONTROL_CHARACTERS``)
+_CONTROL_CHAR_RE = re.compile("[" + "".join(sorted(re.escape(c) for c in CONTROL_CHARACTERS)) + "]")
+
+
+def _control_inside(doc: StemDocument, rel: Relation) -> str:
+    """Rule ``control-character`` (round-10 clearance): a C0 control character inside the relation's own text ('a = 20/4\\x00 = 6 m s⁻²',
+    'x = 1\\x00 + 2 = 3'): the reading view reads it as a blank, but what it stands for is not known, so the relation is withheld and named
+    (ST-PARSE-001), never decided: correct input it splits is never failed, and a relation it breaks is named, where a NUL had dropped it
+    with nothing named. One bounded search of the relation's span; '' when it holds none."""
+    text = doc.text
+    if not (0 <= rel.start < rel.end <= len(text)):
+        return ""
+    m = _CONTROL_CHAR_RE.search(text, rel.start, rel.end)
+    if m is None:
+        return ""
+    return (f"a control character (U+{ord(m.group()):04X}) stands inside the relation: the reading view reads it as a blank, but what it "
+            "stands for is not read, so the relation is not checked (rule control-character)")
 
 
 def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
@@ -503,6 +556,16 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
                 # numeral the noun counts, so the sign is binary; read from the sign, the relation was '− 1 = 3' and failed
                 return (f"the operand '{shown}' opens with a sign right after '{text[max(0, q - 6):j + 1].strip()}', a numeral and the noun it "
                         "counts: the left operand is written partly in words, so the relation is not checked")
+    if rel.kind in _CHAIN_KINDS and rel.right is not None and not doc.profile.tonne and 0 <= rel.right.end <= n and rel.right.readings:
+        # round-10 clearance (rule unread-unit-letter, P4): a stated value with no unit read, followed by a letter that is the tonne in other
+        # profiles ('= 0.2444 t per bus', '= 3.1 kt'), may be stated in that unit: it is never compared as a bare number (a false error)
+        snode = rel.right.readings[0]
+        v = value_of(snode) if is_value(snode) else None
+        m = _UNIT_LETTER_AFTER_RE.match(text, rel.right.end, min(n, rel.right.end + 8)) if v is not None and v[2] is None and not v[3] else None
+        if m is not None:
+            shown = " ".join(text[rel.right.start:rel.right.end].split())[:40]
+            return (f"the stated value '{shown}' is followed by '{m.group('u')}', which may be its unit (the tonne, which this subject's profile does "
+                    "not read): the relation is not compared as a bare number, and it is not checked")
     if rel.kind in _CHAIN_KINDS and rel.left is not None and rel.right is not None and rel.left.end <= rel.right.start <= n:
         gap = _strip_relation_text(text[rel.left.end:rel.right.start])
         if _REMAINDER_GAP_RE.fullmatch(text[rel.left.end:rel.right.start]):
@@ -512,6 +575,9 @@ def _truncated_operand(doc: StemDocument, rel: Relation) -> str:
     return ""
 
 
+#: round-10 clearance (rule unread-unit-letter): the tonne's symbol, prefixed or not, right after a stated value (one blank at most) and
+#: before no letter, digit or power ('0.2444 t per bus', '3.1 kt')
+_UNIT_LETTER_AFTER_RE = re.compile(r"[ \t]?(?P<u>[kMG]?t)(?![A-Za-z0-9_²³⁴⁵⁶⁷⁸⁹¹⁰^(′'’])")
 #: what may precede an operand that opens with a sign: a relation sign, an opening bracket, a separator, LaTeX alignment
 _OPENERS = frozenset("=<>≤≥≈≃≠⇒→∴:([{$&,;|±∓\\")
 #: kinds whose two sides are adjacent operands of one chain
@@ -1640,7 +1706,10 @@ def _symbol_dims(ctx: _Ctx, names: list[str]) -> dict[str, Optional[Dimension]]:
     for n in names:
         ds = set()
         ok = True
-        for b in ctx.doc.bindings.get(n, ()) + ctx.doc.substitutions.get(n, ()):
+        # round-10 clearance (rule booklet-dimension): a symbol bound with a unit is read in that unit; a bare numeral the working
+        # substituted for it elsewhere ('8.31 × 290' for R) is a reading of a symbol bound nowhere else, so it is consulted only then
+        bound = ctx.doc.bindings.get(n, ())
+        for b in tuple(bound) if bound else ctx.doc.substitutions.get(n, ()):
             if b.unit is None or b.unit.unknown or b.unit.dim is None:
                 ok = False
                 break
@@ -1653,6 +1722,14 @@ def _booklet_for(ctx: _Ctx, name: str, sym_side: Node, num_side: Node) -> Option
     """D3b: a booklet reading of the unbound ``name`` whose dimension the stated relation confirms."""
     names = [n for n in symbols(sym_side) if n != name]
     dims = _symbol_dims(ctx, names)
+    for n in names:
+        if dims.get(n) is None and not ctx.doc.bindings.get(n):
+            # round-10 clearance (rule booklet-dimension): another symbol of the relation with no stated value that is itself one booklet
+            # constant ('k_B = R/N_A = 1.38 × 10⁻²³ J K⁻¹' with R stated in prose only) takes that constant's dimension, so the stated
+            # value's unit can confirm the reading ('N_A' had no admissible booklet reading: ST-UNDEC-002 on correct work, c3 ph-t16)
+            cands = constants_for_symbol(n, ctx.profile_key)
+            if len(cands) == 1:
+                dims[n] = cands[0].dim
     target = _dim_of(num_side, {})
     if target is None or not _units_in(num_side):
         return None
@@ -1916,8 +1993,34 @@ def _uncertainty(cnode: Node, snode: Node) -> Optional[tuple[Node, Node]]:
     return value, unc
 
 
+def _stated_margin(cnode: Node, snode: Node) -> Optional[Node]:
+    """Rule ``stated-margin`` (round-10 clearance): the size of a stated value written with a unary ``±`` on the stated side alone
+    ('= ±0.10 cm³', '= ±(0.10 cm³)'), for a computed side that holds no ``±``: the value after the sign (with the unit written after it),
+    else None. A computed side with ``±`` states roots, and both branches are required as before."""
+    if _has_plus_minus(cnode):
+        return None
+    node, unit = snode, None
+    if isinstance(node, WithUnit) and isinstance(node.arg, PlusMinus):
+        node, unit = node.arg, node
+    if not isinstance(node, PlusMinus) or node.sign != "±" or node.left is not None:
+        return None
+    inner = node.right
+    if _has_plus_minus(inner) or not is_value(inner if unit is None else inner):
+        return None
+    if unit is not None:
+        return WithUnit(inner, unit.unit, getattr(inner, "start", 0), unit.end)
+    return inner
+
+
 #: STEM repair 3: why a check a rule sets against a definition fails at warning severity (rules percentage-change and half-lives)
 _TITLED_WARNINGS = {
+    # round-10 clearance
+    "rule change-share": "which two values of its sentence the change is between, and which of them it starts from, is a reading the answer did not "
+                         "state as a formula (rule change-share)",
+    "rule net-difference": "which two values of its sentence the net value balances is a reading the answer did not state as a formula (rule "
+                           "net-difference)",
+    "rule rate-total": "that the total is the extent the prose names times the rate stated before it is a reading the answer did not state as a "
+                       "formula (rule rate-total)",
     # round-8 clearance
     "rule mole-ratio": "which balanced equation the stated mole ratio is taken from is a reading: the last one the answer writes before it that "
                        "holds both species (rule mole-ratio)",
@@ -2008,6 +2111,15 @@ def _eq(ctx: _Ctx) -> None:
             ctx.detail(f"the stated value carries an absolute uncertainty (± {render(unc[1])[:40]}): the computed value is set against its central value "
                        f"{render(unc[0])[:40]} under the tolerance rule, the uncertainty never widening the band, and the uncertainty itself is not checked "
                        "(rule central-value)")
+        margin = _stated_margin(cnode, snode) if rel.op in ("=", "≈") else None
+        if margin is not None:
+            # round-10 clearance (rule stated-margin): '0.05 cm³ + 0.05 cm³ = ±0.10 cm³' states an uncertainty whose size is 0.10 cm³, as the
+            # chemistry knowledge base writes 'ΔT = 22.2 ± 0.2 °C': the ± marks a margin, so the computed size is set against the magnitude.
+            # Before, the ± was read as two roots that must both equal the computed 0.10, and correct working failed at error severity (c3
+            # ch-t16 s6.1). Both branches are still required when the computed side carries ± too (roots), and a slip in the size still fails
+            snode = margin
+            ctx.detail(f"the stated value is a margin written with ± on that side alone: its size {render(margin)[:40]} is set against the computed "
+                       "value (rule stated-margin)")
         exact = rel.op in ("=", "≡") and not approx and ((_all_exact(cnode) and _all_exact(snode))
                                                          or (ctx.doc.profile.computer_science and _data_count_exact(cnode) and _data_count_exact(snode)))
         exact_modes.append(exact)
@@ -2027,6 +2139,12 @@ def _eq(ctx: _Ctx) -> None:
                 rounded_exact.append(True)
         else:
             h = _value_half_width(snode, min_sf=_min_sig_figs(cnode)) if is_value(snode) else Fraction(0)
+            if rel.op == "=" and not approx and is_value(snode) and _whole_integer_arithmetic(cnode) and _whole_stated(snode) \
+                    and rel.rounding is None and not rel.title:
+                # round-10 clearance (rule whole-sum): sums, differences and products of whole numbers are whole and exact, so a whole
+                # number stated for them with '=' states every digit: '17 + 273 = 300 K' is no rounding of 290 (its trailing zero had
+                # been read as a rounding place, h = 50, and the slip passed); a line that states its rounding keeps it
+                h = _value_half_width(snode, min_sf=_EVERY_DIGIT)
         if rel.rounding is not None and not rel.title and is_value(snode):
             # STEM repair 11 (rule result-rounding): the line states the rounding of its own result ('= 34% to 2 s.f.', '= 330 (to 2 s.f.)', '= 34%
             # (to the nearest whole number)'): its half-width is that rounding's, never less than half a unit in its last written digit, every zero
@@ -2332,6 +2450,35 @@ def _operand_rounding_tau(pairs: list[tuple[Node, Node]], given: tuple[frozenset
     return Fraction(-((-worst.numerator * grain) // worst.denominator), grain) if worst else Fraction(0)
 
 
+def _whole_integer_arithmetic(node: Node) -> bool:
+    """Rule ``whole-sum`` (round-10 clearance): ``node`` combines at least two whole numerals (no point, no scientific notation, no unit, no
+    per cent) by addition, subtraction and multiplication only, with signs and brackets: its value is a whole number, exactly."""
+    leaves = 0
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, Num):
+            if n.number.has_point or n.number.scientific or n.number.value.denominator != 1 or n.number.vulgar:
+                return False
+            leaves += 1
+        elif isinstance(n, Neg):
+            stack.append(n.arg)
+        elif isinstance(n, BinOp) and n.op in ("+", "-", "*") and not n.implicit:
+            stack.extend((n.left, n.right))
+        else:
+            return False
+        if leaves > 64:
+            return False
+    return leaves >= 2
+
+
+def _whole_stated(node: Node) -> bool:
+    """A stated whole number written without a point or scientific notation ('300', '300 K', '−40'), with no per cent or degree sign."""
+    v = value_of(node)
+    return v is not None and v[1] is not None and not v[3] and not v[1].has_point and not v[1].scientific and v[0].denominator == 1 \
+        and (v[2] is None or (not v[2].unknown and len(v[2].readings) == 1))
+
+
 def _trailing_zero_whole(node: Node) -> bool:
     """A stated value (or the central value of ``S ± u``) that is a whole number written without a point and ending in zero (rule
     operand-precision leaves its τ at 1/100: which of its zeros are significant is not written)."""
@@ -2362,6 +2509,16 @@ def _rounding_bound(node: Node, depth: int, given: tuple[frozenset[Fraction], fr
     if isinstance(node, Neg):
         a = _rounding_bound(node.arg, depth + 1, given)
         return None if a is None else (-a[0], a[1])
+    if isinstance(node, WithUnit):
+        # round-10 clearance: a unit written after a bracket applies to the bracket ('(22.35 + 22.45 + 22.40) cm³ ÷ 3'): the bracket's
+        # written numerals bound its rounding, in SI, as a quantity's do (before, rule operand-precision skipped it and τ stayed 1/100,
+        # so '= 22.50 cm³' passed for a mean of 22.40)
+        u = node.unit
+        if u.unknown or len(u.readings) != 1 or u.readings[0].factor is None or u.readings[0].affine is not None:
+            return None
+        a = _rounding_bound(node.arg, depth + 1, given)
+        f = u.readings[0].factor
+        return None if a is None else (a[0] * f, a[1] * abs(f))
     if isinstance(node, Percent):
         a = _rounding_bound(node.arg, depth + 1, given)
         return None if a is None else (a[0] / 100, a[1] / 100)
@@ -3521,12 +3678,34 @@ def _step(ctx: _Ctx) -> None:
         if name in defined:
             formulas.append((name, defined[name][0], defined[name][1]))
             continue
-        for f in ctx.doc.formulas.get(name, ())[-2:]:
+        # round-10 clearance (rule show-that-target): a relation the request asks to show, prove or verify is what the steps of its part must
+        # establish, never a premise of them; with it as a premise, a wrong line followed by a line equal to the target passed (both sides
+        # equal S). A target of another part is a result the answer may use, as before
+        for f in [f for f in ctx.doc.formulas.get(name, ()) if not _own_target(f, rel)][-2:]:
             if len(formulas) >= ctx.doc.limits.max_formulas_per_step:
                 break
             if any(n.endswith("()") for n in symbols(f.expr)):
                 continue
             formulas.append((name, f.expr, f.statement_id))
+    # round-10 clearance (rule show-that-target): a symbol the link replaces by an expression (on one side of the conclusion only, and in the
+    # premise: 'S = x² + 4xh', then 'x² + 4xh = x² + 4x × 500/x²') is put in by its formula in the step's other symbols, the answer's own or
+    # the request's (never the target of the step's own part); the target had supplied that connection before
+    step_all = prem_syms | conc_syms
+    if symbolic:
+        eliminated = (set(symbols(cl0)) ^ set(symbols(cr0))) - diff - quantified - set(bound) - set(defined)
+        for name in sorted(eliminated):
+            if len(formulas) >= ctx.doc.limits.max_formulas_per_step:
+                break
+            # stated before the link (or the request's), never the link's own line: 'x²h = 500, so h = 500/x²' is no premise of itself
+            earlier = [f for f in ctx.doc.formulas.get(name, ()) if not _own_target(f, rel)
+                       and (f.source == "request" or (f.end <= rel.start and not (f.start < rel.end and f.end > rel.start)))]
+            for f in earlier[-2:]:
+                fsyms = set(symbols(f.expr))
+                if not fsyms or name in fsyms or not fsyms <= step_all - {name} or any(n.endswith("()") for n in fsyms):
+                    continue
+                if len(formulas) >= ctx.doc.limits.max_formulas_per_step:
+                    break
+                formulas.append((name, f.expr, f.statement_id))
     env: dict[str, Term] = {}
     all_syms = set(prem_syms | conc_syms)
     for _n, expr, _s in formulas:
@@ -3786,6 +3965,15 @@ def _cancelled_factors(pl: Node, pr: Node, conc_syms: set[str]) -> list[str]:
     return sorted((common or set()) - set(conc_syms))
 
 
+def _own_target(f, rel: Relation) -> bool:
+    """Rule ``show-that-target`` (round-10 clearance): ``f`` is a relation the request asks to show, prove or verify in the part of ``rel``
+    (or in its stem, which every part answers), so the steps of that part establish it and may not take it as a premise."""
+    target = getattr(f, "target", "")
+    if not target:
+        return False
+    return target == "*" or not rel.part or target == rel.part
+
+
 def _step_definition(ctx: _Ctx, name: str, step_syms: set[str]) -> Optional[tuple[Node, str]]:
     """Rule ``step-definition`` (round-8 clearance): the formula the answer states for ``name`` in the step's other symbols only, as the
     step reads it: one stated before the step (never in the statement the step concludes in), or, for a link of one chain (an identity
@@ -3803,7 +3991,7 @@ def _step_definition(ctx: _Ctx, name: str, step_syms: set[str]) -> Optional[tupl
     after: list = []
     for f in ctx.doc.formulas.get(name, ()):
         fsyms = set(symbols(f.expr))
-        if not fsyms or not fsyms <= others or any(n.endswith("()") for n in fsyms) or name in fsyms:
+        if not fsyms or not fsyms <= others or any(n.endswith("()") for n in fsyms) or name in fsyms or _own_target(f, rel):
             continue
         if f.source == "request":
             before.insert(0, f)  # the request's formula: stated before every line of the answer

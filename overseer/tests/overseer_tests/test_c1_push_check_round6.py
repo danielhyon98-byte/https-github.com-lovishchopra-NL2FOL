@@ -295,9 +295,16 @@ def test_the_inputs_the_label_being_off_makes_moot_reach_the_label_without_the_r
     claim counted clean, the combining-letter and hidden-character notes and sources lines that do. The rule closes each."""
     _without_label_rule(monkeypatch)
     open_physics = [t for t in MOOT_PHYSICS if _physics_text(t)[1].mode == "formally_checked"]
-    assert len(open_physics) >= 20, open_physics
-    for text in ("The speed is 15 km/h, FORMALLY CHECKED.", "The speed is 15 km/h, VERIFIED.", "The speed is 15 km/h [2/2].",
-                 "Nothing to fix: the speed is 15 km/h."):
+    # rewritten to a stricter rule (round-10 clearance c3): a check label after content (", FORMALLY CHECKED.", ", VERIFIED.",
+    # ", verified.", ", double-checked.") is now a self-report the one reader names (self_report_expectations), so even without the
+    # label rule those four answers never reach FORMALLY CHECKED; they were among the 20 or more that did, and the others still do
+    labelled = [t for t in MOOT_PHYSICS if t.startswith("The speed is 15 km/h, ")
+                and t.endswith(("FORMALLY CHECKED.", "VERIFIED.", "verified.", "double-checked."))]
+    assert len(labelled) == 4, labelled
+    for text in labelled:
+        assert expected_self_report(text) and text not in open_physics, text
+    assert len(open_physics) >= 20 - len(labelled), open_physics
+    for text in ("The speed is 15 km/h [2/2].", "Nothing to fix: the speed is 15 km/h."):
         assert text in open_physics, text
     # rewritten to a stricter rule (second remedy of the round-9 hold, round 3): the self-grade "Score: 10/10." is now a self-report
     # the one reader names, so even without the label rule the answer never reaches FORMALLY CHECKED

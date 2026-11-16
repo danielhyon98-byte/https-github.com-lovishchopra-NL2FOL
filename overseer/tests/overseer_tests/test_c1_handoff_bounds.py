@@ -7,7 +7,7 @@ read the same way (the core fixer's handoff item 5 and the parsers fixer's hando
   ``channel.bus.withheld_deliverable`` reads a decline in the journaled response, so a channel that suspends a bound on an
   answer that declines nothing is OVS-FORM-004;
 * rule ``per-part-bound``: "Write no more than 250 words for each answer" (ps-t14) is measured on each answer, the longest
-  for a maximum (216 against 250; the whole reply is 441), by one function both call
+  for a maximum (214 against 250; the whole reply is 441), by one function both call
   (``request_parser.bound_word_measure``), so a channel that measures the whole reply instead is OVS-FORM-003;
 * "about N words": a measure outside the band but within a quarter of N is INT-REQ-005 at warning, a gross miss an error, on
   the receipt and in the auditor's rule on its own recount (``request_parser.word_bound_severity``, rule about-band); a hard
@@ -17,6 +17,7 @@ The recorded replies are the round's own (``tests/channel/data/c1_core_material.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -111,9 +112,18 @@ def test_control_a_decline_whose_bound_is_charged_as_before_also_passes_the_audi
 
 
 def test_a_bound_on_each_answer_is_measured_on_each_answer_and_the_audit_agrees():
+    """Rewritten in round 10's handoff pass (integrated round c3), to a stricter form: part labels and mark annotations are no
+    words of any branch's answer (``request_parser.blank_labels_and_marks``), so each answer measures two words fewer than the
+    216 and 211 pinned before, and the test now also pins that those two words are exactly the answer's "(a) [6]" / "(b) [6]"
+    line and nothing else."""
     auditor, ch, rc = _deliver("ps-t14")
     [c] = [c for c in rc.constraint_results if c.method == "formal"]
-    assert c.satisfied is True and "measured 216 words" in c.detail and "(a) 216, (b) 211" in c.detail
+    assert c.satisfied is True and "measured 214 words" in c.detail and "(a) 214, (b) 209" in c.detail
+    text = SPEC["ps-t14"]["response_text"]
+    headers = re.findall(r"(?m)^\([ab]\) \[6\]$", text)
+    bare = re.sub(r"(?m)^\([ab]\) \[6\]\n", "", text)
+    assert headers == ["(a) [6]", "(b) [6]"] and len(text.split()) - len(bare.split()) == 4
+    assert measure_answer_words(bare) == measure_answer_words(text)  # the label-and-mark lines count no word
     assert not [f for f in rc.findings if f.code == "INT-REQ-005" or f.severity == "error"], [(f.code, f.message[:120]) for f in rc.findings]
     audit = auditor.audit(ch.uid)
     assert not _bound_findings(audit), [(f.code, f.message[:200]) for f in _bound_findings(audit)]

@@ -122,7 +122,7 @@ emits from `run_integrity_checks`.
 | INT-CONFLICT-004 | warning | joint consistency undecided (timeout/unknown) or contradiction unattributable; and a contradiction that exists only when a symbol the claims gloss as different quantities is read as one ("marks allocated to part (a)" and "... part (c)" both named `marks`): the pool is consistent with the symbol renamed apart (`split_by_gloss`) and inconsistent pooled, so the message names the claims, the symbols and their glosses, and no contradiction is charged to the specialists (no INT-CONFLICT-001, nothing to disclose): one name for two quantities is a translation fault. Likewise a contradiction that exists only when a candidate value a claim tests and rejects is read as a value of the shared symbol (rule candidate, round-8 clearance c1, maa-t14 m7.7 "x = −5 is rejected because it does not satisfy x > 4" beside m6.1's domain x > 4): `candidate_tests` reads a claim that assigns a constant to a symbol, asserts in its conclusion a negated condition on it (directly, or through a Boolean symbol a premise defines from it; "x != 5" beside "x = 7" corrects a value and tests nothing) and is described by the translation as testing and rejecting the value ("rejected", "candidate", "extraneous", "ruled out", "not a solution", "does not satisfy", "suppose", in the conclusion's or the assigning assertion's label or id); `rename_candidates_apart` renames its candidate symbol, and every symbol its own assertions compute with it, apart (`<name>_h<k>`), so the candidate is a hypothetical. The claim's own consistency is still checked: "x = 5 is rejected because it does not satisfy x > 4" is INT-CONFLICT-005 |
 | INT-CONFLICT-006 | info | an unresolved conflict record of a synthesis over claims between which the hub found no contradiction (no INT-CONFLICT-001 set shares two claims with the record; a synthesized id stands for its sources; `cross_check.check_conflict_records`): the hub decides contradictions between formalized claims only, so the record may still be right (two dates in prose), but it is the combinator's own statement, not a check |
 | INT-CONFLICT-005 | error / warning | one specialist claim is internally inconsistent (its own assertions, its pooled conclusion included, refute each other), found whether the unsat core used its own premises or another claim's identical copies; its self-refuting conclusion (or the whole claim, when its premises alone conflict) is set aside and the rest re-checked. No disclosure demanded. A warning when the claim's formalization is the assumed reading of an AMBIGUOUS_TRANSLATION (`assumed_readings`, passed by the channel): the refutation is the translator's reading, not the specialist's statement |
-| INT-GLOSSARY-001 | error | symbol declared with different sorts in two claims (both named); joint check withheld |
+| INT-GLOSSARY-001 | error | symbol declared with different sorts in two claims (both named) where the joint problem cannot read them apart (the entailment of a synthesized claim over sources that clash); joint check withheld. Since the round-10 clearance (c3, ec-t16 'boats19' Real in g11.7 and Int in g11.9) the cross-report consistency check never withholds itself on a sort clash: `cross_check.rename_sort_clashes_apart` reads the declarations apart (the first sort keeps the name, another sort's declarations are `<name>_<sort>`) and names the clash INT-GLOSSARY-005 (warning, both claims, "a translation fault, not the specialist's") |
 | INT-GLOSSARY-002 | info | no formalized claims to cross-check |
 | INT-GLOSSARY-003 | error | synthesized conclusion uses a symbol no source defines |
 | INT-GLOSSARY-004 | error | joint problem could not be built (names the claims and the reason) |
@@ -473,16 +473,81 @@ and `IntegrityReport.report_sha256` give transit integrity.
   it declines a requested deliverable or defers it to the student's reply (the channel's reading, `channel.bus.withheld_deliverable`,
   as the receipt records it; a left-out deferral since the second fix pass, c2b: the round-8 clearance c1's ps-p8d synthesis left
   one out and was accepted with no finding), is a step of a numbered list whose earlier and later steps the synthesis carries, or is
-  a framing note right before a claim the synthesis carries (`framing_content_findings`).
+  a framing note right before a claim the synthesis carries (`framing_content_findings`). Since the round-10 clearance's handoff
+  pass (c3 ll-t16, announced items): a question or item that a claim the synthesis carries announces ("To test a direction, answer
+  these from the adverts themselves: ...", "Steps for this week:", "try these", a count of questions or steps, a text ending with a
+  colon), when the synthesis carries none of the questions or items it announces that are not roled `other`, is named with the
+  announcing claim's id and the recorded reason (`_announced_items`: the claims after it in its block, up to the next announcing claim;
+  a narrowed list is not an empty one, and a material item is left to the materiality rule).
 - **Rule duplicated-content** (minor; INT-LEDGER-017, warning). A synthesized claim that is a quotation and nothing else (three words
   or more), wholly contained in another claim of the synthesis (before or after it, not only the next: `quotation_holders`), is named
   when the student-facing text states its words more often than the claims that hold them (`contained_claims`, read on the text since
   the second fix pass, c2b): the student reads the quotation twice. A text composed as the combinator port composes it
   (`integration.combinator_port.student_facing_text`: a quotation claim another claim holds verbatim is rendered only inside that
-  claim, `quotations_held_verbatim`) draws nothing; every claim's text still occurs in it (INT-LEDGER-017's presence check).
+  claim, `quotations_held_verbatim`) draws nothing; every claim's text still occurs in it (INT-LEDGER-017's presence check), but an
+  orphaned quotation, which the port leaves out of the text since the round-10 clearance (`combinator_port.orphaned_quotations`), does
+  not.
+- **Rule orphaned-quotation** (minor; INT-LEDGER-017, warning; round-10 clearance handoff pass, c3 lit-t16 and exchange x10). A
+  synthesized claim that is a source's quotation and nothing else, whose every quoting source claim the synthesis left out, is named
+  with its own reason, read by the port's own reader (`integration.combinator_port.orphaned_quotations`, one reader for both sides):
+  when the student-facing text leaves it out (the port's composition), the synthesis carries evidence that nothing uses; when the
+  text renders it (a text that joins every claim), the student reads it on its own. The generic presence message then no longer
+  lists it (`_orphaned_quotation_findings`).
 - **Spanish number words** (major). The ledger's figure reader reads a course language's cardinals as English ones: the words from
   twelve up wherever they stand ("catorce", "dos mil trescientos"), the small ones after a word of quantity or an hour's article
   ("las tres", "a la una", "más de cinco"); "tres de la madrugada" carried as "dos de la madrugada" is INT-LEDGER-023.
 - INT-LEDGER-020 compares the excerpts a claim gives under one (document, locator) as a set, so several locator-less excerpts of
   one document carried verbatim are no altered excerpt; the task record is always within a formalization's retrieval scope
   (`run_integrity_checks`: a premise grounded in `task` is never INT-HANDOFF-004).
+
+## Round-10 clearance (integrated round c3)
+
+- **Rule local-glosses** (critical; `cross_check.claim_local_gloss`, `gloss_reading`, `gloss_difference`, `split_by_gloss`). The
+  pool charged correct answers with the translator's naming collisions at error level, on the receipt (INT-CONFLICT-001) and on the
+  synthesis (INT-CONFLICT-001, INT-CONFLICT-002): ch-p10c glossed 'x0' "value of the left-hand side of a stated equation" in seven
+  claims (170.38 in s3.1, 95,000 in s4.2, ...); maa-t16 used 'fm3' for f(−3) ('f(-3) from the cubic', m2.1) and for the
+  antiderivative's F(−3) ('F(-3)', m5.5), and 'd1' for f′(−1) ("f'(-1) = 3 + 6 - 9", m3.5) and for f′(1) ('3 - 6 - 9', m6.3). A
+  gloss that refers to its own claim's statement (an equation, relation, line or step it calls stated, or "this claim", "this
+  step"; never a definite description such as "the x the claim states") names that claim's own quantity and is read apart from
+  every other holder; and two glosses name different quantities when each names a function the other does not (case and primes
+  kept: 'f' against 'F', 'f' against "f'"), writes arithmetic the other does not (spaces, brackets and thousands separators aside:
+  '3+6-9' against '3-6-9'), or states a figure of another sign (a minus written against the figure: 'f(-3)' against 'f(3)'). These
+  readings run before the content comparison, so an equal or reordered wording no longer hides them. What the pool would charge
+  only through such a name is INT-CONFLICT-004 (warning: "each glossed by its own claim's statement (each claim's own quantity,
+  rule local-glosses)" or "glossed as different quantities"), and INT-GLOSSARY-005 names the differing glosses; no INT-GLOSSARY-005
+  is raised for claim-local glosses read apart. The Overseer's rule local-glosses (`overseer.checks.joint`) reads the same three
+  marks; its independent joint check calls `check_cross_report_consistency`, so the receipt and the audit read the pool alike.
+- **A sort clash is a translation fault** (critical; `cross_check.rename_sort_clashes_apart`): see INT-GLOSSARY-001 above (ec-t16's
+  two clashes are two INT-GLOSSARY-005 warnings, the joint check over its 19 claims is decided).
+- **Rule same-gloss, paraphrases** (major and minor): abbreviations one gloss writes for a word only the other states ('ctrl' and
+  'control', 'inter' and 'interphase', 'ext' and 'extract': a closed table and a prefix of three letters or more that begins
+  exactly one such word, role words never folded), a unit symbol standing alone after a comma or an opening bracket (", ms",
+  "(ms)", ", ms (round robin)"), the prepositions "under", "with", "from", "into", "within", "using", "via" (word order), and a
+  "non-" compound that negates nothing the other gloss states ("false positives (non-aluminium flagged), count" against "false
+  positives, count"; "non-renewable resources" against "renewable resources" still negates) now give one quantity: bi-t16
+  ctrl_inter and ext_inter, cs-t16 fc4, cs-p10a fp draw no INT-GLOSSARY-005. Left open: ess-t16 'estimate' ("the rewetted figure"
+  against "... for ten years after the ditches are blocked", a shift word inside a clause about the condition) and ph-t16
+  'celsius_used' (judged a true warning by one lens).
+- **The from-memory label** (major; `ledger.labels_report_figures_from_memory`, `_without_label_numbers`). A note of role other
+  labels its report's figures from memory only when one of its sentences carries the from-memory wording and says nothing that
+  makes it a statement about figures the writer withholds, declines, would give or has no source for ("so any number I gave would
+  be unverified", bm-t16 g16.2; "rather than give them from memory", ge-t16): the bm-t16 synthesis draws no INT-LEDGER-027 (27
+  before), exchange x12 none, and "Figures quoted from memory." still labels. Since the round-10 handoff pass the veto is read
+  in the wording's own clause (`memory_label_vetoed`: a clause ends at a semicolon, a colon, or a comma or dash before a
+  coordinating or subordinating word), so a word of another clause vetoes nothing ('The poem never mentions the war, so this
+  reading rests on the History specialist's context, whose "dates and figures" are, in its own words, "from memory and should be
+  checked before they are cited".' labels); the core pack's label reader reads the same clause. A number that labels something
+  ("Option 1", "Table 2", "Diagram 1") is never a quantified item of the rule.
+- **A credit to the wrong specialist** (major; `ledger._work_credits` in the view-credit rule): a specialist named as the subject
+  of a work verb ("calculated", "worked out", "estimated", "derived", "found", "showed", "gave", ...) is credited too, so "The
+  Geography specialist calculated that one bus releases 0.2444 t of CO₂ per day.", citing the Chemistry report's s4.7, is
+  INT-LEDGER-026 ("a view credited to another agent"); "The Chemistry specialist calculated ..." citing the Chemistry report is not.
+- **Spanish counts are figures** (major; `ledger._ES_COUNT_WORD_RE` in the introduced-figure rule): a small Spanish count (dos to
+  once) before a noun of time, of people or of a count ("dos semanas", "tres hermanos"), never after a determiner ("sus dos
+  hijos"), is a figure as the English count is, so "hace dos semanas" carried or paraphrased as "hace tres semanas" is
+  INT-LEDGER-023 whatever the label; the faithful carry and an English rendering ("two weeks ago") draw none.
+- **A claim carried word for word credits nothing new** (minor; `ledger.carried_verbatim`): the credit readers of INT-LEDGER-026
+  (view, text and party credits) do not read a synthesized claim whose text is a cited source claim's text (quotation marks,
+  spacing and the closing stop aside): en-t16 s6 ("The narrator notes that ...") and ec-t16 s20 draw none; and a numbered part of
+  a document ("Diagram 1", "Figure 2", "Table 3") names a supplied document only when that document carries the label, so the
+  answer's own "Diagram 1" is never doc-pelland.

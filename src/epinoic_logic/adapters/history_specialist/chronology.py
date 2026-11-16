@@ -1143,7 +1143,11 @@ def chronology_findings_in(sentence: str, context: Optional[str] = None) -> Opti
 #: 'three years before', 'two months after', 'a decade before': an interval stated with a cue.
 _INTERVAL_BEFORE_CUE_RE = re.compile(r"\b(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|some|a few)\s+(?:years?|months?|weeks?|days?|decades?)\s+$", re.IGNORECASE)
 _PROPER_RE = re.compile(r"\b[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]+")
-_NOT_PROPER = frozenset({"The", "A", "An", "This", "That", "These", "Those", "It", "Its", "In", "On", "By", "Of", "And", "But", "After", "Before", "When", "While"}) | {m.capitalize() for m in MONTHS}
+#: Capitalised words that are no event's name: articles, pronouns, prepositions, months, and the qualifiers of a length that open a sentence
+#: ('About seven months after Darfield, ...': clearance c3, 'About' was read as the event the length is ordered against).
+_NOT_PROPER = frozenset({"The", "A", "An", "This", "That", "These", "Those", "It", "Its", "In", "On", "By", "Of", "And", "But", "After", "Before", "When", "While",
+                         "About", "Around", "Roughly", "Approximately", "Nearly", "Almost", "Some", "Only", "Just", "Exactly", "Over", "Under", "Barely",
+                         "Within", "Less", "More", "Fewer", "Precisely", "Little", "Not", "Well", "Shortly", "Soon", "Long"}) | {m.capitalize() for m in MONTHS}
 
 
 def _proper_names(text: str, *, trailing: bool) -> tuple[list[str], str]:

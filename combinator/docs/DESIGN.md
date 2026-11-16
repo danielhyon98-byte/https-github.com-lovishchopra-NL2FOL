@@ -46,6 +46,18 @@ carries it for the student (rule 7): word for word, as a synthesized claim of it
 nothing the combinator writes presents it as checked. Arena round 9 (integrated round c2, ps-t15) is the case that
 showed it, under pack 1.2, whose rule 6 listed a decline among the notes to leave out.
 
+A question is a note only when it asks the student or the router something back: what they mean, which text or edition
+they use, whether they want more ("Would you like me to say more about the reparations?"). A question the answer sets the
+student (a practice, test, revision or guiding question it tells the student to answer or think through, often numbered
+or announced by "answer these:") is the answer's content: a coaching answer may be little else. Since pack 1.4 rule 6
+says so, and a kept sentence that announces questions, a list or steps keeps every question, item and step it announces
+(rule 9 forbids dropping either as a note). The role decides first: a source claim the delivery roled `other` stays a
+note whatever it asks (citing one is `INT-LEDGER-029` at the hub), so a branch whose parser roles such questions `other`
+loses them before the combinator sees them; that is the parser's to fix, handed off with the evidence. Arena round 10
+(integrated round c3, ll-t16) is the case that showed it, under pack 1.3, whose rule 6 listed "a question to the student
+or the router" among the notes: the synthesis kept "To test a direction, answer these from the adverts themselves: 1. ..."
+and dropped the four questions it announces as notes.
+
 The runner does not enforce rule 7 (it checks the contract, never faithfulness). The hub judges it: it names a
 synthesis that leaves out a decline (`INT-LEDGER-019`, rule framing-content), and it still names the decline carried in
 any other form than rule 7's (reworded, merged with a claim, under a verification label, under another transformation,

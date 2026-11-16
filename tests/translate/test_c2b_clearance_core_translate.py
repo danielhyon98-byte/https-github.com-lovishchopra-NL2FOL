@@ -133,7 +133,17 @@ def test_ch_t15_s4_1_checks_another_claims_bond_count_and_is_no_verdict():
 
 
 def test_c1_bm_t14_g6_1_an_instruction_verified_on_the_answer_key_of_the_claim_after_it_is_no_verdict():
-    hub, _ch, _reply, rc = deliver_recorded("c1", "bm-t14", {"g6.1@business-management-specialist": translation("c1", "bm-t14", "g6.1")})
+    # Round 10 (clearance c3; the parsers' handoff H11, rewritten to a stricter rule with both halves asserted): the parsers now read
+    # the recorded "Next practice task: move ..." as a practice prompt (role other), which never reaches the engine; the rule itself
+    # is held on the same instruction written without the practice lead (a claim again, the recorded translation served)
+    from ..channel.c2b_core_support import C2B
+    hub, _ch, reply, rc = deliver_recorded("c1", "bm-t14", {"g6.1@business-management-specialist": translation("c1", "bm-t14", "g6.1")})
+    hub.close()
+    o = outcome(rc, "g6.1")
+    c = next(c for c in reply.payload["claims"] if c["claim_id"].split("@")[0] == "g6.1")
+    assert c["claim_role"] == "other" and o.display_status.value == "NOT_ELIGIBLE", (c["claim_role"], o.display_status)
+    text = C2B["c1"]["specialists"]["bm-t14"]["response_text"].replace("Next practice task: move", "Move")
+    hub, _ch, _reply, rc = deliver_recorded("c1", "bm-t14", {"g6.1@business-management-specialist": translation("c1", "bm-t14", "g6.1")}, text=text)
     hub.close()
     o = outcome(rc, "g6.1")
     assert o.display_status.value == "AMBIGUOUS_TRANSLATION" and "neighbour_content" in flags(o), (o.display_status, flags(o))

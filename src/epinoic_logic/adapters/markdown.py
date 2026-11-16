@@ -2264,10 +2264,14 @@ _ANSWER_NOTE_RES = (
     # a decline of the deliverable or of part of it: "I can't write the analysis or the conclusion sections, ... because ..."
     re.compile(r"^I\s++(?:can['’]t|cannot|can\s++not|won['’]t|will\s++not|am\s++(?:not\s++able|unable)\s++to|must\s++not|should\s++not|shouldn['’]t)"
                r"\s++(?:write|calculate|do|complete|produce|give\s++you|provide|draft|answer|carry\s++out|work\s++out|compute|finish|submit|"
-               r"prepare|create)\b[^;]*+$", re.IGNORECASE),
+               # 'I can't choose your line of inquiry, and I can't write ...' (clearance c3, ll-t16: the decline was read as the thesis)
+               r"prepare|create|supply|invent|make\s++up|compose|generate"
+               r"|(?:choose|pick|select|decide\s++on|set)\s++(?:your\b|(?:a|an|the|one|it|this|that)\b[^;,]{0,60}?\bfor\s++you\b))\b[^;]*+$", re.IGNORECASE),
     # an offer of help: "I can help you work through both, and check your own working and drafts", "I will check the method"
-    re.compile(r"^I\s++(?:can|could|will|would|['’]ll|am\s++happy\s++to|would\s++be\s++(?:happy|glad)\s++to)\s++(?:also\s++)?"
-               r"(?:help|check|look\s++(?:at|over)|go\s++through|work\s++through|review|comment\s++on|mark|give\s++(?:you\s++)?feedback)\b[^;]*+$",
+    re.compile(r"^(?:(?:when|if|once|after)\s++you\s++(?:send|share|paste|upload|show|post|have)\b[^,;]{1,120},\s*+)?"
+               r"I\s++(?:can|could|will|would|['’]ll|am\s++happy\s++to|would\s++be\s++(?:happy|glad)\s++to)\s++(?:also\s++)?"
+               r"(?:help|check|look\s++(?:at|over)|go\s++through|work\s++through|review|comment\s++on|mark"
+               r"|give\s++(?:you\s++)?(?:(?:some|provisional|detailed|written|more|further)\s++)?feedback)\b[^;]*+$",
                re.IGNORECASE),
     # a request to send work back: "... and send me your distance ranks, pedestrian ranks, d values and Σd²", "paste it here for feedback"
     # (to the writer: "send me", "... back", "... here"; "Firms share your data" is no request)
@@ -2284,16 +2288,56 @@ _ANSWER_NOTE_RES = (
     # a pointer to where the student should take a figure from: "For a real case with figures, check your textbook or ask your teacher"
     re.compile(r"^(?:for\s++[^,;]{1,80},\s*+)?(?:please\s++)?(?:check|consult|ask|use)\s++(?:your|a)\s++(?:textbook|teacher|course\s++notes|class\s++notes"
                r"|notes)\b[^;]*+$", re.IGNORECASE),
+    # the answer's own omission with its reason about sources (clearance c3, hi-t16: "Troop numbers and aid totals are not quoted, because
+    # no approved source in this session confirms them; your textbook will give exact figures to add." was a second body paragraph)
+    re.compile(r"^(?:[^\W\d_][\w’'-]*+\s++){1,8}?(?:is|are|was|were|has\s++been|have\s++been)\s++(?:deliberately\s++)?not\s++(?:quoted|given|stated|cited"
+               r"|included|listed|shown)\b[^;]*?\b(?:sources?|session|confirm\w*|verif\w*|textbook|from\s++memory|reliabl\w*)\b[^;]*+$", re.IGNORECASE),
+    # the writer's own omission in the first person (hi-p10b: "I have not quoted tonnages or price figures, because ..."; cs-t16: "I haven't
+    # run any code")
+    re.compile(r"^I\s++(?:have\s++not|haven['’]t|['’]ve\s++not|did\s++not|didn['’]t|chose\s++not\s++to|decided\s++not\s++to)\s++(?:quoted?|given|give"
+               r"|included?|cited?|listed|list|run|added|add|invented|invent|guessed|guess|estimated|estimate)\b[^;]*+$", re.IGNORECASE),
+    # how the answer was produced (cs-t16, cs-p10a: "I traced the scheduling by hand", "I calculated everything by hand")
+    re.compile(r"^I\s++(?:have\s++|['’]ve\s++)?(?:calculated|computed|worked\s++(?:out|through)|traced|done|did|solved|drawn|drew)\s++(?:everything|it\s++all"
+               r"|all\s++of\s++it|it|them|this|these|the\s++[\w-]++(?:\s++[\w-]++){0,2})\s++(?:by\s++hand|on\s++paper|without\s++(?:a\s++)?(?:calculator"
+               r"|computer|code|software|GDC))\b[^;]*+$", re.IGNORECASE),
     # an examiner's rule on the length of the student's own work: "Examiners stop reading at 2,500 words, and that limit covers ..."
     re.compile(r"^(?:examiners?|markers?|moderators?)\s++(?:will\s++)?(?:stop|only)\s++read(?:ing)?\b[^;]*+$", re.IGNORECASE),
 )
 #: A clause after a semicolon that only points the student to where the omitted items can be found: "take them from your textbook and cite
 #: them", "check them in your notes".
 _NOTE_POINTER_CLAUSE_RE = re.compile(r"^(?:and\s++|so\s++|please\s++)?(?:take|check|find|look\s++(?:them|it)\s++up|get|add|cite|use)\s++(?:them|it|these|those)\b"
-                                     r"[^;]*+$", re.IGNORECASE)
+                                     r"[^;]*+$"
+                                     # "your textbook will give exact figures to add" (clearance c3, hi-t16)
+                                     r"|^(?:and\s++|so\s++)?(?:your|the)\s++(?:textbook|teacher|course\s++notes|class\s++notes|notes)\s++(?:will|can|should|would"
+                                     r"|may)\s++(?:give|provide|have|list|show|supply)\b[^;]*+$", re.IGNORECASE)
 _NOTE_DIGIT_RE = re.compile(r"\d")
 #: A count of words ("2,500 words", "a 350-word limit"): the length rule an examiner's remark states, not a figure of the answer's content.
 _WORD_COUNT_FIGURE_RE = re.compile(r"\d[\d,]*+(?:\s++|-)words?\b", re.IGNORECASE)
+
+
+#: A question that asks the student or the router something back (round-10 clearance, combinator handoff H2): an offer of more, a request
+#: for the edition, the text or a choice ("Would you like me to say more about the reparations?", "Which edition are you using?", "Which
+#: of the three directions interests you most?", "Can you send me your draft?"). Anchored at the sentence's start, every gap bounded. A
+#: question the answer sets the student ("What does that choice do to who counts as part of the family?") is none.
+_QUESTION_BACK_RE = re.compile(
+    r"^\W{0,4}(?:(?:would|do|did)[ \t]{1,3}you[ \t]{1,3}(?:like|want|prefer|need)\b|shall[ \t]{1,3}(?:I|we)\b|should[ \t]{1,3}I\b"
+    r"|would[ \t]{1,3}it[ \t]{1,3}help\b|(?:can|could|will|would)[ \t]{1,3}you[ \t]{1,3}(?:send|share|paste|tell|confirm|upload|let[ \t]{1,3}me|check"
+    r"[ \t]{1,3}with|say|clarify|post)\b|is[ \t]{1,3}(?:that|this)[ \t]{1,3}what[ \t]{1,3}you\b|do[ \t]{1,3}you[ \t]{1,3}have\b"
+    r"|which[ \t]{1,3}(?:edition|translation|text|version|book|copy|poem|extract|novel|play|paper|syllabus|course|level|exam|option|board)s?"
+    r"[ \t]{1,3}(?:are|do|did|will|would|is)[ \t]{1,3}you\b"
+    r"|(?:which|what)\b[^?\n]{0,80}?\b(?:interests?[ \t]{1,3}you|would[ \t]{1,3}you[ \t]{1,3}(?:like|prefer|rather|choose)|do[ \t]{1,3}you"
+    r"[ \t]{1,3}(?:prefer|want|need|have[ \t]{1,3}in[ \t]{1,3}mind)|are[ \t]{1,3}you[ \t]{1,3}(?:using|reading|studying|taking|sitting)))",
+    re.IGNORECASE)
+
+
+def is_question_back(sentence: str) -> bool:
+    """Whether ``sentence`` is a question that asks the student or the router something back (:data:`_QUESTION_BACK_RE`, quotations
+    masked, the sentence ending with a question mark): a note of the answer on every branch, never a claim of it (round-10 clearance,
+    combinator handoff H2: the English parsers roled it a material point while the other branches roled it ``other``)."""
+    if not sentence or len(sentence) > 600:
+        return False
+    masked = mask_quotations(sentence).strip()
+    return masked.rstrip(" )\"'”’»").endswith("?") and _QUESTION_BACK_RE.match(masked) is not None
 
 
 def is_answer_note(sentence: str) -> bool:
@@ -2316,7 +2360,10 @@ def is_answer_note(sentence: str) -> bool:
     if not body:
         return False
     head, _sep, tail = body.partition(";")
-    if tail and not all(_NOTE_POINTER_CLAUSE_RE.match(c.strip()) for c in tail.split(";") if c.strip()):
+    # a clause after a semicolon is a pointer to where the items can be found, or a note of the same kind ("I calculated everything by hand;
+    # I haven't run any code.")
+    if tail and not all(_NOTE_POINTER_CLAUSE_RE.match(c.strip()) or any(rx.match(c.strip()) for rx in _ANSWER_NOTE_RES)
+                        for c in tail.split(";") if c.strip()):
         return False
     head = head.strip()
     return any(rx.match(head) for rx in _ANSWER_NOTE_RES)
@@ -2352,6 +2399,10 @@ _FRAMING_RES = (
                r"|illustrative|imaginary)\b", re.IGNORECASE),
     re.compile(r"^I\s++(?:have\s++)?assumed\s++(?:HL|SL|higher\s++level|standard\s++level|the\s++(?:HL|SL|higher|standard)\b)", re.IGNORECASE),
     re.compile(r"\bso\s++I\s++(?:have\s++)?(?:worked|answered|written)\s++(?:exactly|in\s++exact\s++form|without\s++a\s++(?:GDC|calculator))\b", re.IGNORECASE),
+    # how the answer reads the task's own form (clearance c3, ec-t16: "The marks printed (2, 3, 4 and 15) do not follow the full Paper 2
+    # pattern, so I have treated the 15-mark part (d) as the extended part ..." was the point of its paragraph)
+    re.compile(r"\bso\s++I\s++(?:have\s++|['’]ve\s++)?(?:treated|read|taken|interpreted|answered)\s++(?:the\s++|this\s++|that\s++)?[^,;]{1,80}?\s++as\s++"
+               r"(?:the\s++|an?\s++)?(?:extended|main|short|long|essay|data|first|second|final|separate|optional)\b", re.IGNORECASE),
     re.compile(r"^every\s++answer\s++(?:below|above|here)\s++is\b", re.IGNORECASE),
     re.compile(r"^(?:the\s++)?(?:tags|marks?|mark\s++allocations?)\b[^;]{0,60}?\b(?:is|are)\s++(?:an?\s++)?provisional\b", re.IGNORECASE),
     # the case's places, people or figures are fictional (round 9, c2): "Ostrel is a fictional country and its figures are practice data,
@@ -2440,12 +2491,27 @@ _SOURCES_LEAD_RE = re.compile(r"^[\s*_>#-]*" + _SOURCES_LEAD + r"\s*:", re.IGNOR
 _SOURCES_MAX_WORDS = 60
 
 
+#: The most words a quoted title in a list of sources holds.
+_SOURCES_TITLE_WORDS = 8
+#: A verb of saying: a list of sources holding one is followed by a sentence of the answer, not by a title.
+_SOURCES_SAYING_RE = re.compile(r"\b(?:says?|said|insists?|insisted|writes?|wrote|notes\s+that|noted|argues?|argued|claims?|claimed|states?|stated|adds?"
+                                r"|added|tells?|told|calls?|called|remarks?|remarked|observes?|observed|declares?|declared|admits?|admitted|suggests?"
+                                r"|suggested|reminds?|reminded|asks?|asked|cries|cried|shouts?|shouted|whispers?|whispered)\b", re.IGNORECASE)
+
+
 def is_sources_note(sentence: str) -> bool:
     """True when ``sentence`` is the answer's list of sources: opened by the sources lead, holding no quotation and at most
     :data:`_SOURCES_MAX_WORDS` words ("Sources: none consulted (no retrieval in this session)")."""
     text = sentence.strip()
-    return (bool(text) and len(text) <= 800 and _SOURCES_LEAD_RE.match(text) is not None and len(text.split()) <= _SOURCES_MAX_WORDS
-            and not find_quotation_spans(text))
+    # a title in quotation marks names a source ("your notes on the 'Every Kitchen' adverts"; clearance c3, ll-t16): a span of a few words
+    # is a title, never a quotation of a text
+    if not text or len(text) > 800 or _SOURCES_LEAD_RE.match(text) is None or len(text.split()) > _SOURCES_MAX_WORDS:
+        return False
+    spans = find_quotation_spans(text)
+    # a quotation framed by a verb of saying after the list ('Sources: ... The narrator also insists that "..."') is a sentence of the
+    # answer read and checked as any other, never a title
+    return not spans or (all(len(inner.split()) <= _SOURCES_TITLE_WORDS for _a, _b, inner in spans)
+                         and _SOURCES_SAYING_RE.search(mask_quotations(text)) is None)
 
 
 NOTE_LEAD_RE = re.compile(
@@ -2459,7 +2525,9 @@ NOTE_LEAD_RE = re.compile(
 #: parsers role it. "Note on ...:" introduces a discussion and is not bare; "Confidence:" rates the answer in one sentence.
 #: (The sources lead is a note lead of its sentence only, never of a paragraph: a sentence written after a list of sources on its line,
 #: 'Sources: ... The narrator also insists that "..."', is read, counted and checked as any other.)
-BARE_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|limits?|caveats?)\s*:|n\.\s?b\.)", re.IGNORECASE)
+BARE_NOTE_LEAD_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|for\s+next\s+time|limits?|caveats?)\s*:|n\.\s?b\."
+                               # practice for the student after the answer: "Next practice task (data for practice): ..." (clearance c3, ph-t16)
+                               r"|next\s+practice(?:\s+(?:task|step|question|problem))?(?:\s*\([^()\n]{0,60}\))?\s*:)", re.IGNORECASE)
 #: A sentence end followed by more text: a block that holds one is more than a list of sources.
 _SENTENCE_END_THEN_TEXT_RE = re.compile(r"[.!?][\"'”’)\]]*\s+\S")
 
@@ -2485,7 +2553,28 @@ def opens_note_paragraph(paragraph: str) -> bool:
     masked = mask_quotations(text[:400])
     if BARE_NOTE_LEAD_RE.match(masked) is not None:
         return True
-    return NOTE_WORD_LEAD_RE.match(masked) is not None and note_word_paragraph(text)
+    if NOTE_WORD_LEAD_RE.match(masked) is not None:
+        return note_word_paragraph(text)
+    return answer_note_paragraph(text)
+
+
+#: The longest paragraph :func:`answer_note_paragraph` reads, and its most sentences.
+_ANSWER_NOTE_PARAGRAPH_CHARS = 1500
+_ANSWER_NOTE_PARAGRAPH_SENTENCES = 6
+
+
+def answer_note_paragraph(paragraph: str) -> bool:
+    """True when every sentence of ``paragraph`` is a note about the answer (:func:`is_answer_note`: an omission and its reason, a decline,
+    an offer of help, how the answer was produced; clearance c3: hi-t16's "Troop numbers and aid totals are not quoted, because no approved
+    source in this session confirms them; ..." and hi-p10b's "I have not quoted tonnages or price figures, ..." were measured as a second
+    paragraph of one-paragraph answers). Such a paragraph is a note as a whole: a word or paragraph bound leaves it out, as the parsers
+    role it non-material. Bounded: at most :data:`_ANSWER_NOTE_PARAGRAPH_SENTENCES` sentences of a paragraph of at most
+    :data:`_ANSWER_NOTE_PARAGRAPH_CHARS` characters."""
+    text = paragraph.strip()
+    if not text or len(text) > _ANSWER_NOTE_PARAGRAPH_CHARS:
+        return False
+    sentences = [x for x in re.split(r"(?<=[.!?])\s++(?=[A-Z\"“‘'(])", text) if x.strip()]
+    return 0 < len(sentences) <= _ANSWER_NOTE_PARAGRAPH_SENTENCES and all(is_answer_note(x) for x in sentences)
 
 
 #: A sentence that continues a note rather than stating content (round 9, c2): the writer's own handling of the task or the text, in the
@@ -4022,6 +4111,105 @@ def absent_word_mentions(text: str, *, min_single_words: int = 2, feedback: Opti
             if r and f and len(sp[2].strip(_QUOTE_STRIP).split()) <= _SHORT_MENTION_WORDS]
 
 
+# --------------------------------------------------------------------------------------------- the writer's own forms (clearance c3)
+#: A gloss, a translation or an expansion the writer gives of a quoted form, right before the span: '"¡Ojo, que quema!": means
+#: "Careful, it's hot!"', 'meaning "...": the writer's English, never a text's words (round 10: sp-p10d's glosses drew INT-REQ-003
+#: and CORE-SRC-003).
+_GLOSS_BEFORE_RE = re.compile(r"\b(?:means?|meaning|meant|i\.e\.|translates?\s+(?:as|to)|translated\s+as|in\s+English|glossed?\s+as|contracts?|contraction\s+of"
+                              r"|short\s+for|abbreviates?|abbreviation\s+of|literally"
+                              # a base form a form is named after ('the informal imperative of "andar"', 'a diminutive-style form of "mero"';
+                              # clearance c3, sp-p10d) and a standard form set beside it ('Standard Spanish says "ya casi"')
+                              r"|(?:imperative|infinitive|participle|gerund|subjunctive|indicative|conjugation|plural|singular|feminine|masculine"
+                              r"|diminutive|augmentative|(?:base|dictionary|infinitive|plural|singular|feminine|masculine|diminutive(?:-style)?|augmentative"
+                              r"|imperative|subjunctive|reflexive|polite|familiar|informal|formal|contracted|short|full|standard)\s+form)\s+of"
+                              r"|(?:standard|formal|neutral|peninsular|european|latin\s+american)\s+(?:spanish|english|french|german|usage|form)\s+"
+                              r"(?:says?|uses?|would\s+(?:say|use)|has|prefers?))\s*+[:,]?\s*+(?:as\s+)?(?:either\s+)?[*_`]{0,2}$", re.IGNORECASE)
+#: A form the writer says the text would or should use: 'a letter would normally use ustedes: "¿Cómo están?", ...', 'A woman would say
+#: "la nueva"' (round 10: sp-t16's Chilean forms were charged as altered quotations of the student's email).
+_MODAL_FORM_BEFORE_RE = re.compile(r"\b(?:would|should|could|might)\s++(?:normally\s++|usually\s++|typically\s++|instead\s++|rather\s++|more\s++naturally\s++)?"
+                                   r"(?:use|say|write|expect)\b[^.!?\"“”«»\n]{0,60}+[:,]?\s*+[*_`]{0,2}$", re.IGNORECASE)
+#: A form the writer names as a form, right after the span: '"echarle ganas" is a fixed phrase meaning ...'.
+_FORM_NAMED_AFTER_RE = re.compile(r"[\"”»'’*_`]{0,3}\s*+(?:is|are)\s++(?:a|an|the)\s++(?:fixed\s++|set\s++|common\s++|idiomatic\s++)?(?:phrase|expression|idiom"
+                                  r"|base\s++form|infinitive|lemma|dictionary\s++form|construction|collocation)\b", re.IGNORECASE)
+#: A model or an example lead governing the line the span opens after it: "Model (one sentence, to show range ...):".
+_MODEL_LEAD_RE = re.compile(r"(?:^|\n)[\s>*_#\d.)(-]*+(?:model|example|sample|exemplar|illustration)\b[^:\"“”«»\n]{0,160}+:\s*+[*_`]{0,2}$", re.IGNORECASE)
+#: An invented example announced in the paragraph before the span: "An example on a different, invented body of work, to show the
+#: difference. Topic: "..." Line of inquiry: "..."" (round 10: ll-t16's invented topic drew INT-REQ-003 and ES-SRC-001).
+_INVENTED_EXAMPLE_RE = re.compile(r"\b(?:invented|made-?up|hypothetical|imaginary|fictional|fictitious)\s++(?:[\w-]+\s++){0,3}?(?:example|body\s++of\s++work|case"
+                                  r"|text|adverts?|advertisements?|scenario|topic|essay|answer|question|campaign)s?\b"
+                                  r"|\bexample\s++(?:on|from|using|with)\s++(?:a\s++)?(?:different|invented|made-?up)\b", re.IGNORECASE)
+#: A list of trigger forms in a rule, closed by "and other ... phrases": 'After "espero que", "me gustaría que" and other wish or hope
+#: phrases, use the subjunctive.'
+_TRIGGER_AFTER_RE = re.compile(r"[\"”»'’*_`]{0,3}\s*+(?:,\s*+)?(?:and|or)\s++(?:other|similar|any\s++other)\s++(?:[\w-]+\s++){0,3}?(?:phrases?|expressions?|words?"
+                               r"|verbs?|forms?|constructions?|triggers?|connectives?)\b", re.IGNORECASE)
+#: What joins two forms of one list: a comma, "or", "and".
+_FORM_JOIN_RE = re.compile(r"^[\s*_`\"”»'’]*+(?:,\s*+)?(?:(?:or|and|y|o)\s++)?[\s*_`\"“«'‘]*+$", re.IGNORECASE)
+
+
+#: A paragraph break, read once per text by :func:`own_form_flags`.
+_PARAGRAPH_BREAK_AT_RE = re.compile(r"\n(?=\n)")
+#: How far back :func:`own_form_flags` reads again for an announcement cut by the previous span's position (longer than any announcement).
+_INVENTED_OVERLAP = 200
+
+
+def own_form_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
+    """For each span, whether it is the writer's own form rather than a quotation of a text, in any task (clearance c3): a gloss or
+    an expansion ("means", "meaning", "contracts", "short for"), a base form or a standard form ("the informal imperative of", "Standard
+    Spanish says"), a form the text would or should use ("would normally use ...:"), a form named as a fixed phrase or a base form, every
+    span of a paragraph after an invented example is announced, and a list of trigger forms closed by "and other ... phrases" (a line under
+    a "Model (...):" label is decided with the supplied texts in view: ``sources.own_model_words``); a span joined by a comma, "or" or
+    "and" to such a span of a gloss, a modal form or a trigger list is one too. A span attributed to a text keeps being a quotation
+    wherever a frame names the text ("your email says", "the poem's"): those frames stand before the span, never these. Linear: each
+    span reads bounded windows."""
+    n = len(spans)
+    out = [False] * n
+    para_start = 0
+    invented_at: Optional[int] = None
+    scanned_to = 0  # the announcement is searched once over the paragraph: each span reads only what the span before it did not
+    breaks = [m.start() for m in _PARAGRAPH_BREAK_AT_RE.finditer(text)]  # the paragraph breaks, found once (a search back from each span
+    # to its paragraph's start was k reads of the text for k spans: 1.1 s for 8,000 quotations in one paragraph)
+    for k, (a, b, _inner) in enumerate(spans):
+        i = bisect.bisect_left(breaks, a - 1)  # the last break that ends before the span ('\n\n' wholly before a)
+        p = breaks[i - 1] if i > 0 else -1
+        if p != para_start:
+            para_start, invented_at, scanned_to = p, None, max(0, p)
+        before = text[max(0, a - 160):a]
+        line_before = before[before.rfind("\n") + 1:] if "\n" in before else before
+        if invented_at is None:
+            # from the last span on, with an overlap of an announcement's length, and never more than 4,000 characters back
+            m = _INVENTED_EXAMPLE_RE.search(text, max(max(0, para_start), scanned_to - _INVENTED_OVERLAP, a - 4000), a)
+            scanned_to = max(scanned_to, a)
+            if m is not None:
+                invented_at = m.start()
+        if invented_at is not None and invented_at < a:
+            out[k] = True
+            continue
+        if _GLOSS_BEFORE_RE.search(before[-60:]) or _MODAL_FORM_BEFORE_RE.search(line_before[-120:]) or _FORM_NAMED_AFTER_RE.match(text, b, b + 80):
+            # (a span under a 'Model ...:' lead is decided with the supplied texts in view, by ``sources.own_model_words``: a model label
+            # over the student's own line with one word changed is an altered quotation, checked as any other; INV-Q1)
+            out[k] = True
+        elif _TRIGGER_AFTER_RE.match(text, b, b + 120):
+            out[k] = True
+            j = k  # the forms listed before it belong to the list
+            while j > 0 and spans[j - 1][1] <= spans[j][0] and _FORM_JOIN_RE.match(text[spans[j - 1][1]:spans[j][0]]):
+                out[j - 1] = True
+                j -= 1
+        elif k and out[k - 1] and spans[k - 1][1] <= a and _FORM_JOIN_RE.match(text[spans[k - 1][1]:a]) and not _ATTRIBUTION_BEFORE_RE.search(before[-40:]):
+            out[k] = True  # 'means "the new one" or "the newcomer"', '"¿Cómo están?", "su casa", "los echo mucho de menos"'
+    return out
+
+
+@functools.lru_cache(maxsize=64)
+def _quotations_not_own_forms(text: str, min_single_words: int) -> tuple[tuple[int, int, str], ...]:
+    """The quoted spans of ``text`` less the writer's own forms (:func:`own_form_flags`), read once per text: the parsers and the packs
+    ask for the spans of one answer several times."""
+    spans = find_quotation_spans(text, min_single_words=min_single_words)
+    if not spans:
+        return ()
+    own = own_form_flags(text, spans)
+    return tuple(sp for sp, o in zip(spans, own) if not o)
+
+
 def parser_quotation_spans(text: str, *, min_single_words: int = 2, feedback: Optional[bool] = None) -> list[tuple[int, int, str]]:
     """The quoted spans of ``text`` (:func:`find_quotation_spans`) a parser reads as quotations: the spans it credits to a
     supplied text, carries as quotation claims or records as credited to no text. A correction or a suggestion is the
@@ -4038,7 +4226,7 @@ def parser_quotation_spans(text: str, *, min_single_words: int = 2, feedback: Op
     label or a correction in words there leaves the span a quotation, so an altered quotation framed that way is still
     checked (repair round 4, INV-Q1). Masking text and testing whether a position lies inside a quotation keep
     :func:`find_quotation_spans`."""
-    spans = find_quotation_spans(text, min_single_words=min_single_words)
+    spans = list(_quotations_not_own_forms(text, min_single_words))  # the writer's own forms left out, in any task (clearance c3)
     if not spans or not feedback_task(feedback):
         return spans  # the roles read no correction or suggestion outside a feedback task: no role is read there at all
     roles = _span_roles(text, spans, feedback=feedback)

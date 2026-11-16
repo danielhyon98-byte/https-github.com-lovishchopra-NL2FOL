@@ -385,3 +385,44 @@ reader (`diag_figures.worked_results`) reads the member after a result sign of a
 values ("= $40,000 + $15,000 + $4,000 = $59,000"), so EVD-FIG-001 no longer names a figure the answer's own working gives; and
 EVD-LACK-001 no longer names a general-knowledge premise that only states the conventional meaning of a word the claim quotes from a
 supplied text.
+
+## Round-10 clearance (integrated round c3): encodings that are not their claim's, and minors
+
+The c3 translation-fidelity lens found four encodings displayed ENTAILED with no finding although their conclusion is not the
+claim's. Each is now no verdict on the claim, with the reason named:
+
+- `fidelity.consequence_unchecked` (flag `consequence_unchecked`, sp-t16 g1.22): the conclusion's label states a consequence or a
+  correction (after "so", "therefore", "thus", "hence", an arrow, "should read") that only the meaning of a declared symbol of the
+  writer's own that no premise and no conclusion uses holds ('correction', "the verb should read 'veamos'"): the expression does not
+  check the consequence the label states.
+- `fidelity.conjunct_asserted` (flag `conjunct_asserted`, ess-t16 s7.1): a conjunct of the conclusion, a Boolean statement, is
+  asserted as written only by premises of the writer's own inference (no grounding, `specialist_inference`, `assumption`), while a
+  supporting claim the claim cites (not an evidence line) states what it rests on (two content stems in common): that part is
+  assumed, not derived.
+- Rule link-weakening of the translator's E112 (`restatement._Checker.weakens_link`, bm-t16 g15.3): a premise that is a link (an
+  implication or a biconditional, no antecedent beside it) and alone entails a conditional or disjunctive conjunct by its full
+  Boolean structure restates it ("alt1 → evid" gives "¬tests_met → (alt1 → evid)"): a conditional claim proved from its own
+  conditional is the claim assumed (full restatement, INVALID_FORMALIZATION). A link packed with its antecedent still argues, and a
+  chain of two links (¬t → a, a → e, so ¬t → e) is decided by the engine, as before. The transfer auditor's floor calls
+  `semantic_restatement`, so it agrees.
+- `fidelity.reason_not_encoded` (flag `reason_not_encoded`, ph-t16 s2.8): the claim draws its consequence from a reason it states in
+  words ("A gas-law ratio needs kelvin, so the ratio is 308/290, not 35/17"), the encoding states nothing of that reason (fewer than
+  two of its stems in a premise label or a used meaning), the consequence's figures are what the conclusion checks, and every symbol
+  of the conclusion is fixed by a computation on numbers: the verdict checks the arithmetic alone and would hold whatever the
+  reason. An encoding of the reason itself ("The division is exact, so no extra packet is needed", c2 cs-t15 c4.5) is untouched.
+
+Across the recorded rounds c1, c2 and c3 the three flags and the rule fire on these four claims only (each judged unfaithful by the
+lens). Minors of this pass: `partial_encoding` skips a reading's sentence that names another claim by its id ("Supporting claims
+h1.2 ... are not encoded here", hi-p10b h1.1; "its nonlinear derivation in m24.1 is not encoded", mai-t16 m26.1);
+`conditional_conclusion` reads a generic statement about any member of a kind (an indefinite or universal subject opening the
+claim, never "a 5% rise") as conditional in its meaning (cs-t16 c13.1, c13.2); and a month's name states its number to the
+grounding check only for a symbol about a date or a month (`grounding._Literal.dated`), so the request's "May 2027" no longer
+validates "P1 burst time is 5 ms" (cs-t16), the task's own "5 ms" does.
+
+**One display rule (handoff pass; overseer handoff 3).** `outcome.claim_display_status(claim, translation, verification, signing_key,
+key_id)` returns the display status the composer gives a claim and whether the self-report rule withheld a success display
+(`display_status_for`, then NOT_ELIGIBLE for a success display of a claim whose own words claim a check, `adapters.self_report.
+claims_a_check`, failing closed). `compose_outcome` calls it, and so does the transfer auditor's rule composed-display (exported through
+`epinoic_logic.api.translate`), so the two cannot apply different rules. A status withheld this way is summarised with its own meaning
+(`WITHHELD_SELF_REPORT_MEANING`: the claim's own words claim a check, an agent self-report, advisory only), never as the policy meaning of
+NOT_ELIGIBLE (`build_summary(..., withheld_self_report=True)`).

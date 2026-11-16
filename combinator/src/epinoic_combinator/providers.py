@@ -12,11 +12,14 @@ tests and simulations:
 * :class:`ScriptedProvider` answers with the texts it is given, one per call (a text, a callable of the request, or an
   exception to raise), and records every request;
 * :class:`FaithfulFakeProvider` writes the faithful synthesis of its input deterministically, as the instructions ask
-  (pack 1.3): every source claim that is not a note carried word for word with its own certainty; every note (role
+  (pack 1.4): every source claim that is not a note carried word for word with its own certainty; every note (role
   ``other``) listed in ``dropped``, except a note that declines or defers the work the student asked for
   (:func:`withheld_work`, rule 7), which is carried word for word like a claim so that the student still learns that
   the work was withheld (round 9, integrated round c2: the ps-t15 synthesis dropped the specialist's decline of the
-  proposal and the student never read it).
+  proposal and the student never read it). It reads a note by its role only, as the hub does, so a question the answer
+  sets the student (rule 6, split since pack 1.4: a practice, test or guiding question is content) is carried whatever
+  its wording unless the delivery roled it ``other`` (round 10, integrated round c3: the ll-t16 synthesis kept "To test
+  a direction, answer these from the adverts themselves:" and dropped the four questions it announces as notes).
 """
 from __future__ import annotations
 
@@ -38,11 +41,16 @@ NOTE_REASON = "a note of the specialist (role other: a label, a self-report or a
 # the translator, so the forms are restated here, with every blank run bounded. Every pattern is anchored at a sentence or
 # line start and every gap is bounded and stops at a sentence end, so a reading is linear in the text.
 #: A sentence that declines part of the work, read from its start: "I can't write your introduction ...", "I cannot answer
-#: part (c).", "I will not complete the essay ...".
+#: part (c).", "I will not complete the essay ...", and since the round-10 clearance (c3) the forms the hub added then: "I
+#: can't choose your line of inquiry, and I can't write your introduction, ..." (ll-t16, which the hub reads as a decline
+#: and this reading did not, so the faithful fake dropped it), a choice made for the student ("pick a topic for you") and
+#: "supply", "invent", "make up", "compose", "generate". The gap before "for you" is bounded and stops at a clause end.
 _DECLINE_RE = re.compile(
     r"I[ \t\n]{1,3}(?:can['’]t|cannot|can[ \t\n]{1,3}not|won['’]t|will[ \t\n]{1,3}not|am[ \t\n]{1,3}(?:not[ \t\n]{1,3}able|unable)[ \t\n]{1,3}to"
     r"|must[ \t\n]{1,3}not|should[ \t\n]{1,3}not|shouldn['’]t)[ \t\n]{1,3}(?:write|calculate|do|complete|produce|give[ \t\n]{1,3}you|provide|draft"
-    r"|answer|carry[ \t\n]{1,3}out|work[ \t\n]{1,3}out|compute|finish|submit|prepare|create)\b", re.IGNORECASE)
+    r"|answer|carry[ \t\n]{1,3}out|work[ \t\n]{1,3}out|compute|finish|submit|prepare|create|supply|invent|make[ \t\n]{1,3}up|compose|generate"
+    r"|(?:choose|pick|select|decide[ \t\n]{1,3}on|set)[ \t\n]{1,3}(?:your\b|(?:a|an|the|one|it|this|that)\b[^;,]{0,60}?\bfor[ \t\n]{1,3}you\b))\b",
+    re.IGNORECASE)
 #: What a deferral holds back: "the full ...", "your essay", "the evaluation".
 _DEFERRED_OBJECT = (r"(?:the|a|your|my)[ \t\n]{1,3}(?:(?:full|complete|whole|entire|final)\b[^.!?\n]{0,40}?"
                     r"|(?:essay|answer|response|evaluation|report|analysis|draft|section|sections|paragraph|commentary|discussion)\b)")

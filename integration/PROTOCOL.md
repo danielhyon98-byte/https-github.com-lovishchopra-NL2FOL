@@ -344,7 +344,11 @@ does not hold, 005 an instruction pack other than the pinned one, 006 too large.
 
 **The relay.** The service turns a checked output into the `synthesis/1.0` mapping (`combinator_port.synthesis_payload`:
 claims `s0`, `s1`, ... never reusing a source claim id; dropped entries as ledger entries `dropped`; disclosed conflicts
-as `unresolved` conflict records; the student-facing text the claims' texts joined) and relays it through the hub, whose
+as `unresolved` conflict records; the student-facing text the claims' texts joined by a space, a quotation claim rendered
+only inside a claim that quotes it: one another claim holds verbatim is read there once (`student_facing_text`, round 9's
+clearance), and one whose every quoting source claim the output left out (a note dropped, its quotation carried:
+`orphaned_quotations`, round 10's clearance) is not rendered on its own, so the hub names the claim the student does not read,
+`INT-LEDGER-017`; a text is never left empty) and relays it through the hub, whose
 contract validation (`INT-REQ-009`, `INT-SYNTH-014`; the synthesis contract holds the same text rule, `integrity.contracts.SYNTHESIS_TEXT_PATTERN`, and one citation per source claim, so an output out of the port's rules is refused again at the hub), ledger (`INT-LEDGER-*`, the carried self-report or verification label and a note carried back as a claim
 `INT-LEDGER-029` included), conflict disclosure (`INT-CONFLICT-002`, between formalized claims; a contradiction in prose is named only
 through the figures it changes, `INT-LEDGER-023`/`024`; a disclosed conflict over claims in which the hub found no

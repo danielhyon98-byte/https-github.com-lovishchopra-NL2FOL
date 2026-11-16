@@ -24,7 +24,7 @@ its encoding only: that the figure as written does or does not equal the cell as
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import lru_cache
 from typing import Optional
@@ -354,6 +354,127 @@ def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> li
     return out
 
 
+# ------------------------------------------------------------------------------------------------------- a ratio of two columns
+#: '<column A words> per <column B word>': a ratio of two columns of a supplied table ('Catch per boat', 'output per worker'). Bounded runs.
+_PER_RE = re.compile(r"(?P<a>[A-Za-z][\w'’-]{0,30}(?:\s++[A-Za-z][\w'’-]{0,30}){0,3})\s++per\s++(?P<b>[A-Za-z][\w'’-]{1,30})")
+#: After a figure of a ratio: its unit words and its year ('125.0 tonnes in 2019', '152.5 tonnes (2025)').
+_RATIO_YEAR_RE = re.compile(r"\s*+(?P<unit>(?:(?:thousand|million|billion)\s++)?[a-z]{1,20})?\s*+(?:in|for|during)?\s*+\(?\s*+(?P<year>1[0-9]{3}|20[0-9]{2})\b")
+#: A qualifier of an approximate figure in the words just before it.
+_APPROX_BEFORE_RE = re.compile(r"\b(?:about|around|roughly|approximately|approx\.|nearly|almost|some|c\.|ca\.|circa)\s*+$|~\s*+$", re.IGNORECASE)
+_SCALE_WORDS = {"thousand": Fraction(10**3), "thousands": Fraction(10**3), "million": Fraction(10**6), "millions": Fraction(10**6),
+                "billion": Fraction(10**9), "billions": Fraction(10**9)}
+#: The most '<A> per <B>' phrases read in one clause.
+_MAX_RATIO_PHRASES = 16
+#: An approximate ratio may differ from the columns' ratio by this share of it (and half a unit of its last digit).
+RATIO_APPROX = Fraction(1, 20)
+
+
+@dataclass(frozen=True)
+class _Ratio:
+    claim_id: str
+    statement: str
+    figure: _Figure
+    numerator: SuppliedCell
+    denominator: SuppliedCell
+    factor: Fraction        # the columns' ratio times this is the ratio in the figure's unit
+    approx: bool
+    document_id: str
+    where: str
+
+
+def _unit_parts(unit: str) -> tuple[Fraction, frozenset[str]]:
+    """``(scale, other words)`` of a unit ('thousand tonnes' -> (1000, {'tonne'})); plural endings are dropped."""
+    scale, words = Fraction(1), set()
+    for w in re.findall(r"[a-z$£€¥]+", unit.lower()):
+        if w in _SCALE_WORDS:
+            scale *= _SCALE_WORDS[w]
+        else:
+            words.add(w[:-1] if len(w) > 3 and w.endswith("s") else w)
+    return scale, frozenset(words)
+
+
+def _ratio_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> list[_Ratio]:
+    """Clearance c3 (ec-perboat: 'Catch per boat rose from about 125.0 tonnes in 2019 to about 152.5 tonnes in 2025', where Table 1 gives
+    48.0 thousand tonnes and 412 boats in 2019, 116.5 tonnes a boat, crossed with no finding): a figure stated as '<A> per <B>' with its
+    year, where A names one column (or row) of a supplied table and B (singular or plural) another, is read against the two cells of that
+    year. The figure's unit must be A's (a scale word apart: tonnes against thousand tonnes); a column that is already a rate ('P$ per
+    tonne') is not read as A or B."""
+    out: list[_Ratio] = []
+    for _offset, clause in _clauses(text):
+        if " per " not in clause:
+            continue
+        clause_figures: list[list[_Figure]] = []  # the clause's figures, read once on first use
+        for n_per, m in enumerate(_PER_RE.finditer(clause)):
+            if n_per >= _MAX_RATIO_PHRASES:
+                break  # a clause of more ratio phrases than any answer writes: the first ones are read
+            if not clause_figures:
+                clause_figures.append(_figures(clause))
+            a_words = {w.lower().strip("'’-") for w in m.group("a").split()}
+            b_word = m.group("b").lower().strip("'’-")
+            b_forms = {b_word, b_word + "s", b_word[:-1] if b_word.endswith("s") else b_word}
+            for table in tables:
+                a = [e for e, words in table.entities if words and words <= a_words and " per " not in e.lower()]
+                b = [e for e, words in table.entities if len(words) == 1 and next(iter(words)) in b_forms and " per " not in e.lower()]
+                if len(a) != 1 or len(b) != 1 or a[0] == b[0]:
+                    continue
+                figures = [f for f in clause_figures[0] if f.start >= m.end() and not f.unit]
+                for f in figures:
+                    after = _RATIO_YEAR_RE.match(clause, f.end)
+                    if after is None:
+                        continue
+                    year = int(after.group("year"))
+                    num = [c for c in table.cells if c.entity == a[0] and c.year == year]
+                    den = [c for c in table.cells if c.entity == b[0] and c.year == year]
+                    if len(num) != 1 or len(den) != 1 or den[0].value <= 0 or num[0].unit in ("%", "$", "£", "€", "¥"):
+                        continue
+                    a_scale, a_unit = _unit_parts(num[0].unit)
+                    b_scale, _b_unit = _unit_parts(den[0].unit)
+                    f_scale, f_unit = _unit_parts(after.group("unit") or "")
+                    if f_unit and a_unit and not f_unit <= a_unit:
+                        continue  # the figure's unit is not the column's: another quantity
+                    if not f_unit and a_scale != 1:
+                        continue  # no unit written against a column in thousands: which scale is meant is not stated
+                    approx = bool(_APPROX_BEFORE_RE.search(clause[max(0, f.start - 16):f.start]))
+                    out.append(_Ratio(claim_id, clause.strip(), f, num[0], den[0], a_scale / b_scale / (f_scale * f.scale), approx,
+                                      table.document_id, table.title))
+                break
+    return out
+
+
+def _ratio_value(r: _Ratio) -> Fraction:
+    return r.numerator.value / r.denominator.value * r.factor
+
+
+def _ratio_check(report: SpecialistReport, prefix: str, n: int, r: _Ratio) -> FormalCheck:
+    """The ratio as a linear problem: the denominator cell is a constant, so 'stated = num / den x factor, within a band' is written
+    multiplied through by it (``stated x den - num x factor`` within ``band x den``; the denominator is positive)."""
+    grounding = {"kind": "supplied_text", "verified": True}
+    computed = _ratio_value(r)
+    band = r.figure.half + (abs(computed) * RATIO_APPROX if r.approx else 0)
+    year = r.numerator.year
+    den = r.denominator.value
+    symbols = [{"name": "stated", "sort": "Real", "meaning": f"the ratio the answer states ({r.figure.shown})"},
+               {"name": "num", "sort": "Real", "meaning": f"the supplied figure of {r.numerator.entity} in {year}"[:200]}]
+    premises = [{"id": "STATED", "expr": {"op": "eq", "left": _var("stated"), "right": _real(r.figure.value)}, "label": f"stated ratio {r.figure.shown}"[:1000],
+                 "grounding": grounding},
+                {"id": "NUM", "expr": {"op": "eq", "left": _var("num"), "right": _real(r.numerator.value)},
+                 "label": f"{r.numerator.entity}, {year}: {r.numerator.shown}"[:1000], "grounding": grounding}]
+    diff = {"op": "sub", "left": {"op": "mul", "args": [_var("stated"), _real(den)]}, "right": {"op": "mul", "args": [_var("num"), _real(r.factor)]}}
+    concl = {"op": "and", "args": [{"op": "le", "left": diff, "right": _real(band * den)}, {"op": "ge", "left": diff, "right": _real(-band * den)}]}
+    where = f"{r.document_id} ({r.where[:120]})" if r.where else r.document_id
+    label = (f"the ratio {r.figure.shown} equals {r.numerator.entity} over {r.denominator.entity} ({r.denominator.shown}, the supplied figure of "
+             f"{year}) in {year} ({r.numerator.shown} / {r.denominator.shown}{'' if r.factor == 1 else f' x {r.factor}'} = {float(computed):.4g}) in {where}, "
+             f"within half a unit of its last digit" + (" and 5% for an approximate figure" if r.approx else ""))
+    problem = {"problem_id": f"fig-{report.report_id}-{n}"[:128], "request_id": report.request_id, "claim_id": f"{report.report_id}:figure-{n}"[:128],
+               "query": "entailment", "symbols": symbols, "premises": premises, "conclusion": {"id": "FIGURE", "expr": concl, "label": label[:1000]}}
+    description = (f"a ratio of two columns of a supplied table: {r.figure.shown} in '{r.statement[:200]}' against {where}: {r.numerator.entity} "
+                   f"{r.numerator.shown} over {r.denominator.entity} {r.denominator.shown} in {year} is {float(computed):.4g} [rule: a ratio stated as "
+                   f"'A per B' with its year equals the table's A over its B for that year, within half a unit of its last digit, and 5% of it when "
+                   f"the ratio is approximate]")
+    return FormalCheck(check_id=f"{prefix}-figure-{n}", kind="supplied_figure", description=description[:1500], problem=Problem.model_validate(problem),
+                       claim_ids=(r.claim_id,), policy="linear", failure_severity="error", defect="source_mismatch")
+
+
 # ------------------------------------------------------------------------------------------------- figures of a supplied text in prose
 _TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*|\d+(?:[.,]\d+)*")
 
@@ -409,6 +530,74 @@ def _prose_findings(claim_id: str, text: str, docs: list[SuppliedText]) -> list[
                     break
             else:
                 continue
+            break
+    return out
+
+
+#: A clause that credits its figures to a supplied text or case: 'The writer reminds readers that ...', 'the case says ...', 'according to the
+#: text', 'paragraph 3 says', "Hartwell's own figures:". A figure after it that the text states otherwise is misread from the text: an error.
+_TEXT_CREDIT_RE = re.compile(
+    r"\b(?:the|this)\s+(?:writer|author|columnist|journalist|article|column|editorial|op-ed|piece|text|extract|passage|case(?:\s+study)?|source|report|letter"
+    r"|speech|advert(?:isement)?|leaflet|blog(?:\s+post)?|essay|transcript|interview)"
+    r"\s+(?:says?|said|states?|stated|gives?|gave|reports?|reported|notes?|noted|reminds?|reminded|records?|recorded|tells?|told|claims?|claimed|shows?|showed"
+    r"|mentions?|mentioned|writes?|wrote|lists?|listed|puts?)\b"
+    r"|\baccording\s+to\s+the\s+(?:writer|author|article|text|extract|passage|case(?:\s+study)?|source)\b"
+    r"|\b(?:paragraph|para\.?|line)\s*+\[?\d{1,3}\]?\s+(?:says?|states?|gives?|notes?|reports?|records?)\b"
+    r"|['’]s\s+own\s+(?:figures?|data|numbers)\b|\bthe\s+case(?:\s+study)?['’]s\s+(?:figures?|data|numbers)\b", re.IGNORECASE)
+
+
+def _credited(text: str) -> Optional["re.Match[str]"]:
+    return _TEXT_CREDIT_RE.search(text[:_MAX_CLAIM_CHARS])
+
+
+@lru_cache(maxsize=64)
+def _stem_index(text: str) -> dict[str, tuple[int, ...]]:
+    """Positions of the tokens of ``text`` by their first five letters (tokens of five letters or more)."""
+    toks = _tokens(text)[0]
+    where: dict[str, list[int]] = {}
+    for i, t in enumerate(toks):
+        if len(t) >= 5 and t[:1].isalpha():
+            where.setdefault(t[:5], []).append(i)
+    return {k: tuple(v) for k, v in where.items()}
+
+
+def _stem_noun_findings(claim_id: str, text: str, docs: list[SuppliedText]) -> list[_Finding]:
+    """Clearance c3 (bm-case: "compare them with Hartwell's own figures: sales of $2,400,000 and 32 employees", where the case says 'it
+    employs 28 people', crossed with no finding): after a credit to the supplied text or case, a figure with its noun ('32 employees') where
+    the text states one other figure beside a word of the same stem ('employs 28') and never the answer's figure is misread from the text.
+    Read only after a credit (a stem is a loose match); bounded by the claim's first 400 tokens and :data:`_MAX_WINDOW_HITS` hits a stem."""
+    credit = _credited(text)
+    if credit is None:
+        return []
+    out: list[_Finding] = []
+    claim_tokens = _tokens(text[credit.end():_MAX_CLAIM_CHARS])[0]
+    for i, tok in enumerate(claim_tokens[:400]):
+        if not _is_number(tok) or _YEAR_RE.match(tok) or i + 1 >= len(claim_tokens):
+            continue
+        noun = claim_tokens[i + 1]
+        if _is_number(noun) or len(noun) < 5 or noun in _STOP:
+            continue
+        for doc in docs:
+            toks, where = _tokens(doc.text or "")
+            if tok in where:
+                break  # the text states the answer's figure: nothing misread
+            hits = _stem_index(doc.text or "").get(noun[:5], ())
+            if not hits or len(hits) > _MAX_WINDOW_HITS:
+                continue
+            values = {toks[q] for p in hits for q in (p - 1, p + 1) if 0 <= q < len(toks) and _is_number(toks[q]) and not _YEAR_RE.match(toks[q])}
+            if len(values) != 1:
+                continue
+            held = next(iter(values))
+            try:
+                stated, holds = Fraction(tok), Fraction(held)
+            except (ValueError, ZeroDivisionError):
+                break
+            if stated != holds:
+                f = _Figure(stated, _shown_token(tok), _half(tok), "", Fraction(1), 0, 0)
+                cell = SuppliedCell(noun, None, holds, _shown_token(held), _half(held), "")
+                out.append(_Finding(claim_id, text.strip()[:400], f, (cell,), doc.document_id, f"'{_shown_token(held)}' beside a word like '{noun}'", "error",
+                                    f"the claim credits the figure to the text ('{' '.join(credit.group(0).split())}'), which states another figure with "
+                                    f"a word of the same stem and never the answer's", "text"))
             break
     return out
 
@@ -513,6 +702,7 @@ def figure_grounding_checks(report: SpecialistReport, prefix: str, limit: Option
         return []
     tables = supplied_tables(texts)
     found: list[_Finding] = []
+    ratios: list[_Ratio] = []
     for c in report.claims[:_MAX_CLAIMS]:
         if c.claim_role == "other":
             continue
@@ -524,7 +714,16 @@ def figure_grounding_checks(report: SpecialistReport, prefix: str, limit: Option
             hits = _prose_findings(c.claim_id, text, texts)
         if not hits:
             hits = _dated_noun_findings(c.claim_id, text, texts)
+        if not hits:
+            hits = _stem_noun_findings(c.claim_id, text, texts)
+        if hits and _credited(text) is not None:
+            # a figure the claim credits to the text that the text states otherwise is misread from it (clearance c3, ll-t15: 'The writer
+            # reminds readers that the baths recorded 34,000 swims', the text 43,000, was a warning): an error, as for a table's cell
+            hits = [h if h.severity == "error" or h.kind != "text" else replace(h, severity="error", how=h.how + "; the claim credits it to the text")
+                    for h in hits]
         found.extend(hits)
+        if tables and " per " in text:
+            ratios.extend(_ratio_findings(c.claim_id, text, tables))
     seen: set[tuple[str, str, str]] = set()
     out: list[FormalCheck] = []
     for g in found:
@@ -535,4 +734,12 @@ def figure_grounding_checks(report: SpecialistReport, prefix: str, limit: Option
         if limit is not None and len(out) >= limit:
             break
         out.append(_check(report, prefix, len(out) + 1, g))
+    for r in ratios:
+        key = (r.claim_id, r.figure.shown, f"{r.numerator.shown}/{r.denominator.shown}")
+        if key in seen:
+            continue
+        seen.add(key)
+        if limit is not None and len(out) >= limit:
+            break
+        out.append(_ratio_check(report, prefix, len(out) + 1, r))
     return out

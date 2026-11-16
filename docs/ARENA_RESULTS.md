@@ -27,7 +27,9 @@ failure, never re-labelled) and no check on it may fail internally. Its errors a
 listed with the genuine ones. Since round 7 every group of a round that carries syntheses has
 exactly one synthesis record, whatever happened to its members, and it fails when a member was not
 delivered; a quotation mutation of a task with a supplied text of its own must be refuted
-(INT-REQ-003), not merely called unverifiable. A re-run parses every raw answer with the code as it stands; a
+(INT-REQ-003), not merely called unverifiable. Since round 10's clearance a round is read with its plan
+(tasks.json): a planned task that never answered is a genuine reply not delivered, its relay a peer relay
+not run, and a member its group's synthesis fails for. A re-run parses every raw answer with the code as it stands; a
 peer relay recorded by an earlier run is compared with that parse, not delivered in its place.
 Translation outcomes depend on the translation provider and are reported separately from the
 infrastructure rate.
@@ -1687,6 +1689,55 @@ have the overseer installed, so it records the overseer's two passes as not run;
 
 No record of either round differs (status, codes and functional flag) from a run of the same tree before this pass's
 harness change: c2 from this fixer's own run, c1 from the STEM fixer's run of the same evening.
+
+## Round 10 clearance: the harness's own fixes (the round's plan, unreadable specialist files, mutated claims)
+
+Round 10 (integrated round c3) found three defects in the harness, and round 9's push check carried a fourth record. The
+changes are in `scripts/arena/run_arena.py`, `list_claims.py`, `relay_peer.py` and `bind_translations.py`; the rules are in
+`scripts/arena/README.md` ("The round's plan", "Mutated claims"); the tests are in `scripts/arena/test_arena_rules.py`.
+None of the earlier tests was rewritten.
+
+- **The round's plan** (results audit, major; communication fidelity and adversarial live, minor). The round's tasks.json
+  planned four peer-dependent tasks (mai-p10a, ec-p10b, ge-p10c, en-p10d) that were never relayed and never answered.
+  The harness read `specialists/` only, so nothing named them: each p10 plan was built from its one specialist file (one
+  subject), each p10 synthesis of one report was counted functional, and the headline read "Genuine traffic delivered
+  and decided: 40 of 40 (genuine replies 20, peer relays 0, syntheses 20)". The round is now read with its plan: a
+  planned task never answered is a genuine reply not delivered, its relay a peer relay not run, its group's synthesis
+  fails naming it (`members_not_answered`), and results.json (`planned_tasks`) and summary.md name each with its group
+  and peer. A relay the round recorded is run as recorded even when the agent never answered; the replay never runs a
+  relay in the round's place.
+- **A specialist file that is not one JSON object** (four records, minor). c3's `bi-t16.json`, first written as a
+  one-element list, stopped the round with "list indices must be integers or slices, not str" before any record, and
+  `list_claims.py` printed that TypeError for every file of the round. The file is now refused by name and shape: the
+  round records it as a genuine reply not delivered and runs every other file, the listing refuses it alone (exit status
+  2), and `relay_peer.py` refuses a relay whose peer's file it is.
+- **Mutated claims were never translated** (round 9's push check, major; c1 translation-fidelity r8-8). A recorded
+  translation is bound to the claim text it was produced for, so a claim a mutation changed was refused the genuine
+  claim's translation as stale and got no verdict, and no translation of a mutated text could be recorded. Now
+  `list_claims.py --mutations` lists, for every variant the round delivers, the claims it changed and those the pipeline
+  translates (the texts the round delivers: on copies of c1 and c3, all 155 and 128 variants listed equal the claims
+  delivered, claim for claim); the round serves a translation recorded for a mutated text (`mutation_translations/<file stem>/<variant>.json`,
+  bound by its digest) to that claim; and every changed claim no recorded translation reached is named on its record and
+  on the replay configuration line. Recording those translations is a step of recording a round (handed to the
+  pipeline): c3 holds none, so its line reads 0 of 30 translated, each of the 30 named in results.json.
+- **Not changed.** The STEM mutation that c3's mai-t16 `stem_substitution` placed on a law line ('A = 2πr⁵ + 2πrh') is
+  named by INT-SUBJ-001 on the injected claim on the current tree (the STEM fixer's rule show-that-target), so it is no
+  longer a miss and no other code is credited for it. The round's overseer-agent verdicts were self-reported and the
+  delivery pass ran with no overseer agent: the harness already runs the agents through the overseer package's runner
+  with `--overseer-provider MODULE:FACTORY`; running them is a step of the round's pipeline (handed off).
+
+Measured on copies of the rounds, on the working tree with the other owners' fixes in progress, against the harness
+before this pass run at the same time on the same tree:
+
+| Round | Transport before this pass | After | What moved |
+| --- | --- | --- | --- |
+| c1 | 203 of 203 | 203 of 203 | nothing: no record differs (status, codes, findings, outcomes, injections named). Plan: 24 of 24 tasks answered, peer relays 4 of 4. Mutated claims: 0 of 38 translated (the round recorded no translation of a mutated text) |
+| c2 | 188 of 188 | 188 of 188 | nothing (engine result ids aside). Plan: 22 of 22, peer relays 3 of 3. Mutated claims: 0 of 42 translated |
+| c3 | 168 of 168 | 164 of 176 | the four planned tasks never answered and their four relays are failed records (8 more transmissions), and the four p10 syntheses fail naming them: genuine replies 20 of 24, peer relays 0 of 4, syntheses 16 of 20. Every other record is the one it was, and the four p10 synthesis receipts carry the same findings (only the plan's subject moved to the deliverable's, as tasks.json plans it). Mutated claims: 0 of 30 translated. Delivery pass: 24 withheld (20 with no accuracy established, 4 never answered), 20 of 20 receipts identical to the genuine records' |
+
+The c3 count moves because the round's lost peer exchanges are now counted, which is the finding's own requirement; no
+detection moved. The harness's wall time did not move measurably (concurrent runs on one machine: c1 832 s before, 817 s
+after; c2 737 s and 743 s; c3 594 s and 586 s).
 
 ## Summary of the overseer verdicts, rounds 1 to 7
 

@@ -53,6 +53,10 @@ def _shown(excerpt: str) -> str:
     return excerpt[:_EXCERPT_CHARS] + ("..." if len(excerpt) > _EXCERPT_CHARS else "")
 
 
+#: A counter-case cue that opens a sentence ('Yet ...', 'Still, ...'): read only at a sentence's head ('not yet' is no counter-case).
+_SENTENCE_COUNTER_RE = re.compile(r"(?:^|[.!?][\"'”’)]*\s+)(?:yet|still,|even\s+so|nevertheless|nonetheless)\b")
+
+
 def judgement_move_present(paragraph: str, roles: list[str]) -> bool:
     """True when the paragraph has made the judgement move: a judgement-role claim stating a
     criterion, a counter-case weighed (counter role or cue plus a judgement/verdict cue), or
@@ -61,7 +65,8 @@ def judgement_move_present(paragraph: str, roles: list[str]) -> bool:
     judgement = "judgement" in roles or any(c in low for c in JUDGEMENT_CUES)
     verdict = judgement or any(c in low for c in VERDICT_CUES)
     criterion = any(c in low for c in CRITERION_CUES)
-    counter = "counter_evidence" in roles or any(c in low for c in COUNTER_CUES)
+    # a counter-case opened by 'Yet' or 'Still' at the head of a sentence ("Yet the same support had limits ..."; clearance c3, hi-t16)
+    counter = "counter_evidence" in roles or any(c in low for c in COUNTER_CUES) or _SENTENCE_COUNTER_RE.search(low) is not None
     if ("judgement" in roles and criterion) or (counter and verdict):
         return True
     return any(k in low for k in _JUDGEMENT_MOVE_WORDS)

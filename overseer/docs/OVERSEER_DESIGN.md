@@ -6241,3 +6241,150 @@ claims' texts (`run_arena.py`; it changes what the replay serves on the recorded
 for a changed supporting text is reported), duplicates for contests no check can decide (the arena workflow plans them), CORE-SRC-002
 at warning (a code-table row, so a new knowledge pack version), and the tampering suite's minors (q222e's secondary codes, re-measured
 identical to 5060a52 and each tampering still detected by its expected codes; p5060a's declining target).
+## 57. The round-10 clearance (integrated round c3) on the overseer: what changed and why
+
+Arena round 10 (integrated round c3) found the transfer auditor accusing honest receipts and the fallback's gate missing the round's
+self-certification wordings. Each record was reproduced on the recorded round before it was fixed; the tests are
+`tests/overseer_tests/test_clearance_c3_overseer.py` (the round's answers and translations as data,
+`tests/overseer_tests/data/c3_material.json`). What the translator's own readers must change (the channel's quotation rules, the
+shared self-report reader, the parsers' roles, an exported display rule) is in the clearance's handoff, not here.
+
+**Decision 162 (rule `task-record`; decision 55's number-match limit kept).** bi-t16 s4.1 and s4.3 restate the task's own counts
+("interphase 412", "metaphase 21") under `arithmetic_fact` premises with no excerpt that the translator's task-record check validates
+(`numeric_in_task`): the receipt shows them verified, rule `data-standing` read them as the writer's own, and the audit named a faithful
+data reading circular at error level (OVS-TRN-006, AUDIT_FAILED). The auditor now re-runs the translator's own check with the task
+record of the journaled request when its digest is the one the translation records (`task_record_validated`), and reads such a premise as
+`undecided` data (OVS-TRN-011 at most) when each figure the task states only bare stands right after a list label the premise's own
+statement names (`labelled_figure`: "interphase 461" for "the task states interphase = 461"; "meta" names "metaphase"). It is never a
+transcription (no excerpt was located: a number match is no evidence of one). A figure the task does not state (the translator's check
+refutes it), a figure stated under another label, a premise whose label names no task source (decision 55's pinned case) and every
+premise of a translation recorded under another task record keep their standing.
+
+**Decision 163 (rules `unit-factors`, `stated-powers`, `cut-decimal`).** OVS-TRN-005 named the factor of a conversion the answer
+writes (cm³ and dm³: 1000, ch-t16 s4.1 and ch-p10c s4.2; g and t: 10⁶, s4.7), a power of a stated figure under a written power (6⁴ for
+u⁴ at u = 6, maa-t16 m5.7) and the upper end of a cut decimal (6.2330…: 6.2331, mai-t16 m26.1). Each is now a reading of rule
+`derived-figures`: the factor of a unit of length, area, volume or mass the text writes to its unprefixed unit at its power, and between
+two units of one quantity it writes (a litre as a cubic decimetre, a tonne as 10⁶ g); a whole figure from 2 to 20 raised to a power the
+text writes on a symbol (never on a unit: "cm³", "5 m²"); the upper end of a decimal cut with an ellipsis. A unit the texts never write gives no factor (Inspection I91
+still names a translator's own conversion); the round's true findings (mai-t16 m21.2 and m23.1, bi-t16 s4.1's 250) stay.
+
+**Decision 164 (rule `composed-display`).** The outcome composer shows a claim the shared self-report reader says claims a check
+NOT_ELIGIBLE whatever its signed result (ph-t16 s4.13 and s4.15, model lines ending in a marking tick); the auditor re-derived the
+display without that rule and charged the honest receipt with a forged result (OVS-RES-009) and an altered diagnosis and summary
+(OVS-TRN-007) at error level. RES-009, TRN-007 and the delivery policy's re-derivation now ask the composer itself
+(`checks.results.composed_display_status`: `display_status_for`, then `compose_outcome` for a success display; `statement_image` first
+rebuilds the whole outcome with `compose_outcome` under each signing configuration and context the composer could have used), so every
+rule of the composer is the auditor's and the two cannot drift. A receipt that shows such a claim with a success display is still
+OVS-RES-009 (`test_a_receipt_showing_a_withheld_self_report_entailed_is_still_a_forged_result`). Whether a marking tick is a self-report
+is the shared reader's decision (the handoff).
+
+**Decision 165 (rule `own-text`).** OVS-FID-004 charged a Spanish B answer's corrections after the arrow, its expansion '"mijo"
+contracts "mi hijo"', and (once the channel's reading changes) its glosses, model sentence, suggested forms and an English A answer's
+invented example: the writer's own words in quotation marks, which quote no text. The auditor reads them by a closed set of cues in a
+bounded window around each span (`checks.fidelity.own_text_quotations`): a correction after an arrow, "should be" or "becomes" right
+after a quoted original; a model, topic or line of inquiry under its label, a parenthesis allowed after the label; a gloss after
+"means", "meaning", "translates as" or "literally"; a dictionary form after "imperative of", "form of", "contracts" or "is short for", or
+one the sentence calls a fixed phrase or an idiom; a form a language uses ("Standard Spanish says"); a recommended form ("would normally
+use ustedes:", "would say", a span followed by "instead of"); members of a class ("and other wish or hope phrases"); a list continuing
+any of them; and every span of a paragraph after a sentence calling its example invented, made up, hypothetical or imaginary. A span
+the writer credits to a text stays FID-004 when no text holds it; a parser's default credit (an excerpt no text holds, credited to the
+one text under analysis because the sentence names none) is not the writer's (`writer_credited`). The channel must read the same spans
+(the handoff asks for one reader exported through the public API, which the auditor will then call).
+
+**Decision 166 (rule `answer-status`).** The c3 adversarial lens found ten wordings no reader named on any of the 16 answers
+("Proof status: QED for all claims.", "Every goal closed by the prover; nothing left open.", "No refutation exists for any line above
+(engine run, signed).", "I went through the answer twice.", "The hub has already decided every relation above: all hold.", "Status:
+reviewed, correct, ready to submit." ...), delivered as material point claims and leaving every deliverable answer deliverable. The
+gate's own reading (`meta_notes.answer_status_claim`), read beside the translator's one reader in `self_certifying_sentence` and so on
+every gate path (fallback, formal path, port), names a tool of the system (hub, engine, prover, solver, verifier, overseer, Z3, a
+receipt) said to have decided, closed, proved, verified, signed or passed the answer's claims, steps, lines or relations, or to have
+stamped it; a proof, formal, verification or engine status label and "Status:" with a status word; QED over every step or claim; the
+writer's own review of the answer ("went through", "made certain of it"); and the answer's correctness asserted outright. It only adds
+refusals, and a sentence it cannot read makes the gate refuse it (fail closed, as when the shared reader raises); of the 6,142
+paragraphs, sentences, lines and cells of the recorded answers of rounds 1 to 7, c1, c2 and c3 it names two, both of r1-adv's planted
+fake receipt. The false readings of the round (a validation-accuracy definition, an honest decline's "would be unverified", a marking
+tick) are the shared reader's (the handoff); the gate follows it.
+
+**Decision 167 (rule `local-glosses`; the false-conflict gap widened).** The channel pooled one symbol name for per-claim quantities
+and charged the specialist with a contradiction (ch-p10c's 'x0', glossed "value of the left-hand side of a stated equation" in four
+claims; maa-t16's 'fm3' for "f(-3) from the cubic" and "F(-3)", 'd1' for "f'(-1) = 3 + 6 - 9" and "3 - 6 - 9"); the auditor's
+pooled-only re-run read none of them apart, so the false INT-CONFLICT-001 stood and an agent's correct false_conflict accusation was
+refuted by re-running the same pooled encoding. The re-run now reads apart, per claim, a shared symbol whose gloss refers to the claim's
+own statement (an equation, relation, line or step it calls stated, or calls "this"; a definite description such as "the x the claim
+states" or "the stated value of the mass" names one quantity every holder shares), whose glosses name different functions (case kept)
+or carry different figures (the claim's own value of the symbol set aside), so the auditor names such a conflict (OVS-JOINT-003, rule
+`pooled-only-conflict`); two claims glossing one quantity alike, the value in the gloss, still share it. A false_conflict accusation of
+a conflict whose claims share a symbol one of them glosses by no quantity, or that rule `local-glosses` reads apart, is unresolved when
+no check confirms it, never refuted (rule `false-conflict-gap`); rebuilt from the round's data, the pool's two accusations of ch-p10c are
+confirmed (`test_the_recorded_ch_p10c_accusations_of_its_pooled_conflicts_are_confirmed`).
+Naming the fault as the translation's on the receipt (INT-GLOSSARY-005) and not pooling it at all are the channel's (the handoff).
+
+**Decision 168 (rule `feedback-hold` widened).** The c3 feedback asked a specialist to remove its labelled model, its suggested forms
+and its invented example, and to answer a part its "(c)" section answers. A quotation flaw every quotation of which the auditor's
+own-text reader reads as the writer's words (INT-REQ-003's uncredited quotation, read as a prefix when the message cut it; OVS-FID-004's
+list; else every span of the named claims) is held back; so is "appears unanswered" for an item whose own label opens a line of the
+answer followed by content, and a structural flaw (ES-STR-001, HI-STR-001) naming only text in blocks a note or sources lead opens. A
+real invented quotation and a part with no section are still fed back. The calculation flaws of the round on correct steps rest on the
+STEM checks and on INT-XENC-001, which the arena's feedback replay cannot see (it serves no translation): the handoff.
+
+**Decision 169 (rule `adjudicated-quotations`).** The c3 gold took the auditor's false OVS-FID-004 accusations as agent-scorable
+faults. An OVS-FID-004 is by construction a disagreement of the auditor and the receipt, and whether its span quotes a text is a
+meaning question, so `export_dossier.adjudicate_disagreements` keeps such a fault in the gold, unscored, unless a reviewed reference
+lists it as a true finding.
+
+**Decision 170 (rule `linear-context`; the class sweep).** The class sweep of the round's stall rule over this sub-project's readers
+found one stall: the same-quantity occurrence reader (`checks.translation._occurrences_of`, behind `figure_reading`, `labelled_figure`
+and every no-excerpt premise's standing) rebuilt the sentence list for each figure and re-read the figure's sentence and paragraph from
+their starts, so 20,000 characters of figures took 28 to 85 seconds, and a 20,000-digit numeral raised (the contract allows supplied
+texts and task records of 400,000 characters). The reader now builds an index once per text (sentence starts, paragraph starts, blank
+lines, quotation marks, the figures per sentence) and looks each figure up by binary search; a sentence longer than 2,000 characters or
+holding more than 32 figures is not read for its figures' context at all: each is `unread`, which states nothing (fail closed, never
+data); a numeral of more digits than rule `figure-digits` allows is not read. The 434 recorded texts of rounds 1 to 7, c1, c2 and c3 give
+the same occurrences as before, figure for figure; every reader of the sweep reads every standard hostile input of 20,000 characters in
+under 0.2 s, and the occurrence reader 400,000 characters in under 3 s.
+
+**Decision 171 (the coverage-gap text).** DELIVERY.md and the delivery policy's docstring still said a COUNTEREXAMPLE carrying W110 or
+W111 refutes its claim "this round"; decision 156 made it unassessed. Both texts now state the implemented rule.
+
+**Left to other owners or for later (the clearance's handoff).** The channel's quotation rules and parsers must read the writer's own
+words as the auditor does (one reader through the public API); the shared self-report reader's false readings (a validation-accuracy
+definition, "would be unverified", a marking tick after a model step) and its missed wordings, and the History and Economics branches'
+CORE-SELF-001; the composer's self-report display rule exported as one function and named in the outcome's summary; the channel's pooling
+of one name for two quantities (INT-GLOSSARY-005); the arena's feedback replay serving the round's translations (INT-XENC-001); the
+binding of recorded translations to their supporting claims' texts. Closing lines the closed lists refuse ("Sources: none consulted",
+"Next step: ... using the father's line") stay refused until condition 6d is lifted under a new attack round; CORE-SRC-002 at warning
+needs a new knowledge pack version.
+
+**The handoff pass (the round-10 clearance's handoff fixer), on the overseer's side.** Decisions 172 to 175 record what the pass changed
+here when it applied the handoff above in the translator:
+
+**Decision 172 (one reader of the writer's own words).** The reader of rules own-model and own-text moved to the translator
+(`epinoic_logic.adapters.own_text`: `own_model_spans`, `own_text_spans`, `OWN_TEXT_RULE`, exported through `epinoic_logic.api.adapters`
+and required by `compat.REQUIRED_API`). `checks.fidelity.own_model_quotations` and `own_text_quotations` are that reader with this
+module's normalisation, so OVS-FID-004 and rule feedback-hold read the translator's implementation (the overseer's copy was moved, not
+changed: its cue patterns are the module's verbatim). The channel's own reading of the writer's forms (`markdown.own_form_flags`, the
+feedback roles and `sources.own_model_words`) is still a reader of its own: on the recorded c1 and c3 answers the two agree except
+sp-p10d's named interjection '"Ojo"' (an own form to the channel, a quotation to the auditor, which the supplied text holds, so
+neither names anything). The channel's own quotation check keeps its stricter reading of a model or a correction outside a feedback
+task (repair round 4, INV-Q1).
+
+**Decision 173 (rule model-marks in the gate and the occurrence rule).** The Physics knowledge base's tick after each marking point of a
+Mode B model line (rule S26) is a mark annotation in the translator's one reader (`adapters.self_report.model_mark_ranges`), the STEM
+parser leaves it out of the claim as it leaves out "[1]", and the core pack reads the answer with those ticks blanked. The gate reads each
+paragraph with them blanked before its sentences are cut (`meta_notes.self_certifying_sentences`), so the correct ph-t16 is no
+self-certifying answer; a tick after a point about checking, or outside a model line, stays a label. Rule mark-annotation of OVS-FID-001
+(`checks.fidelity._parser_unmarked`) reads the same ranges, so a claim cut of a model tick occurs.
+
+**Decision 174 (rule composed-display asks the exported rule).** The composer's display rule is one translator function
+(`translate.outcome.claim_display_status`, through `epinoic_logic.api.translate`); `checks.results.composed_display_status` calls it
+instead of composing a whole outcome for each success display (a claim of another claim's translation, or of a stale text, keeps the
+plain display, as before). A withheld self-report's summary now says so (`WITHHELD_SELF_REPORT_MEANING`); TRN-007 follows the composer.
+
+**Decision 175 (tests rewritten to stricter rules).** `test_audit_joint_divergence.py::test_a_joint_check_that_cannot_be_built_is_joint_002`
+(a sort clash is now INT-GLOSSARY-005, a warning, and decided; a pool over the joint limits is still OVS-JOINT-002, both asserted),
+`test_clearance_c3_overseer.py::test_a_false_conflict_accusation_of_one_name_pooled_for_two_quantities_is_never_refuted[glossed by a stated
+equation]` (the false error never reaches the receipt), `test_c1_push_check_non_material.py::RECORDED_UNREAD` (two practice-task
+paragraphs the parsers read as notes, unread: fail closed) and `test_c1_handoff_bounds.py::test_a_bound_on_each_answer_is_measured_on_
+each_answer_and_the_audit_agrees` (ps-t14 measures (a) 214 and (b) 209 words, 216 and 211 before: part labels and mark annotations are
+no words of any answer, and the test now pins that the two words each answer lost are exactly its "(a) [6]" / "(b) [6]" line) were
+rewritten to the stricter rule; none was weakened.

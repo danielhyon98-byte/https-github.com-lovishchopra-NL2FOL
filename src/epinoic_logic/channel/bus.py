@@ -197,6 +197,8 @@ _FOLDED_TAIL_REFERENCE_RE = re.compile(r"(?P<n>\d+) (?:claims|sentences) beyond 
 _NOTE_ROLE = "other"
 #: Roles whose claims may carry the paragraph's verdict when they state a position (a claim roled 'other' never counts).
 _VERDICT_ROLES = frozenset({"point", "thesis", "link", "analysis"})
+#: A reason a claim gives for its answer or conclusion (what the command term 'justify' asks for): a reason or consequence connective.
+_JUSTIFIED_RE = re.compile(r"\b(?:so|because|since|therefore|hence|thus|as\s+a\s+result|which\s+means|it\s+follows)\b", re.IGNORECASE)
 _STOP = frozenset("the a an and or of to in on for with by is are was were be this that these those as at from it its how why what does do into their there which who whom not".split())
 #: Function words of the Language B courses' languages (Spanish, French), dropped from the coverage terms only (round-9 clearance c2b:
 #: a Spanish task item shares "para", "las", "entre" with any Spanish answer, which would read every item as addressed).
@@ -345,6 +347,14 @@ _BIDI_CONTROLS = ("\u202a", "\u202b", "\u202c", "\u202d", "\u202e", "\u2066", "\
 #: owner's decision.
 HIDDEN_TEXT_CLASS = "\U000e0000-\U000e007f"
 _HIDDEN_TEXT_RE = re.compile(f"[{HIDDEN_TEXT_CLASS}]")
+#: Round 10 (clearance c3, rule control-text; the adversarial lens's rob-nul variant: '(a) Definition\x00\x01\x02 [2]' was delivered
+#: inside claim g2.1 with no finding): the C0 control characters other than a tab, a line feed and a carriage return (U+0000 to
+#: U+0008, U+000B, U+000C, U+000E to U+001F) and DEL (U+007F). No reader sees them, a recipient receives them inside a claim and the
+#: response, and the synthesis contract refuses them (``integrity.contracts.SYNTHESIS_TEXT_PATTERN``), so a combinator carrying such
+#: a claim verbatim would be refused one hop later for the specialist's characters. A specialist's response whose own text holds
+#: one is refused like a bidirectional control (INT-REQ-009), naming code points and offsets only, never the text.
+CONTROL_TEXT_CLASS = "\x00-\x08\x0b\x0c\x0e-\x1f\x7f"
+_CONTROL_TEXT_RE = re.compile(f"[{CONTROL_TEXT_CLASS}]")
 
 
 def _now() -> str:
@@ -626,6 +636,24 @@ def _hidden_count(text: str) -> int:
     return _HIDDEN_TEXT_RE.subn("", text)[1]
 
 
+def _control_count(text: str) -> int:
+    """How many characters of :data:`CONTROL_TEXT_CLASS` ``text`` holds: one C-level substitution pass."""
+    return _CONTROL_TEXT_RE.subn("", text)[1]
+
+
+def control_text_message(what: str, text: str) -> Optional[str]:
+    """Rule control-text (round 10, c3): why ``text`` (the ``what`` of a specialist's response) is refused, naming the first C0
+    control characters it holds (:data:`CONTROL_TEXT_CLASS`: not a tab, a line feed or a carriage return) by code point and
+    character offset and counting the rest, never quoting the text; None when it holds none. Linear in the text."""
+    if not isinstance(text, str) or not text or _CONTROL_TEXT_RE.search(text) is None:
+        return None
+    n = _control_count(text)
+    first = [f"U+{ord(m.group()):04X} at character offset {m.start()}" for m in itertools.islice(_CONTROL_TEXT_RE.finditer(text), _MAX_NAMED)]
+    shown = ", ".join(first) + (f" and {n - len(first)} more" if n > len(first) else "")
+    return (f"{what} carries {n} control character(s) ({shown}): no reader sees them, the recipient would receive them inside the "
+            "report and a synthesis carrying them is refused by its contract, so it was neither checked nor delivered (rule control-text)")
+
+
 def hidden_text_message(what: str, text: str) -> Optional[str]:
     """Rule hidden-text (round 9, c2): why ``text`` (the ``what`` of a specialist's response) is refused, naming the first
     tag characters it holds (:data:`HIDDEN_TEXT_CLASS`) by code point and character offset and counting the rest, never
@@ -660,7 +688,8 @@ def bidi_control_message(what: str, text: str) -> Optional[str]:
 
 def _bidi_control_message(what: str, text: str) -> Optional[str]:
     if _BIDI_CONTROL_RE.search(text) is None:
-        return hidden_text_message(what, text)
+        # round 10 (c3): a text holding neither is held to rule control-text as well (C0 controls, :func:`control_text_message`)
+        return hidden_text_message(what, text) or control_text_message(what, text)
     n = _bidi_count(text)
     first = [f"U+{ord(m.group()):04X} at character offset {m.start()}" for m in itertools.islice(_BIDI_CONTROL_RE.finditer(text), _MAX_NAMED)]
     shown = ", ".join(first) + (f" and {n - len(first)} more" if n > len(first) else "")
@@ -731,8 +760,9 @@ def report_bidi_findings(report: SpecialistReport) -> list[IntegrityFinding]:
     """Rule bidi-text on a report (a response received as a structured payload, or handed to ``respond``): INT-REQ-009
     (error, blocking) when the specialist's own text (:func:`_report_texts`) holds a bidirectional embedding, override or
     isolate, naming the first place and the claims holding one; [] otherwise. Round 9 (c2): rule hidden-text likewise, a
-    second INT-REQ-009 when that text holds a Unicode tag character (:data:`HIDDEN_TEXT_CLASS`), so
-    the Overseer's re-derivation, which binds this function, agrees with the receipt. Never raises, and fails closed (the
+    second INT-REQ-009 when that text holds a Unicode tag character (:data:`HIDDEN_TEXT_CLASS`), and since round 10 (c3) rule
+    control-text, a third when it holds a C0 control character other than a tab, a line feed or a carriage return
+    (:data:`CONTROL_TEXT_CLASS`), so the Overseer's re-derivation, which binds this function, agrees with the receipt. Never raises, and fails closed (the
     round-9 push check on the c2 clearance commit): a rule whose reader raises (a report built around its contract's
     validation, a reader fault) gives an INT-REQ-009 refusal of its own (:func:`_reader_failed`), never an empty list; each rule
     runs on its own, so one rule's failure never discards the other's finding."""
@@ -744,7 +774,11 @@ def report_bidi_findings(report: SpecialistReport) -> list[IntegrityFinding]:
              ("hidden-text", lambda: _report_class_findings(
                  report, _HIDDEN_TEXT_RE, _hidden_count, 5, "invisible tag character(s)",
                  "they can spell text the recipient receives but no reader sees and every check of the hub reads past, so it was "
-                 "neither checked nor delivered (rule hidden-text)")))
+                 "neither checked nor delivered (rule hidden-text)")),
+             ("control-text", lambda: _report_class_findings(
+                 report, _CONTROL_TEXT_RE, _control_count, 4, "control character(s)",
+                 "no reader sees them, the recipient would receive them inside the report and a synthesis carrying them is refused by "
+                 "its contract, so it was neither checked nor delivered (rule control-text)")))
     for rule, read in rules:
         try:
             out += read()
@@ -856,6 +890,99 @@ def withheld_deliverable(response: str) -> Optional[tuple[str, str]]:
     stop = re.compile(r"[.!?\n]").search(response, end)
     sentence = response[start + 1: (stop.end() if stop is not None else len(response))].strip()
     return "deferred", sentence[:300]
+
+
+#: Round-10 clearance (c3): a part a declining or deferring sentence names ("part (d)", "parts (c) and (d)", "(d)", "question 2"),
+#: read as :func:`request_parser.item_label` reads an item's label. Bounded, one pass.
+_WITHHELD_LABEL_RE = re.compile(r"\((?P<b>[a-h]|i{1,3}|iv|vi{0,3}|ix|x)\)|\bparts?[ \t]{1,3}(?P<p>[a-h]|i{1,3}|iv|vi{0,3}|ix|x|\d{1,2})\b(?![\'’.])"
+                                r"|\bquestion[ \t]{1,3}(?P<q>\d{1,2})\b", re.IGNORECASE)
+#: A sentence in which the writer declines, or leaves out, something the request asks for, anywhere in the answer (round-10
+#: clearance c3: bm-t16 "LEGO comparison: I cannot give LEGO's latest annual revenue, its number of stores worldwide or its share of
+#: the European toy market."; ge-t16 "The February 2023 Turkey and Syria earthquakes are not used in this answer: I have no approved
+#: source for their death tolls, ..."): a refusal or a negated ability of the writer, something not used or left out of the answer,
+#: or no source for it. Quotations are blanked before it is read; every run is bounded.
+_ITEM_DECLINE_RE = re.compile(
+    r"\bI[ \t]{1,3}(?:can(?:not|['’]t)|won['’]t|will[ \t]{1,3}not|am[ \t]{1,3}not[ \t]{1,3}(?:able|going)[ \t]{1,3}to|do[ \t]{1,3}not|don['’]t)[ \t]{1,3}"
+    r"(?:give|provide|state|write|include|use|supply|quote|list|choose|offer|report|confirm|verify|add|compare|make)\b"
+    r"|\b(?:is|are|was|were)[ \t]{1,3}not[ \t]{1,3}(?:used|included|given|covered|discussed|answered|provided|attempted)[ \t]{1,3}"
+    r"(?:in[ \t]{1,3}(?:this|the|my)[ \t]{1,3}(?:answer|response|essay|plan)|here)\b"
+    r"|\bI[ \t]{1,3}(?:have[ \t]{1,3}|['’]ve[ \t]{1,3})?(?:left|kept)[ \t]{1,3}(?:[\w'’-]{1,30}[ \t]{1,3}){0,6}?out\b"
+    r"|\bI[ \t]{1,3}have[ \t]{1,3}no[ \t]{1,3}(?:[\w'’-]{1,30}[ \t]{1,3}){0,2}?(?:sources?|data|records?)[ \t]{1,3}(?:for|of|on)\b", re.IGNORECASE)
+#: How a response is cut into sentences for :func:`withheld_items` (one pass).
+_WITHHELD_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*")
+#: The most sentences of one response :func:`withheld_items` reads for a declined item (a response is bounded by its contract).
+_WITHHELD_SENTENCES_MAX = 4000
+
+
+def _withheld_labels(sentence: str) -> set[str]:
+    """The part labels a declining or deferring sentence names (:data:`_WITHHELD_LABEL_RE`), as ``item_label`` reads them."""
+    out: set[str] = set()
+    for m in _WITHHELD_LABEL_RE.finditer(sentence[:600]):
+        if m.group("q"):
+            out.add(f"q{int(m.group('q'))}")
+        else:
+            out.add((m.group("b") or m.group("p")).casefold())
+    return out
+
+
+def _item_keys(text: str) -> set[str]:
+    """The labels an item answers to: its own label and, for a sub-part ("a.i"), its sub-part's label."""
+    lab = item_label(text)
+    if lab is None:
+        return set()
+    return {lab, lab.split(".")[-1]} if "." in lab else {lab}
+
+
+def _declined_item(sentence: str, items, terms_of: dict[str, set[str]]):
+    """The one request item a declining sentence names by its terms (round-10 clearance c3), or None: the item sharing the most
+    content terms with the sentence, at least three and at least half of the item's own, and more than any other item shares."""
+    st = _terms(sentence)
+    scored = sorted(((len(st & terms_of[it.item_id]), k, it) for k, it in enumerate(items)), key=lambda x: (-x[0], x[1]))
+    if not scored:
+        return None
+    best, _k, it = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0
+    return it if best >= 3 and 2 * best >= len(terms_of[it.item_id]) and best > second else None
+
+
+def withheld_items(response: str, items) -> dict[str, tuple[str, str, bool]]:
+    """Per request item the answer withholds, ``(kind, sentence, whole)`` (round-10 clearance c3; the reading behind the channel's
+    coverage records and INT-REQ-004, so the transfer auditor's re-run of the coverage rule gives the same records):
+
+    * the deliverable the answer declines or defers (:func:`withheld_deliverable`), on the items its sentence names by their part
+      labels ("Reply 'approve' and I will write the full answer to part (d).": item (d) alone is pending, the parts answered
+      before it keep their coverage), or on every item when it names none (``whole`` True: "I can't write your introduction or
+      your body paragraphs, ...");
+    * an item the answer declines anywhere in its text (:data:`_ITEM_DECLINE_RE`: "LEGO comparison: I cannot give LEGO's latest
+      annual revenue, ..."), the one item the sentence names by its terms (:func:`_declined_item`): ``("declined", sentence,
+      False)``.
+
+    Quotations are blanked before a sentence is read. Linear in the response; never raises on text."""
+    out: dict[str, tuple[str, str, bool]] = {}
+    items = list(items or [])
+    if not response or not items:
+        return out
+    w = withheld_deliverable(response)
+    if w is not None:
+        named = _withheld_labels(w[1])
+        scoped = [it for it in items if named and _item_keys(it.text) & named]
+        for it in scoped or items:
+            out[it.item_id] = (w[0], w[1], not scoped)
+    if len(out) == len(items):
+        return out
+    terms_of = {it.item_id: _terms(_ITEM_LABEL_RE.sub("", it.text)) for it in items}
+    for k, m in enumerate(_WITHHELD_SENTENCE_RE.finditer(response)):
+        if k >= _WITHHELD_SENTENCES_MAX:
+            break
+        sentence = m.group(0)
+        if len(sentence) > 2000:
+            continue
+        if _ITEM_DECLINE_RE.search(blank_quotations(sentence)) is None:
+            continue
+        it = _declined_item(blank_quotations(sentence), items, terms_of)
+        if it is not None and it.item_id not in out:
+            out[it.item_id] = ("declined", sentence.strip()[:300], False)
+    return out
 
 
 def _dedupe_ids(ids) -> list[str]:
@@ -2447,23 +2574,31 @@ class TranslatorChannel:
             findings.append(echo)
         view = (lambda t: self._hook(lambda: hooks.word_count_view(t, profile.key), t)) if hooks else None
         findings += self._guarded("answer presence (INT-REQ-012)", findings, lambda: self._no_answer(report, view=view), [], **rid)
-        withheld = self._guarded("a declined or deferred deliverable (INT-REQ-004)", findings, lambda: withheld_deliverable(report.original_response), None, **rid)
+        # round 10 (c3): a decline or a deferral is read per item (``withheld_items``): one that names its part or its item leaves the
+        # other items' coverage as it is
+        withheld = self._guarded("a declined or deferred deliverable (INT-REQ-004)", findings, lambda: withheld_items(report.original_response, req.items), {}, **rid)
         coverage = self._guarded("request coverage (INT-REQ-004)", findings, lambda: self._coverage(req, report, echoed=echo is not None, hooks=hooks, profile_key=profile.key), [], **rid)
         for cov in coverage:
             if not cov.addressed:
                 item = next(i for i in req.items if i.item_id == cov.item_id)
                 why = ""
-                if withheld is not None:
-                    why = (f"; the answer declines the deliverable ({withheld[1][:200]!r}): the item is declined, not answered" if withheld[0] == "declined"
-                           else f"; the answer defers the deliverable to the student's reply ({withheld[1][:200]!r}): the item is pending, not answered")
+                held = withheld.get(cov.item_id)
+                if held is not None:
+                    kind, sentence, whole = held
+                    what = "the deliverable" if whole else "this item"
+                    why = (f"; the answer declines {what} ({sentence[:200]!r}): the item is declined, not answered" if kind == "declined"
+                           else f"; the answer defers {what} to the student's reply ({sentence[:200]!r}): the item is pending, not answered")
                 how = "(part labels)" if cov.method == "part_label" else "(heuristic)"  # the reading the record states, so feedback can tell them apart
                 findings.append(IntegrityFinding(code="INT-REQ-004", severity="warning" if item.required else "info", message=f"request item {cov.item_id} appears unaddressed: {item.text[:120]!r} {how}" + why + (f"; {cov.note}" if getattr(cov, "note", None) else ""), claim_ids=[]))
         # Command terms C6: evaluate / discuss / to what extent / assess / examine / justify / recommend / give a judgement
         # need a judgement or position on degree. A judgement-role claim counts; so does a point, thesis, link or analysis
         # claim that states a position (verdict cue); a bare claim does not. A claim roled 'other' (a note, a self-report) never counts.
         verdict_present = any(c.claim_role == "judgement" or (c.claim_role in _VERDICT_ROLES and _VERDICT_CUE.search(c.claim_text)) for c in report.claims)
+        # 'justify' asks for the reasons that support an answer or a conclusion (round-10 clearance, handoff H6.1, c3 mai-t16 i5): a
+        # point, thesis or judgement claim that gives its reason ("..., so this stationary point is a minimum") answers it
+        justified = verdict_present or any(c.claim_role in ("point", "thesis", "judgement") and _JUSTIFIED_RE.search(c.claim_text) for c in report.claims)
         for item in req.items:
-            if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not verdict_present:
+            if item.level == 3 and item.command_term in LEVEL3_VERDICT_TERMS and not (justified if item.command_term == "justify" else verdict_present):
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report, view=view), ([], []), **rid)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
@@ -3305,9 +3440,15 @@ class TranslatorChannel:
         quantities), read wherever the claim's own words are. An answer that declines the deliverable, or defers it to the
         student's reply (:func:`withheld_deliverable`, read from the report itself, so the transfer auditor's re-run of this
         rule gives the same records), addresses no item, whatever words it shares with them (round-8 clearance c1: ge-t14's
-        decline and ps-p8d's plan were read as answering every item)."""
+        decline and ps-p8d's plan were read as answering every item). Since round 10 (clearance c3) the reading is per item
+        (:func:`withheld_items`): a decline or deferral whose sentence names its parts ("the full answer to part (d)") withholds
+        those items only, and an item the answer declines anywhere in its text, named by its terms ("LEGO comparison: I cannot
+        give LEGO's latest annual revenue, ..."), is unaddressed; every other item keeps its coverage."""
         out: list[CoverageRecord] = []
-        if withheld_deliverable(report.original_response) is not None:
+        # round 10 (c3): read per item (``withheld_items``): a deferral of part (d) leaves (a) to (c) as answered as they are, and an
+        # item the answer declines anywhere ("LEGO comparison: I cannot give ...") is unaddressed whatever words it shares
+        withheld = withheld_items(report.original_response, req.items)
+        if withheld and all(item.item_id in withheld for item in req.items):
             return [CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic") for item in req.items]
         material = _material_claims(report)
         sections = _answer_sections(report.original_response)
@@ -3335,7 +3476,7 @@ class TranslatorChannel:
         for c in material:
             groups.setdefault(_paragraph_key(c.claim_id), set()).update(claim_terms[c.claim_id])
         for item in req.items:
-            if echoed:  # a restated request addresses nothing, whatever words it shares with the items
+            if echoed or item.item_id in withheld:  # a restated request addresses nothing; a declined or deferred item is not answered
                 out.append(CoverageRecord(item_id=item.item_id, addressed=False, addressed_by_claim_ids=[], method="lexical_heuristic"))
                 continue
             lab = item_label(item.text)

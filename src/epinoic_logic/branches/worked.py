@@ -99,7 +99,9 @@ WORKED_RULE = ("tolerance: |C − S| ≤ h + τ·|C|; h: half a unit in S's last
                "digits when every figure is exact; a per cent sign read as a fraction and, for a stated result in per cent, as written; a scale word "
                "after the stated result only also read as the line's scale (h then in the result's written units)")
 
-_CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
+#: A currency sign, a dollar sign with its country letters included ('P$2,150', 'NZ$40', 'HK$5': clearance c3, ec-t16's P$ figures were
+#: read as no figures, so a wrong product of them crossed with no finding)
+_CUR = r"(?:US\$|U\.S\.\s?\$|[A-Z]{1,3}\$|\$|£|€|¥)"
 _CUR_RE = re.compile(_CUR)
 _SCALE_WORDS = {"thousand": 10**3, "million": 10**6, "billion": 10**9, "trillion": 10**12}
 _SCALE_ABBREV = {"k": 10**3, "m": 10**6, "bn": 10**9, "tn": 10**12, "trn": 10**12}
@@ -1054,4 +1056,222 @@ def clock_problems(text: str, *, report_id: str, request_id: str, prefix: str) -
         description = (f"the written arithmetic: '{phrase[:240]}' (read as {t1} − {t2} minutes against the stated {shown_all[:120]}; exact times, each stated "
                        f"time within half a unit in its last written digit) [{WORKED_RULE}]")
         out.append(WorkedProblem(phrase, statement, problem, description))
+    return out
+
+
+# ============================================================================================ prose arithmetic (clearance c3)
+# Round 10's adversarial lens found arithmetic stated in prose that crossed every prose branch with no finding: a share with its per cent
+# in brackets ('Eleven of the 46 students allocated to the app (32.9%)', 'It killed 185 people, more than 130 of them (about 85%)'), a
+# change with its per cent in brackets ('the fleet fell from 412 to 236 boats (−57.28%)', 'the price rose 33.95% in nominal terms
+# (P$2,150 to P$2,880)'), a per cent with its working in brackets and no '=' ('131.1% of the 2025 profit ... ($380,000 ÷ $336,000 × 100)'),
+# a difference ("Haiti's 7.0 and Darfield's 7.1 differ by 0.3") and a distance from a bound ('about 900 words would fall 400 words below the
+# 1,200-word minimum'). Each is read here as written arithmetic: the expression the sentence states is built from its own figures with a
+# closed grammar and set against the figure it states, and the engine decides it under the worked tolerance rule (an approximation word
+# or '≈' gives τ = 1/20). Nothing is evaluated: the expression is read by :func:`_tokens` and :class:`_Parser` as any worked line.
+
+_P_NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_P_CUR = r"(?:[A-Z]{1,3}\$|US\$|\$|£|€|¥)"
+_P_WORD_NUM = (r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty"
+               r"|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?")
+_P_WORD_VALUES = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+                  "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
+                  "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_P_APPROX = r"(?:about|around|roughly|approximately|approx\.?|nearly|almost|some|c\.|≈|~)"
+#: A share: "a of (the) b <words> (p%)" or "a of them (p%)" with the total stated before it in the sentence.
+_P_SHARE_RE = re.compile(rf"(?<![\w.,])(?:(?:more|fewer|less)\s+than\s+|over\s+|under\s+|only\s+|just\s+)?(?P<a>{_P_NUM}|{_P_WORD_NUM})\s+(?:out\s+)?of\s+"
+                         rf"(?:(?:the|these|those|all)\s+)?(?:(?P<b>{_P_NUM})\b|(?P<them>them|these|those)\b)(?P<words>[^().;:%]{{0,80}}?)\s*\(\s*(?P<ap>{_P_APPROX}\s+)?"
+                         rf"(?P<p>[-−]?\d{{1,3}}(?:\.\d+)?)\s*(?:%|per\s*cent)\s*\)", re.IGNORECASE)
+#: A change from one figure to another with its per cent in brackets right after: "from 412 to 236 boats (−57.28%)".
+_P_PAIR_PCT_RE = re.compile(rf"\bfrom\s+(?:{_P_APPROX}\s+)?(?P<x>{_P_CUR}?(?:{_P_NUM}))(?P<xs>\s*(?:thousand|million|billion))?\s+(?:[a-z][\w-]*\s+){{0,3}}?to\s+(?:{_P_APPROX}\s+)?"
+                            rf"(?P<y>{_P_CUR}?(?:{_P_NUM}))(?P<ys>\s*(?:thousand|million|billion))?(?P<words>[^().;:%\d]{{0,40}}?)\s*\(\s*(?P<ap>{_P_APPROX}\s+)?(?P<sign>[-−+])?\s*"
+                            rf"(?P<p>\d{{1,4}}(?:\.\d+)?)\s*(?:%|per\s*cent)\s*\)", re.IGNORECASE)
+#: A per cent stated before its pair in brackets: "rose 33.95% in nominal terms (P$2,150 to P$2,880)".
+_P_PCT_PAIR_RE = re.compile(rf"\b(?P<dir>rose|risen|rises|increased|increases|grew|grown|fell|fallen|falls|dropped|decreased|decreases|declined|climbed|jumped|"
+                            rf"went\s+up|went\s+down)\s+(?:by\s+)?(?:(?P<ap>{_P_APPROX})\s+)?(?P<p>\d{{1,4}}(?:\.\d+)?)\s*(?:%|per\s*cent)(?P<gap>[^().;:]{{0,60}}?)"
+                            rf"\(\s*(?:from\s+)?(?P<x>{_P_CUR}?(?:{_P_NUM}))\s+(?:to|→|->)\s+(?P<y>{_P_CUR}?(?:{_P_NUM}))\s*\)", re.IGNORECASE)
+#: A per cent with its working in brackets and no '=': "131.1% of the 2025 profit before interest and tax ($380,000 ÷ $336,000 × 100)".
+_P_PCT_WORK_RE = re.compile(rf"(?P<p>\d{{1,4}}(?:\.\d+)?)\s*(?:%|per\s*cent)(?P<gap>[^().;:%=≈]{{0,90}}?)\(\s*(?P<expr>[^()=≈;]{{3,120}}?[×÷*/][^()=≈;]{{1,120}}?)\s*\)",
+                            re.IGNORECASE)
+#: A difference: "Haiti's 7.0 and Darfield's 7.1 differ by 0.3".
+#: (Possessive runs: a unit read as blanks and letters, and the blanks before 'and' and 'differ', never given back one by one; the class
+#: sweep of this stage measured 1.4 s for a figure followed by 20,000 blanks with the earlier '\\s*[%a-z]{0,8}\\s+and'.)
+_P_DIFFER_RE = re.compile(rf"(?<![\w.,])(?P<a>{_P_NUM})(?P<au>(?:\s*+[%a-z]{{1,8}}+)?)\s++and\s++(?:[\w'’-]++\s++){{0,3}}?(?P<b>{_P_NUM})(?P<bu>(?:\s*+[%a-z]{{1,8}}+)?)"
+                          rf"\s++differ\s++by\s++(?:(?P<ap>{_P_APPROX})\s++)?(?P<d>{_P_NUM})", re.IGNORECASE)
+#: A distance from a bound: "about 900 words would fall 400 words below the 1,200-word minimum".
+_P_BOUND_RE = re.compile(rf"(?<![\w.,])(?:(?P<ap>{_P_APPROX})\s+)?(?P<x>{_P_NUM})\s+(?P<u>[a-z]+)\b[^.;:]{{0,40}}?\b(?:would\s+|will\s+|could\s+|might\s+)?(?:fall|falls|fell|be|is|are|was"
+                         rf"|were|lie|lies|sit|sits|come|comes|end|ends|land|lands)\s+(?:(?P<ap2>{_P_APPROX})\s+)?(?P<d>{_P_NUM})\s+(?P<du>[a-z]+)\s+(?P<dir>below|under|short\s+of"
+                         rf"|above|over|beyond)\s+the\s+(?P<y>{_P_NUM})[-\s](?P<yu>[a-z]+)[-\s](?:minimum|maximum|limit|target|threshold|requirement|cap|ceiling|floor)", re.IGNORECASE)
+_P_MAX_CHARS = 200_000
+#: A party of a cost comparison: a labelled option ('Option 2', 'Plan B', 'Site A') or a capitalised name of up to three words.
+_P_PARTY = (r"(?:(?:the\s+)?(?:Option|Plan|Proposal|Project|Site|Choice|Scheme|Strategy|Alternative|Supplier|Location|Route|Model)\s+(?:\d{1,2}|[A-Z])\b"
+            r"|[A-Z][a-z][\w'’-]{1,30}(?:\s+[A-Z][\w'’-]{1,30}){0,2})")
+#: A party's cost: "Option 1 costs $380,000", "Plan B would cost £2.4 million".
+_P_COST_RE = re.compile(rf"(?P<party>{_P_PARTY})(?:['’]s\s+(?:outlay|cost|price))?\s+(?:costs?|would\s+cost|will\s+cost|is\s+priced\s+at|has\s+a\s+cost\s+of)\s+"
+                        rf"(?:(?:about|around|roughly|approximately)\s+)?(?P<v>{_P_CUR}(?:{_P_NUM}))(?P<vs>\s*(?:thousand|million|billion))?\b")
+#: A difference of two costs: "Option 2 is $110,000 cheaper", "Option 1 is $90,000 more expensive than Option 2", "Plan B costs £50,000 less
+#: than Plan A".
+_P_CHEAPER_RE = re.compile(rf"(?P<a>{_P_PARTY})\s+(?:is|was|would\s+be|will\s+be)\s+(?:(?P<ap>{_P_APPROX})\s+)?(?P<d>{_P_CUR}(?:{_P_NUM}))(?P<ds>\s*(?:thousand|million|billion))?"
+                           rf"\s+(?P<cmp>cheaper|less\s+expensive|more\s+expensive|dearer|costlier)(?:\s+than\s+(?P<b>{_P_PARTY}))?"
+                           rf"|(?P<a2>{_P_PARTY})\s+(?:costs?|would\s+cost|will\s+cost)\s+(?:(?P<ap2>{_P_APPROX})\s+)?(?P<d2>{_P_CUR}(?:{_P_NUM}))(?P<ds2>\s*(?:thousand|million|billion))?"
+                           rf"\s+(?P<cmp2>more|less)\s+than\s+(?P<b2>{_P_PARTY})")
+
+
+def _p_party(name: str) -> str:
+    return " ".join(re.sub(r"^the\s+", "", name.strip(), flags=re.IGNORECASE).split()).lower()
+
+
+def _p_cost_differences(text: str) -> list[tuple[str, str, _Read]]:
+    """Clearance c3 (bm-cheaper: 'Option 2 is $110,000 cheaper' after 'Option 1 costs $380,000' and 'Option 2 costs $290,000', 90,000 apart,
+    crossed with no finding): a stated difference of two parties' costs, read against the costs the paragraph states for them. The other
+    party is the one named after 'than', or else the one other party the paragraph states a cost for; a paragraph that states two costs for
+    one party, or costs for several other parties, states no one difference (not read)."""
+    out: list[tuple[str, str, _Read]] = []
+    for para in re.split(r"\n\s*\n", text):
+        if not re.search(r"cheaper|expensive|dearer|costlier|\b(?:more|less)\s+than\b", para, re.IGNORECASE):
+            continue
+        costs: dict[str, set[str]] = {}
+        for m in _P_COST_RE.finditer(para):
+            if re.match(r"\s+(?:more|less)\s+than\b", para[m.end():m.end() + 24], re.IGNORECASE):
+                continue  # 'Option 1 costs $90,000 more than Option 2': a difference, not Option 1's cost
+            costs.setdefault(_p_party(m.group("party")), set()).add(_p_bare(m.group("v")) + (m.group("vs") or ""))
+        if len(costs) < 2:
+            continue
+        for m in _P_CHEAPER_RE.finditer(para):
+            a = _p_party(m.group("a") or m.group("a2"))
+            b_raw = m.group("b") or m.group("b2")
+            d = _p_bare(m.group("d") or m.group("d2")) + (m.group("ds") or m.group("ds2") or "")
+            cmp = (m.group("cmp") or m.group("cmp2")).lower()
+            if a not in costs or len(costs[a]) != 1:
+                continue
+            others = [_p_party(b_raw)] if b_raw else [k for k in costs if k != a]
+            if len(others) != 1 or others[0] not in costs or others[0] == a or len(costs[others[0]]) != 1:
+                continue
+            cost_a, cost_b = next(iter(costs[a])), next(iter(costs[others[0]]))
+            cheaper = cmp in ("cheaper", "less expensive", "less")
+            expr = f"{cost_b} − {cost_a}" if cheaper else f"{cost_a} − {cost_b}"
+            r = _p_read(" ".join(m.group(0).split()), _p_sentence(para, m.start(), m.end()), expr, d, bool(m.group("ap") or m.group("ap2")))
+            if r is not None:
+                out.append((r.phrase, r.statement, r))
+    return out
+
+
+
+
+def _p_value(token: str) -> str:
+    """A figure of a prose relation written in digits for the worked grammar (a number word in its digits)."""
+    t = token.strip()
+    low = t.lower().replace("-", " ")
+    if low in _P_WORD_VALUES:
+        return str(_P_WORD_VALUES[low])
+    if " " in low and all(w in _P_WORD_VALUES for w in low.split()):
+        return str(sum(_P_WORD_VALUES[w] for w in low.split()))
+    return t
+
+
+def _p_read(phrase: str, statement: str, expr: str, stated: str, approx: bool) -> Optional[_Read]:
+    try:
+        tree = _Parser(_tokens(expr)).parse()
+        result, _end = _read_figure(stated, 0)
+    except _Refuse:
+        return None
+    except Exception:  # noqa: BLE001 - never an exception on agent text: the relation is not read
+        return None
+    figs = _figures(tree) + [result]
+    if len({f.cur for f in figs if f.cur}) > 1:
+        return None
+    return _Read(phrase, statement, (tree,), (expr,), result, approx)
+
+
+def _p_sentence(text: str, a: int, b: int) -> str:
+    start = max(text.rfind(". ", 0, a) + 1, text.rfind("\n", 0, a) + 1, 0)
+    ends = [k for k in (text.find(". ", b), text.find("\n", b)) if k >= 0]
+    return " ".join(text[start:(min(ends) + 1 if ends else len(text))].split())
+
+
+def _p_bare(fig: str) -> str:
+    """A figure of a pair with its currency sign: one currency for every figure of the expression."""
+    return fig.replace("−", "-")
+
+
+def _prose_reads(text: str) -> list[tuple[str, str, _Read]]:
+    """``(phrase, statement, read)`` of every prose relation of ``text`` this section reads (section comment)."""
+    text = text[:_P_MAX_CHARS]
+    out: list[tuple[str, str, _Read]] = []
+    for m in _P_SHARE_RE.finditer(text):
+        a = _p_value(m.group("a"))
+        if m.group("b"):
+            b = m.group("b")
+        else:
+            before = text[max(0, text.rfind(".", 0, m.start()) + 1, m.start() - 160):m.start()]
+            totals = re.findall(rf"(?<![\w.,])({_P_NUM})\s+(?!per\b)[a-z]", before)
+            if not totals:
+                continue
+            b = totals[-1]
+        if _YEAR_ONLY_RE.match(b.replace(",", "")) or _YEAR_ONLY_RE.match(a.replace(",", "")):
+            continue
+        p = m.group("p").replace("−", "-")
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), f"{a} ÷ {b} × 100", f"{p}%", bool(m.group("ap")))
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_PAIR_PCT_RE.finditer(text):
+        x, y = _p_bare(m.group("x")), _p_bare(m.group("y"))
+        if m.group("xs") or m.group("ys"):
+            x, y = x + (m.group("xs") or ""), y + (m.group("ys") or "")
+        if _YEAR_ONLY_RE.match(x.replace(",", "")) and _YEAR_ONLY_RE.match(y.replace(",", "")):
+            continue
+        fall = bool(m.group("sign")) and m.group("sign") in "−-"
+        if not m.group("sign") and re.search(r"\b(?:fell|fallen|falls|dropped|decreased|declined|shrank|went\s+down|cut)\b", text[max(0, m.start() - 60):m.start()], re.IGNORECASE):
+            fall = True  # a fall written without its sign is a negative change ('fell from 412 to 236 boats (42.72%)')
+        # the stated per cent is read without its sign and the change in its direction: a fall as (x − y) ÷ x
+        expr = f"({x} − {y}) ÷ {x} × 100" if fall else f"({y} − {x}) ÷ {x} × 100"
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, m.group("p") + "%", bool(m.group("ap")))
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_PCT_PAIR_RE.finditer(text):
+        x, y = _p_bare(m.group("x")), _p_bare(m.group("y"))
+        fall = re.match(r"(?:fell|fallen|falls|dropped|decreased|decreases|declined|went\s+down)", m.group("dir"), re.IGNORECASE) is not None
+        expr = f"({x} − {y}) ÷ {x} × 100" if fall else f"({y} − {x}) ÷ {x} × 100"
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, m.group("p") + "%", bool(m.group("ap")))
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_PCT_WORK_RE.finditer(text):
+        expr = " ".join(m.group("expr").split())
+        if re.search(r"[A-Za-z]{3,}", re.sub(r"(?:thousand|million|billion|per\s*cent)", " ", expr, flags=re.IGNORECASE)):
+            continue  # words in the bracket: a comment, not working
+        if not re.search(r"×\s*100\b|\*\s*100\b", expr):
+            continue  # a per cent's working multiplies by 100; any other bracket is read by the worked equations or not at all
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, m.group("p") + "%", False)
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_DIFFER_RE.finditer(text):
+        a, b = m.group("a"), m.group("b")
+        if (m.group("au") or "").strip() != (m.group("bu") or "").strip():
+            continue  # figures in two units differ by no figure of one
+        hi, lo = (a, b) if float(a.replace(",", "")) >= float(b.replace(",", "")) else (b, a)
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), f"{hi} − {lo}", m.group("d"), bool(m.group("ap")))
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_BOUND_RE.finditer(text):
+        units = {m.group("u").lower().rstrip("s"), m.group("du").lower().rstrip("s"), m.group("yu").lower().rstrip("s")}
+        if len(units) != 1:
+            continue  # one quantity: the figure, the distance and the bound in one unit
+        x, d, y = m.group("x"), m.group("d"), m.group("y")
+        expr = f"{y} − {x}" if re.match(r"(?:below|under|short)", m.group("dir"), re.IGNORECASE) else f"{x} − {y}"
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, d, bool(m.group("ap") or m.group("ap2")))
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    out.extend(_p_cost_differences(text))
+    return out[:MAX_WORKED_CHECKS]
+
+
+def prose_problems(text: str, *, report_id: str, request_id: str, prefix: str) -> list[WorkedProblem]:
+    """The engine problems of the prose arithmetic of ``text`` (section comment), numbered '-p1', '-p2'."""
+    out: list[WorkedProblem] = []
+    for n, (phrase, statement, r) in enumerate(_prose_reads(text), start=1):
+        problem, description = _problem(r, pid=f"{prefix}-{report_id}-p{n}", claim_id=f"{report_id}:{prefix}-p{n}", request_id=request_id)
+        try:
+            Problem.model_validate(problem)
+        except Exception:  # noqa: BLE001 - a problem the IR schema refuses is not built
+            continue
+        out.append(WorkedProblem(phrase, statement, problem, description.replace("the written arithmetic:", "the arithmetic stated in prose:", 1)))
     return out

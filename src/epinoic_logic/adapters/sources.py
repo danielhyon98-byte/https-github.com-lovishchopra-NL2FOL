@@ -61,7 +61,7 @@ __all__ = [
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
     "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
-    "UnquotedCredit", "unquoted_credits", "OWN_MODEL_NOTE", "own_model_words",
+    "UnquotedCredit", "unquoted_credits", "OWN_MODEL_NOTE", "OWN_EXAMPLE_NOTE", "own_model_words",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -280,6 +280,14 @@ def specialist_names(author: str) -> list[str]:
         names.append(f"{words[0]} specialist")
     names.extend(f"{w} specialist" for w in _SUBJECT_WORD_SPELLINGS.get(words[0], ()))
     names.extend(n for n in _ENGLISH_A_NAMES.get(author, ()) if n not in names)
+    # a course named by its subject word and its course letter in either order (clearance c3, en-p10d: the request's own 'the Spanish B
+    # specialist' for language-b-spanish-specialist was read as a colleague whose report was not supplied, 8 false errors): each subject word
+    # alone ('spanish specialist') and with the course letter after it ('spanish b specialist', 'language b specialist')
+    letters = [w for w in words if len(w) == 1 and w.isalpha()]
+    if letters and author not in _ENGLISH_A_NAMES:  # (the English A courses keep the names their own table gives them)
+        for w in words:
+            if len(w) >= 3 and w.isalpha() and w not in ("and", "the"):
+                names.extend(n for n in (f"{w} specialist", *(f"{w} {letter} specialist" for letter in letters)) if n not in names)
     return names
 
 
@@ -511,6 +519,10 @@ _GENERIC_LITERARY_RE = re.compile(r"\b(?:the|this)\s+(?:poem|poet|speaker|narrat
 _GENERIC_SOURCE_RE = re.compile(r"\b(?:[Tt]he|[Tt]his)\s+(?:[a-z][a-z-]*\s+){0,2}?(?:leaflet|textbook|table|case\s+study|worksheet|booklet|article|"
                                 r"text|advertisement|advert|infographic|poster|cartoon|brochure|editorial|website|photograph|"
                                 r"document|source|report\s+card|data\s+table|chart|graph)s?\b")
+#: The student's own supplied work named as the student's (clearance c3, ll-t16: 'Your notes say the camera "stays at table height ..."' was
+#: credited to no text, so a changed word in it was only unverifiable): "your notes", "your email", "the student's draft".
+_GENERIC_OWN_RE = re.compile(r"\b(?:[Yy]our|[Tt]he\s+student['’]s)\s+(?:own\s+)?(?:[a-z][a-z-]*\s+)?(?:notes|email|e-mail|letter|essay|draft|text|paragraph|plan"
+                             r"|outline|story|speech|article|script|writing|blog(?:\s+post)?|diary|journal|review|report|commentary)\b")
 _LEADING_CREDIT_RE = re.compile(r"\b(?:according to|in the words of)\s+$", re.IGNORECASE)
 #: Verbs that present what their subject supplies ("The History specialist supplies the frame: ...") and the noun phrase
 #: and colon that introduce it: the colon does not end the credit.
@@ -570,7 +582,7 @@ def _sentence_mentions(sentence: str, docs_key: tuple, others: tuple[str, ...]) 
         if len(name) >= 3:
             mentions += [(m.start(), m.end(), None, False) for m in re.finditer(r"(?<!\w)" + re.escape(name) + r"(?!\w)", sentence) if not quoted(m.start())]
     literary = sorted({d for d, _n, peer in docs_key if not peer and not d.startswith("request:")})  # a request is the router's text, never 'the poem'
-    for rx in (_GENERIC_LITERARY_RE, _GENERIC_SOURCE_RE):
+    for rx in (_GENERIC_LITERARY_RE, _GENERIC_SOURCE_RE, _GENERIC_OWN_RE):
         for m in rx.finditer(sentence):
             if not quoted(m.start()):
                 mentions.append((m.start(), m.end(), literary[0] if len(literary) == 1 else None, True))
@@ -881,6 +893,11 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
     searched = ", ".join(docs)
     if located:
         if len(named) == 1 and named[0] in located:
+            if len(located) > 1 and sentence is not None and not _mention_governs(sentence, excerpt, named[0], docs):
+                # several texts hold the words and the text the sentence names does not credit THIS quotation ('The speaker is "el
+                # nuevo, the new one", and the Spanish B specialist explains that ...': the mention follows the quotation; clearance
+                # c3, en-p10d): the other text that holds it is its source
+                return next(d for d in located if d != named[0]), []
             return named[0], []
         if len(named) == 1:
             if sentence is not None and not _mention_governs(sentence, excerpt, named[0], docs):
@@ -922,13 +939,20 @@ def attribute_excerpt(excerpt: str, named: Sequence[str], docs: Mapping[str, Sup
 #: blank runs: what follows each is a word, a colon, a mark or the end.
 _OWN_MODEL_LABEL_RE = re.compile(
     r"[\s>*_#-]*+(?:model(?:\s++(?:answer|sentence|version|paragraph|opening|line|thesis|introduction|conclusion|topic\s++sentence))?"
-    r"|rewrite|rewritten(?:\s++version)?|(?:improved|revised|suggested|stronger)\s++(?:version|sentence|wording|opening|thesis))\s*+:[\s*_]*+",
+    r"|rewrite|rewritten(?:\s++version)?|(?:improved|revised|suggested|stronger)\s++(?:version|sentence|wording|opening|thesis))"
+    # what the label says of its model in brackets ('Model (one sentence, to show range with your own content; not a replacement for
+    # your text):'; clearance c3, sp-t16)
+    r"(?:\s*+\([^()\n]{1,160}+\))?\s*+:[\s*_]*+",
     re.IGNORECASE)
 #: Shortest model sentence read as the writer's own words (a shorter span is a phrase the writer may have taken from a text).
 _OWN_MODEL_MIN_WORDS = 4
 #: A run of this many consecutive words a supplied text also holds makes the span possibly quoted: it stays a quotation.
 _OWN_MODEL_SHARED_RUN = 4
 #: The assumption a model sentence the writer offers as its own words carries (no source reference, nothing to verify).
+#: The note a parser records on a claim whose quoted words belong to an invented example the answer announces ("An example on a
+#: different, invented body of work, ..."; clearance c3, ll-t16): the writer's own example, never a quotation of a supplied text.
+OWN_EXAMPLE_NOTE = ("the writer's own invented example, announced in its paragraph: its quoted words are the writer's example, not a quotation of a "
+                    "supplied text, and are not checked as one")
 OWN_MODEL_NOTE = ("the writer's own model sentence, under a 'Model:' or 'Rewrite:' label: its words occur in none of the supplied texts, no "
                   "supplied text holds all of its words but one or two, and none holds four of its words in a row, so it is not a quotation "
                   "of a supplied text and is not checked as one")
@@ -965,14 +989,23 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
     def fold(w: str) -> str:
         return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
     folded = [fold(w) for w in words]
-    runs = {tuple(folded[i:i + _OWN_MODEL_SHARED_RUN]) for i in range(len(folded) - _OWN_MODEL_SHARED_RUN + 1)}
+    runs = {tuple(folded[i:i + _OWN_MODEL_SHARED_RUN]): i for i in range(len(folded) - _OWN_MODEL_SHARED_RUN + 1)}
     for doc_id, doc in docs.items():
         _near, missing = nearest_text(excerpt, {doc_id: doc})
         if len(missing) <= 2:
             return False  # all its words but one or two: an altered quotation of this text
         text_words = [fold(w) for w in _WORD_RE.findall(doc.text)]
-        if any(tuple(text_words[i:i + _OWN_MODEL_SHARED_RUN]) in runs for i in range(len(text_words) - _OWN_MODEL_SHARED_RUN + 1)):
-            return False  # four of its words in a row stand in this text: possibly quoted
+        shared = [False] * len(folded)  # the model's words that stand in a run of four or more the text also holds
+        for i in range(len(text_words) - _OWN_MODEL_SHARED_RUN + 1):
+            at = runs.get(tuple(text_words[i:i + _OWN_MODEL_SHARED_RUN]))
+            if at is not None:
+                for j in range(at, at + _OWN_MODEL_SHARED_RUN):
+                    shared[j] = True
+        # most of its words in runs the text holds: possibly quoted. A model sentence of the writer's own that reuses one phrase of the
+        # student's text ('... pero al final ya hablaba con el vendedor de pescado sin ayuda', 8 of 22 words; clearance c3, sp-t16) is
+        # the writer's model
+        if sum(shared) * 2 >= len(folded) and any(shared):
+            return False
     return True
 
 

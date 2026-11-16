@@ -213,7 +213,7 @@ _NOT_EXPONENT = r"(?<!\d[eE])(?<!\d[eE][-+−])(?<!\^)(?<!\^[-−{(])(?<!\^\{[-�
 _DIGITS = rf"(?<!\d)(?<!\d[.,]){_NOT_EXPONENT}(?:\d{{1,3}}(?:,\d{{3}})+(?:\.\d+)?|\d+(?:\.\d+)?|\d+,\d{{1,2}})(?!{_SCI_TAIL})"
 #: A currency sign before a figure ('$4.03', '£600 million', 'US$13 billion'): carried with the figure as its unit of account, so a
 #: figure in dollars is compared only with a figure in dollars.
-_CUR = r"(?:US\$|U\.S\.\s?\$|A\$|C\$|\$|£|€|¥)"
+_CUR = r"(?:US\$|U\.S\.\s?\$|[A-Z]{1,3}\$|\$|£|€|¥)"  # a country's dollar ('P$2,150', 'NZ$40') too (clearance c3, ec-t16 g11.8)
 #: The longest numeral read as a figure (far below Python's 4,300-digit integer-string limit): a longer run of digits is refused per
 #: statement (``CORE-QNT-001``, 'too large to check'), never converted, so one oversized figure cannot discard the report's other checks.
 MAX_FIGURE_DIGITS = 1000
@@ -258,6 +258,9 @@ def _fig(i: int, *, dated: bool = False, numx: str = _FIG_NUMX, unit_words: str 
 
 
 _FROM_TO_RE = re.compile(rf"\b(?:from|of)\s+{_fig(1)}\s+(?:to|and)\s+{_fig(2)}", re.IGNORECASE)
+#: A pair written in brackets after the change it gives ('rose 33.95% in nominal terms (P$2,150 to P$2,880)'; clearance c3, ec-t16 g11.8),
+#: read by the general reading as a from/to pair.
+_BRACKET_PAIR_RE = re.compile(rf"\(\s*+{_fig(1)}\s+(?:to|→|->)\s+{_fig(2)}\s*+\)", re.IGNORECASE)
 #: '... X in D1 and [reached] Y in D2': both dates are required, so a list of undated figures is never a pair.
 _TO_VERB = (r"(?:reached|rose to|risen to|climbed to|grew to|increased to|jumped to|soared to|fell to|fallen to|dropped to|declined to|decreased to|"
             r"sank to|shrank to|stood at|was|were|had|bought|cost|numbered|totalled|totaled|to)")
@@ -1009,7 +1012,7 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
 
 #: An operand of written arithmetic after a pair's later figure: a figure (a currency sign, a sign, brackets and up to two unit
 #: words around it allowed: '$0.60', '(0.60)', '0.60 litres').
-_ARITH_OPERAND = r"\(?[ \t]?(?:US)?[$£€¥]?[ \t]?[-−]?\d[\d,.]*(?:[ \t]?%)?\)?(?:[ \t][A-Za-zΩµμ°]{1,12}\.?){0,2}"
+_ARITH_OPERAND = r"\(?[ \t]?(?:[A-Z]{1,3}\$|[$£€¥])?[ \t]?[-−]?\d[\d,.]*(?:[ \t]?%)?\)?(?:[ \t][A-Za-zΩµμ°]{1,12}\.?){0,2}"
 #: Written arithmetic opened by the figure after 'to' ('from $1.60 to $2.00 − $0.60 = $1.40'): up to two unit words after the figure,
 #: then an operator (the operators of :data:`_OPERATOR_BETWEEN_RE`: a hyphen or a dash only with a blank on each side) and an operand,
 #: repeated. Anchored at the end of the pair, so each stretch of arithmetic is read once.
@@ -1116,6 +1119,12 @@ def _pairs(clause: str, pat: _Patterns = _GENERAL_PATTERNS) -> list[_Pair]:
         pairs.append(p)
         insort(ends, (p.end, len(pairs) - 1))
         latest = max(latest, p.end)
+    if pat is _GENERAL_PATTERNS and "(" in clause:
+        # a pair written in brackets ('(P$2,150 to P$2,880)'): a from/to pair of the general reading (clearance c3)
+        covered = _Covered(sorted(pairs, key=lambda x: x.start))
+        for m in _BRACKET_PAIR_RE.finditer(clause):
+            if not covered.overlaps(m.start(), m.end()):
+                pairs.append(_Pair(m.start(), m.end(), _fig_of(m, 1), _fig_of(m, 2)))
     covered = _Covered(sorted(pairs, key=lambda x: x.start))  # from/to pairs and continuations: their starts interleave
     latest = -1  # the largest end of the dated pairs read so far
     for m in pat.and_dated.finditer(clause):
@@ -2030,8 +2039,10 @@ def _any_other_spec(m: "re.Match[str]", clause: str, para: str, series: list, st
 _OF_WHICH_RE = re.compile(r",\s*(?:(?:most|some|part|much|all)\s+)?of\s+(?:which|whom|these)\b", re.IGNORECASE)
 #: '1882 alone brought nearly 790,000', 'the United Kingdom alone received $3.2 billion': one part of the total stated before it.
 #: The party's name is read up to twelve capitalised words (integration gate 2: an unbounded name was read again from each of its words, n²
-#: steps on a run of capitalised words, 4 s at 24,000 characters); a longer name is read as its last twelve words.
-_ALONE_RE = re.compile(r"\b(?P<who>(?:1[0-9]{3}|20[0-9]{2})|[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*){0,11})\s+alone\s+(?:had\s+|has\s+)?"
+#: steps on a run of capitalised words, 4 s at 24,000 characters); a longer name is read as its last twelve words. Each word is read once,
+#: possessively, and is at most 41 characters long (round 10, clearance c3: a joined token, "A-A-A..." or "A'A'A...", was read again from
+#: each of its letters, 9 to 12 s at 20,000 characters).
+_ALONE_RE = re.compile(r"\b(?P<who>(?:1[0-9]{3}|20[0-9]{2})|[A-Z][\w'’.-]{0,40}+(?:\s++(?:of\s++)?[A-Z][\w'’.-]{0,40}+){0,11})\s+alone\s+(?:had\s+|has\s+)?"
                        r"(?P<verb>brought|saw|accounted\s+for|added|contributed|admitted|received|took|produced|absorbed|got|gained|sent|supplied|provided|delivered|lost|"
                        r"took\s+in|let\s+in)\s+")
 #: '<part>, about a quarter of the decade's total', 'about 60 per cent of the total': the share of a total stated in the sentence.
@@ -2062,6 +2073,10 @@ _SPAN_LEAD = r"(?:(?:the\s+)?(?:early|late|mid)[\s-]+|(?:about|around|c\.|ca\.|c
 _DUR_SPAN_RE = re.compile(
     rf"\b(?P<open>from|between|since|after)\s+(?:[^\d;:!?]{{0,80}}?\b(?:on|in|of)\s+)?{_SPAN_LEAD}(?P<d1>{_SPAN_DATE})"
     rf"(?:\s*,)?\s+(?:and|to|until|till|through|up\s+to)\s+(?:[^\d;:!?]{{0,60}}?\b(?:on|in|of)\s+)?{_SPAN_LEAD}(?P<d2>{_SPAN_DATE})", re.IGNORECASE)
+#: A span in brackets right after a stated length of years: 'lasted about five years (1918–1921)', 'for nearly thirty years (1924–53)'.
+#: Anchored where the length ends (a match, never a search) and every run is possessive.
+_DUR_BRACKET_AFTER_RE = re.compile(r"\s*+\(\s*+(?:c\.\s*+|ca\.\s*+|circa\s++)?(?P<d1>1[0-9]{3}|20[0-9]{2})\s*+(?:[–—-]|to)\s*+"
+                                   r"(?P<d2>1[0-9]{3}|20[0-9]{2}|[0-9]{2})(?!\d)\s*+\)", re.IGNORECASE)
 #: Days in a year, for an elapsed time stated between day or month dates (the mean Gregorian year).
 _DAYS_PER_YEAR = Fraction(3652425, 10000)
 #: Half a year: a length stated in whole years and read against day or month dates passes when it rounds the elapsed time.
@@ -2193,12 +2208,12 @@ def _no_pair_reason(clause: str, d: Optional[_Derived]) -> str:
 #: An arithmetic operator between two figures of written working ('+', '−', '×', '÷', '/', '*', '^', '·', or a spaced hyphen or dash), up to
 #: two unit words between the first figure and the operator ('105 million litres ×', '2.4 Ω +'); a figure with a letter attached ('6t') is a term
 #: of algebra, not a figure, and the end of a range label ('aged 15–64 × 100') is no operand.
-_OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:US)?[$£€¥]?[ \t]?[-−]?[ \t]?\({0,3}(?:US)?[$£€¥]?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
+_OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:[A-Z]{1,3}\$|[$£€¥])?[ \t]?[-−]?[ \t]?\({0,3}(?:[A-Z]{1,3}\$|[$£€¥])?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
 #: A restatement in brackets inside a line of working: an '=' and a word of three letters, and no arithmetic operator ('(762 thousand =
 #: 0.762 million)', '(1 tonne = 1,000 kg)'). Bounded: at most 120 characters inside the brackets, each lookahead too.
 _EQ_COMMENT_RE = re.compile(r"\((?=[^()\n]{0,120}?=)(?=[^()\n]{0,120}?[A-Za-z]{3})[^()\n+×÷*/−–^\-]{1,120}\)")
 #: The result of a link of a worked equation: a figure (a sign or a currency sign before it allowed; a plus sign too, '= +$53,900').
-_RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-+\u2212]?[ \t]?(?:US)?[$£€¥]?[ \t]?[-+\u2212]?\d")
+_RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-+\u2212]?[ \t]?(?:[A-Z]{1,3}\$|[$£€¥])?[ \t]?[-+\u2212]?\d")  # a country's dollar ('P$', 'NZ$') too (clearance c3)
 #: A line that continues the equation of the line before it ('= 20 ÷ 10').
 _CONTINUATION_LINE_RE = re.compile(r"^\s*(?:\$\s*)?[=≈]")
 #: The reason a worked equation is reported undecided (``CORE-QNT-001``): written arithmetic in '=' form has no reader on this branch.
@@ -2336,8 +2351,9 @@ def _total_rate_spec(clause: str, d: _Derived, tolerance: Fraction) -> tuple[Opt
 
 
 #: The party whose share a phrase states: '..., so the United Kingdom alone received about two-thirds of the total'.
-#: The party's name is read up to twelve capitalised words, as in :data:`_ALONE_RE` (integration gate 2).
-_SHARE_PARTY_RE = re.compile(r"(?P<who>(?:the\s+)?[A-Z][\w'’.-]*(?:\s+(?:of\s+)?[A-Z][\w'’.-]*){0,11})\s+(?:alone\s+|itself\s+)?(?:had\s+|has\s+)?"
+#: The party's name is read up to twelve capitalised words, each read once and at most 41 characters long, as in :data:`_ALONE_RE`
+#: (integration gate 2; round 10).
+_SHARE_PARTY_RE = re.compile(r"(?P<who>(?:the\s+)?[A-Z][\w'’.-]{0,40}+(?:\s++(?:of\s++)?[A-Z][\w'’.-]{0,40}+){0,11})\s+(?:alone\s+|itself\s+)?(?:had\s+|has\s+)?"
                              r"(?:received|got|took|obtained|absorbed|accounted\s+for|was\s+given|was\s+granted|was\s+allotted|gained|brought|sent|admitted)\s*$")
 
 
@@ -3120,8 +3136,18 @@ def _duration_specs(sentences: list[str], si: int, pi: int, tolerance: Fraction)
         phrase = " ".join(m.group(0).split())
         qualifier = m.group("q")
         basis = ""
-        span = _span_of(sent, m, spans_here, span_starts, span_ends)
-        if span is not None:
+        bracket = _DUR_BRACKET_AFTER_RE.match(sent, m.end())
+        span = _span_of(sent, m, spans_here, span_starts, span_ends) if bracket is None else None
+        if bracket is not None:
+            # 'War Communism lasted about five years (1918–1921)': the years in brackets right after the length are its span (clearance c3:
+            # read as no span, the wrong length was only named undecided). A bracket before the length is not read: 'Stalin (1878–1953)
+            # ruled for thirty years' brackets a life, not the rule.
+            first, last = bracket.group("d1"), bracket.group("d2")
+            if len(last) == 2:
+                last_year = int(first[:2]) * 100 + int(last)
+                last = str(last_year + 100 if last_year < int(first) else last_year)
+            d1, d2 = _span_date(first), _span_date(last)
+        elif span is not None:
             d1, d2 = _span_date(span.group("d1")), _span_date(span.group("d2"))
         else:
             if not own_cache:
@@ -3256,6 +3282,15 @@ _CAL_SPAN_LENGTH_RE = re.compile(
     r"(?=\s*+(?:[.;,)]|$|passed|elapsed|went\s++by|had\s++passed|in\s++all|in\s++total))", re.IGNORECASE)
 #: A length between two dated events an order cue sets apart: '... came two months before ...', '... three years after ...'.
 _CAL_CUE_RE = re.compile(rf"(?<![\w-]){_CAL_LENGTH}\s++(?P<cue>before|after|earlier\s++than|later\s++than|prior\s++to)\b", re.IGNORECASE)
+#: After a length and its cue at the head of a clause: the other event's proper name (an optional lower-case noun after it, and an optional
+#: date of its own), then the date of the clause's own event set off by commas ('About seven months after Darfield, on 22 February 2011, a
+#: magnitude 6.2 aftershock struck'; clearance c3: the date was read as Darfield's and the length went unchecked). Anchored at the cue's
+#: end (a match), every run bounded or possessive.
+_CAL_NAMED_SIDE_RE = re.compile(
+    rf"\s++(?:the\s++)?(?P<name>[A-Z][\w'’-]*+(?:\s++(?:of\s++|the\s++|and\s++|de\s++)?[A-Z][\w'’-]*+){{0,4}})(?:\s++[a-z][a-z'’-]{{2,20}}+)?"
+    rf"(?:\s++(?:of|on|in)\s++(?P<own>{_CAL_DATE_TEXT}))?\s*+,\s*+(?:on|in)\s++(?P<date>{_CAL_DATE_TEXT})\s*+,")
+#: Words that end the gap between a proper name and the date read as its own: a comparison or another clause stands between them.
+_CAL_GAP_STOP_RE = re.compile(r",|\b(?:than|after|before|since|until|till|and|or|but|while|when|whereas|unlike|like|compared)\b", re.IGNORECASE)
 #: A length after an event noun with no dates of its own: 'A war of three years and one month', 'a boycott of 381 days'.
 _CAL_NOUN_RE = re.compile(rf"\b(?:an?|the|this|that|its)\s++(?:[a-z]+\s++)?(?P<noun>war|conflict|occupation|boycott|strike|siege|campaign|reign|blockade|struggle"
                           rf"|presidency|premiership|dictatorship|regime|truce|ceasefire|crisis|revolution|uprising|lockout)\s++of\s++{_CAL_LENGTH}", re.IGNORECASE)
@@ -3392,9 +3427,17 @@ def _cal_spec(sent: str, phrase: str, qualifier: Optional[str], length: str, d1:
         return None, None
     years, months, weeks, days = parts
     # a length in whole years between two dates stated as months or years is read on the year index ('three years after the war began in
-    # June 1950' for July 1953: a length of years is rounded or cut to whole years); one with months between two month dates on the month index
-    unit = "year" if {d1.res, d2.res} <= {"month", "year"} and not (months or weeks or days) else \
-        "month" if d1.res == d2.res == "month" and not (weeks or days) else None
+    # June 1950' for July 1953: a length of years is rounded or cut to whole years); one with months between two month dates on the month index.
+    # A bound or an approach ('almost four years', 'more than three years') between two dates that both state their month is read on the
+    # calendar (clearance c3: 'from July 1936 to April 1939, almost four years' passed on the year index, 1939 - 1936 = 3, though the span is
+    # two years and nine months): the year index cannot tell 'almost four' from 'almost three' there.
+    q = " ".join((qualifier or "").lower().split())
+    bounded = q in _LOWER_ONLY or q in _UPPER_ONLY or q in _APPROACH_BELOW or q in _APPROACH_ABOVE
+    if bounded and years and not (months or weeks or days) and "year" not in (d1.res, d2.res):
+        unit = None
+    else:
+        unit = "year" if {d1.res, d2.res} <= {"month", "year"} and not (months or weeks or days) else \
+            "month" if d1.res == d2.res == "month" and not (weeks or days) else None
     if unit is not None:
         return _cal_index_spec(sent, phrase, qualifier, d1, d2, years * 12 + months if unit == "month" else years, unit, basis, pi, si)
     lows, highs = [], []
@@ -3500,8 +3543,54 @@ def _cal_event_start(sentences: list[str], si: int, noun: str) -> tuple[Optional
                   else f"neither its sentence nor an earlier sentence of the paragraph dates the beginning of the {noun}")
 
 
-def _calendar_length_specs(sentences: list[str], si: int, pi: int) -> tuple[list[_Spec], list[QuantUndecided], list[str]]:
-    """The checks of the stated calendar lengths of sentence ``si`` (the module comment above): ``(specs, undecided, phrases read)``."""
+def _cal_name_mentions(whole: tuple[str, ...], name: str) -> tuple[tuple[_CalDate, str], ...]:
+    """Every date the text gives the proper name ``name`` (:func:`_cal_named_date`), with the sentence that gives it: read once per name
+    and text (a text of many lengths after one named event looks the name up once, not once per sentence)."""
+    pattern = re.compile(rf"(?<![\w'’-]){re.escape(name)}(?![\w'’-])(?P<more>(?:\s++[A-Z][\w'’-]*+){{0,3}})(?P<gap>[^;:!?A-Z]{{0,60}}?)\b(?:on|in|of)\s++"
+                         rf"(?P<date>{_CAL_DATE_TEXT})")
+    found: list[tuple[_CalDate, str]] = []
+    for s in whole:
+        if name not in s:
+            continue
+        for m in pattern.finditer(s[:20_000]):  # (each sentence read to a bound: a look-up is linear in the text)
+            if _CAL_GAP_STOP_RE.search(m.group("gap")):
+                continue
+            dates = _cal_dates(m.group("date"))
+            if dates:
+                found.append((dates[0], " ".join(s.split())))
+            if len(found) >= _MAX_NAME_DATES:
+                return tuple(found)
+    return tuple(found)
+
+
+#: The most dates read for one name (a text that dates one name more often than this is read on these).
+_MAX_NAME_DATES = 64
+
+
+def _cal_named_date(whole, sent: str, name: str) -> tuple[Optional[_CalDate], str]:
+    """The date the rest of the text gives the event the proper name ``name`` names ('the magnitude 7.1 Darfield earthquake struck at 4.35
+    am on 4 September 2010'): at each mention in another sentence, the first date after it introduced by 'on', 'in' or 'of', with no comma,
+    comparison or other clause between them and no other proper name (a capitalised word) after the name's own words. The dates found must
+    nest (the year 2010 and 4 September 2010 are one date read at two resolutions); the finest is returned. ``(None, reason)`` when the
+    name is dated differently in two places; ``(None, '')`` when no other sentence dates it (nothing to check, as for an undated event).
+    ``whole`` is the text's sentences, or a callable that reads the mentions of a name once per text (:func:`_analyse`)."""
+    if name.split()[0].lower() in _MONTH_NUMBER:
+        return None, ""  # 'after May, on ...' names a month, not an event
+    mentions = whole(name) if callable(whole) else _cal_name_mentions(tuple(whole), name)
+    own = " ".join(sent.split())
+    found = [(d, s) for d, s in mentions if s != own]
+    if not found:
+        return None, ""
+    finest = min(found, key=lambda x: x[0].hi - x[0].lo)
+    if any(not (d.lo <= finest[0].lo and finest[0].hi <= d.hi) for d, _s in found):
+        shown = ", ".join(dict.fromkeys(d.text for d, _s in found))
+        return None, f"the text gives '{name}' more than one date ({shown}), so which is meant is not stated"
+    return finest[0], f"the date of '{name}' ({finest[0].text}) was read from its mention in another sentence ('{finest[1][:120]}')"
+
+
+def _calendar_length_specs(sentences: list[str], si: int, pi: int, whole=None) -> tuple[list[_Spec], list[QuantUndecided], list[str]]:
+    """The checks of the stated calendar lengths of sentence ``si`` (the module comment above): ``(specs, undecided, phrases read)``.
+    ``whole`` returns the dates the text gives a proper name (read only for a length ordered against an event named by one)."""
     sent = sentences[si]
     specs: list[_Spec] = []
     undecided: list[QuantUndecided] = []
@@ -3567,6 +3656,30 @@ def _calendar_length_specs(sentences: list[str], si: int, pi: int) -> tuple[list
         c0, c1 = _cal_clause(sent, m.start(), m.end())
         left = [d for d in dates if c0 <= d.start and d.end <= m.start()]
         right = [d for d in dates if m.end() <= d.start and d.end <= c1]
+        named = _CAL_NAMED_SIDE_RE.match(sent, m.end()) if not left and right else None
+        if named is not None:
+            # 'About seven months after Darfield, on 22 February 2011, a magnitude 6.2 aftershock struck': the date set off by commas is the
+            # clause's own event; the named event is dated by its own date or by the rest of the text (one date, or dates that nest)
+            own_dates = _cal_dates(named.group("date"))
+            other: Optional[_CalDate] = None
+            how = ""
+            if named.group("own"):
+                found = _cal_dates(named.group("own"))
+                other = found[0] if found else None
+            elif whole is not None:
+                other, how = _cal_named_date(whole, sent, named.group("name"))
+            if not own_dates or other is None:
+                if how:
+                    add(m, None, None, why=how)
+                continue  # a named event the text never dates: nothing to check (as for an undated event)
+            cue = m.group("cue").lower()
+            earlier, later = (own_dates[0], other) if cue in ("before", "earlier than", "prior to") else (other, own_dates[0])
+            if later.hi <= earlier.lo:
+                add(m, None, None, why=f"the text dates '{named.group('name')}' ({other.text}) on the wrong side of {own_dates[0].text} for "
+                                      f"'{m.group('cue')}'" + (f" ({how})" if how else ""))
+                continue
+            add(m, earlier, later, basis=how)
+            continue
         if not left or not right:
             continue  # an interval against an event the sentence does not date: the chronology check names the order
         cue = m.group("cue").lower()
@@ -3693,6 +3806,17 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
     own_undecided: set[int] = set()                       # the round-9 prose readers' own undecided entries (kept)
     all_clauses: list[str] = []
     clause_where: list[tuple[int, int, str]] = []   # (paragraph, sentence number, sentence) of every clause, for SI undecided shares
+    whole_cache: list[tuple[str, ...]] = []
+    name_cache: dict[str, tuple] = {}
+
+    def whole_sentences(name: str) -> tuple:
+        """The dates the text gives a proper name, with their sentences (:func:`_cal_name_mentions`): the text split once on first use and
+        each name read once (a length ordered against a named event looks the name up across the text)."""
+        if not whole_cache:
+            whole_cache.append(tuple(s for _p, _para, ss, _n in _paragraph_sentences(text, reading) for s in ss))
+        if name not in name_cache:
+            name_cache[name] = _cal_name_mentions(whole_cache[0], name) if len(name_cache) < 256 else ()
+        return name_cache[name]
     for pi, para, sentences, numbers in _paragraph_sentences(text, reading):
         series: list[_Series] = []
         pending: list[tuple[int, str, list[_Derived], Optional[tuple]]] = []   # (sentence index, clause, unbound derived, extras)
@@ -3722,7 +3846,7 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
                     part_specs, part_undecided = part_specs + dur_specs, part_undecided + dur_undecided
                 if not si_mode and _CAL_HINT_RE.search(sent):
                     # a calendar length between dated events (round 9 second pass): decided, or named undecided with its own reason
-                    cal_specs, cal_undecided, cal_read = _calendar_length_specs(sentences, si, pi)
+                    cal_specs, cal_undecided, cal_read = _calendar_length_specs(sentences, si, pi, whole_sentences)
                     part_specs, part_undecided = part_specs + cal_specs, part_undecided + cal_undecided
                     own_undecided.update(id(u) for u in cal_undecided)
                     if cal_read:

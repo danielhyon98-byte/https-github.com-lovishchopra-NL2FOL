@@ -284,6 +284,19 @@ class _Checker:
         extra = {name: sort for name, sort in ab.atoms.values()}
         return self.unsat([p, {"op": "not", "arg": k}], extra) is True
 
+    def weakens_link(self, premise: dict, conjunct: dict) -> bool:
+        """Rule ``link-weakening`` (round-10 clearance c3, bm-t16 g15.3): ``premise`` is a link (an implication or a
+        biconditional, no antecedent asserted beside it) that alone entails the conditional or disjunctive ``conjunct`` by
+        its full Boolean structure (comparisons and arithmetic opaque): the conjunct is the premise weakened ("alt1 → evid"
+        gives "¬tests_met → (alt1 → evid)"), the claim's own conditional asserted, never derived. A link packed with its
+        antecedent ("b and (b implies e)") is no link of this kind: that premise argues, as :meth:`boolean_entails` reads it."""
+        if premise.get("op") not in ("implies", "iff") or conjunct.get("op") not in ("implies", "or", "iff"):
+            return False
+        ab = _Abstraction(set(self.sorts))
+        p, k = ab.boolean(premise), ab.boolean(conjunct)
+        extra = {name: sort for name, sort in ab.atoms.values()}
+        return self.unsat([p, {"op": "not", "arg": k}], extra) is True
+
     def arithmetic_equivalent(self, part: dict, conjunct: dict) -> bool:
         """``part`` is equivalent to ``conjunct`` by the arithmetic of the conjunct's own symbols (closed terms opaque)."""
         ab = _Abstraction(set(self.sorts))
@@ -305,6 +318,8 @@ def _restates(checker: _Checker, premise: dict, conjunct: dict, unstated: Option
         return None
     if checker.boolean_entails(premise, conjunct):
         return "by Boolean structure"
+    if checker.weakens_link(premise, conjunct):
+        return "as the premise's own link weakened (rule link-weakening)"
     if conjunct.get("op") in _COMPARE or (conjunct.get("op") == "not" and conjunct["arg"].get("op") in _COMPARE):
         figures = _figures(conjunct)
         for part in parts:

@@ -1,0 +1,521 @@
+{
+ "description": "Clearance round c3 (arena round 10), communication fidelity, minor: a synthesis that drops a note and carries the quotation claim the note quoted. lit-t16 is the round's answer, delivery and synthesis; x10 is the communication-fidelity overseer's own exchange, which reproduces it. 'delivered_claims' are the claims as the round's hub delivered them (ids, roles, materiality, certainty, texts), copied verbatim; 'synthesis' is the combinator's output as recorded.",
+ "lit-t16": {
+  "task_id": "lit-t16",
+  "subject": "English A: Literature",
+  "agent_id": "english-a-literature-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "I'm an SL Literature student preparing for Paper 1 (the course first assessed in 2021; my exams are in May 2027). Practice passage: the poem below, with the guiding question 'How does the poet use the hives to present the speaker's grief?' Write one analytical paragraph of no more than 300 words, quoting exactly from the poem.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-hives",
+    "title": "Hive Inspection, June (poem, supplied text)",
+    "text": "Hive Inspection, June\n\nHis veil still hangs behind the kitchen door,\na net for catching nothing. I put it on.\nIt smells of him: of smoke, of wax, of rain\non a coat left out. The bees do not know.\n\nI light the smoker the way he showed me,\ndry grass first, then pine cones, then patience,\nand puff the cool grey breath across the boxes\nuntil the humming lowers, like a congregation\n\nsettling before a hymn. I lift the lid.\nTen frames, and every one of them is full,\nthe honey capped, the brood in tidy rows.\nThey kept on working. Nobody told them to.\n\nSomeone should tell them. That was the old way:\nyou knocked three times and spoke into the hive\nso that they would stay. I knock. I cannot say it.\nI say the weather. I say it will be fine.\n\nThe queen is somewhere in the dark, laying\na thousand eggs a day, and none of them\nwill know his hands. I put the lid back on\nand stand there in his veil, being careful, being stung."
+   }
+  ],
+  "response_text": "The poem never names the loss, so the grief has to be read from the hive, where the father's absence is felt through his routines. The veil, \"a net for catching nothing\", still hangs behind the kitchen door, and it \"smells of him: of smoke, of wax, of rain\". The speaker lights the smoker \"the way he showed me\" and repeats each step, \"dry grass first, then pine cones, then patience\". This measured procedure suggests that the speaker holds on to his method as a way of controlling feeling. The bees, by contrast, \"kept on working. Nobody told them to.\" The short, flat sentence shows routine continuing without anyone's instruction, which makes the speaker's own disruption more pointed. The grief is most exposed in the stanza about telling the bees. The speaker recalls the old way: \"you knocked three times and spoke into the hive\" so that \"they would stay\". The speaker then admits, in two short sentences, \"I knock. I cannot say it.\" The knock is an act the speaker can still perform, while the words are not, and that gap presents grief as a silence that cannot be broken. The retreat into small talk, \"I say the weather. I say it will be fine.\", reinforces this, because the reassurance is one the speaker does not seem to believe. The closing line, \"being careful, being stung\", suggests that care and hurt have merged in the speaker's grief.\n\nNext step: draft a second paragraph on the stanza where the speaker says \"The queen is somewhere in the dark\", and test whether the image of the queen's eggs supports or complicates your reading of the hive.\n\nSources: Hive Inspection, June (supplied text)",
+  "delivered_claims": [
+   {
+    "claim_id": "p1-point",
+    "role": "point",
+    "materiality": "material",
+    "certainty": "probable",
+    "text": "The poem never names the loss, so the grief has to be read from the hive, where the father's absence is felt through his routines."
+   },
+   {
+    "claim_id": "p1-q01",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"a net for catching nothing\""
+   },
+   {
+    "claim_id": "p1-q02",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"smells of him: of smoke, of wax, of rain\""
+   },
+   {
+    "claim_id": "p1-s02",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The veil, \"a net for catching nothing\", still hangs behind the kitchen door, and it \"smells of him: of smoke, of wax, of rain\"."
+   },
+   {
+    "claim_id": "p1-q03",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"the way he showed me\""
+   },
+   {
+    "claim_id": "p1-q04",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"dry grass first, then pine cones, then patience\""
+   },
+   {
+    "claim_id": "p1-s03",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The speaker lights the smoker \"the way he showed me\" and repeats each step, \"dry grass first, then pine cones, then patience\"."
+   },
+   {
+    "claim_id": "p1-s04",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "This measured procedure suggests that the speaker holds on to his method as a way of controlling feeling."
+   },
+   {
+    "claim_id": "p1-q05",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"kept on working. Nobody told them to.\""
+   },
+   {
+    "claim_id": "p1-s05",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The bees, by contrast, \"kept on working. Nobody told them to.\""
+   },
+   {
+    "claim_id": "p1-s06",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The short, flat sentence shows routine continuing without anyone's instruction, which makes the speaker's own disruption more pointed."
+   },
+   {
+    "claim_id": "p1-s07",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The grief is most exposed in the stanza about telling the bees."
+   },
+   {
+    "claim_id": "p1-q06",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"you knocked three times and spoke into the hive\""
+   },
+   {
+    "claim_id": "p1-q07",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"they would stay\""
+   },
+   {
+    "claim_id": "p1-s08",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The speaker recalls the old way: \"you knocked three times and spoke into the hive\" so that \"they would stay\"."
+   },
+   {
+    "claim_id": "p1-q08",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"I knock. I cannot say it.\""
+   },
+   {
+    "claim_id": "p1-s09",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The speaker then admits, in two short sentences, \"I knock. I cannot say it.\""
+   },
+   {
+    "claim_id": "p1-s10",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The knock is an act the speaker can still perform, while the words are not, and that gap presents grief as a silence that cannot be broken."
+   },
+   {
+    "claim_id": "p1-q09",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"I say the weather. I say it will be fine.\""
+   },
+   {
+    "claim_id": "p1-s11",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The retreat into small talk, \"I say the weather. I say it will be fine.\", reinforces this, because the reassurance is one the speaker does not seem to believe."
+   },
+   {
+    "claim_id": "p1-q10",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"being careful, being stung\""
+   },
+   {
+    "claim_id": "p1-s12",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The closing line, \"being careful, being stung\", suggests that care and hurt have merged in the speaker's grief."
+   },
+   {
+    "claim_id": "p2-point",
+    "role": "point",
+    "materiality": "material",
+    "certainty": "probable",
+    "text": "Next step: draft a second paragraph on the stanza where the speaker says \"The queen is somewhere in the dark\", and test whether the image of the queen's eggs supports or complicates your reading of the hive."
+   },
+   {
+    "claim_id": "p2-q01",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"The queen is somewhere in the dark\""
+   },
+   {
+    "claim_id": "p3-point",
+    "role": "other",
+    "materiality": "supporting",
+    "certainty": "possible",
+    "text": "Sources: Hive Inspection, June (supplied text)"
+   }
+  ],
+  "synthesis": {
+   "claims": [
+    {
+     "text": "The poem never names the loss, so the grief has to be read from the hive, where the father's absence is felt through his routines.",
+     "source_claim_ids": [
+      "p1-point"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"a net for catching nothing\"",
+     "source_claim_ids": [
+      "p1-q01"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"smells of him: of smoke, of wax, of rain\"",
+     "source_claim_ids": [
+      "p1-q02"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The veil, \"a net for catching nothing\", still hangs behind the kitchen door, and it \"smells of him: of smoke, of wax, of rain\".",
+     "source_claim_ids": [
+      "p1-s02"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"the way he showed me\"",
+     "source_claim_ids": [
+      "p1-q03"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"dry grass first, then pine cones, then patience\"",
+     "source_claim_ids": [
+      "p1-q04"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The speaker lights the smoker \"the way he showed me\" and repeats each step, \"dry grass first, then pine cones, then patience\".",
+     "source_claim_ids": [
+      "p1-s03"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "This measured procedure suggests that the speaker holds on to his method as a way of controlling feeling.",
+     "source_claim_ids": [
+      "p1-s04"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"kept on working. Nobody told them to.\"",
+     "source_claim_ids": [
+      "p1-q05"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The bees, by contrast, \"kept on working. Nobody told them to.\"",
+     "source_claim_ids": [
+      "p1-s05"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The short, flat sentence shows routine continuing without anyone's instruction, which makes the speaker's own disruption more pointed.",
+     "source_claim_ids": [
+      "p1-s06"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The grief is most exposed in the stanza about telling the bees.",
+     "source_claim_ids": [
+      "p1-s07"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"you knocked three times and spoke into the hive\"",
+     "source_claim_ids": [
+      "p1-q06"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"they would stay\"",
+     "source_claim_ids": [
+      "p1-q07"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The speaker recalls the old way: \"you knocked three times and spoke into the hive\" so that \"they would stay\".",
+     "source_claim_ids": [
+      "p1-s08"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"I knock. I cannot say it.\"",
+     "source_claim_ids": [
+      "p1-q08"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The speaker then admits, in two short sentences, \"I knock. I cannot say it.\"",
+     "source_claim_ids": [
+      "p1-s09"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "The knock is an act the speaker can still perform, while the words are not, and that gap presents grief as a silence that cannot be broken.",
+     "source_claim_ids": [
+      "p1-s10"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"I say the weather. I say it will be fine.\"",
+     "source_claim_ids": [
+      "p1-q09"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The retreat into small talk, \"I say the weather. I say it will be fine.\", reinforces this, because the reassurance is one the speaker does not seem to believe.",
+     "source_claim_ids": [
+      "p1-s11"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"being careful, being stung\"",
+     "source_claim_ids": [
+      "p1-q10"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The closing line, \"being careful, being stung\", suggests that care and hurt have merged in the speaker's grief.",
+     "source_claim_ids": [
+      "p1-s12"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"The queen is somewhere in the dark\"",
+     "source_claim_ids": [
+      "p2-q01"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    }
+   ],
+   "dropped": [
+    {
+     "source_claim_ids": [
+      "p2-point"
+     ],
+     "reason": "a next-step suggestion, a note rather than a claim of the answer"
+    },
+    {
+     "source_claim_ids": [
+      "p3-point"
+     ],
+     "reason": "a sources line, a note rather than a claim of the answer"
+    }
+   ]
+  }
+ },
+ "x10": {
+  "task_id": "x10",
+  "subject": "English A: Literature",
+  "agent_id": "english-a-literature-specialist",
+  "task_type": "analytical_paragraph",
+  "question": "I'm an SL Literature student. Write one analytical paragraph of no more than 120 words on how the poet presents grief, quoting exactly from the poem.",
+  "supplied_texts": [
+   {
+    "document_id": "doc-x-poem",
+    "title": "Hive Inspection (poem)",
+    "text": "I knock. I cannot say it.\nThe bees kept on working. Nobody told them to.\nThe queen is somewhere in the dark."
+   }
+  ],
+  "response_text": "The speaker's grief is shown as a silence that cannot be broken. The speaker admits, \"I knock. I cannot say it.\", and the bees \"kept on working. Nobody told them to.\", so routine continues while speech fails.\n\nNext step: draft a second paragraph on \"The queen is somewhere in the dark\" and test whether it complicates this reading.\n\nSources: Hive Inspection (supplied text)",
+  "delivered_claims": [
+   {
+    "claim_id": "p1-point",
+    "role": "point",
+    "materiality": "material",
+    "certainty": "probable",
+    "text": "The speaker's grief is shown as a silence that cannot be broken."
+   },
+   {
+    "claim_id": "p1-q01",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"I knock. I cannot say it.\""
+   },
+   {
+    "claim_id": "p1-q02",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"kept on working. Nobody told them to.\""
+   },
+   {
+    "claim_id": "p1-s02",
+    "role": "interpretation",
+    "materiality": "supporting",
+    "certainty": "probable",
+    "text": "The speaker admits, \"I knock. I cannot say it.\", and the bees \"kept on working. Nobody told them to.\", so routine continues while speech fails."
+   },
+   {
+    "claim_id": "p2-point",
+    "role": "point",
+    "materiality": "material",
+    "certainty": "probable",
+    "text": "Next step: draft a second paragraph on \"The queen is somewhere in the dark\" and test whether it complicates this reading."
+   },
+   {
+    "claim_id": "p2-q01",
+    "role": "evidence",
+    "materiality": "supporting",
+    "certainty": "established",
+    "text": "\"The queen is somewhere in the dark\""
+   },
+   {
+    "claim_id": "p3-point",
+    "role": "other",
+    "materiality": "supporting",
+    "certainty": "possible",
+    "text": "Sources: Hive Inspection (supplied text)"
+   }
+  ],
+  "synthesis": {
+   "claims": [
+    {
+     "text": "The speaker's grief is shown as a silence that cannot be broken.",
+     "source_claim_ids": [
+      "p1-point"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"I knock. I cannot say it.\"",
+     "source_claim_ids": [
+      "p1-q01"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"kept on working. Nobody told them to.\"",
+     "source_claim_ids": [
+      "p1-q02"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    },
+    {
+     "text": "The speaker admits, \"I knock. I cannot say it.\", and the bees \"kept on working. Nobody told them to.\", so routine continues while speech fails.",
+     "source_claim_ids": [
+      "p1-s02"
+     ],
+     "certainty": "probable",
+     "transformation": "carried"
+    },
+    {
+     "text": "\"The queen is somewhere in the dark\"",
+     "source_claim_ids": [
+      "p2-q01"
+     ],
+     "certainty": "established",
+     "transformation": "carried"
+    }
+   ],
+   "dropped": [
+    {
+     "source_claim_ids": [
+      "p2-point"
+     ],
+     "reason": "a next-step suggestion, a note rather than a claim of the answer"
+    },
+    {
+     "source_claim_ids": [
+      "p3-point"
+     ],
+     "reason": "a sources line, a note rather than a claim of the answer"
+    }
+   ]
+  }
+ }
+}

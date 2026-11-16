@@ -33,6 +33,12 @@ router's record had its own file).
 
 Standard output is the router's: the two file paths, the relay status and the peer receipt's status
 and codes (no finding message). Brief the dependent agent with the relayed file only.
+
+A relay that cannot be made (a task the round does not hold, a task with no peer, a peer that has not
+answered, a peer's specialist file that is not one JSON object of the round format) is refused before
+anything is written, with a message naming the task or the file, and the exit status is 2
+(run_arena.RoundInputError; round c3: a specialist file written as a one-element list stopped every tool
+with "list indices must be integers or slices, not str").
 """
 from __future__ import annotations
 
@@ -41,10 +47,17 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_arena import relay_peer  # noqa: E402
+from run_arena import RoundInputError, relay_peer  # noqa: E402
 
 if __name__ == "__main__":
-    out = relay_peer(Path(sys.argv[1]).resolve(), sys.argv[2])
+    if len(sys.argv) != 3:
+        print("usage: relay_peer.py <round_dir> <task_id>", file=sys.stderr)
+        sys.exit(2)
+    try:
+        out = relay_peer(Path(sys.argv[1]).resolve(), sys.argv[2])
+    except RoundInputError as exc:
+        print(f"relay_peer.py: nothing relayed, nothing written: {exc}", file=sys.stderr)
+        sys.exit(2)
     router = out["router"]
     receipt = router.get("peer_receipt") or {}
     print(json.dumps({"relayed_file (the dependent agent's only document of its peer)": out["relayed_file"],

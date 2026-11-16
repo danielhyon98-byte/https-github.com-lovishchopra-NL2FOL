@@ -143,6 +143,26 @@ class Verifier:
         return verify_claim(claim, report, translator, reviewer=reviewer, config=self.config, signing_key=KEY, key_id="hub", task=task)
 
 
+class RecordedVerifier:
+    """The channel's claim verifier of an arena replay (round-10 clearance c3, as ``scripts/arena/run_arena.py`` builds it): each
+    claim with a recorded translation (``translations``: claim id -> the recorded translator JSON object or its text) is translated
+    by a fixture provider serving that object and verified by the engine with the task record the channel hands it, signed under the
+    hub's key; any other claim is outside its scope. No fidelity reviewer (the arena records none)."""
+
+    accepts_task = True
+
+    def __init__(self, translations: Mapping[str, Any], *, config: SolverConfig = CFG) -> None:
+        self.translations = {cid: (obj if isinstance(obj, str) else json.dumps(obj)) for cid, obj in translations.items()}
+        self.config = config
+
+    def __call__(self, claim, report, task=None):
+        text = self.translations.get(claim.claim_id) or self.translations.get(claim.claim_id.split("@", 1)[0])
+        if text is None:
+            return CLAIM_OUT_OF_SCOPE
+        translator = Translator(FixtureTranslationProvider({claim.claim_id: text}), config=self.config)
+        return verify_claim(claim, report, translator, config=self.config, signing_key=KEY, key_id="hub", task=task)
+
+
 def refuted_outcome(claim, report):
     """A genuine outcome the engine refutes: x = 5 (given) does not entail x > 9 (COUNTEREXAMPLE, signed)."""
     return outcome_for(claim, report, int_problem(claim.claim_id, "x", 5, op="gt", bound=9, request_id=claim.request_id))

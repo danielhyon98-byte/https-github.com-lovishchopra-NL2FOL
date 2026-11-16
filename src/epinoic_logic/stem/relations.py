@@ -50,7 +50,7 @@ from fractions import Fraction
 from typing import Iterable, Optional
 
 from .boolean import BoolRelation, TruthTable, parse_expression
-from .calculus import antiderivative, derivative, polynomial, polynomial_node
+from .calculus import antiderivative, derivative, laurent, laurent_derivative, laurent_node, polynomial, polynomial_node
 from .chem import ELEMENTS, ChemEquation, parse_species
 from .layout import quoted_spans, trailing_annotation_span
 from .limits import DEFAULT_LIMITS, StemLimits, StemProfile
@@ -62,11 +62,12 @@ from .nodes import (
 from .numbers import ExactNumber, exact_based, exact_integer, scan_number
 from .parser import ParseIssue
 from .models import (
-    all_symbols, application_of, applications, has_exponential, is_model_expression, model_link_sides, relaxation_fits, render_model, resolve_model,
-    substitute,
+    all_symbols, application_of, applications, exact_value, has_exponential, is_model_expression, model_link_sides, relaxation_fits, render_model,
+    resolve_model, substitute,
 )
 from .scope import Binding, Formula, Model, Scope, si_value
 from .tolerance import approx_word_before
+from .normalize import CONTROL_CHARACTERS
 from .constants import constants_for_symbol
 from .reference import (
     as_written_reading, booklet_formulas, booklet_laws, coefficient_free_dimension, difference_witness, differs_as_function, dimension_text, fixed_quantity,
@@ -204,6 +205,16 @@ _INTEGER_BOUND_RE = re.compile(
 #: ('At x = 2: …', 'When t = 0, …'), read in a window of 12 characters, and the colon or comma after the value that closes the condition
 _EVALUATION_POINT_BEFORE_RE = re.compile(r"(?:^|[\n.:;(*•-]|\)[ \t]{0,2})[ \t]{0,12}(?:at|when|if|for|where|whenever)[ \t]{1,4}$", re.IGNORECASE)
 _EVALUATION_POINT_AFTER_RE = re.compile(r"[ \t]{0,4}[:,]")
+#: round-10 clearance (rule evaluation-point, wherever it stands): the preposition 'at' right before the letter, with an opening delimiter of
+#: inline maths between ('at $r = 3$', 'at \(r = 3\)'), anchored at the end of the window
+_EVAL_AT_RE = re.compile(r"(?<![A-Za-z])at[ \t]{1,4}(?:\$\$?|\\\(|\\\[)?[ \t]{0,2}$", re.IGNORECASE)
+#: a value right before 'at': a numeral (an ellipsis or a closing delimiter of inline maths after it), optionally its unit of at most two
+#: short words ('≈ −35.6$ at', '9.0 m s⁻¹ at'); anchored at the end
+_VALUE_BEFORE_AT_RE = re.compile(r"\d(?:\.\d{1,12})?(?:…|\\ldots)?(?:[ \t]{0,2}[A-Za-zµμΩ°%][A-Za-zµμΩ°%⁻¹²³]{0,5}){0,3}[ \t]{0,2}(?:\$\$?|\\\)|\\\])?[ \t]{0,3}$")
+#: 'at' opening a clause of its own: after a comma, a full stop, a line start or 'and', anchored at the end
+_CLAUSE_BEFORE_AT_RE = re.compile(r"(?:^|[,.;:\n]|\band)[ \t]{0,4}$", re.IGNORECASE)
+#: after the point, a closing delimiter and a word that opens what is evaluated there ('$ the gradient is', '$ it is about')
+_EVAL_AFTER_WORD_RE = re.compile(r"(?:\$\$?|\\\)|\\\])?[ \t]{0,3}(?:the|it|its|this|we|both|each|that)\b", re.IGNORECASE)
 #: round-8 clearance (rule initial-final): the words right before a request value that state it as the initial or as the final value of
 #: a quantity ('moving at 3.0 m s⁻¹', 'from 3.0', 'initially 3.0'; 'to 15 m s⁻¹', 'reaches 15', 'a final speed of 15'), anchored at the value
 _INITIAL_CUE_RE = re.compile(r"(?:\b(?:from|initially|initial(?:[ \t]+[a-z]{1,12}){0,2}[ \t]+of|starts?[ \t]+at|starting[ \t]+at|moving[ \t]+at"
@@ -211,7 +222,9 @@ _INITIAL_CUE_RE = re.compile(r"(?:\b(?:from|initially|initial(?:[ \t]+[a-z]{1,12
 _FINAL_CUE_RE = re.compile(r"(?:\b(?:to|reach(?:es|ed|ing)?|finally|final(?:[ \t]+[a-z]{1,12}){0,2}[ \t]+of|until))[ \t]*$")
 #: round-8 clearance (rule prose-share): what stands between the share's parts, read whole (each bounded): A then 'which is' P% (the A's
 #: own words before, at most 60 characters without a figure); P% then 'of' B ('of their GSP of'); A 'of the' B; B then the bracket of P
-_SHARE_IS_RE = re.compile(r"[^\d.;:!?]{0,60}?(?:,[ \t]*(?:which|this|that)[ \t]+(?:is|was|represents|makes[ \t]+up)|[ \t]+(?:is|was|represents|makes[ \t]+up))"
+#: round-10 clearance: the plural verbs too ('The drained 610 ha are about 73% of the bog's 840 ha', 'form', 'account for')
+_SHARE_IS_RE = re.compile(r"[^\d.;:!?]{0,60}?(?:,[ \t]*(?:which|this|that)[ \t]+(?:is|was|are|were|represents|makes[ \t]+up)|[ \t]+(?:is|was|are|were|"
+                          r"represents?|makes?[ \t]+up|forms?|accounts?[ \t]+for))"
                           r"(?:[ \t]+(?:about|approximately|roughly|only|just|nearly))?[ \t]+")
 _SHARE_OF_RE = re.compile(r"[ \t]+of[ \t]+(?:(?:the|their|its|his|her|our|this|that|these|those)[ \t]+)?(?:[A-Za-z’'-]{1,20}[ \t]+){0,3}(?:of[ \t]+)?")
 _SHARE_OF_THE_RE = re.compile(r"[ \t]+(?:out[ \t]+)?of[ \t]+(?:the|their|its|a[ \t]+total[ \t]+of)[ \t]+")
@@ -255,6 +268,34 @@ _QUOTIENT_GIVES_RE = re.compile(r"[ \t]*\)[ \t]*,?[ \t]*(?:(?:which[ \t]+)?gives
                                 re.IGNORECASE)
 #: round-9 clearance (rule referent-share): 'Of the food eaten, 1080 kJ m⁻² yr⁻¹ (60%) was lost': the whole is the quantity the opening
 #: clause names, stated earlier in the answer
+#: round-10 clearance (rule share-or): '(456 of 600, or 76%)': the part, 'of', the whole, then ', or' (or 'that is', 'i.e.') and the per cent
+_SHARE_OR_RE = re.compile(r"[ \t]*+,?[ \t]*+(?:or|i\.e\.|that[ \t]++is|which[ \t]++is)[ \t]++(?:(?P<approx>about|approximately|roughly|around|nearly|"
+                          r"almost)[ \t]++)?", re.IGNORECASE)
+#: round-10 clearance (rule change-share): 'a fall of 4.5 t ha⁻¹ yr⁻¹, or 75%': a change word and 'of' right before the change (anchored at it)
+_CHANGE_OF_RE = re.compile(r"\b(?:an?[ \t]+)?(?P<w>fall|drop|decrease|reduction|cut|loss|decline|rise|increase|gain|growth)[ \t]+of[ \t]+"
+                           r"(?:(?:about|approximately|roughly|around|nearly|almost)[ \t]+)?$", re.IGNORECASE)
+_CHANGE_FALLS = frozenset({"fall", "drop", "decrease", "reduction", "cut", "loss", "decline"})
+#: round-10 clearance (rule net-difference): 'so it is a net sink of about 0.3 t': 'net', a noun of balance and 'of' right before the value
+_NET_OF_RE = re.compile(r"\bnet[ \t]+(?:sink|source|gain|loss|change|flow|uptake|release|emission|emissions|balance|effect|increase|decrease|"
+                        r"removal|import|export|transfer)[ \t]+of[ \t]+(?P<approx>(?:about|approximately|roughly|around|nearly|almost)[ \t]+)?$",
+                        re.IGNORECASE)
+#: round-10 clearance (rule rate-total): 'Across the 610 ha drained, that is about 2,745 t CO₂ a year less': an extent opener right before
+#: the extent ('Across the', 'Over all the', anchored at it) and 'that is (about)' right before the total
+_RATE_EXTENT_RE = re.compile(r"\b(?:across|over|for|on)[ \t]+(?:all[ \t]+)?(?:the|its|their|these|those)[ \t]+$", re.IGNORECASE)
+_RATE_TOTAL_RE = re.compile(r"\b(?:that|this|which)[ \t]+(?:is|comes[ \t]+to|makes|gives)[ \t]+(?P<approx>(?:about|approximately|roughly|around|"
+                            r"nearly|almost|some)[ \t]+)?$", re.IGNORECASE)
+#: rule rate-total: how far back the rate may stand (characters before the extent, in the same part)
+_RATE_TOTAL_REACH = 400
+#: round-10 clearance (rule derived-share): a per cent the prose derives ('so 54% of dividing cells are at metaphase'): a result word right
+#: before it, then 'of' after it
+_DERIVED_SHARE_BEFORE_RE = re.compile(r"\b(?:so|therefore|thus|hence|giving|which[ \t]+gives|that[ \t]+is)[ \t]+(?:(?:about|approximately|roughly|"
+                                      r"around|nearly|almost|only|just)[ \t]+)?$", re.IGNORECASE)
+_DERIVED_SHARE_OF_RE = re.compile(r"[ \t]+of[ \t]+[A-Za-z]")
+#: the comparison word that ends the text between a derived share and the per cent it is set against (', against 16% in the control')
+_AGAINST_TAIL_RE = re.compile(r"\b(?:against|compared[ \t]+(?:with|to)|versus)[ \t]+$", re.IGNORECASE)
+#: round-10 clearance (rule derived-share): a factor the prose states against a quantity the sentence does not value ('about 6 × 10²³ times
+#: the energy of one molecule')
+_TIMES_THE_RE = re.compile(r"[ \t]*+(?:times|-fold)[ \t]++(?:the|that|this|its|their)[ \t]++[A-Za-z]", re.IGNORECASE)
 _REFERENT_OF_RE = re.compile(r"(?:^|[.;:\n]\s*|\b)Of[ \t]+(?:the|their|its|this|that)[ \t]+(?P<words>[A-Za-z][A-Za-z ’'-]{1,40}?)[ \t]*,[ \t]*$")
 _REFERENT_OPEN_RE = re.compile(r"[ \t]*\([ \t]*")
 #: round-8 clearance (rule parenthetical-sum): after a prose value, at most four words, then a bracket holding numerals joined by + − × ÷
@@ -295,9 +336,11 @@ _PREFIX_WORD_RE = re.compile(r"[A-Za-z]{1,30}")
 _BIDI_OPENERS = frozenset("\u202a\u202b\u202d\u202e\u2066\u2067\u2068")
 _BIDI_CLOSERS = frozenset("\u202c\u2069")
 #: rule mole-ratio (round-8 clearance): 'the mole ratio of H₂ to H₂O is 1 : 2', 'mole ratio H₂ : H₂O = 1 : 1' (bounded runs)
-_MOLE_RATIO_RE = re.compile(r"\b(?i:mole|molar|reacting|stoichiometric)[ \t]+(?i:ratio)[ \t]+(?:(?i:of|between)[ \t]+)?"
+#: round-10 clearance: 'Ratio C₁₂H₂₆ : CO₂ = 1 : 12' (the word 'ratio' alone, capitalised or not, before two species) and 'C₁₂H₂₆ : CO₂ = 1 : 12'
+#: (two species joined by ':' and set equal to 'x : y') too; both species must still be read and stand in a balanced equation written before
+_MOLE_RATIO_RE = re.compile(r"(?:\b(?:(?i:mole|molar|reacting|stoichiometric)[ \t]+)?(?i:ratio)[ \t]+(?:(?i:of|between)[ \t]+)?|(?<![\w₀-₉):])(?<!:[ \t]))"
                             r"(?P<a>[A-Z][A-Za-z0-9₀-₉()⁺⁻²³]{0,23})[ \t]*+(?:(?i:to|and)|:)[ \t]*+(?P<b>[A-Z][A-Za-z0-9₀-₉()⁺⁻²³]{0,23})"
-                            r"[ \t,]*+(?:(?i:is|are|was|=|of)[ \t]+)?(?P<x>\d{1,4})[ \t]*+:[ \t]*+(?P<y>\d{1,4})(?!\d|\.\d)")
+                            r"[ \t,]*+(?:(?i:is|are|was|=|of)[ \t]+|=[ \t]*+)?(?P<x>\d{1,4})[ \t]*+:[ \t]*+(?P<y>\d{1,4})(?!\d|\.\d)(?![ \t]*+:[ \t]*+\d)")
 #: rule mark-code (round-9 clearance, second pass): what may close a statement after its maths as markscheme codes, written with or
 #: without blanks between them ('M1A1', 'A1 A1', '(M1)A1'); matched whole against a tail of at most a few dozen characters
 _GLUED_MARKS_RE = re.compile(r"(?:\(?(?:[MARNB][1-9]|AG)+\)?[ \t]*){1,6}")
@@ -1077,6 +1120,43 @@ def _function_value(node: Optional[Node], text: str) -> Optional[Node]:
     gap = text[getattr(node.left, "end", 0):getattr(node.right, "start", 0)] if 0 <= getattr(node.left, "end", -1) <= len(text) else ""
     after = text[getattr(node.right, "end", 0):getattr(node.right, "end", 0) + 1]
     return node if gap == "(" and after == ")" else None
+
+
+def _restates_result(text: str, at: int, written: str) -> bool:
+    """Rule ``derived-share`` (round-10 clearance): the per cent ``written`` ('0.5%') closes a line of working in the 400 characters before
+    ``at`` ('… × 100 = 0.5% [1]', then 'So 0.5% of the solar radiation …'): the prose restates that result, which its own line checks."""
+    before = text[max(0, at - 400):at]
+    k = before.rfind(written)
+    while k >= 0:
+        lead = before[max(0, k - 6):k].rstrip()
+        if lead.endswith(("=", "≈")):
+            return True
+        k = before.rfind(written, 0, k)
+    return False
+
+
+def _same_base_unit(u1: UnitExpr, u2: UnitExpr) -> bool:
+    """Round-10 clearance (rules change-share and net-difference): two values of one kind for a prose difference: the same dimension, or
+    units whose first atom is the same unit ('1.5 t CO₂ ha⁻¹ yr⁻¹', '6.0 t' and '4.5 t ha⁻¹ yr⁻¹' are all tonnes of a rate the sentence
+    states once)."""
+    if u1.dim is not None and u2.dim is not None and u1.dim.same_physical(u2.dim):
+        return True
+    a1 = u1.readings[0].atoms[0] if u1.readings and u1.readings[0].atoms else None
+    a2 = u2.readings[0].atoms[0] if u2.readings and u2.readings[0].atoms else None
+    return a1 is not None and a2 is not None and a1.unit is not None and a2.unit is not None and a1.unit.symbol == a2.unit.symbol \
+        and a1.prefix == a2.prefix
+
+
+def _row_start(text: str, start: int) -> int:
+    """The start of the line (at most 160 characters back) that holds offset ``start``; round-10 clearance (rule environment-rows): or of
+    its display row, when a LaTeX row separator '\\\\' stands between the line start and ``start`` ('\\begin{align} x &= 2 + 2 \\\\ &= 5
+    \\end{align}' written on one line: the row '&= 5' holds no prose before its sign, so it continues the chain of the row before; it had
+    been read as a labelled line and dropped with nothing named)."""
+    line_start = text.rfind("\n", max(0, start - 160), start) + 1
+    if line_start == 0 and start > 160:
+        line_start = start - 160
+    sep = text.rfind("\\\\", line_start, start)
+    return sep + 2 if sep >= 0 else line_start
 
 
 def _applied_value(node: Optional[Node], text: str) -> Optional[tuple[str, Node]]:
@@ -2521,7 +2601,13 @@ class _Planner:
         if chain.lead == "continuation":
             prev = self.prev_chain
             labelled = prev is not None and self._labelled_line(chain.start)
-            if prev is not None and not labelled and prev.item.part == item.part \
+            # round-10 clearance (rule inline-delimiters): an inline maths span that opens with its relation sign after prose words in the
+            # same statement ('… $r = 3$ and $\approx 9.0$ at $r = 4$') continues no chain of an earlier inline span: the words between the
+            # delimiters belong to the sentence ('≈ 9.0' is the value of dA/dr, elided), so '3 ≈ 9.0' is never read as one relation
+            gap = item.gap_before or ""
+            across = (prev is not None and prev.item.statement_id == sid and prev.item.span_kind == "latex_inline" and item.span_kind == "latex_inline"
+                      and prev.item is not item and "\n" not in gap and any(ch.isalpha() for ch in _MARK_CODE_RE.sub(" ", gap)))
+            if prev is not None and not labelled and not across and prev.item.part == item.part \
                     and self.order.get(sid, 0) - self.order.get(prev.item.statement_id, 0) <= 2:
                 limit = self.scope.limits.max_chain_links
                 if prev.over_limit or len(prev.ops) + len(ops) > limit:
@@ -3145,7 +3231,11 @@ class _Planner:
                     break
         if not lone or not isinstance(head, Sym) or head.kind in ("label", "continuation") or not ops:
             # a function definition f(x) = ... or a law with a label: formulas only
-            if lone and isinstance(head, Apply) and len(operands) > 1:
+            # round-10 clearance (rule evaluation-head): only f(x) = … in the variable defines f; a head that applies the function to a
+            # closed argument ('f(3) = 27 − 27 − 27 + 27 = 0', 'f(2) = 8 − 6') evaluates it and is never a definition. Before, the
+            # evaluation was recorded as a formula of f with no variable, and the power-rule checks of f′ and f″ after it differentiated
+            # that constant: correct derivatives failed at error severity (c3 maa-t16 m3.6, m3.11)
+            if lone and isinstance(head, Apply) and len(operands) > 1 and symbols(head.arg):
                 rhs = _first(operands[1][0])
                 if rhs is not None:
                     self.scope.add_formula(Formula(head.name, rhs, operands[0][1], "definition", params=tuple(symbols(head.arg)), start=head.start, end=head.end))
@@ -3156,7 +3246,8 @@ class _Planner:
         root = (self._is_root_symbol(head.name) or self._joined_root(item, connective, head.name)) and rhs is not None and is_closed(rhs)
         if rhs is not None and not is_value(rhs) and not is_closed(rhs) and not isinstance(rhs, Unsupported) and not unsupported_reasons(rhs):
             src = "request" if self.request_mode else "law"
-            self.scope.add_formula(Formula(head.name, rhs, operands[1][1], src, start=getattr(rhs, "start", 0), end=getattr(rhs, "end", 0)))
+            self.scope.add_formula(Formula(head.name, rhs, operands[1][1], src, start=getattr(rhs, "start", 0), end=getattr(rhs, "end", 0),
+                                           target=self.request_mode and self._asked_to_show(item, getattr(head, "start", 0))))
         elif rhs is not None and unsupported_reasons(rhs) and not self.request_mode:
             # 'a = dv/dt = 6 − 6t': through a link outside the encodings (which stays undecided) the answer states its own
             # formula a = 6 − 6t, kept for the evaluations it writes later ('At t = 1: a = 6 − 6(1)')
@@ -3503,7 +3594,16 @@ class _Planner:
         simplification was named nowhere."""
         if not self.profile.is_mathematics:
             return False
-        words = item.context() + " " + self._request_lower
+        lnames, rnames = _syms(lnode), _syms(rnode)
+        if (lnames - rnames) and (rnames - lnames):
+            # round-10 clearance (rule two-variable-equation): a letter on each side that the other side does not hold ('y − 16 = (1/12)(x −
+            # 1)', '12y − 192 = x − 1') relates two variables: the equation of a line or a curve, never an identity of polynomials (its
+            # rearrangement on the next line is read as a step). Before, a factorisation word of another part made it an identity in x
+            # and y, and the correct normal line failed at error severity (c3 maa-t16 m6.5, m6.6)
+            return False
+        # round-10 clearance (rule part-condition for identity words): the request's words count for the part whose question states them
+        # (and its stem for every part): 'hence factorise f(x) completely' in part (a) names no identity of part (e)
+        words = item.context() + " " + self._request_part_lower(item.part)
         if not any(w in words for w in _IDENTITY_WORDS) and not self._request_states_identity():
             # round-9 clearance: the line before may name the operation ('Complete the square on x² − 6x:' then the identity on its own line)
             text = self.text or ""
@@ -3737,7 +3837,7 @@ class _Planner:
             return True
         return False
 
-    def _function_of(self, name: str, x: str, before: int) -> Optional[tuple[Node, str, str]]:
+    def _function_of(self, name: str, x: str, before: int, part: str = "") -> Optional[tuple[Node, str, str]]:
         """Rule ``derivative`` (STEM repair 11): the expression in ``x`` of the function ``name``: the answer's own, stated before offset
         ``before`` (a formula of the letter in that one variable, 'v = 3t(2 − t)', or a definition 'v(t) = 6t − 3t²', 'f(x) = x³'), else the
         request's ('v(t) = 6t - 3t^2'): ``(expression, 'answer' or 'request', statement)``, else None."""
@@ -3765,6 +3865,15 @@ class _Planner:
             e = expr if param == x else replace_symbol(expr, param, Sym(x))
             if e is not None:
                 return e, "request", ""
+        for f in reversed(self.scope.formulas.get(name, ())):
+            # round-10 clearance (rule derivative, Laurent terms): a formula the request states for the letter in that one variable ('(b)
+            # Show that … A = 2πr² + 660/r', then '(c) Find dA/dr'): the request's function (a warning), unless it is the show-that target
+            # of the derivative's own part, which that part must establish
+            if f.source != "request" or f.params or _syms(f.expr) - {x} or not _syms(f.expr):
+                continue
+            if f.target and (f.target == "*" or not part or f.target == part):
+                continue
+            return f.expr, "request", ""
         return None
 
     def _derivative(self, base: dict, lnode: Node, rnode: Node) -> bool:
@@ -3786,7 +3895,7 @@ class _Planner:
             if der.var:
                 x, order = der.var, max(1, der.order)
                 if isinstance(der.arg, Sym):
-                    found = self._function_of(der.arg.name, x, base["start"])
+                    found = self._function_of(der.arg.name, x, base["start"], base.get("part", ""))
                     if found is None:
                         return False
                     expr, source, fsid = found
@@ -3818,12 +3927,23 @@ class _Planner:
             else:
                 return False
             p = polynomial(expr, x)
-            if p is None or p[1]:
-                return False
-            coeffs = p[0]
-            for _ in range(order):
-                coeffs = derivative(coeffs)
-            dnode = polynomial_node(coeffs, x, d_op.start, d_op.end)
+            lterms = None
+            if p is None or p[1] or (at is None and (polynomial(stated, x) or (None, True))[1]):
+                # round-10 clearance (rule derivative, Laurent terms): a polynomial with π in its coefficients or negative powers of the
+                # variable ('d/dr (2πr²) = 4πr', 'd/dr (660r⁻¹) = −660r⁻²', 'dA/dr = 4πr − 660/r²' for A = 2πr² + 660/r) is differentiated
+                # term by term by the power rule (calculus.laurent); before, it was ST-UNDEC-001 'a derivative' whatever its value
+                lterms = laurent(expr, x)
+                if lterms is None:
+                    return False
+                for _ in range(order):
+                    lterms = laurent_derivative(lterms)
+                coeffs = {k: c for (k, consts), c in lterms.items()}
+                dnode = laurent_node(lterms, x, d_op.start, d_op.end)
+            else:
+                coeffs = p[0]
+                for _ in range(order):
+                    coeffs = derivative(coeffs)
+                dnode = polynomial_node(coeffs, x, d_op.start, d_op.end)
             tag = " (rule derivative, the request's function)" if source == "request" else " (rule derivative)"
             sids = tuple(dict.fromkeys(base["statement_ids"] + ((fsid,) if fsid else ())))
             nth = {1: "", 2: "second ", 3: "third "}.get(order, f"order-{order} ")
@@ -3837,10 +3957,19 @@ class _Planner:
                          reason=f"the {nth}derivative of {what} (formed by the STEM pack by the power rule, not by the engine) at {x} = "
                                 f"{render(at)[:20]}, against the stated value{tag}", **b)
                 return True
-            q = polynomial(stated, x)
+            if lterms is not None:
+                sq = laurent(stated, x)
+                if sq is None:
+                    return False
+                stated_powers = [k for (k, _consts) in sq]
+                if not any(k != 0 for k in stated_powers) and any(k != 0 for k, c in coeffs.items() if c):
+                    return False  # set equal to a number where it is no constant: an equation to solve, as below
+                q = ({0: Fraction(0)}, False)
+            else:
+                q = polynomial(stated, x)
             if q is None or q[1]:
                 return False
-            if not any(k > 0 for k in q[0]) and any(k > 0 for k, c in coeffs.items() if c):
+            if lterms is None and not any(k > 0 for k in q[0]) and any(k > 0 for k, c in coeffs.items() if c):
                 # 'f′(x) = 0' at a stationary point, 'dy/dx = 3': the derivative set equal to a number where it is no constant states an
                 # equation in the variable to solve, never an identity (it had failed as one)
                 return False
@@ -5248,6 +5377,9 @@ class _Planner:
             by_sid.setdefault(pv.statement_id, []).append(pv)
         planned = {(r.start, r.end) for r in self.relations if r.kind in ("eq", "res", "giv", "cmp")}
         text = self.text
+        # rule rate-total: the prose values in text order, with their starts, so a rate before an extent is found by bisection
+        self._prose_sorted = sorted(self.prose_values, key=lambda q: q.start)
+        self._prose_starts = [q.start for q in self._prose_sorted]
         for sid, pvs in by_sid.items():
             pvs = sorted(pvs, key=lambda p: p.start)[:self._MAX_SHARE_VALUES]
             for i, p in enumerate(pvs):
@@ -5298,6 +5430,16 @@ class _Planner:
                     continue
                 if not v[3] and self._referent_share(sid, p, v, pvs, i, planned):
                     continue
+                if v[3] == "%" and self._share_or(sid, p, v, pvs, i, planned):
+                    continue
+                if v[3] == "%" and self._change_share(sid, p, v, pvs, i, planned):
+                    continue
+                if not v[3] and self._net_difference(sid, p, v, pvs, i, planned):
+                    continue
+                if not v[3] and self._rate_total(sid, p, v, pvs, i, planned):
+                    continue
+                if self._derived_unread(sid, p, v, pvs, i, planned):
+                    continue
                 # rule worded-comparison: higher, A against B
                 if i + 1 < len(pvs) and _WORDED_CMP_JOIN_RE.fullmatch(text[p.end:pvs[i + 1].start]):
                     m = _WORDED_CMP_BEFORE_RE.search(text[max(0, p.start - 40):p.start])
@@ -5341,6 +5483,174 @@ class _Planner:
                  title="the per cent change the prose states, against the change from the first value to the second",
                  reason=f"the change ('{' '.join(m.group('w').lower().split())} by') of {v[1].text}% the prose states, against {formula} (rule "
                         "prose-change)")
+        return True
+
+    def _share_or(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
+        """Rule ``share-or`` (round-10 clearance): '(456 of 600, or 76%)': the part, 'of', the whole, then ', or' and the per cent: A ÷ B × 100
+        against P (stem-eq). Before, the share was read by nothing and a wrong per cent crossed with no check and no finding (c3 cs-p10a)."""
+        text = self.text
+        if i < 2:
+            return False
+        a, b = pvs[i - 2], pvs[i - 1]
+        gap = _SHARE_OR_RE.fullmatch(text[b.end:p.start])
+        if gap is None or not _SHARE_PART_OF_RE.fullmatch(text[a.end:b.start]) or (a.start, a.end) in planned:
+            return False
+        va, vb = value_of(a.node), value_of(b.node)
+        if va is None or vb is None or va[1] is None or vb[1] is None or va[3] or vb[3] or vb[0] <= 0 or va[0] < 0:
+            return False
+        if va[2] is not None and vb[2] is not None and (va[2].dim is None or vb[2].dim is None or not va[2].dim.same_physical(vb[2].dim)):
+            return False
+        approx = gap.group("approx") is not None
+        share = BinOp("*", BinOp("/", Num(va[1], a.start, a.end), Num(vb[1], b.start, b.end), a.start, b.end, written="÷"),
+                      Num(exact_integer(100), b.end, b.end), a.start, b.end, written="×")
+        planned.add((p.start, p.end))
+        self.add(kind="eq", outcome="check", statement_ids=(sid,), start=a.start, end=p.end, op="≈" if approx else "=",
+                 left=Operand((share,), a.start, b.end), right=Operand((Num(v[1], p.start, p.end),), p.start, p.end), part=p.part, approx=approx,
+                 title="the share the prose states, against the part and the whole it names before it",
+                 reason=f"the per cent {v[1].text}% the prose states for {va[1].text} of {vb[1].text}, against {va[1].text} ÷ {vb[1].text} × 100 "
+                        "(rule share-or)")
+        return True
+
+    def _change_share(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
+        """Rule ``change-share`` (round-10 clearance): 'releases about 1.5 t CO₂ ha⁻¹ yr⁻¹, against 6.0 t for drained peat: a fall of 4.5 t
+        ha⁻¹ yr⁻¹, or 75%': the change a change word and 'of' state, then ', or' and the per cent, after two values of the change's kind in
+        its sentence. The change is set against the difference of those two values, and the per cent against the change ÷ the value it
+        starts from × 100 (the larger for a fall, the smaller for a rise). Which two values the change is between is a reading, so both
+        checks fail at warning severity. Before, both figures were read by nothing (c3 ess-t16)."""
+        text = self.text
+        if i < 3 or not _SHARE_OR_RE.fullmatch(text[pvs[i - 1].end:p.start]):
+            return False
+        c = pvs[i - 1]
+        m = _CHANGE_OF_RE.search(text[max(0, c.start - 48):c.start])
+        vc = value_of(c.node)
+        if m is None or vc is None or vc[1] is None or vc[3] or vc[0] <= 0 or (c.start, c.end) in planned:
+            return False
+        pair = [q for q in pvs[max(0, i - 6):i - 1] if (vq := value_of(q.node)) is not None and vq[1] is not None and not vq[3] and vq[0] > 0
+                and (vq[2] is None or vc[2] is None or (vq[2].dim is not None and vc[2].dim is not None and _same_base_unit(vq[2], vc[2])))][-2:]
+        if len(pair) != 2:
+            return False
+        (a, va), (b, vb) = [(q, value_of(q.node)) for q in pair]
+        fall = m.group("w").lower() in _CHANGE_FALLS
+        hi, lo = (a, b) if va[0] >= vb[0] else (b, a)
+        base = hi if fall else lo
+        nh, nl = Num(value_of(hi.node)[1], hi.start, hi.end), Num(value_of(lo.node)[1], lo.start, lo.end)
+        diff = BinOp("-", nh, nl, min(a.start, b.start), max(a.end, b.end), written="−")
+        planned.add((c.start, c.end))
+        planned.add((p.start, p.end))
+        word = m.group("w").lower()
+        self.add(kind="eq", outcome="check", statement_ids=(sid,), start=c.start, end=c.end, op="=", left=Operand((diff,), a.start, b.end),
+                 right=Operand((Num(vc[1], c.start, c.end),), c.start, c.end), part=c.part,
+                 title="the change the prose states, against the difference of the two values before it",
+                 reason=f"the {word} of {vc[1].text} the prose states, against the difference of {value_of(hi.node)[1].text} and "
+                        f"{value_of(lo.node)[1].text} (rule change-share)")
+        start = Num(value_of(base.node)[1], base.start, base.end)
+        share = BinOp("*", BinOp("/", Num(vc[1], c.start, c.end), start, c.start, c.end, written="÷"), Num(exact_integer(100), c.end, c.end),
+                      c.start, c.end, written="×")
+        self.add(kind="eq", outcome="check", statement_ids=(sid,), start=p.start, end=p.end, op="=", left=Operand((share,), c.start, c.end),
+                 right=Operand((Num(v[1], p.start, p.end),), p.start, p.end), part=p.part,
+                 title="the per cent change the prose states, against the change and the value it starts from",
+                 reason=f"the {word} of {v[1].text}% the prose states, against {vc[1].text} ÷ {start.number.text} × 100, the {word} from the "
+                        f"{'larger' if fall else 'smaller'} of the two values before it (rule change-share)")
+        return True
+
+    def _net_difference(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
+        """Rule ``net-difference`` (round-10 clearance): 'removes 0.9 t CO₂ ha⁻¹ yr⁻¹ but releases methane equivalent to 0.6 t, so it is a net
+        sink of about 0.3 t': the value 'net … of' names, against the difference of the two values of its kind before it in its sentence
+        (the larger less the smaller). Which two values the balance is of is a reading: a failure is a warning. Before, the figure was read by
+        nothing (c3 ess-t16)."""
+        text = self.text
+        m = _NET_OF_RE.search(text[max(0, p.start - 48):p.start])
+        if m is None or i < 2 or v[1] is None or v[0] < 0:
+            return False
+        pair = [q for q in pvs[max(0, i - 6):i] if (vq := value_of(q.node)) is not None and vq[1] is not None and not vq[3] and vq[0] > 0
+                and (vq[2] is None or v[2] is None or (vq[2].dim is not None and v[2].dim is not None and _same_base_unit(vq[2], v[2])))][-2:]
+        if len(pair) != 2 or any((q.start, q.end) in planned for q in pair):
+            return False
+        (a, va), (b, vb) = [(q, value_of(q.node)) for q in pair]
+        hi, lo = ((a, va), (b, vb)) if va[0] >= vb[0] else ((b, vb), (a, va))
+        diff = BinOp("-", Num(hi[1][1], hi[0].start, hi[0].end), Num(lo[1][1], lo[0].start, lo[0].end), min(a.start, b.start), max(a.end, b.end),
+                     written="−")
+        approx = m.group("approx") is not None
+        planned.add((p.start, p.end))
+        self.add(kind="eq", outcome="check", statement_ids=(sid,), start=p.start, end=p.end, op="≈" if approx else "=",
+                 left=Operand((diff,), a.start, b.end), right=Operand((Num(v[1], p.start, p.end),), p.start, p.end), part=p.part, approx=approx,
+                 title="the net value the prose states, against the difference of the two values before it",
+                 reason=f"the net value {v[1].text} the prose states, against {hi[1][1].text} − {lo[1][1].text} (rule net-difference)")
+        return True
+
+    def _rate_total(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
+        """Rule ``rate-total`` (round-10 clearance): 'a fall of 4.5 t ha⁻¹ yr⁻¹, or 75%. Across the 610 ha drained, that is about 2,745 t CO₂ a
+        year less': the total 'that is' names after an extent 'Across the' (or 'Over the', 'For the') names, against the extent × the last
+        rate stated before it in its part whose unit is per the extent's unit (t ha⁻¹ yr⁻¹ per ha), the total in the rate's first unit.
+        Which rate the total is of is a reading: a failure is a warning. Before, the total was read by nothing (c3 ess-t16)."""
+        text = self.text
+        m = _RATE_TOTAL_RE.search(text[max(0, p.start - 40):p.start])
+        if m is None or i < 1 or v[1] is None or v[0] <= 0 or v[2] is None or not v[2].readings or not v[2].readings[0].atoms:
+            return False
+        a = pvs[i - 1]
+        va = value_of(a.node)
+        if va is None or va[1] is None or va[3] or va[0] <= 0 or va[2] is None or not va[2].readings or len(va[2].readings[0].atoms) != 1 \
+                or (a.start, a.end) in planned or not _RATE_EXTENT_RE.search(text[max(0, a.start - 24):a.start]):
+            return False
+        extent = va[2].readings[0].atoms[0]
+        total = v[2].readings[0].atoms[0]
+        if extent.unit is None or total.unit is None or extent.power != 1:
+            return False
+        rate = None
+        lo, hi = _first_at_or_after(self._prose_starts, a.start - _RATE_TOTAL_REACH), _first_at_or_after(self._prose_starts, a.start)
+        for q in reversed([q for q in self._prose_sorted[max(lo, hi - 24):hi] if q.part == p.part]):
+            vq = value_of(q.node)
+            if vq is None or vq[1] is None or vq[3] or vq[0] <= 0 or vq[2] is None or not vq[2].readings:
+                continue
+            atoms = vq[2].readings[0].atoms
+            if atoms and any(t.unit is not None and t.unit.symbol == extent.unit.symbol and t.prefix == extent.prefix and t.power == -1
+                             for t in atoms[1:]):
+                first = atoms[0]
+                if first.unit is not None and first.unit.symbol == total.unit.symbol and first.prefix == total.prefix and first.power == 1:
+                    rate = (q, vq)
+                break
+        if rate is None:
+            return False
+        q, vq = rate
+        product = BinOp("*", Num(va[1], a.start, a.end), Num(vq[1], q.start, q.end), min(a.start, q.start), max(a.end, q.end), written="×")
+        approx = m.group("approx") is not None
+        planned.add((p.start, p.end))
+        self.add(kind="eq", outcome="check", statement_ids=(sid,), start=p.start, end=p.end, op="≈" if approx else "=",
+                 left=Operand((product,), min(a.start, q.start), max(a.end, q.end)), right=Operand((Num(v[1], p.start, p.end),), p.start, p.end),
+                 part=p.part, approx=approx, title="the total the prose states, against the extent it names times the rate stated before it",
+                 reason=f"the total {v[1].text} {v[2].readings[0].atoms[0].text} the prose states across {va[1].text} {extent.text}, against "
+                        f"{va[1].text} × {vq[1].text}, the rate of {' '.join(vq[2].text.split())} stated before it (rule rate-total)")
+        return True
+
+    def _derived_unread(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
+        """Rule ``derived-share`` (round-10 clearance): a per cent the prose derives ('so 54% of dividing cells are at metaphase, against 16% in
+        the control') or a factor it states against a quantity its sentence does not value ('about 6 × 10²³ times the energy of one
+        molecule') that no rule could set against its operands is named undecided (ST-UNDEC-001), never silent: the STEM pack does not find
+        the part and the whole, or the two values, it is formed from. Before, a wrong figure there crossed with no check and no finding."""
+        text = self.text
+        if (p.start, p.end) in planned or v[1] is None:
+            return False
+        what = ""
+        if v[3] == "%" and _DERIVED_SHARE_BEFORE_RE.search(text[max(0, p.start - 40):p.start]) and _DERIVED_SHARE_OF_RE.match(text, p.end, p.end + 8) \
+                and not _restates_result(text, p.start, v[1].text + "%"):
+            what = f"the share {v[1].text}%"
+            nxt = pvs[i + 1] if i + 1 < len(pvs) else None
+            vn = value_of(nxt.node) if nxt is not None else None
+            if nxt is not None and vn is not None and vn[3] == "%" and vn[1] is not None and nxt.start - p.end <= 80 \
+                    and _AGAINST_TAIL_RE.search(text[p.end:nxt.start]):
+                what += f" and the {vn[1].text}% it is set against"
+                planned.add((nxt.start, nxt.end))
+        elif not v[3] and v[2] is None and i >= 1 and value_of(pvs[i - 1].node) is not None and value_of(pvs[i - 1].node)[2] is not None \
+                and _TIMES_THE_RE.match(text, p.end, p.end + 16):
+            # a factor set between a quantity its sentence states ('The value 3840 J is …, about 6 × 10²³ times the energy of one molecule')
+            # and one it does not; a factor between two quantities its sentence does not state ('Nitrate at B is 7 times that at A', the
+            # supplied table's rows) is the table's to read, as before
+            what = f"the factor {v[1].text}"
+        if not what:
+            return False
+        planned.add((p.start, p.end))
+        self.finding("ST-UNDEC-001", f"{what} the prose derives in {sid} ('{' '.join(text[max(0, p.start - 24):min(len(text), p.end + 40)].split())}') "
+                                     "is formed from values the STEM pack does not find in its sentence: it is not checked", (sid,), p.start, p.end)
         return True
 
     def _percentage_points(self, sid: str, p: ProseValue, v: tuple, pvs: list, i: int, planned: set) -> bool:
@@ -5501,9 +5811,7 @@ class _Planner:
         the cost, failed correct work). A mark annotation ('M1', 'A1') is no word. The line's text before the run is read, at most 160
         characters."""
         text = self.text or ""
-        line_start = text.rfind("\n", max(0, start - 160), start) + 1
-        if line_start == 0 and start > 160:
-            line_start = start - 160
+        line_start = _row_start(text, start)
         prefix = _MARK_CODE_RE.sub(" ", text[line_start:start])
         words = [w.lower() for w in _PREFIX_WORD_RE.findall(prefix)]
         # round-9 clearance: 'to' continues working only as the word right before the sign ('simplifies to $= …$'); inside a label it
@@ -5524,9 +5832,7 @@ class _Planner:
         ends in maths (a digit, a superscript, a per cent sign or a closing bracket) and holds a digit: the relation's left side is written
         but no run reads it. The excerpt shown (at most 40 characters before the sign and 30 after), else ''. Reads at most 160 characters."""
         text = self.text or ""
-        line_start = text.rfind("\n", max(0, start - 160), start) + 1
-        if line_start == 0 and start > 160:
-            line_start = start - 160
+        line_start = _row_start(text, start)
         before = text[line_start:start].rstrip()
         if not before or not any("0" <= c <= "9" for c in before) or not (before[-1].isdigit() or before[-1] in ")]}%⁰¹²³⁴⁵⁶⁷⁸⁹"):
             return ""
@@ -5584,6 +5890,33 @@ class _Planner:
                                          f"the order the STEM pack reads, so {'they are' if n != 1 else 'it is'} not checked (rule bidi-control)",
                          (sid,) if sid else ())
 
+    def _control_characters(self, text: str) -> None:
+        """Rule ``control-character`` (round-10 clearance): a C0 control character (NUL, BEL, ESC, …; ``normalize.CONTROL_CHARACTERS``) in a
+        statement is named, ST-PARSE-001, once per statement: the reading view reads it as a blank, so a relation it stands in is decided as
+        the visible text reads, and the control itself (which a reader may not see, or which a terminal acts on: '\x1b[2J') is named rather
+        than passed on unseen. Before, a NUL inside an operand dropped the relation with nothing named. One pass, only over a text that holds
+        one; the channel may refuse such a response first (INT-REQ-009)."""
+        if not text or not any(c in text for c in CONTROL_CHARACTERS):
+            return
+        named: set[str] = set()
+        spans = sorted({(it.statement_start, it.statement_end, it.statement_id) for it in self.items})
+        k = 0
+        for i, ch in enumerate(text):
+            if ch not in CONTROL_CHARACTERS:
+                continue
+            while k < len(spans) and spans[k][1] <= i:
+                k += 1
+            if k >= len(spans) or not (spans[k][0] <= i < spans[k][1]):
+                continue
+            sid = spans[k][2]
+            if sid in named:
+                continue
+            named.add(sid)
+            self.finding("ST-PARSE-001", f"a control character (U+{ord(ch):04X}) in {sid}: it is read as a blank, and what it stands for is "
+                                         "not checked", (sid,), i, i + 1)
+            if len(named) >= 64:
+                break
+
     def _format_characters(self) -> None:
         """Rule ``format-character`` (round-9 clearance): an invisible format character (Unicode category Cf: a zero-width space or joiner,
         a word joiner, a soft hyphen, a byte-order mark, a tag character) written inside a figure, between two of its digits or its decimal
@@ -5592,6 +5925,7 @@ class _Planner:
         against the part of the figure before the character ('= 7'), so a wrong result hidden that way crossed with no finding. One linear
         pass over the text, only when it holds a character outside ASCII."""
         text = getattr(self, "answer_text", "") or ""
+        self._control_characters(text)
         if text.isascii():
             return
         figures: list[tuple[int, int]] = []
@@ -6052,8 +6386,22 @@ class _Planner:
         followed by a colon or a comma ('At x = 2: v² = …', 'When t = 0, x = 4 cm') states the point what follows is evaluated at."""
         start, end = operands[0][0].start, operands[-1][0].end
         # the cue word opens its clause (a line, a sentence, a part label before it): 'changes sign at t = 2, so' states where v is zero
-        return bool(_EVALUATION_POINT_BEFORE_RE.search(self.text[max(0, start - 28):start])) \
-            and bool(_EVALUATION_POINT_AFTER_RE.match(self.text, end, min(len(self.text), end + 8)))
+        if bool(_EVALUATION_POINT_BEFORE_RE.search(self.text[max(0, start - 28):start])) \
+                and bool(_EVALUATION_POINT_AFTER_RE.match(self.text, end, min(len(self.text), end + 8))):
+            return True
+        # round-10 clearance (rule evaluation-point, wherever it stands): 'at <letter> = <value>' right after the value it is the point of
+        # ('dA/dr ≈ −35.6 at r = 3 and ≈ 9.0 at r = 4', inside or outside inline maths), or opening a clause of its own after a comma or
+        # 'and' with the delimiters of inline maths between ('Also, at $r = 3$ the gradient is about −35.6, and at $r = 4$ it is about 9.0'),
+        # states where something is evaluated: no stated root (both had been read as the roots of the equation on the line before: a false
+        # error, c3 mai-t16 m21.1/m21.2). The cue and the delimiters are read in a window of 40 characters before the letter
+        window = self.text[max(0, start - 40):start]
+        at = _EVAL_AT_RE.search(window)
+        if at is None:
+            return False
+        before = window[:at.start()]
+        if _VALUE_BEFORE_AT_RE.search(before):
+            return True
+        return bool(_CLAUSE_BEFORE_AT_RE.search(before)) and bool(_EVAL_AFTER_WORD_RE.match(self.text, end, min(len(self.text), end + 16)))
 
     def _integer_bound(self, item: MathItem, head: Sym, operands: list[tuple[Operand, str]]) -> bool:
         """Rule ``integer-bound`` (round-8 clearance): a whole number the words before it name as the first, least or next whole number (or
@@ -10619,6 +10967,47 @@ class _Planner:
             # set against the 270 s of part (a): a false stem_given warning on correct working)
             self._unbound_symbol(name, usable, by_name, request_match, h_si, planned)
 
+    def _asked_to_show(self, item: MathItem, at: int) -> str:
+        """Rule ``show-that-target`` (round-10 clearance): when the request's statement asks to show, prove or verify the relation written at
+        offset ``at`` (the cue stands before it in the same statement: '(b) Show that the total surface area of a can, A cm², is given by A =
+        2πr² + 660/r.'), the label of the part whose question asks for it ('(b)'), or '*' for the request's stem; else ''. Read in at most
+        400 characters of the statement before the relation, and the part labels of at most the first 8,000 characters of the request."""
+        k = max(0, at - item.statement_start)
+        if not _SHOW_PROVE_RE.search(item.statement_text[max(0, k - 400):k].lower()):
+            return ""
+        label = "*"
+        for m in _PART_QUESTION_RE.finditer((self.text or self.reading or "")[:8000]):
+            if m.start() > at:
+                break
+            label = f"({m.group('p')})"
+        return label
+
+    def _request_part_lower(self, part: str) -> str:
+        """Rule ``part-condition`` for identity words (round-10 clearance): the request's words, lower-cased, that speak to the answer's part
+        ``part`` ('(e)'): the request's stem (its text before the first part question) and that part's own question. The whole request
+        (``_request_lower``) when the request has no part questions or ``part`` is none of them. Read once per part."""
+        cache = self.__dict__.setdefault("_request_part_words", {})
+        hit = cache.get(part)
+        if hit is not None:
+            return hit
+        out = self._request_lower
+        text = (self.request.text or "")[:8000]
+        if part and text:
+            first: Optional[int] = None
+            question: Optional[str] = None
+            for m in _PART_QUESTION_RE.finditer(text):
+                if first is None:
+                    first = m.start()
+                if question is None and f"({m.group('p')})" == part:
+                    question = m.group("q")
+                if first is not None and question is not None:
+                    break
+            if first is not None and question is not None:
+                out = (text[:first] + " " + question).lower()
+        if len(cache) < 64:
+            cache[part] = out
+        return out
+
     def _request_part_at(self, offset: int) -> str:
         """Integration gate 1: the part label of the request at ``offset`` ('a' for an offset after a line '(a) …'), '' in its stem. The
         labels are read once, at line starts: '(a)', 'a)', 'Part (a)', '(ii)'."""
@@ -11195,7 +11584,17 @@ class _Planner:
         #: request names): read as written in every reading, a factor with no unit (integration gate 1: '12/400 = 0.030 µm' with
         #: I = 12 mm and M = 400 planned no companion, because 400 was left unaccounted)
         pure: set[tuple[int, int]] = set()
-        for name, written in [*chain_sub.pairs, *introduced]:
+        pair_list: list = [*chain_sub.pairs, *introduced]
+        #: rule si-prefix: the numerals that face a coefficient of a product law paired factor by factor (read as pure numbers by the
+        #: companion only: rule si-dimension never reads a coefficient, which may carry a unit in a fitted law, 'v = 1.5t')
+        coefficient_places: set[tuple[int, int]] = set()
+        if not pair_list and _stated_prefix_scale(stated) not in (None, 1):
+            # rule si-prefix (round-10 clearance): a product law whose coefficient faces its value ('(3/2)k_BT' against '1.5 × 1.38 ×
+            # 10⁻²³ × 308 = 6.4 × 10⁻²¹ kJ', 3/2 against 1.5) is paired by nothing (align() sets a number only against a number), so
+            # its numerals were never read and the prefix crossed as a label; its factors are paired in order here, for this
+            # companion only, each coefficient's numeral read as a pure number
+            pair_list, coefficient_places = _factor_pairs(law_head, computed)
+        for name, written in pair_list:
             ends = self._written_change(written)
             if ends is not None:
                 # a change written as the difference of the request's two ends ('ΔT = (70 − 20)' for 'from 20 °C to 70 °C'):
@@ -11264,6 +11663,19 @@ class _Planner:
             for leaf, bd in ends or ():
                 if (leaf.start, leaf.end) in leaves and (leaf.start, leaf.end) not in accounted:
                     accounted[(leaf.start, leaf.end)] = bd
+        si_prefix = False
+        if not traced and accounted and _stated_with_unit(stated):
+            if self._si_dimension(idx, rel, computed, stated, accounted, pure, leaves, law_head):
+                return
+            # round-10 clearance (rule si-prefix): every numeral the working substitutes repeats a quantity in an SI unit (factor 1: the
+            # request's 2.0 kg and 3.0 m s⁻¹, a booklet constant) and the stated value carries a prefixed unit ('= 9.0 kJ', '= 19.6 kN',
+            # '= 6.8 mm'): read in their units the numerals give the result in the SI unit, so the companion sets the stated value's
+            # prefix against it. Before, the as-written reading took the prefix as a label and the slip crossed with no finding
+            scale = _stated_prefix_scale(stated)
+            if scale is not None and scale != 1:
+                traced = [(a, b, bd) for (a, b), bd in accounted.items() if bd.unit is not None and unit_scale(bd.unit) == 1
+                          and not is_affine_unit_expr(bd.unit)]
+                si_prefix = bool(traced)
         if traced:
             # every numeral of the working must be accounted for (read in its binding's unit, or a coefficient the law writes):
             # a bare number whose unit nothing says (4.18 for c in J g⁻¹ K⁻¹) may carry the conversion the others lack
@@ -11274,7 +11686,8 @@ class _Planner:
                 # the substitution of a law stated on a line of its own ('E = ½kx²', then 'E = ½ × 250 × 4.0² = 2000 J'): the
                 # coefficients are the law's (repair round 2, holdout2 unit class)
                 coeffs |= {n.number.value for n in walk(chain_sub.formula.expr) if isinstance(n, Num)}
-            if any((key not in spots) and (key not in pure) and leaf.number.value not in coeffs for key, leaf in leaves.items()):
+            if any((key not in spots) and (key not in pure) and (key not in coefficient_places) and leaf.number.value not in coeffs
+                   for key, leaf in leaves.items()):
                 return
             target = stated.unit.dim if isinstance(stated, Quantity) else (stated.arg.unit.dim if isinstance(stated, Neg) and isinstance(stated.arg, Quantity) else None)
             prose_unit = self._prose_unit_of(rel, stated) if bare else None
@@ -11302,9 +11715,40 @@ class _Planner:
                               for _a, _b, b in traced if b.unit is not None)
             self.relations.append(replace(rel, index=len(self.relations), kind="unit", companion_of=idx, unit_case="traced", traced=tuple(traced),
                                           stated_unit=prose_unit,
-                                          reason=f"ST-UNIT-003: bare numbers of the working repeat the numbers of bindings, or of the request's quantities, "
-                                                 f"stated in non-SI units ({shown}); this companion reads them in those units"
+                                          reason=(f"ST-UNIT-003: bare numbers of the working repeat the numbers of bindings, or of the request's quantities, "
+                                                  f"stated in SI units ({shown}), so the working gives its result in the SI unit; this companion sets the "
+                                                  f"stated value's prefixed unit against that result (rule si-prefix)" if si_prefix else
+                                                  f"ST-UNIT-003: bare numbers of the working repeat the numbers of bindings, or of the request's quantities, "
+                                                  f"stated in non-SI units ({shown}); this companion reads them in those units")
                                                  + (f", and the stated value in the unit the answer's prose gives it ({prose_unit.text})" if prose_unit else "")))
+
+    def _si_dimension(self, idx: int, rel: Relation, computed: Node, stated: Node, accounted: dict, pure: set, leaves: dict,
+                      law: Optional[Node]) -> bool:
+        """Rule ``si-dimension`` (round-10 clearance): every numeral of bare working repeats a quantity whose SI unit is known (the request's
+        3.0 × 10⁵ Pa, the answer's T₂ = 308 K and T₁ = 290 K, a booklet constant) or a quantity the reference fixes as a pure number, and so
+        read the working gives a dimension the stated value's unit is not of ('P₂ = P₁ × T₂/T₁ = 3.0 × 10⁵ × 308/290 = 3.2 × 10⁵ J'):
+        ST-DIM-001, a warning, since the reading is inferred. A working with a numeral that is a coefficient of its law is never read so: a
+        fitted law's coefficient carries a unit ('v = 1.5t', then 'v = 1.5 × 2.5 = 3.75 m s⁻¹'). Before, such a reading was taken as
+        incomplete and a unit of another dimension crossed with no finding (c3 ph-t16 variant). True when the finding is made (no unit
+        companion is then planned). A law whose own dimension the scope reads ('F = ma', m and a bound with units) is left to the rules
+        that read it (ST-DIM-001 against the law, rule bare-factor): this rule names only what they cannot see."""
+        if any(key not in accounted and key not in pure for key in leaves):
+            return False
+        if law is not None and dimension_of(law, self.scope, []) is not None:
+            return False
+        if any(bd.unit is None or bd.unit.unknown or bd.unit.dim is None for bd in accounted.values()):
+            return False
+        su = stated.unit if isinstance(stated, Quantity) else (stated.arg.unit if isinstance(stated, Neg) and isinstance(stated.arg, Quantity) else None)
+        target = su.dim if su is not None and not su.unknown else None
+        read = coefficient_free_dimension(computed, lambda _n: None,
+                                          num_dim=lambda n: accounted[(n.start, n.end)].unit.dim if (n.start, n.end) in accounted else DIMENSIONLESS)
+        if read is None or target is None or read.same_physical(target):
+            return False
+        shown = ", ".join(dict.fromkeys(f"{bd.number.text} {bd.unit.text}" for bd in accounted.values()))[:160]
+        self.finding("ST-DIM-001", f"read in the units of the quantities its numbers repeat ({shown}), the working '{render(computed)[:120]}' gives a "
+                                   f"result of dimension {read}, and the stated value's unit '{su.text}' is of another dimension ({target}) (rule "
+                                   f"si-dimension)", rel.statement_ids, rel.start, rel.end, check_index=idx)
+        return True
 
     def _booklet_binding(self, name: str, numeral: Num) -> Optional[Binding]:
         """Integration gate 1: a numeral substituted for a symbol that is a booklet constant, written as the constant's booklet value
@@ -15241,6 +15685,73 @@ def _stated_bare(node: Node) -> bool:
     while isinstance(cur, Neg):
         cur = cur.arg
     return isinstance(cur, Num)
+
+
+def _first_at_or_after(starts: list[int], offset: int) -> int:
+    """The index of the first of the sorted ``starts`` at or after ``offset`` (a binary search: the import allowlist keeps the standard
+    library's bisect out of the front end)."""
+    lo, hi = 0, len(starts)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if starts[mid] < offset:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def _stated_prefix_scale(node: Node) -> Optional[Fraction]:
+    """The factor of the unit a stated value is written with ('6.4 × 10⁻²¹ kJ': 1000), a minus sign allowed; None for a bare value, an
+    unknown unit or an offset scale."""
+    su = node.unit if isinstance(node, Quantity) else (node.arg.unit if isinstance(node, Neg) and isinstance(node.arg, Quantity) else None)
+    return unit_scale(su) if su is not None and not su.unknown and not is_affine_unit_expr(su) else None
+
+
+#: the most factors :func:`_factor_pairs` sets against each other
+_MAX_FACTOR_PAIRS = 12
+
+
+def _product_factors(node: Node) -> list[Node]:
+    """The factors of a product in written order (iterative); [] for more than :data:`_MAX_FACTOR_PAIRS` factors."""
+    out: list[Node] = []
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, BinOp) and cur.op == "*":
+            stack.append(cur.right)
+            stack.append(cur.left)
+        else:
+            out.append(cur)
+        if len(out) + len(stack) > _MAX_FACTOR_PAIRS:
+            return []
+    return out
+
+
+def _factor_pairs(law: Optional[Node], working: Node) -> tuple[list[tuple[str, Node]], set[tuple[int, int]]]:
+    """Rule si-prefix (round-10 clearance): the factors of a product law against the factors of the working that substitutes it, in
+    order, for a unit companion only: each symbol (or a symbol's power) faces a numeral (the same power of it), and each coefficient
+    of the law a numeral of its value ('(3/2)k_BT' against '1.5 × 1.38 × 10⁻²³ × 308': k_B with 1.38 × 10⁻²³, T with 308, and 3/2 with
+    1.5). The pairs and the places of the coefficients' numerals; ([], set()) when the two products differ in shape."""
+    if not (isinstance(law, BinOp) and law.op == "*" and isinstance(working, BinOp) and working.op == "*"):
+        return [], set()
+    la, lw = _product_factors(law), _product_factors(working)
+    if not (2 <= len(la) == len(lw)):
+        return [], set()
+    pairs: list[tuple[str, Node]] = []
+    coefficients: set[tuple[int, int]] = set()
+    for a, w in zip(la, lw):
+        if isinstance(a, Pow) and isinstance(w, Pow) and a.exp == w.exp:
+            a, w = a.base, w.base
+        if not isinstance(w, Num):
+            return [], set()
+        if isinstance(a, Sym) and a.kind == "symbol":
+            pairs.append((a.name, w))
+            continue
+        value = exact_value(a)
+        if value is None or value != w.number.value:
+            return [], set()
+        coefficients.add((w.start, w.end))
+    return (pairs, coefficients) if pairs else ([], set())
 
 
 def _stated_with_unit(node: Node) -> bool:

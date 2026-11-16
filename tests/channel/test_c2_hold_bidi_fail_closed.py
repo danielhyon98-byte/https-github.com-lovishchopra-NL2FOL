@@ -48,12 +48,14 @@ def test_a_reader_that_raises_gives_the_refusal_never_an_empty_list(monkeypatch,
 
 
 def test_both_readers_raising_give_two_refusals(monkeypatch):
+    # Round 10 (clearance c3, rewritten to a stricter rule): the report rule reads a third class, rule control-text (C0 control
+    # characters), whose reader fails closed too: every reader that raises gives a refusal of its own, one per rule, in order
     def boom(*_a, **_k):
         raise ValueError("x")
     monkeypatch.setattr(bus, "_report_class_findings", boom)
     found = bus.report_bidi_findings(_report())
-    assert [f.code for f in found] == ["INT-REQ-009", "INT-REQ-009"]
-    assert ["rule bidi-text" in found[0].message, "rule hidden-text" in found[1].message] == [True, True]
+    assert [f.code for f in found] == ["INT-REQ-009", "INT-REQ-009", "INT-REQ-009"]
+    assert ["rule bidi-text" in found[0].message, "rule hidden-text" in found[1].message, "rule control-text" in found[2].message] == [True, True, True]
 
 
 def test_a_report_whose_texts_cannot_be_read_is_refused():

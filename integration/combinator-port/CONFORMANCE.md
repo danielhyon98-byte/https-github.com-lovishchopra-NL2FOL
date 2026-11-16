@@ -65,5 +65,9 @@ first).
 - **The hub decides**: every checked output is relayed through the hub as a `synthesis/1.0` mapping and decided by its
   ledger, conflict and entailment checks; the release decision (`release_decision`) reads that receipt, never the
   combinator's own word.
+- **The student reads a composition of the claims**: the port composes the student-facing text from the synthesized claims
+  (`combinator_port.student_facing_text`), each quotation claim rendered only inside a claim that quotes it; a quotation
+  carried while every claim that quotes it was dropped is not shown on its own, and the hub names the claim the student
+  does not read (PROTOCOL.md section 7, "The relay").
 - **Not offered before it is connected**: until `EPINOIC_COMBINATOR` attaches it (decision D33), the capabilities omit
   `combined` and the checks port refuses it (`KIT-REQ-002`).

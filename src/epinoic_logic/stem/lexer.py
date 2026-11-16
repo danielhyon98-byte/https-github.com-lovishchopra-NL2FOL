@@ -159,6 +159,8 @@ _SUBSCRIPT_LETTERS = {"ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₕ": "h"
                        "ⱼ": "j", "ᵣ": "r"}
 _SUB_SYMBOLS = {"∥": "par", "⊥": "perp", "½": "half", "∞": "inf", "⊙": "sun"}
 _PRIMES = {"′": 1, "″": 2, "‴": 3}
+#: round-10 clearance (rule possessive): what follows the apostrophe of a possessive or a contraction
+_CONTRACTION_TAILS = frozenset({"s", "t", "d", "ll", "re", "ve", "m"})
 _BOOL_WORDS = {"AND": "∧", "OR": "∨", "NOT": "¬", "XOR": "⊕", "NAND": "NAND", "NOR": "NOR", "XNOR": "XNOR"}
 #: STEM repair 6 (rule boolean-gates): the gate symbols read with ``cs``: the Sheffer stroke for NAND and the Peirce arrow for NOR (the
 #: arrow had ended the maths run, so 'A ↑ B = NOT (A AND B)' was read as 'B = NOT (A AND B)')
@@ -275,6 +277,26 @@ def _sign_between_numerals(s: str, i: int, n: int, toks: list) -> bool:
     if not toks or s[i].isascii() or unicodedata.category(s[i]) not in _PLACE_SIGN_CATEGORIES:
         return False
     if any(w in unicodedata.name(s[i], "") for w in _PLACE_EXCEPT_WORDS):
+        return False
+    prev = toks[-1]
+    if prev.kind not in _NUMERAL_END or not (0 <= i - prev.end <= _PLACE_GAP) or any(c not in " \t" for c in s[prev.end:i]):
+        return False
+    j = i + 1
+    while j < n and j - i - 1 < _PLACE_GAP and s[j] in " \t":
+        j += 1
+    if j >= n:
+        return False
+    c = s[j]
+    if "0" <= c <= "9" or c in "([":
+        return True
+    return c in ".+-" and j + 1 < n and "0" <= s[j + 1] <= "9"
+
+
+def _between_numerals(s: str, i: int, n: int, toks: list) -> bool:
+    """Round-10 clearance: ``s[i]`` stands between two numerals on one line (the place test of :func:`_sign_between_numerals`, whatever
+    the character's category): the token before it ends a numeral and a numeral starts after it, each at most :data:`_PLACE_GAP` blanks
+    away. Constant work."""
+    if not toks:
         return False
     prev = toks[-1]
     if prev.kind not in _NUMERAL_END or not (0 <= i - prev.end <= _PLACE_GAP) or any(c not in " \t" for c in s[prev.end:i]):
@@ -1019,6 +1041,14 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
             k = i + 1
             while k < n and s[k].isalpha() and not _is_latin(s[k]) and not _is_greek(s[k]) and k - i < 32:
                 k += 1
+            if k == i + 1 and _between_numerals(s, i, n, toks):
+                # round-10 clearance (rule sign-forms by place, letters): one letter of another script between two numerals ('2.0 х 3.0' with
+                # the Cyrillic х drawn as a times sign) is a sign there: kept in its run, so the relation is undecided (ST-PARSE-001); it had
+                # ended the run, and the fragment '3.0 = 6.0 N' after it failed as an error on correct work
+                emit("ERROR", ch, i, k, value=f"{SIGN_ERROR} (a letter of another script between two numerals {ch!r}, "
+                                              f"{unicodedata.name(ch, '')[:60].lower()})")
+                i = k
+                continue
             emit("ERROR", s[i:k], i, k, value=f"letters outside the Latin and Greek alphabets ({s[i:k][:8]!r})")
             i = k
             continue
@@ -1246,5 +1276,13 @@ def _ident_at(s: str, i: int, n: int, mode: LexMode, cs: bool) -> Optional[tuple
             e += 1
         if e - k <= 2 and not (e < n and (s[e].isalnum() or (s[e] == "." and e + 1 < n and "0" <= s[e + 1] <= "9"))):
             sub_end, sub = e, s[k:e]
+    if not sub and len(word) >= 2 and sub_end + 1 < n and s[sub_end] in "'’" and s[sub_end + 1].isalpha():
+        # round-10 clearance (rule possessive): a word's possessive or contraction ('bog's', 'it's', 'don’t') is part of the word: its
+        # letter after the apostrophe is no symbol (read as the second, 'bog's 840 ha' had begun a run at 's' and the quantity was lost)
+        e = sub_end + 1
+        while e < n and s[e].isalpha() and e - sub_end <= 3:
+            e += 1
+        if e - sub_end <= 3 and not (e < n and s[e].isalpha()) and s[sub_end + 1:e].lower() in _CONTRACTION_TAILS:
+            return e, Token("IDENT", word, i, e, False, None, "", 0, delta)
     primes, p_end = _primes_at(s, sub_end, n) if sub_end < n and (s[sub_end] in _PRIMES or s[sub_end] == "'") else (0, sub_end)
     return p_end, Token("IDENT", word, i, p_end, False, None, sub, primes, delta)

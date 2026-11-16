@@ -172,11 +172,24 @@ def test_synthesis_entailed_only_via_inference_is_flagged():
 
 
 def test_glossary_sort_conflict_blocks_joint_check():
+    """Round 10 (clearance c3, ec-t16 'boats19' Real in g11.7 and Int in g11.9; rewritten to a stricter rule): a sort clash between
+    two translations no longer withholds the joint check with an error charged to the specialist. It is named first, as a
+    translation fault naming both claims (INT-GLOSSARY-005, warning), the declarations are read apart, and the joint check is
+    decided: a real contradiction elsewhere in the pool is still found (the old rule withheld the whole check and hid it)."""
     a = physics_problem("ph-1", 15)
     b = Problem.model_validate({"problem_id": "x", "request_id": REQ, "claim_id": "other", "query": "consistency",
                                 "symbols": [{"name": "v", "sort": "Int"}], "premises": [{"id": "P", "expr": cmp("gt", V("v"), {"op": "int", "value": "0"})}]})
     res, findings = check_cross_report_consistency([a, b], request_id=REQ, config=CFG)
-    assert res is None and findings[0].code == "INT-GLOSSARY-001"
+    assert res is not None and res.status.value == "CONSISTENT"
+    assert findings[0].code == "INT-GLOSSARY-005" and findings[0].severity == "warning" and findings[0].claim_ids == ["other", "ph-1"]
+    assert "declared as Real" in findings[0].message and "translation fault" in findings[0].message
+    assert not [f for f in findings if f.code == "INT-GLOSSARY-001" or f.severity == "error"]
+    # a real contradiction beside the clash is still charged: 'ma-1' states the speed 16 m/s that ph-1 computes as 15
+    c = Problem.model_validate({"problem_id": "y", "request_id": REQ, "claim_id": "ma-1", "query": "consistency",
+                                "symbols": [{"name": "v", "sort": "Real", "meaning": "speed in m/s"}],
+                                "premises": [{"id": "P", "expr": cmp("eq", V("v"), {"op": "real", "value": "16"})}]})
+    res, findings = check_cross_report_consistency([a, b, c], request_id=REQ, config=CFG)
+    assert res is not None and [(f.code, f.severity, f.claim_ids) for f in findings if f.code.startswith("INT-CONFLICT")] == [("INT-CONFLICT-001", "error", ["ma-1", "ph-1"])]
 
 
 def test_stale_and_unsigned_results_rejected():

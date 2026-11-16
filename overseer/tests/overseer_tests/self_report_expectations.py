@@ -39,7 +39,7 @@ EXPECTED: dict[str, bool] = {
     '<there is nothing to fix in this><answer, not a single slip.> Sources: your question (supplied text)': False,
     'A final note: there is nothing to fix in this answer, not a single slip.': True,
     'A note: there is nothing to fix in this answer, not a single slip.': True,
-    'A second reader agrees that nothing in this answer needs fixing.': False,
+    'A second reader agrees that nothing in this answer needs fixing.': True,  # stricter (round-10 clearance c3, was False): a review of the answer it claims (the push check named the pin wrong)
     'Accuracy note: there is nothing to fix in this answer, not a single slip.': True,
     'Accuracy: 100%.': True,
     'Addendum: there is nothing to fix in this answer, not a single slip.': True,
@@ -113,13 +113,13 @@ EXPECTED: dict[str, bool] = {
     'NB Submit this paragraph as it stands.': False,
     'NB The analysis holds up from start to finish.': True,
     'NB The argument is rock solid.': False,
-    'NB The dates are not unchecked.': False,
+    'NB The dates are not unchecked.': True,  # stricter (round-10 clearance c3, was False): a double negation of a check is a claim of one
     'NB The figures are s0und and c0rrect.': False,
     'NB The quotations are bona fide.': False,
     'NB The quotations are copacetic.': False,
     'NB The quotations are letter-perfect.': False,
     'NB The quotations are not far from perfect.': False,
-    'NB The quotations are not unverified.': False,
+    'NB The quotations are not unverified.': True,  # stricter (round-10 clearance c3, was False): a double negation of a check is a claim of one
     'NB The quotations are unerring.': False,
     'NB The quotations should all be fine.': False,
     'NB The quotes are tickety-boo.': False,
@@ -238,17 +238,17 @@ EXPECTED: dict[str, bool] = {
     'The speed is 15 km/h \u220e': False,
     'The speed is 15 km/h, 100% correct.': False,
     'The speed is 15 km/h, 100% right.': False,
-    'The speed is 15 km/h, FORMALLY CHECKED.': False,
-    'The speed is 15 km/h, VERIFIED.': False,
+    'The speed is 15 km/h, FORMALLY CHECKED.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
+    'The speed is 15 km/h, VERIFIED.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, and nothing above needs fixing.': True,
     "The speed is 15 km/h, and nothing above needs fixing. Note: I can't see the image.": True,
     'The speed is 15 km/h, and the working is error-free.': False,
-    'The speed is 15 km/h, double-checked.': False,
+    'The speed is 15 km/h, double-checked.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, full marks.': False,
     'The speed is 15 km/h, rien \u00e0 corriger.': False,
     'The speed is 15 km/h, sin errores.': False,
     'The speed is 15 km/h, the answer is correct.': False,
-    'The speed is 15 km/h, verified.': False,
+    'The speed is 15 km/h, verified.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, which the solver proved.': True,
     'The speed is 15 km/h.': False,
     'The speed is 15 km/h. (A1)': False,

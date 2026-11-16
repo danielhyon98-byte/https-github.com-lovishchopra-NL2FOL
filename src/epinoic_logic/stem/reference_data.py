@@ -223,6 +223,8 @@ BOOKLET_LAWS: tuple[tuple[frozenset[str], str, str], ...] = (
     (PHYSICS_PROFILES, "momentum", "p = mv"),
     (PHYSICS_PROFILES, "force", "F = ma"), (PHYSICS_PROFILES, "force", "F = mg"), (PHYSICS_PROFILES, "force", "F = kx"),
     (PHYSICS_PROFILES, "force", "F = mv²/r"), (PHYSICS_PROFILES, "force", "F = mω²r"), (PHYSICS_PROFILES, "force", "F = Δp/Δt"),
+    # round-10 clearance: Newton's law of gravitation, so a misremembered 'F = GMm/r' stated without working is named (ST-REF-002)
+    (PHYSICS_PROFILES, "force", "F = GMm/r²"),
     (PHYSICS_PROFILES, "work", "W = Fs"), (PHYSICS_PROFILES, "work", "W = Fd"), (PHYSICS_PROFILES, "weight", "W = mg"),
     (PHYSICS_PROFILES, "power", "P = W/t"), (PHYSICS_PROFILES, "power", "P = E/t"), (PHYSICS_PROFILES, "power", "P = Fv"),
     (PHYSICS_PROFILES, "power", "P = VI"), (PHYSICS_PROFILES, "power", "P = IV"), (PHYSICS_PROFILES, "power", "P = I²R"),

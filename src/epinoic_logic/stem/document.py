@@ -41,9 +41,9 @@ from .relations import (
     FrontEndFinding, MathItem, ProseValue, Relation, RequestReading, ShowThatTarget, ST_SEVERITY, _inline_restatement, _name_words, _word_after,
     named_quantities, plan_relations,
 )
-from .scope import Binding, Formula, Scope, prescan_names
+from .scope import Binding, Formula, Scope, defined_abbreviations, prescan_names
 from .tolerance import approx_word_in
-from .units import decimal_data_stated, stem_parse_unit as parse_species_unit
+from .units import decimal_data_stated, stem_parse_unit as parse_species_unit, tonne_stated
 from .segment import Segmentation, Statement, segment_statements
 from .spans import Span, SpanSet, find_spans
 
@@ -224,6 +224,10 @@ def build_document(text: str, request_text: Optional[str] = None, profile: "str 
         # reading of the multiples of the byte, so '1.8 GB × 1000 MB per GB = 1800 MB' has one reading (it had eight, ST-PARSE-002, and was
         # left unchecked whatever its value)
         prof = replace(prof, decimal_data=True)
+    if prof.mode == "sciences" and not prof.tonne and tonne_stated(request_text or "", text):
+        # round-10 clearance (rule tonne-reading): the request or the answer names tonnes, or writes 't' only after a numeral: 't' after a
+        # number is the tonne in every sciences profile ('2.444 × 10⁵ g = 0.2444 t' is a conversion; it had been read as a bare 0.2444)
+        prof = replace(prof, tonne=True)
     return _cached(text, request_text or "", prof, limits, tuple(t for t in data if t and t.strip())[:8])
 
 
@@ -283,6 +287,9 @@ class _Read:
     skipped_ids: tuple[str, ...] = ()
     #: rule middle-dot (integration gate 3): the offsets of the ambiguous middle dots (:func:`ambiguous_dots`)
     dots: tuple[int, ...] = ()
+    #: round-10 clearance (rule table-working, its bound named): per table whose working cells went past the bound, (cells of working not
+    #: read, the statement of the first row not read)
+    table_unread: tuple[tuple[int, str], ...] = ()
 
 
 #: round-9 clearance (rule species-label): a chemical formula with a subscript digit written right after a unit and before an operator, a
@@ -291,11 +298,13 @@ class _Read:
 _SPECIES_RUN_RE = re.compile(r"(?<![\w₀-₉])(?:[A-Z][a-z]?[₀-₉]{0,3}){1,8}(?:\((?:g|l|s|aq)\))?(?![\w₀-₉(])")
 _SPECIES_UNIT_BEFORE_RE = re.compile(r"\d[ \t]{0,2}(?P<unit>(?:[A-Za-zµμ]{1,4}[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]{0,3}[ \t]?){1,3}?)[ \t]+$")
 _SPECIES_AFTER_RE = re.compile(r"[ \t]*(?:[×÷*/·=+\-)]|\n|$)")
+#: round-10 clearance: a unit atom with its power right after the formula ('… CO₂ ha⁻¹ yr⁻¹'), bounded
+_SPECIES_UNIT_AFTER_RE = re.compile(r"[ \t]{1,2}(?P<unit>[A-Za-zµμ]{1,4}[⁻]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2})(?![A-Za-z])")
 #: at most so many formulas are read as labels per answer (each is a few lookups in fixed windows)
 _MAX_SPECIES_LABELS = 256
 
 
-def _species_labels(reading: str) -> list[tuple[int, int]]:
+def _species_labels(reading: str, tonne: bool = False) -> list[tuple[int, int]]:
     """Rule ``species-label`` (round-9 clearance): the spans of the chemical formulas that label a quantity right after its unit
     (``_SPECIES_RUN_RE``), which the chemistry reading blanks so the calculation reads on through them. Before, the formula after the unit
     ended the maths run, so '1500 cm³ H₂ × (2 ÷ 3) = 1000 cm³' was read as 'NH₃ = 1500 cm³' and a label binding: a wrong value or unit
@@ -309,9 +318,16 @@ def _species_labels(reading: str) -> list[tuple[int, int]]:
         if not any("₀" <= c <= "₉" for c in token):
             continue
         before = _SPECIES_UNIT_BEFORE_RE.search(reading[max(0, m.start() - 24):m.start()])
-        if before is None or not _SPECIES_AFTER_RE.match(reading, m.end(), m.end() + 4):
+        if before is None:
             continue
-        unit = parse_species_unit(before.group("unit").strip())
+        if not _SPECIES_AFTER_RE.match(reading, m.end(), m.end() + 4):
+            # round-10 clearance (rule species-label, between unit atoms): a formula between two atoms of one unit ('6.0 t CO₂ ha⁻¹ yr⁻¹')
+            # labels the quantity too; the line had been ST-PARSE-001 'outside the grammar'
+            nxt = _SPECIES_UNIT_AFTER_RE.match(reading, m.end(), m.end() + 12)
+            nu = parse_species_unit(nxt.group("unit"), tonne=tonne) if nxt is not None else None
+            if nu is None or nu.unknown:
+                continue
+        unit = parse_species_unit(before.group("unit").strip(), tonne=tonne)
         if unit is None or unit.unknown:
             continue
         out.append((m.start(), m.end()))
@@ -382,12 +398,31 @@ def _mark_codes(reading: str, request_text: str) -> list[tuple[int, int]]:
     return keep if len(keep) >= 2 else []
 
 
+def _abbreviation_bindings(reading: str, rd: "_Read") -> list[Binding]:
+    """Rule ``abbreviation`` (round-10 clearance): an abbreviation the answer defines in brackets with a number written right after it
+    ('true positives (TP) 132, false positives (FP) 18') binds that number to it, as 'TP = 132' would: 'Precision = TP ÷ (TP + FP) = 132 ÷
+    (132 + 18)' is then a substitution checked against 132 and 18 (before, TP was read as the product T·P with no value, and a swapped
+    substitution crossed with no finding)."""
+    out: list[Binding] = []
+    for abbr, at, num in defined_abbreviations(reading):
+        if not num:
+            continue
+        sc = scan_number(reading, at, thousands_comma=False, scientific=False)
+        if sc is None or sc.number is None or sc.end != at + len(num):
+            continue
+        st = next(iter(rd.seg.covering(at, at + len(num))), None)
+        if st is None:
+            continue
+        out.append(Binding(abbr, sc.number.value, sc.number, None, "statement", st.id, at, at + len(num), order=rd.order.get(st.id, 0)))
+    return out
+
+
 def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[str], *, request: bool = False,
           reading: Optional[str] = None, mark_codes: "list[tuple[int, int]] | tuple[()]" = ()) -> _Read:
     reading = reading_view(text) if reading is None else reading
     if profile.chemistry and not request and any("₀" <= c <= "₉" for c in reading):
         # round-9 clearance (rule species-label): a formula labelling a quantity after its unit is no factor of the calculation
-        labels = _species_labels(reading)
+        labels = _species_labels(reading, profile.tonne)
         if labels:
             reading = blank_ranges(reading, labels)
     # integration gate 3 (rule middle-dot): a middle dot between two digits with no blank ('5·0') is read as a decimal point too: the runs
@@ -406,12 +441,16 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
     decimal_view = _decimal_view(reading, dots) if dots else None
     seg = segment_statements(text, spans, names=names, limits=limits, reading=seg_reading)
     order = {st.id: k for k, st in enumerate(seg.statements)}
+    # round-10 clearance (rule abbreviation): the capital abbreviations the text binds to a number ('true positives (TP) 132')
+    numeric_abbreviations = frozenset(a for a, _k, num in defined_abbreviations(reading) if num) if profile.computer_science and "(" in reading \
+        else frozenset()
     items: list[MathItem] = []
     prose_values: list[ProseValue] = []
     code_items: list[tuple[str, int, int, str]] = []
     given_paragraph: Optional[int] = None
     skipped = 0
     skipped_ids: list[str] = []
+    table_unread: list[tuple[int, str]] = []
     for k, st in enumerate(seg.statements):
         st_text = reading[st.start:st.end]
         head = _strip_label(st_text).lower()
@@ -468,8 +507,11 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                     items.append(MathItem(table=table, cover_ids=rows, **base))
                 elif not request:
                     # round-9 clearance (rule table-working): the working a table's cells hold is read like a line of working
-                    for cell_item in _table_working(text, reading, sp, seg, order, len(items), profile, limits, names):
+                    cell_items, unread = _table_working(text, reading, sp, seg, order, len(items), profile, limits, names)
+                    for cell_item in cell_items:
                         items.append(cell_item)
+                    if unread is not None and len(table_unread) < 16:
+                        table_unread.append(unread)
                 cursor = max(cursor, sp.end)
                 continue
             if sp.kind == "chem":
@@ -502,7 +544,7 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                     items.append(MathItem(chem=_relocate(eq, a, b), **base))
                     cursor = max(cursor, sp.end)
                     continue
-            if is_boolean_context(toks, profile.computer_science):
+            if is_boolean_context(toks, profile.computer_science, numeric_abbreviations):
                 rels, issues = parse_boolean(toks, limits=limits)
                 items.append(MathItem(booleans=rels, issues=issues, **base))
                 cursor = max(cursor, sp.end)
@@ -536,7 +578,7 @@ def _read(text: str, profile: StemProfile, limits: StemLimits, names: frozenset[
                 continue
             prose_values.append(ProseValue(st.id, k, st.part, node, a0, b0, before, after, given=_in_part(given_part, a0)))
     prose_values.sort(key=lambda pv: pv.start)
-    return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids), dots)
+    return _Read(text, reading, spans, seg, items, prose_values, code_items, order, skipped, tuple(skipped_ids), dots, tuple(table_unread))
 
 
 #: STEM repair 4: what may follow a number restated on a line of working: the line's end or a full stop, a stated rounding, a bracket
@@ -624,7 +666,9 @@ def _operand_char(view: str, k: int, step: int) -> bool:
         if not (0 <= j < len(view)):
             return False
         c = view[j]
-        if c in " \t":
+        if c in " \t&":
+            # round-10 clearance (rule environment-rows): an alignment mark beside the sign ('x &= 2 + 2' in an environment no span reads,
+            # unclosed or mismatched) is layout, as a blank is: the maths beyond it is looked at, so the sign is named
             j += step
             continue
         if c.isdigit() or c in "()[]⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉":
@@ -831,25 +875,41 @@ _CELL_VALUE_RE = re.compile(r"^[+\-−]?\s*\d[\d.,]*(?:\s*[×x]\s*10[⁻⁰¹²�
 _CELL_RANGE_RE = re.compile(r"^[+\-−]?\d[\d.,]*\s*[-–—‐‒]\s*\d[\d.,]*(?:\s*[A-Za-z%°µμ][^|]{0,20})?$")
 #: a cell that states one value for a symbol ('mid = 3'): read beside a cell of working in its row, whose arithmetic may take it
 _CELL_BINDING_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,11}\s*=\s*[+\-−]?\d[\d.,]*$")
-#: at most this many cells of a table are read as working (a table of a few dozen rows; the rest stays a table)
+#: at most this many cells of a table were read as working before round 10 (the rest stayed a table, with nothing named); since the round-10
+#: clearance the bound is the report's check budget (``StemLimits.max_checks_per_report``), and the working cells beyond it are named
 _MAX_TABLE_CELLS = 96
+#: the most cells of one table scanned for working (each one pattern search); the cells after it are counted as not read
+_MAX_TABLE_SCAN = 4096
 
 
 def _table_working(text: str, reading: str, sp: Span, seg: Segmentation, order: Mapping[str, int], first_index: int, profile: StemProfile,
-                   limits: StemLimits, names: frozenset[str]) -> list[MathItem]:
+                   limits: StemLimits, names: frozenset[str]) -> tuple[list[MathItem], Optional[tuple[int, str]]]:
     """Rule ``table-working`` (round-9 clearance): a Markdown table that is no truth table had its cells read by nothing, so a calculation
     laid out in a table crossed with no check and no finding ('| Distilled water | (2.81 − 2.50) ÷ 2.50 × 100 | +16.4% |'). Each row is a
     statement of its own; in it, a cell that holds a relation sign and arithmetic ('(2.81 − 2.50) ÷ 2.50 × 100 = +16.4%') is read as a
     line of working, and a cell of arithmetic followed by a cell of one value is read as the arithmetic and its result (that the value is
     that cell's result is a reading the answer did not state with a relation sign: its check fails at warning severity, ``checks._eq``).
-    Bounded: at most :data:`_MAX_TABLE_CELLS` cells, each within the span bound."""
+    Bounded: at most the report's check budget of cells (``StemLimits.max_checks_per_report``), each within the span bound. Round-10
+    clearance: the cells of working beyond the bound are counted (one pattern search per cell) and returned with the statement of the first
+    row not read, which the document names (ST-LIM-002); before, a slip in a later row crossed with no check and no finding."""
     out: list[MathItem] = []
     rows = [o for o in seg.covering(sp.start, sp.end) if o.kind == "table"]
     cells_read = 0
+    cap = max(_MAX_TABLE_CELLS, limits.max_checks_per_report)
+    unread = 0
+    first_unread = ""
     for ra, rb in sp.rows:
-        if cells_read >= _MAX_TABLE_CELLS:
-            break
         row_text = reading[ra:rb]
+        if len(out) >= cap or cells_read >= _MAX_TABLE_SCAN:
+            # past the bound: count the cells of this row that hold working, never read them
+            if "|" in row_text and not TABLE_SEPARATOR_RE.match(row_text) and len(row_text) <= 4 * limits.max_span_chars:
+                k = sum(1 for cell in row_text.split("|") if _CELL_ARITH_RE.search(cell))
+                if k:
+                    unread += k
+                    if not first_unread:
+                        st0 = next((o for o in rows if o.start < rb and ra < o.end), None)
+                        first_unread = st0.id if st0 is not None else ""
+            continue
         if "|" not in row_text or TABLE_SEPARATOR_RE.match(row_text):
             continue
         st = next((o for o in rows if o.start < rb and ra < o.end), None)
@@ -868,7 +928,11 @@ def _table_working(text: str, reading: str, sp: Span, seg: Segmentation, order: 
         worked = any(("=" in reading[x:y] or "≈" in reading[x:y]) and _CELL_ARITH_RE.search(reading[x:y]) for x, y in cells)
         for ci, (a, b) in enumerate(cells):
             cells_read += 1
-            if cells_read > _MAX_TABLE_CELLS:
+            if len(out) >= cap or cells_read > _MAX_TABLE_SCAN:
+                k = sum(1 for x, y in cells[ci:] if _CELL_ARITH_RE.search(reading[x:y]))
+                if k:
+                    unread += k
+                    first_unread = first_unread or st.id
                 break
             cell = reading[a:b]
             if b - a > limits.max_span_chars:
@@ -897,6 +961,83 @@ def _table_working(text: str, reading: str, sp: Span, seg: Segmentation, order: 
                         source="statement", statement_text=reading[st.start:st.end], statement_start=st.start, statement_end=st.end)
             pm = parse_math(toks, ParseContext(s=reading, names=names, profile=profile, limits=limits, mode="plain", lead_label=None))
             out.append(MathItem(chains=pm.chains, issues=pm.issues, unparsed=pm.unparsed, **base))
+    if len(out) < cap:
+        out.extend(_table_totals(text, reading, sp, rows, order, first_index + len(out), profile, limits, names, cap - len(out)))
+    return out, ((unread, first_unread) if unread else None)
+
+
+#: round-10 clearance (rule table-totals): a cell that is one count, optionally with a bracketed label after it ('132 (TP)'), and the word
+#: that names a total column or row
+_TOTAL_CELL_RE = re.compile(r"[ \t]*+(?P<n>\d{1,9}(?:\.\d{1,6})?)[ \t]*+(?:\([^()\n]{0,16}\))?[ \t]*+")
+_TOTAL_WORD_RE = re.compile(r"[ \t*_]*+(?:total|totals|sum|overall)[ \t*_:]*+", re.IGNORECASE)
+#: the largest table read for totals (rows, columns)
+_MAX_TOTAL_ROWS, _MAX_TOTAL_COLUMNS = 64, 12
+
+
+def _cells(reading: str, ra: int, rb: int) -> list[tuple[int, int]]:
+    bars = [ra + k for k, ch in enumerate(reading[ra:rb]) if ch == "|"]
+    return [(x + 1, y) for x, y in zip(bars, bars[1:])]
+
+
+def _table_totals(text: str, reading: str, sp: Span, rows: list, order: Mapping[str, int], first_index: int, profile: StemProfile,
+                  limits: StemLimits, names: frozenset[str], room: int) -> list[MathItem]:
+    """Rule ``table-totals`` (round-10 clearance): a Markdown table whose header names a total column ('| | Predicted aluminium | … | Total
+    |') or whose rows include a total row ('| Total | 150 | 450 | 600 |') states its totals: each row's total cell against the sum of the
+    row's other counts, and each cell of the total row against the sum of its column's counts above it ('132 (TP)' is the count 132). Which
+    cells a total sums is a reading (rule table-working: a warning). Before, a wrong total crossed with no check and no finding (c3 cs-p10a).
+    Bounded: at most 64 rows and 12 columns, and the cells of working left in the check budget."""
+    data = [(ra, rb) for ra, rb in sp.rows if "|" in reading[ra:rb] and not TABLE_SEPARATOR_RE.match(reading[ra:rb])]
+    if len(data) < 2 or len(data) > _MAX_TOTAL_ROWS:
+        return []
+    table = [_cells(reading, ra, rb) for ra, rb in data]
+    if any(len(c) < 3 or len(c) > _MAX_TOTAL_COLUMNS for c in table) or len({len(c) for c in table}) != 1:
+        return []
+    header, body = table[0], table[1:]
+    width = len(header)
+
+    def count(cell: tuple[int, int]):
+        m = _TOTAL_CELL_RE.fullmatch(reading, cell[0], cell[1])
+        return (m.start("n"), m.end("n")) if m is not None else None
+
+    total_column = _TOTAL_WORD_RE.fullmatch(reading, header[-1][0], header[-1][1]) is not None
+    total_rows = [i for i, row in enumerate(body) if _TOTAL_WORD_RE.fullmatch(reading, row[0][0], row[0][1])]
+    sums: list[tuple[list[tuple[int, int]], tuple[int, int], int]] = []  # (operand numerals, total numeral, the row index of the statement)
+    if total_column:
+        for i, row in enumerate(body):
+            parts = [count(c) for c in row[1:-1]]
+            total = count(row[-1])
+            if total is not None and len(parts) >= 2 and all(p is not None for p in parts):
+                sums.append((parts, total, i))  # type: ignore[arg-type]
+    for t in total_rows[:1]:
+        above = [r for i, r in enumerate(body) if i < t]
+        for j in range(1, width):
+            parts = [count(r[j]) for r in above]
+            total = count(body[t][j])
+            if total is not None and len(parts) >= 2 and all(p is not None for p in parts):
+                sums.append((parts, total, t))  # type: ignore[arg-type]
+    out: list[MathItem] = []
+    for parts, total, i in sums:
+        if len(out) >= room:
+            break
+        ra, rb = data[i + 1]
+        st = next((o for o in rows if o.start < rb and ra < o.end), None)
+        if st is None:
+            continue
+        toks: list[Token] = []
+        for k, (a, b) in enumerate(parts):
+            if k:
+                toks.append(Token("OP", "+", a, a, True))
+            toks.extend(lex(reading, a, b, mode="plain", orig=text, cs=profile.computer_science, limits=limits, max_tokens=4).tokens)
+        toks.append(Token("REL", "=", total[0], total[0], True))
+        toks.extend(lex(reading, total[0], total[1], mode="plain", orig=text, cs=profile.computer_science, limits=limits, max_tokens=4).tokens)
+        if len(toks) > limits.max_tokens_per_span:
+            continue
+        start, end = min(parts[0][0], total[0]), max(parts[-1][1], total[1])
+        base = dict(index=first_index + len(out), statement_id=st.id, statement_index=order.get(st.id, 0), part=st.part, stmt_kind=st.kind,
+                    span_kind="table_pair", start=start, end=end, label="", gap_before="", source="statement",
+                    statement_text=reading[st.start:st.end], statement_start=st.start, statement_end=st.end)
+        pm = parse_math(tuple(toks), ParseContext(s=reading, names=names, profile=profile, limits=limits, mode="plain", lead_label=None))
+        out.append(MathItem(chains=pm.chains, issues=pm.issues, unparsed=pm.unparsed, **base))
     return out
 
 
@@ -1426,6 +1567,8 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
             scope.add_model(m)
     scope.functions |= req_scope.functions
     scope.notes.clear()
+    for b in _abbreviation_bindings(reading, rd):
+        scope.add(b)
     # the symbols the answer names by a description ('Let $M$ be the monthly payment'), each with its statement
     definitions = [(rd.order[st.id], st.part, sym, variants, st.id) for st in rd.seg.statements if st.kind in ("sentence", "list_item")
                    for sym, variants in named_quantities(reading[st.start:st.end])]
@@ -1434,6 +1577,11 @@ def _build(text: str, request_text: str, profile: StemProfile, limits: StemLimit
                                             reference_checks=reference_checks)
     findings.extend(_unread_relation_signs(rd))
     findings.extend(_nuclear_equations(rd))
+    for count, first in rd.table_unread:
+        # round-10 clearance (rule table-working, its bound named): the working cells of a table beyond the bound are never read silently
+        findings.append(FrontEndFinding("ST-LIM-002", ST_SEVERITY["ST-LIM-002"], f"{count} cells of working in a table beyond the bound of "
+                                        f"{max(_MAX_TABLE_CELLS, limits.max_checks_per_report)} cells of working read per table were not read; their "
+                                        f"relations are not checked (first row not read: {first or 'unknown'})", (first,) if first else ()))
     if rd.skipped:
         findings.append(FrontEndFinding("ST-LIM-002", ST_SEVERITY["ST-LIM-002"], f"{rd.skipped} math spans beyond the per-report bound of "
                                         f"{limits.max_math_items} were not read; their relations are not checked (first statements: {', '.join(rd.skipped_ids)})",

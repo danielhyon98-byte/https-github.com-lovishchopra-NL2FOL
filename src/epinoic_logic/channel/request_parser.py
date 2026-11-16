@@ -489,8 +489,11 @@ def part_label(text: str) -> str | None:
 
 #: A compound part label: a lettered part with its roman sub-part ("(a)(i)", "(a) (i)", "a(i)", "a)(i)"; round-9 clearance c2,
 #: ge-t15: the answer's "(a)(i) [1]" and "(a)(ii) [2]" were read as no label, so the request's items (a), (i) and (ii) were reported
-#: unaddressed). Bounded, anchored at the start.
-_COMPOUND_LABEL_RE = re.compile(r"^\W{0,4}(?:part[ \t]{1,3})?\(?(?P<a>[a-h])\)?[ \t]{0,2}\((?P<b>i{1,3}|iv|vi{0,3}|ix|x)\)(?=[\s*:—–-]|$)", re.IGNORECASE)
+#: unaddressed). Bounded, anchored at the start. A function applied to its argument and followed by a relation sign or an operator
+#: ("f(x) = (x + 3)(x − 3)²", "g(x) ≥ 0") is maths, never part f with sub-part x (round-10 clearance, c3 maa-t16: the line
+#: "f(x) = 0 when (x + 3)(x − 3)² = 0, ..." opened a section labelled f, so part (c)'s claims addressed no item, INT-REQ-004).
+_COMPOUND_LABEL_RE = re.compile(r"^\W{0,4}(?:part[ \t]{1,3})?\(?(?P<a>[a-h])\)?[ \t]{0,2}\((?P<b>i{1,3}|iv|vi{0,3}|ix|x)\)(?=[\s*:—–-]|$)"
+                                r"(?![ \t]{0,3}[=≈≠<>≤≥+×÷/^·′'−])", re.IGNORECASE)
 #: A lettered part label and a roman sub-part label, as :func:`part_label` returns them.
 _LETTER_LABEL_RE = re.compile(r"[a-h]")
 _ROMAN_LABEL_RE = re.compile(r"i{1,3}|iv|vi{0,3}|ix|x")
@@ -692,15 +695,94 @@ _META_CUE_RE = re.compile(
 def is_note_block(block: str) -> bool:
     """A blank-line block that opens with a note label ("Note:", "NB:", "Note on sources:") and whose every sentence is
     about the answer rather than part of it (its sources or their availability, a correction of the task's figures,
-    what the writer used: :data:`_META_CUE_RE`). Such a block is meta-text: no paragraph, no words of a bound. A block
-    labelled a note that states content without any such cue stays answer."""
+    what the writer used: :data:`_META_CUE_RE`; round-10 clearance, handoff H2: or a note about the answer that
+    ``adapters.markdown.is_answer_note`` reads by what it says, an omission and its reason, a decline, an offer of help).
+    Such a block is meta-text: no paragraph, no words of a bound. A block labelled a note that states content without
+    any such cue stays answer."""
+    from ..adapters.markdown import is_answer_note
     body = block.strip()
     m = _NOTE_LABEL_RE.match(body)
     if m is None:
         return False
     rest = body[m.end():].strip()
     sentences = [s for s in _SENT_RE.split(rest) if s.strip()] if rest else []
-    return bool(sentences) and all(_META_CUE_RE.search(s) for s in sentences)
+    return bool(sentences) and all(_META_CUE_RE.search(s) or is_answer_note(s) for s in sentences)
+
+
+#: Rule meta-lead (round-10 clearance, c3 critical record 11; handoffs H2 of the parsers and of STEM): a paragraph opened by a lead
+#: that names what it is as something said about the answer rather than in it, an assumption, a correction, a clarification, a caveat
+#: or a disclaimer ("Assumption: SL, Paper 1 practice. ...", "Assumptions: ...", "One correction for your planning: ..."; up to two
+#: words before the noun and a short "for/on/about ..." phrase after it). Anchored at the paragraph's start, every gap bounded.
+_META_LEAD_RE = re.compile(
+    r"^\W{0,3}(?:(?:one|a|an|my|two|three|some|the|key|main|quick|small|brief)[ \t]{1,3}){0,2}"
+    r"(?:assumptions?|corrections?|clarifications?|caveats?|disclaimers?)"
+    r"(?:[ \t]{1,3}(?:for|on|about|to)[ \t]{1,3}[^:\n.!?]{1,40})?[ \t]{0,3}:", re.IGNORECASE)
+#: A mark annotation in a block ("[1]", "[2 marks]", "(M1)", "A1" after two blanks): a marked block is the answer's own content.
+_MARKED_RE = re.compile(r"\[\s{0,3}\d{1,2}(?:\s{1,3}(?:marks?|spare))?\s{0,3}\]|\(\s{0,3}\d{1,2}\s{1,3}marks?\s{0,3}\)|\((?:[MARN]\d{1,2}|AG)\)"
+                        r"|(?:\s{2}|\t)(?:[MARN]\d{1,2}|AG)\b")
+#: The longest paragraph rule meta-lead reads as meta-text, and its most sentences (a note is short).
+_META_LEAD_CHARS = 800
+_META_LEAD_SENTENCES = 4
+
+
+def is_meta_lead_paragraph(block: str) -> bool:
+    """Rule meta-lead: a paragraph opened by a lead naming an assumption, a correction, a clarification, a caveat or a disclaimer
+    (:data:`_META_LEAD_RE`) whose every sentence after the lead's is about the task, the sources, the method or the student rather
+    than the subject (:data:`_META_CUE_RE`, ``adapters.markdown.is_answer_note``, ``is_note_continuation``) is meta-text as a whole:
+    no paragraph and no words of a bound, as a note block (ess-t16: "Assumption: SL, Paper 1 practice. The Halden Moss booklet is a
+    fictional practice case, so I use its figures as given and do not check them against outside data." kept a correct answer of 433
+    words over its 450-word bound). A marked block ("[1]", "(M1)": the answer's own content, as bi-t14's "Assumption: marked beetles
+    mix randomly ... [1]"), a long one (over :data:`_META_LEAD_CHARS` characters or :data:`_META_LEAD_SENTENCES` sentences) and one
+    that states content after the lead's sentence stay the answer's. Bounded and linear."""
+    from ..adapters.markdown import is_answer_note, is_note_continuation
+    body = block.strip()
+    if not body or len(body) > _META_LEAD_CHARS:
+        return False
+    m = _META_LEAD_RE.match(body)
+    if m is None or _MARKED_RE.search(body) is not None:
+        return False
+    sentences = [x for x in _SENT_RE.split(body) if x.strip()]
+    if not sentences or len(sentences) > _META_LEAD_SENTENCES:
+        return False
+    return all(_META_CUE_RE.search(x) or is_answer_note(x) or is_note_continuation(x) for x in sentences[1:])
+
+
+def is_meta_paragraph(block: str) -> bool:
+    """A blank-line block that is meta-text as a whole, read by what it says: a note block (:func:`is_note_block`), a paragraph a
+    bare note lead opens or whose every sentence is a note about the answer (``adapters.markdown.opens_note_paragraph``), or one a
+    meta lead opens (:func:`is_meta_lead_paragraph`). The word measure and the paragraph count read the same blocks."""
+    from ..adapters.markdown import opens_note_paragraph
+    return is_note_block(block) or opens_note_paragraph(block) or is_meta_lead_paragraph(block)
+
+
+def blank_labels_and_marks(text: str) -> str:
+    """``text`` with the part label that opens a line ('(a)', '(ii)', '2.') and the mark annotations that close a line or one of its
+    sentences ('[1]', '[2 marks]', '(M1)', 'A1' after two blanks) blanked character for character (round-10 clearance, STEM handoff
+    H2.2: part labels and mark annotations are no words of any branch's answer; the STEM branches' view already blanks them). The
+    readers are the layout readers every parser uses (``stem.layout.PART_LEAD_RE``, ``annotation_ranges``): one pass over the lines,
+    each read once and bounded (a line over 2,000 characters is left as it is)."""
+    from ..stem.layout import PART_LEAD_RE, annotation_ranges
+    if not text:
+        return text
+    out: list[str] = []
+    for line in text.split("\n"):
+        if not line.strip() or len(line) > 2000:
+            out.append(line)
+            continue
+        chars = list(line)
+        m = PART_LEAD_RE.match(line)
+        if m is not None:
+            a, b = m.span("label")
+            chars[a:b] = " " * (b - a)
+            inner = PART_LEAD_RE.match(line[b:])  # a numbered point right after the part label ('(c) 1. Drainage ...') is a label too
+            if inner is not None:
+                c, d = inner.span("label")
+                chars[b + c:b + d] = " " * (d - c)
+        if any(ch in line for ch in "[(MARNG"):
+            for a, b in annotation_ranges(line):
+                chars[a:b] = " " * (b - a)
+        out.append("".join(chars))
+    return "\n".join(out)
 
 
 #: A line of working: an equation or a calculation ("PED = −12.50 ÷ 18.75 = −0.67", "t = 0 h: 1620 − 20 = 1600"), an
@@ -714,6 +796,9 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|")
 _LABEL_LINE_RE = re.compile(r"^\s*+(?:\(?[a-z]{1,4}\)|\d{1,2}[.)]|part\s++\(?[a-z0-9]{1,4}\)?)?\s*+(?:\[\s*+\d++(?:\s++(?:marks?|spare))?\s*+\])?\s*+$|^\s*+\d{4}(?:\s*+\([^)]{0,30}\))?\s*+$", re.IGNORECASE)
 #: A block of working the writer labels as such ("Working for (b):", "Calculation:", "Workings").
 _WORKING_BLOCK_RE = re.compile(r"^\W{0,3}(?:working|workings|calculations?|method)\b[^\n]{0,40}:?\s*$", re.IGNORECASE | re.MULTILINE)
+#: The result line of a calculated part ("Answer: about 1.97 × 10⁶ t of carbon (3 s.f.)", "Final answer: 3,660 t"): working when a line
+#: of its paragraph is working (round-10 clearance, c3 critical record 3: a 'plus working' bound set aside only a sliver of the working).
+_ANSWER_LINE_RE = re.compile(r"^\W{0,3}(?:final\s{1,3})?(?:answer|ans|result)\s{0,3}(?:\([^()\n]{0,20}\)\s{0,3})?[:=]\s{0,3}\S", re.IGNORECASE)
 #: A diagram described in words: a block opening "Diagram 1: ...", "Figure 2 -", "Graph:", "Sketch:", or a block of
 #: "Axes:", "Curves:", "Labels:" lines.
 _DIAGRAM_HEAD_RE = re.compile(r"^\W{0,3}(?:diagram|figure|graph|sketch|chart)\b[^\n]{0,120}?[:.\-\u2013\u2014]", re.IGNORECASE)
@@ -760,51 +845,91 @@ def measure_answer_words(text: str, *, excludes: tuple[str, ...] | list[str] = (
     if view is not None:
         text = view(text)
     answer = notes = exempt = 0
+    # what rule meta-lead set aside that the paragraph reading counts as answer (and as working): restored when nothing else is the
+    # answer, so a meta lead never leaves a response with no answer and never turns a note into answer
+    lead_answer = lead_exempt = 0
     working, diagram = "working" in excludes, "diagram" in excludes
-    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
-        if not p.strip():
+    # the paragraphs are cut from the answer as written; each is read with its part labels and mark annotations blanked (a line of
+    # nothing but a label never cuts a paragraph in two), its note and meta readings on the paragraph as written
+    for raw in re.split(r"\n\s*\n", strip_markup(text).strip()):
+        if not raw.strip():
             continue
         # a note block, or a paragraph opened by a bare note lead ("Note:", "N.B.", "Next step:", "Limit:", "Caveat:";
         # ``markdown.opens_note_paragraph``): the parsers role every sentence of it non-material, so none counts
-        if is_note_block(p) or opens_note_paragraph(p):
-            notes += count_words(p)
+        if is_note_block(raw) or opens_note_paragraph(raw):
+            notes += count_words(raw)
             continue
-        lines = [ln for ln in p.strip().split("\n") if ln.strip()]
-        if diagram and lines and (_DIAGRAM_HEAD_RE.match(lines[0]) or sum(1 for ln in lines if _DIAGRAM_LINE_RE.match(ln)) >= max(2, len(lines) // 2)):
-            exempt += count_words(p)
+        lead = is_meta_lead_paragraph(raw)
+        a, n, e = _measure_paragraph(raw, working=working, diagram=diagram)
+        if lead:
+            # a paragraph a meta lead opens ("Assumption:", "One correction for your planning:", rule meta-lead): it says how the
+            # answer reads the task, so it counts toward no bound beside an answer proper (a marked one, "... [1]", is the answer's own)
+            notes += a + n + e
+            lead_answer += a
+            lead_exempt += e
             continue
-        if working and lines and _WORKING_BLOCK_RE.match(lines[0]):
-            exempt += count_words(p)
-            continue
-        pieces = ["\n".join(lines)]
-        if working:  # a line of working is set aside whole: a table row, a part-and-mark label, a line holding an equation
-            pieces = []
-            worked = [bool(_TABLE_ROW_RE.match(ln) or _LABEL_LINE_RE.match(ln) or _is_working_sentence(ln)) for ln in lines]
-            # In a block of working (at least half its lines), a line that quotes an equation sources a step of it
-            # ('the Economics specialist gives "Pp = $1.90 − $0.40 = $1.50 per litre"') and is working too.
-            in_working_block = len(lines) >= 2 and sum(worked) * 2 >= len(lines)
-            for ln, w in zip(lines, worked):
-                if w or (in_working_block and _EQUATION_RE.search(ln)):
-                    exempt += count_words(ln)
-                    continue
-                pieces.append(ln)
-            pieces = [" ".join(pieces)] if pieces else []
-        for piece in pieces:
-            for s, is_json in _segments(piece.strip()):
-                n = count_words(s)
-                if is_json:
-                    notes += n
-                    continue
-                if working and _is_working_sentence(s):
-                    exempt += n
-                    continue
-                core = _note_core(s)
-                if not core:
-                    notes += n
-                    continue
-                kept = min(n, count_words(core))
-                answer += kept
-                notes += n - kept
+        answer += a
+        notes += n
+        exempt += e
+    if answer == 0 and lead_answer:
+        # an answer that is nothing but a paragraph a meta lead opens ("Assumptions: 1 MB = 10⁶ bytes. ...") is that paragraph, read as
+        # any paragraph is (INT-REQ-012 reads this measure)
+        answer, exempt, notes = lead_answer, exempt + lead_exempt, notes - lead_answer - lead_exempt
+    return answer, notes, exempt
+
+
+def _measure_paragraph(raw: str, *, working: bool, diagram: bool) -> tuple[int, int, int]:
+    """``(answer words, note words, exempt words)`` of one paragraph of the answer as written (:func:`measure_answer_words`): its part
+    labels and mark annotations blanked (no words of the answer, STEM handoff H2.2), a diagram or a block of working exempt as a whole,
+    lines and sentences of working exempt, a note about the answer or a note clause left out, the rest the answer."""
+    from ..adapters.markdown import is_answer_note
+    answer = notes = exempt = 0
+    p = blank_labels_and_marks(raw)  # part labels and mark annotations are no words of the answer (STEM handoff H2.2)
+    if not p.strip():
+        return 0, 0, 0
+    lines = [ln for ln in p.strip().split("\n") if ln.strip()]
+    if diagram and lines and (_DIAGRAM_HEAD_RE.match(lines[0]) or sum(1 for ln in lines if _DIAGRAM_LINE_RE.match(ln)) >= max(2, len(lines) // 2)):
+        return 0, 0, count_words(p)
+    if working and lines and _WORKING_BLOCK_RE.match(lines[0]):
+        return 0, 0, count_words(p)
+    pieces = ["\n".join(lines)]
+    if working:  # a line of working is set aside whole: a table row, a part-and-mark label, a line holding an equation
+        pieces = []
+        worked = [bool(_TABLE_ROW_RE.match(ln) or _LABEL_LINE_RE.match(ln) or _is_working_sentence(ln)) for ln in lines]
+        # In a block of working (at least half its lines), a line that quotes an equation sources a step of it
+        # ('the Economics specialist gives "Pp = $1.90 − $0.40 = $1.50 per litre"') and is working too.
+        in_working_block = len(lines) >= 2 and sum(worked) * 2 >= len(lines)
+        # the result line of a calculated part ("Answer: 3,660 t of carbon dioxide each year") is working when its paragraph
+        # holds working (round-10 clearance, c3 critical record 3)
+        has_working = any(worked)
+        for k, ln in enumerate(lines):
+            if not worked[k] and has_working and _ANSWER_LINE_RE.match(ln) and any(ch.isdigit() for ch in ln):
+                worked[k] = True
+        for ln, w in zip(lines, worked):
+            if w or (in_working_block and _EQUATION_RE.search(ln)):
+                exempt += count_words(ln)
+                continue
+            pieces.append(ln)
+        pieces = [" ".join(pieces)] if pieces else []
+    for piece in pieces:
+        for s, is_json in _segments(piece.strip()):
+            n = count_words(s)
+            if is_json:
+                notes += n
+                continue
+            if working and _is_working_sentence(s):
+                exempt += n
+                continue
+            if is_answer_note(s):  # a note about the answer inside a paragraph of content (handoff H2): its words alone are left out
+                notes += n
+                continue
+            core = _note_core(s)
+            if not core:
+                notes += n
+                continue
+            kept = min(n, count_words(core))
+            answer += kept
+            notes += n - kept
     return answer, notes, exempt
 
 
@@ -894,11 +1019,19 @@ def count_paragraphs(text: str) -> int:
     whose sentences keep a substance once their inline labels are set aside is a paragraph."""
     from ..adapters.markdown import opens_note_paragraph, strip_markup
     count = 0
-    for p in re.split(r"\n\s*\n", strip_markup(text).strip()):
-        if not p.strip() or is_note_block(p) or opens_note_paragraph(p):
+    meta_lead = 0  # paragraphs rule meta-lead set aside: meta-text only beside an answer proper (never the whole answer)
+    for raw in re.split(r"\n\s*\n", strip_markup(text).strip()):
+        if not raw.strip() or is_note_block(raw) or opens_note_paragraph(raw):
+            continue
+        lead = is_meta_lead_paragraph(raw)
+        p = blank_labels_and_marks(raw)  # a paragraph of nothing but a part label or a mark annotation is no paragraph
+        if not p.strip():
             continue
         segments = _segments(p.strip())
         if segments and all(is_json or not _note_core(s) for s, is_json in segments):
             continue
+        if lead:  # a paragraph the paragraph reading counts, set aside by rule meta-lead beside an answer proper
+            meta_lead += 1
+            continue
         count += 1
-    return count
+    return count if count or not meta_lead else meta_lead  # a meta lead never leaves an answer with no paragraph

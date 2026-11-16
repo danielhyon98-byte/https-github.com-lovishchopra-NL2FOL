@@ -156,9 +156,18 @@ def test_plus_working_and_diagram_are_read_as_exemptions_and_the_prose_is_within
     assert answer <= bound and exempt > 0
 
 
-@pytest.mark.parametrize("task,answer_words,note_words", [("hi-t13", 303, 57), ("ess-t13", 345, 22)])
+# ess-t13 rewritten after round 10 (clearance c3, STEM handoff H2.2, rule labels-and-marks): its four part labels and fourteen mark
+# annotations ('(a)', '[1]', '[1 spare]') are no words of the answer on any branch (the STEM view already left them out), so the general
+# reading measures 327 = 345 - 18 words; the note words are unchanged, and so is the rule this test pins
+@pytest.mark.parametrize("task,answer_words,note_words", [("hi-t13", 303, 57), ("ess-t13", 327, 22)])
 def test_a_note_block_is_out_of_the_word_count(task, answer_words, note_words):
     assert measure_answer_words(SPEC[task]["response_text"])[:2] == (answer_words, note_words)
+    if task == "ess-t13":  # the 18 words the rule leaves out are part labels and mark annotations, nothing else
+        from epinoic_logic.adapters.markdown import strip_markup
+        from epinoic_logic.channel.request_parser import _WORD_TOKEN_RE, blank_labels_and_marks
+        text = strip_markup(SPEC[task]["response_text"])
+        removed = "".join(c if c != d else " " for c, d in zip(text, blank_labels_and_marks(text)))
+        assert sorted(set(_WORD_TOKEN_RE.findall(removed))) == ["1", "a", "b", "c", "d", "spare"] and len(_WORD_TOKEN_RE.findall(removed)) == 18
 
 
 @pytest.mark.parametrize("task", ["hi-t13", "hi-p7c", "lit-p7c"])

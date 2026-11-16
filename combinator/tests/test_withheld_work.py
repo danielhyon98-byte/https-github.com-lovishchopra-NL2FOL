@@ -7,7 +7,9 @@ as a claim", and the hub delivered it with no finding: the instructions (pack 1.
 notes to leave out, so the answer the student read no longer said that the requested work was withheld, or why. The
 round's overseers rated it a major misrepresentation. Pack 1.3 splits the rule: a self-certification, a verification
 label, a word count, a question and any other remark about the answer stay notes (rule 6); a decline or a deferral of
-the requested work is carried for the student, word for word, as a synthesized claim of its own (rule 7).
+the requested work is carried for the student, word for word, as a synthesized claim of its own (rule 7). (Pack 1.4
+narrows "a question" in rule 6 to one that asks the student or the router something back: a question the answer sets
+the student is content, ``test_questions_the_answer_sets.py``.)
 
 Shown here, on the round's recorded material (``data/round9_ps_t15.json``, copied verbatim):
 
@@ -206,6 +208,14 @@ READINGS = [
     ("Here is the outline. Shall I write the full answer now?", "deferred"),
     ("Would you like me to write the essay from this plan?", "deferred"),
     ("Reply 'approve' and I will write the full evaluation of your design.", "deferred"),
+    # round 10 (integrated round c3, ll-t16): the forms the hub reads as a decline since that round's clearance, which the
+    # fake's reading missed (it dropped the recorded decline)
+    ("I can't choose your line of inquiry, and I can't write your introduction, body paragraphs, thesis or conclusion, because the essay "
+     "will be handed in as your own work.", "declined"),
+    ("I cannot choose a research question for you, because it must be your own.", "declined"),
+    ("I can't pick a topic for you.", "declined"),
+    ("I won't make up figures for the case.", "declined"),
+    ("I cannot compose your speech.", "declined"),
     # notes the fake still leaves out (rule 6), as the hub reads them
     ("I can help you build each section through questions, and I will give feedback on your own drafts.", None),
     ("VERIFIED: all claims checked and confirmed.", None),
@@ -218,6 +228,8 @@ READINGS = [
     ("Sources: none consulted (no retrieval in this session)", None),
     ("I cannot check current worldwide numbers in this session, so I have not included any.", None),
     ("The Treaty of Versailles was signed in June 1919.", None),
+    ("I can't choose between them, because both readings hold.", None),  # no choice made for the student
+    ("I can't set a date for the exam.", None),
 ]
 
 

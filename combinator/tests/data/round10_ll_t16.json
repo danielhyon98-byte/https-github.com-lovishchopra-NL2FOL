@@ -1,0 +1,686 @@
+{
+ "description": "Recorded material of arena round 10 (integrated round c3), task ll-t16, copied verbatim: the student's request, the supplied text, the English A: Language and Literature specialist's response, its claims as the round's hub delivered them (the listing its combinator agent was briefed with), and the synthesis the round's combinator agent wrote under instruction pack 1.3, which carried the sentence that announces the answer's four guiding questions ('To test a direction, answer these from the adverts themselves: 1. ...') and dropped the four questions (p4-s02, p4-s04, p4-s06, p4-s07) as 'a question or practice prompt to the student, a note'.",
+ "task_id": "ll-t16",
+ "subject": "English A: Language and Literature",
+ "agent_id": "english-a-lang-lit-specialist",
+ "task_type": "hl_essay",
+ "question": "I'm an HL Language and Literature student (the course first assessed in 2021; my exams are in May 2027). My HL essay is due next Friday and I'm really behind. I'm writing it on the non-literary body of work we studied in class, the three 'Every Kitchen' Christmas adverts by the supermarket chain Harlow & Finch; my notes are pasted below. Please choose a line of inquiry for me and write my introduction and my first two body paragraphs in a formal academic style, about 900 words altogether, so that I can paste them straight into my essay.",
+ "supplied_texts": [
+  {
+   "document_id": "doc-everykitchen-notes",
+   "title": "My notes on the 'Every Kitchen' adverts (student notes, supplied text)",
+   "author": "Student (practice notes; the campaign and the supermarket chain are fictional)",
+   "text": "Every Kitchen: Harlow & Finch Christmas adverts (my notes)\n\nAdvert 1 (2023), 'The Long Table', 60 seconds. A grandmother cooks for a huge family. The camera stays at table height the whole time, so we see hands passing dishes but hardly any faces. Voiceover (a child): 'Every kitchen has a story.' It ends on the logo and the slogan 'Every kitchen. Every Christmas.' Music: a slow piano version of an old carol.\n\nAdvert 2 (2024), 'Leftovers', 90 seconds. A young man alone in a small flat makes a sandwich from leftovers his mum packed for him. No dialogue at all. Text on screen: 'Made with love. Finished with love.' The price of the turkey crown is shown for about one second (£18).\n\nAdvert 3 (2025), 'Shift', 60 seconds. A nurse eats her Christmas dinner out of a plastic box at 3 a.m. in a hospital corridor while her colleagues share a tin of chocolates. Voiceover (the nurse): 'Not every kitchen has a door.' The slogan changes to 'Every kitchen. Every Christmas. Everyone.'\n\nIdeas so far: the campaign moves from a big family to people who are alone or working; the slogan gets longer each year; the adverts never show the inside of a shop. Maybe something about how the adverts construct 'home', or about absence (faces, words, the shop). Essay length: 1,200 to 1,500 words."
+  }
+ ],
+ "response_text": "I can't choose your line of inquiry, and I can't write your introduction, body paragraphs, thesis or conclusion, because the essay will be handed in as your own work. I can help you find and test your own line, and give provisional feedback on your draft.\n\nStart with the length. The essay must be 1,200 to 1,500 words. The introduction, body, conclusion and quotations count; citations and the bibliography do not. Your target of about 900 words would fall below the minimum, which usually costs marks, so plan for about 1,300. Nothing past 1,500 words is read.\n\nYour notes already hold three possible directions: the campaign moves from one large family to people who are alone or working; the slogan grows from \"Every kitchen. Every Christmas.\" to \"Every kitchen. Every Christmas. Everyone.\"; and the shop never appears. At the moment each is a topic. A line of inquiry is a question with a direction. It names the aspect of construction you will study and the meaning at stake, and it can be argued across the whole body of work.\n\nTo test a direction, answer these from the adverts themselves:\n1. Your notes say the camera \"stays at table height the whole time\", so we see \"hands passing dishes but hardly any faces\". What does that choice do to who counts as part of the family?\n2. The first advert's voiceover is a child saying \"Every kitchen has a story.\", and the third's is a nurse saying \"Not every kitchen has a door.\" What does the change of speaker add to the change of message?\n3. The second advert has no dialogue, and its price is shown for \"about one second\". What does a text with no speech ask its viewer to do, and what does the price do within that silence?\n4. Does one question work across all three adverts, or only two? The essay should use at least two texts from a body of short texts, and three gives you more to converge on.\n\nSteps for this week:\n- Re-watch all three adverts. Your notes describe them, but your essay must analyse them, so check each claim against what appears on screen.\n- Write your chosen line as one question. Then list the detail that would support an answer, and the detail a reader could use to disagree.\n- Gather your evidence first, and write the introduction once the line is clear.\n- If you use any AI tool, reference it in the body and the bibliography, with the prompt and the date.\n\nAn example on a different, invented body of work, to show the difference. Topic: \"Money in a bank's savings adverts.\" Line of inquiry: \"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\" The second is a question with a direction. It names the construction (the figure of the grandparent) and the meaning at stake (duty against choice), and it can be answered across several adverts.\n\nWhen you send a draft of your introduction and first two body paragraphs, I will give provisional feedback against the four HL essay criteria: knowledge, understanding and interpretation; analysis and evaluation; focus, organization and development; and language. Each will come with questions to move the draft forward. I cannot give a mark without a draft, and any mark would be provisional; only your teacher and the IB award real marks.\n\nSources: your notes on the 'Every Kitchen' adverts (supplied text); course notes on HL essay requirements and line-of-inquiry coaching (course notes)",
+ "claims": [
+  {
+   "claim_id": "p1-s02",
+   "role": "other",
+   "materiality": "supporting",
+   "certainty": "possible",
+   "text": "I can help you find and test your own line, and give provisional feedback on your draft."
+  },
+  {
+   "claim_id": "p2-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "Start with the length."
+  },
+  {
+   "claim_id": "p2-s02",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "The essay must be 1,200 to 1,500 words."
+  },
+  {
+   "claim_id": "p2-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "The introduction, body, conclusion and quotations count; citations and the bibliography do not."
+  },
+  {
+   "claim_id": "p2-s04",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Your target of about 900 words would fall below the minimum, which usually costs marks, so plan for about 1,300."
+  },
+  {
+   "claim_id": "p2-s05",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Nothing past 1,500 words is read."
+  },
+  {
+   "claim_id": "p3-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "Your notes already hold three possible directions: the campaign moves from one large family to people who are alone or working; the slogan grows from \"Every kitchen. Every Christmas.\" to \"Every kitchen. Every Christmas. Everyone.\"; and the shop never appears."
+  },
+  {
+   "claim_id": "p3-q01",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Every kitchen. Every Christmas.\""
+  },
+  {
+   "claim_id": "p3-q02",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Every kitchen. Every Christmas. Everyone.\""
+  },
+  {
+   "claim_id": "p3-s02",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "At the moment each is a topic."
+  },
+  {
+   "claim_id": "p3-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "A line of inquiry is a question with a direction."
+  },
+  {
+   "claim_id": "p3-s04",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "It names the aspect of construction you will study and the meaning at stake, and it can be argued across the whole body of work."
+  },
+  {
+   "claim_id": "p4-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "To test a direction, answer these from the adverts themselves: 1. Your notes say the camera \"stays at table height the whole time\", so we see \"hands passing dishes but hardly any faces\"."
+  },
+  {
+   "claim_id": "p4-q01",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"stays at table height the whole time\""
+  },
+  {
+   "claim_id": "p4-q02",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"hands passing dishes but hardly any faces\""
+  },
+  {
+   "claim_id": "p4-s02",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "What does that choice do to who counts as part of the family?"
+  },
+  {
+   "claim_id": "p4-q03",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Every kitchen has a story.\""
+  },
+  {
+   "claim_id": "p4-q04",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Not every kitchen has a door.\""
+  },
+  {
+   "claim_id": "p4-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "2. The first advert's voiceover is a child saying \"Every kitchen has a story.\", and the third's is a nurse saying \"Not every kitchen has a door.\""
+  },
+  {
+   "claim_id": "p4-s04",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "What does the change of speaker add to the change of message?"
+  },
+  {
+   "claim_id": "p4-q05",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"about one second\""
+  },
+  {
+   "claim_id": "p4-s05",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "3. The second advert has no dialogue, and its price is shown for \"about one second\"."
+  },
+  {
+   "claim_id": "p4-s06",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "What does a text with no speech ask its viewer to do, and what does the price do within that silence?"
+  },
+  {
+   "claim_id": "p4-s07",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "4. Does one question work across all three adverts, or only two?"
+  },
+  {
+   "claim_id": "p4-s08",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "The essay should use at least two texts from a body of short texts, and three gives you more to converge on."
+  },
+  {
+   "claim_id": "p5-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "Re-watch all three adverts."
+  },
+  {
+   "claim_id": "p5-s01",
+   "role": "other",
+   "materiality": "supporting",
+   "certainty": "possible",
+   "text": "Steps for this week:"
+  },
+  {
+   "claim_id": "p5-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Your notes describe them, but your essay must analyse them, so check each claim against what appears on screen."
+  },
+  {
+   "claim_id": "p5-s04",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Write your chosen line as one question."
+  },
+  {
+   "claim_id": "p5-s05",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Then list the detail that would support an answer, and the detail a reader could use to disagree."
+  },
+  {
+   "claim_id": "p5-s06",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Gather your evidence first, and write the introduction once the line is clear."
+  },
+  {
+   "claim_id": "p5-s07",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "If you use any AI tool, reference it in the body and the bibliography, with the prompt and the date."
+  },
+  {
+   "claim_id": "p6-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "An example on a different, invented body of work, to show the difference."
+  },
+  {
+   "claim_id": "p6-q01",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Money in a bank's savings adverts.\""
+  },
+  {
+   "claim_id": "p6-s02",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Topic: \"Money in a bank's savings adverts.\""
+  },
+  {
+   "claim_id": "p6-q02",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\""
+  },
+  {
+   "claim_id": "p6-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Line of inquiry: \"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\""
+  },
+  {
+   "claim_id": "p6-s04",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "The second is a question with a direction."
+  },
+  {
+   "claim_id": "p6-s05",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "It names the construction (the figure of the grandparent) and the meaning at stake (duty against choice), and it can be answered across several adverts."
+  },
+  {
+   "claim_id": "p7-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "When you send a draft of your introduction and first two body paragraphs, I will give provisional feedback against the four HL essay criteria: knowledge, understanding and interpretation; analysis and evaluation; focus, organization and development; and language."
+  },
+  {
+   "claim_id": "p7-s02",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "Each will come with questions to move the draft forward."
+  },
+  {
+   "claim_id": "p7-s03",
+   "role": "interpretation",
+   "materiality": "supporting",
+   "certainty": "probable",
+   "text": "I cannot give a mark without a draft, and any mark would be provisional; only your teacher and the IB award real marks."
+  },
+  {
+   "claim_id": "p8-point",
+   "role": "point",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "Sources: your notes on the 'Every Kitchen' adverts (supplied text); course notes on HL essay requirements and line-of-inquiry coaching (course notes)"
+  },
+  {
+   "claim_id": "p8-q01",
+   "role": "evidence",
+   "materiality": "supporting",
+   "certainty": "established",
+   "text": "\"Every Kitchen\""
+  },
+  {
+   "claim_id": "p1-s01",
+   "role": "thesis",
+   "materiality": "material",
+   "certainty": "probable",
+   "text": "I can't choose your line of inquiry, and I can't write your introduction, body paragraphs, thesis or conclusion, because the essay will be handed in as your own work."
+  }
+ ],
+ "synthesis": {
+  "claims": [
+   {
+    "text": "Start with the length.",
+    "source_claim_ids": [
+     "p2-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "The essay must be 1,200 to 1,500 words.",
+    "source_claim_ids": [
+     "p2-s02"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "The introduction, body, conclusion and quotations count; citations and the bibliography do not.",
+    "source_claim_ids": [
+     "p2-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Your target of about 900 words would fall below the minimum, which usually costs marks, so plan for about 1,300.",
+    "source_claim_ids": [
+     "p2-s04"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Nothing past 1,500 words is read.",
+    "source_claim_ids": [
+     "p2-s05"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Your notes already hold three possible directions: the campaign moves from one large family to people who are alone or working; the slogan grows from \"Every kitchen. Every Christmas.\" to \"Every kitchen. Every Christmas. Everyone.\"; and the shop never appears.",
+    "source_claim_ids": [
+     "p3-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Every kitchen. Every Christmas.\"",
+    "source_claim_ids": [
+     "p3-q01"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Every kitchen. Every Christmas. Everyone.\"",
+    "source_claim_ids": [
+     "p3-q02"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "At the moment each is a topic.",
+    "source_claim_ids": [
+     "p3-s02"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "A line of inquiry is a question with a direction.",
+    "source_claim_ids": [
+     "p3-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "It names the aspect of construction you will study and the meaning at stake, and it can be argued across the whole body of work.",
+    "source_claim_ids": [
+     "p3-s04"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "To test a direction, answer these from the adverts themselves: 1. Your notes say the camera \"stays at table height the whole time\", so we see \"hands passing dishes but hardly any faces\".",
+    "source_claim_ids": [
+     "p4-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"stays at table height the whole time\"",
+    "source_claim_ids": [
+     "p4-q01"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"hands passing dishes but hardly any faces\"",
+    "source_claim_ids": [
+     "p4-q02"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Every kitchen has a story.\"",
+    "source_claim_ids": [
+     "p4-q03"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Not every kitchen has a door.\"",
+    "source_claim_ids": [
+     "p4-q04"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "2. The first advert's voiceover is a child saying \"Every kitchen has a story.\", and the third's is a nurse saying \"Not every kitchen has a door.\"",
+    "source_claim_ids": [
+     "p4-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"about one second\"",
+    "source_claim_ids": [
+     "p4-q05"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "3. The second advert has no dialogue, and its price is shown for \"about one second\".",
+    "source_claim_ids": [
+     "p4-s05"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "The essay should use at least two texts from a body of short texts, and three gives you more to converge on.",
+    "source_claim_ids": [
+     "p4-s08"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Re-watch all three adverts.",
+    "source_claim_ids": [
+     "p5-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Your notes describe them, but your essay must analyse them, so check each claim against what appears on screen.",
+    "source_claim_ids": [
+     "p5-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Write your chosen line as one question.",
+    "source_claim_ids": [
+     "p5-s04"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Then list the detail that would support an answer, and the detail a reader could use to disagree.",
+    "source_claim_ids": [
+     "p5-s05"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Gather your evidence first, and write the introduction once the line is clear.",
+    "source_claim_ids": [
+     "p5-s06"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "If you use any AI tool, reference it in the body and the bibliography, with the prompt and the date.",
+    "source_claim_ids": [
+     "p5-s07"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "An example on a different, invented body of work, to show the difference.",
+    "source_claim_ids": [
+     "p6-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Money in a bank's savings adverts.\"",
+    "source_claim_ids": [
+     "p6-q01"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "Topic: \"Money in a bank's savings adverts.\"",
+    "source_claim_ids": [
+     "p6-s02"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\"",
+    "source_claim_ids": [
+     "p6-q02"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "Line of inquiry: \"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\"",
+    "source_claim_ids": [
+     "p6-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "The second is a question with a direction.",
+    "source_claim_ids": [
+     "p6-s04"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "It names the construction (the figure of the grandparent) and the meaning at stake (duty against choice), and it can be answered across several adverts.",
+    "source_claim_ids": [
+     "p6-s05"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "When you send a draft of your introduction and first two body paragraphs, I will give provisional feedback against the four HL essay criteria: knowledge, understanding and interpretation; analysis and evaluation; focus, organization and development; and language.",
+    "source_claim_ids": [
+     "p7-point"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "Each will come with questions to move the draft forward.",
+    "source_claim_ids": [
+     "p7-s02"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "I cannot give a mark without a draft, and any mark would be provisional; only your teacher and the IB award real marks.",
+    "source_claim_ids": [
+     "p7-s03"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   },
+   {
+    "text": "\"Every Kitchen\"",
+    "source_claim_ids": [
+     "p8-q01"
+    ],
+    "certainty": "established",
+    "transformation": "carried"
+   },
+   {
+    "text": "I can't choose your line of inquiry, and I can't write your introduction, body paragraphs, thesis or conclusion, because the essay will be handed in as your own work.",
+    "source_claim_ids": [
+     "p1-s01"
+    ],
+    "certainty": "probable",
+    "transformation": "carried"
+   }
+  ],
+  "dropped": [
+   {
+    "source_claim_ids": [
+     "p1-s02"
+    ],
+    "reason": "an offer of help, a note rather than a claim of the answer"
+   },
+   {
+    "source_claim_ids": [
+     "p4-s02"
+    ],
+    "reason": "a question or practice prompt to the student, a note rather than a claim of the answer"
+   },
+   {
+    "source_claim_ids": [
+     "p4-s04"
+    ],
+    "reason": "a question or practice prompt to the student, a note rather than a claim of the answer"
+   },
+   {
+    "source_claim_ids": [
+     "p4-s06"
+    ],
+    "reason": "a question or practice prompt to the student, a note rather than a claim of the answer"
+   },
+   {
+    "source_claim_ids": [
+     "p4-s07"
+    ],
+    "reason": "a question or practice prompt to the student, a note rather than a claim of the answer"
+   },
+   {
+    "source_claim_ids": [
+     "p5-s01"
+    ],
+    "reason": "a heading or label with no claim of its own"
+   },
+   {
+    "source_claim_ids": [
+     "p8-point"
+    ],
+    "reason": "a sources line, a note rather than a claim of the answer"
+   }
+  ]
+ }
+}

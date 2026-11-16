@@ -243,3 +243,14 @@ error the library reports is `E303` as well. ARG-HG-001 no longer names a majori
 ("a species making over half of the individuals means most belong to one species", c2 ess-t15 s6.2: `_definitional_majority`); a
 majority that places its population in a wider scope ("most students in the country" from one class's pass rate) is still the
 hasty generalisation.
+
+## Round-10 clearance (integrated round c3): valid links read as defects
+
+ARG-HG-001 no longer names a negated universal, which one instance establishes ("did not settle every battle" from one defeat,
+hi-t16 h1.7: `_NEGATED_UNIVERSAL_RE`), a link from a general statement about a kind, a definition ("a common pool resource is
+rivalrous ...", so "each user's catch reduces what is left for everyone else", ec-t16 g2.3, which reached the receipt as
+INT-ARG-001: `_GENERIC_KIND_RE`), or a consequent that defines ("profit before interest and tax is taken as gross profit less
+expenses", bm-t16 g1.2: `_DEFINING_RE`); ARG-CL-001 no longer names a link that concludes a cause cannot be established ("so
+natural variation cannot be excluded", ec-t16 g11.5: `_CAUSE_WITHHELD_RE`). A hasty generalisation from one dated instance ("the
+one student we asked in 2023 failed, so every student fails") and a cause read into a sequence ("the advert ran in May, sales rose
+in June, so the advert caused the rise") are still named (`tests/engine/test_c3_clearance_core_engine.py`).

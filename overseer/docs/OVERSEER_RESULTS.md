@@ -4909,3 +4909,53 @@ path, as the session's `pythonpath` does, so it passes where only the translator
 repository's documented test command (32 of 32 layout tests pass there). Its assertions are unchanged, and one is added, a stricter
 rule: the fresh interpreter resolves the package under test itself, never another installed copy. A control run on a copy of the
 package with its import-time check disabled fails the test with the bare `ImportError` the check exists to prevent.
+
+## 43. After the round-10 clearance (integrated round c3; design section 57)
+
+Measured 2026-11-15 with Python 3.13 on the working tree (not committed), on fresh copies of the recorded rounds c1, c2 and c3 (never
+written). "Before" is the overseer package as committed before this clearance, run against the same translator tree; "after" is the
+tree with this clearance's fixes. Other owners were editing the same tree in parallel (the shared self-report reader above all); the
+rows that moved because of their edits are said so.
+
+| Measure | Before | After |
+| --- | --- | --- |
+| c3 replayed through an audited hub, every variant: functional transmissions | 166 of 168 | 166 of 168 (the two failures are the round's own, unchanged) |
+| c2 likewise; c1 likewise | 188 of 188; 203 of 203 | the same; no delivery decision and no finding of a genuine record differs between before and after on either round. One run in between, during other owners' edits of the English parser's quotation credit, gave c1 195 of 203 (the eight invented-quotation mutations of the English answers drew CORE-SRC-003 only, never INT-REQ-003; the overseer as committed gave the same 195 on that tree: receipts alone decide the measure); the final run on fresh copies, those edits completed, gave c1 203 of 203, c2 188 of 188 and c3 166 of 168 |
+| the 20 genuine c3 answers through the delivery hub, each audited (task audit): clearances AUDIT_FAILED | 6 (bi-t16, ch-p10c, ll-t16, ph-t16, sp-p10d, sp-t16) | 1 (ch-p10c, on true findings only: OVS-TRN-006 on s6.2 and OVS-JOINT-003 on the receipt's two false conflicts) |
+| the same audits: OVS-FID-004 on the writer's own quoted words (corrections, glosses, models, invented examples) | 17 errors | none (rule own-text) |
+| OVS-RES-009 and OVS-TRN-007 on ph-t16 s4.13 and s4.15 (the composer withholds a self-report the auditor re-derived ENTAILED) | 2 and 4 errors | none (rule composed-display); a receipt showing such a claim ENTAILED is still OVS-RES-009 |
+| OVS-TRN-006 | 3 errors (bi-t16 s4.1 and s4.3, ch-p10c s6.2) | 1 (ch-p10c s6.2, true); bi-t16's two are OVS-TRN-011 warnings (rule task-record) |
+| OVS-TRN-005 | 10 warnings | 5: the five false ones (ch-p10c s4.2 and s4.7, ch-t16 s4.1, maa-t16 m5.7, mai-t16 m26.1) are read (rules unit-factors, stated-powers, cut-decimal); the five true ones stay (bi-t16 s4.1's 250, cs-p10a c8.1, mai-t16 m21.2 and m23.1, ph-t16 s3.7) |
+| the channel's false INT-CONFLICT-001 (ch-p10c s3.1/s4.2 and s4.6/s6.2 through 'x0'; maa-t16 m2.1/m5.5 and m3.5/m6.3) | none named (one OVS-JOINT-002 "undecided") | each named OVS-JOINT-003 (rule local-glosses); an agent's false_conflict accusation of each is confirmed, never refuted |
+| all findings of those 20 audits | 97 | 72 |
+| the delivery pass on c3 (no overseer agent configured, so every answer is withheld either way): answers its task audit fails | 4 (ch-p10c, ph-t16, sp-p10d, sp-t16) | 2 (ch-p10c, maa-t16: OVS-JOINT-003 naming the receipt's false conflicts; both answers are excluded by their receipts' errors either way); ph-t16 stays excluded by its receipt (CORE-SELF-001, the shared reader's tick reading: the handoff); sp-p10d and sp-t16, excluded by the channel's INT-REQ-003 on the earlier run, are deliverable on the final run on fresh copies, the parsers' edits of the round in (the channel no longer charges their own words either) |
+| the gate's own reading of an answer-scope status claim (rule answer-status) on the 6,142 paragraphs, sentences, lines and cells of the recorded answers of rounds 1 to 7, c1, c2 and c3 | not read (the round's ten wordings delivered as material claims) | 2 named, both in r1-adv's planted fake receipt; 0.001 s on each standard hostile input |
+| the same-quantity occurrence reader on 20,000 characters of figures | 28 to 85 s; a 20,000-digit numeral raised | at most 0.19 s for every reader of the sweep; 400,000 characters 1.0 to 2.2 s; the 434 recorded texts give the same occurrences, figure for figure (rule linear-context) |
+| the full STEM probe run (677 probes): gate `stem_fault_classes_named` | ok | ok: 677 of 677 counted, none failing (the new readings hide no planted figure) |
+
+The shared self-report reader moved during the measurements (the parsers' edits of the round): on the after runs c1 bm-p8a (g2.2) and
+ch-t14 (s3.21), c2 ec-t15 (g1.10) and c3 ll-t16 (p4-s01) carried new CORE-SELF-001 findings on correct sentences and became
+undeliverable, and cs-p10a's decline was no longer named; the before runs, made later on the same reader, showed the same, so none of
+it is this clearance's. On the final runs bm-p8a, ec-t15 and ll-t16 are deliverable again; ch-t14 (its sense check of the student's
+value), bm-t16 (a cross-validation definition) and ph-t16 (the marking tick) are still kept from the fallback by the reader's
+readings (the handoff). Its new readers were also quadratic on hostile text for a while (4.3 s on 19,805 characters), which failed three of this sub-project's
+linear-reader tests on an idle machine (`test_c1_push_check_meta_note.py` [hyphens], `test_c1_push_check_lead_blocks.py` [a locator
+run], `test_clearance_c1_overseer.py`'s note reader [quotations]; rule answer-status costs 0.001 s on each of those inputs); the tests
+were left as they are and the stalls reported in the clearance's handoff, and the parsers' later edits made the readers linear (0.017 s
+on the same input). Harness timings on the shared machine (a measure,
+not a stress test): c1 364 to 408 s, c2 264 to 280 s, c3 190 to 266 s.
+
+Tests: `test_clearance_c3_overseer.py` (135) passes. Seven self-reports the fixed expectations pinned False, which the one reader now
+names, are pinned True (a stricter rule), and two tests that read them are rewritten to the stricter reading and say so
+(`test_c1_push_check_round6.py`'s moot-inputs test, `test_c1_push_check_non_material.py`'s whole-words test); the pinned rule list of
+`test_audit_fidelity.py` gains `own-text`.
+
+Suite on the tree as left (the overseer's and the flash router's, `python -I -m pytest -q overseer/tests flash-router/tests` from the
+repository root, run after the other owners' edits of the round): 13,245 passed, 21 skipped, 1 failed:
+`test_c1_push_check_non_material.py::test_every_block_of_the_recorded_round_8_answers_the_rule_leaves_unread_is_pinned`, on two
+'Next practice task: ...' paragraphs (bm-t14 paragraph 6, ch-t14 paragraph 7) the parsers no longer deliver as claims; the overseer as
+committed reads the same two blocks on that tree, and the test is left failing until the parsers say whether they are notes (the
+handoff). Earlier runs during the other owners' edits failed this test and `test_c1_push_check_round4.py[ch-t14]` on the reader's
+readings of bm-p8a and ch-t14, and the three linear-reader tests above; all of those pass on the tree as left. The translator's own
+suite (`tests/`) was run once from the repository root during those edits and stopped at 98 % by the session's two-hour limit, with
+12 failures, all in the parsers' and branches' tests (`tests/adapters`, `tests/adapters_history`, `tests/branches`).
