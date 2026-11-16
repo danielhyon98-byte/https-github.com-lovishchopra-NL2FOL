@@ -2624,3 +2624,10 @@ Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
   clearance findings" is held by its push check: a self-certification worded outside the readers' lists is still
   delivered (6 of 45 fresh phrasings in the check's probe). Rounds 9 and 10 are therefore not uploaded; the uploaded
   code is still the round-8 commit.
+
+### Progress, 09:00 UTC (16 November)
+- Round 10's overseer agents were scored after the round from their recorded verdicts (the round's own scoring step did
+  not run): 32 transfers, 80 valid verdicts from 12 instances; 3 of 110 agent-findable faults named, 0 false
+  accusations; 26 answers green-lit, of which independent judges found 20 inaccurate (each confirmed by a second judge).
+- The handoff report for the round-8 upload was refreshed and published on the main repository's handoff branch, with
+  rounds 9 and 10 listed as done but held by their push checks.

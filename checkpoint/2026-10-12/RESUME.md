@@ -1,10 +1,22 @@
-# Resume notes (15 Nov 07:35 UTC: ROUND 10 RUNNING; round 9 held three times (be91e89, bef76ad, fe2e639); phase2-c2c3 = wf_e6995188-011 RUNNING, resumed with the round 9 HOLD REMEDY inserted before round 10's agents; see the first section). Older sections below are history.
+# Resume notes (16 Nov 08:5x UTC: PROGRAMME COMPLETE: rounds 8-10 done (9-10 HELD: be91e89, bef76ad, fe2e639, 03a3021; self-certification decision pending with Daniel); handoff refreshed and VERIFIED UPLOADED docs/final-z3-handoff ec911d5). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+## 16 Nov 08:5x UTC: PROGRAMME COMPLETE; WAITING FOR DANIEL
+- Round 10 (c3): workflow wf_e6995188-011 COMPLETED 07:4x: 121 lens findings, 108 fixed; verify green (39129 passed, 0 failed;
+  harness r1-r7, c1, c2 = baseline, c3 164/176); commit 03a3021 (pushed to origin); push check HOLD (self-certification class);
+  README ab9276a. Script defect: WFROOT undefined -> overseer-score:c3 skipped; run afterwards in wf_ba8f6d23-bd9 (3/110 faults
+  named; 26 green-lit, 20 judged inaccurate).
+- Handoff: docs/final-z3-handoff ec911d5 (parents d3af9f3 + 1c2fb5c), documents in S/handoff/filled-16nov, published with the
+  rebuilt S/handoff/push_handoff.sh (S/handoff was lost on 10 Nov). Read back: VERIFIED UPLOADED.
+- Uploaded code: c4f276c (verified-updates 1c2fb5c, 9 Nov). The hourly publisher keeps adding "no new final code" notes.
+- NEXT (only on Daniel's word): his self-certification decision (a: status line on every non-formal answer; b: documented
+  limitation) -> a remedy round + push check that can supersede the four held commits -> upload -> handoff refresh
+  (push_handoff.sh). Also open: release tag (403), D9/D10, POLICY_VERSION bump. Stop at ~85% weekly (final checkpoint first).
 
 ## 14 Nov 07:2x-07:5x UTC: ROUND 9 COMMITTED, PUSH CHECK HELD, HOLD REMEDY INSERTED
 - verify:clearance-c2 red (1 failed: overseer test_subproject_layout `python -I` import; the venv has only the translator, as
