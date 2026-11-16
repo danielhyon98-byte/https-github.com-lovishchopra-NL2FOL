@@ -1,10 +1,32 @@
-# Resume notes (16 Nov 08:5x UTC: PROGRAMME COMPLETE: rounds 8-10 done (9-10 HELD: be91e89, bef76ad, fe2e639, 03a3021; self-certification decision pending with Daniel); handoff refreshed and VERIFIED UPLOADED docs/final-z3-handoff ec911d5). Older sections below are history.
+# Resume notes (16 Nov 19:28 UTC: RESOLVE-C3B RUNNING (wf_681da8f2-f04) on Daniel's "resolve everything"; rounds 9-10 still HELD (be91e89, bef76ad, fe2e639, 03a3021) until its push check). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
 (origin = danielhyon98-byte/https-github.com-lovishchopra-NL2FOL), main repository = Epinoic-AI/Epinoic-Logic-Translator (remote
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
+
+
+## 16 Nov 19:28 UTC: RESOLVE-C3B LAUNCHED (Daniel 17:2x: "no status limit, retry release tag and do the D9 and D10 resolve everything")
+- Release tag retried 17:31 with release_round8_arch.sh: refused again (HTTP 403, tags only). Not retried another way.
+  Remedy for Daniel: a repo admin allows tag creation or creates prototype-round8-arch at 1c2fb5cd0b64dafdea25ce9471d533afbbbde08b.
+- Reading stated to Daniel: self-cert fixed at its root by meaning (no status line, no documented limitation); keep going
+  past 85% weekly with a checkpoint at 85%.
+- Workflow wf_681da8f2-f04 (task wzy3ys7h7), script S/wf-scripts/resolve-c3b.js (sha256 f8663f30618ec23d; built from
+  resolve-c3b-body.js + lines copied from phase2-c2c3.js by an asserting generator). Phases: Design (selfcert design xhigh +
+  dev sets; held-out set in S/wf/phase2/c3b/heldout/ never read by fixers; d9d10 design; leftovers triage of the 87 round 10
+  left-undone items in S/wf/phase2/c3b/c3-left-undone.json) -> Build (fix:selfcert incl. POLICY_VERSION || fix:d9d10, then
+  fix:leftovers with handoffs) -> Attack (4 lenses x <=4 rounds, fixer between) -> Verify (suite via S/suite_shards.sh,
+  <=2 repairs; no red commit) -> commit "Fix the c3 clearance findings" -> push check (4 lenses + challenger + judge writing
+  S/push-check/<sha>.json; supersedes subset of the 4 held) -> if all 4 superseded: results commit "Arena results: rounds 9
+  and 10, ..." + PUSH_STEPS (presim DETACHED via setsid, wait <=4 h, event_push) ; else README note only.
+  Resume: Workflow({scriptPath: S/wf-scripts/resolve-c3b.js, resumeFromRunId: "wf_681da8f2-f04"}).
+- Tooling changes 16 Nov (backups alongside): S/suite_shards.sh (new: full suite as 3 parallel shards from one collection,
+  every collected test accounted for); simulate.sh uses it (backup simulate.sh.before-shards-16nov); publish_final.sh with
+  HOURLY_FAST=1 never starts an inline simulation, holds "waiting for the prepared simulation" (backup
+  publish_final.sh.before-fast-guard-16nov). Test run of the new simulation on 03a3021 started 19:21 detached:
+  S/wf/phase2/c3b/simtest-03a3021.log (do not edit suite_shards.sh or simulate.sh while it runs: bash reads scripts lazily).
+- After the workflow: handoff refresh (push_handoff.sh) with the new state; tell Daniel the outcome.
 
 ## 16 Nov 08:5x UTC: PROGRAMME COMPLETE; WAITING FOR DANIEL
 - Round 10 (c3): workflow wf_e6995188-011 COMPLETED 07:4x: 121 lens findings, 108 fixed; verify green (39129 passed, 0 failed;
