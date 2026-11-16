@@ -22,9 +22,16 @@ resolved by its citation kind:
   freshness is not decidable and is stated in the coverage notes.
 * RES-006: one id with two contents in the store, or a receipt copy whose signature verifies but which is not
   byte-identical to the stored result (a copy whose signature fails is RES-003, which already names it forged).
-* RES-009: ``display_status`` must equal ``display_status_for(translation, verification, key, key_id)`` with the
-  verification key of the result's key id (the channel's own key when the result is unsigned or names an
-  undeclared key id), so an unsigned or forged ENTAILED is never displayable.
+* RES-009: ``display_status`` must equal the display the outcome composer gives (:func:`composed_display_status`:
+  ``display_status_for(translation, verification, key, key_id)`` with the verification key of the result's key id, the
+  channel's own key when the result is unsigned or names an undeclared key id, and then the composer's own rule for the
+  delivered claim's text), so an unsigned or forged ENTAILED is never displayable. Rule ``composed-display`` (round-10
+  clearance c3, the c3 results-audit, communication-fidelity and adversarial lenses on ph-t16 s4.13 and s4.15): the
+  composer (``translate.outcome.compose_outcome``) shows a claim that claims a check (the shared self-report reader) as
+  NOT_ELIGIBLE whatever its signed result gives, and the auditor re-derived the display without that rule, so every such
+  honest receipt was charged with a forged result (OVS-RES-009) and an altered summary (OVS-TRN-007) at error level. The
+  display is now derived by the composer itself, never by a copy of its rule, so the two cannot drift; a receipt that
+  shows such a claim with a success status is still OVS-RES-009.
 * RES-010: the outcome's translation (ids and ``claim_text_sha256``) binds to the delivered claim text: the
   INT-STALE-011 rule re-applied to journaled content.
 * RCPT-006 for a cited result id that has no content anywhere (no capture, no store entry, no tombstone, no copy).
@@ -46,15 +53,43 @@ from epinoic_logic.api.engine import VerificationResult
 from epinoic_logic.api.engine import is_definitive
 from epinoic_logic.api.ir import canonical_json, problem_digest, sha256_hex
 from epinoic_logic.api.ir import Problem
+from epinoic_logic.api.engine import VerificationStatus
 from epinoic_logic.api.translate import sha256_text
-from epinoic_logic.api.translate import display_status_for
+from epinoic_logic.api.translate import claim_display_status, display_status_for
 from ..contracts import Citation, ResultTombstone, StoredResult
 from ..faithful import faithful
 from ..view import Transfer, cited_results
 from . import CheckContext
 
+#: Rule ``composed-display`` (round-10 clearance c3; RES-009, TRN-007 and the delivery policy's re-derivation).
+COMPOSED_DISPLAY_RULE = "composed-display"
+#: The display statuses the composer may withhold from a claim on the claim's own text (a self-report never shows success).
+_SUCCESS_DISPLAYS = frozenset({VerificationStatus.ENTAILED, VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE})
+
+
+def composed_display_status(claim, translation, verification, key=None, key_id=None):
+    """Rule ``composed-display`` (round-10 clearance c3): the display status the outcome composer gives the delivered ``claim``
+    (``translate.outcome.compose_outcome``) for ``translation`` and ``verification`` under the signing configuration ``key`` and
+    ``key_id``: ``display_status_for`` and, when that shows a success, the composer's own rule on the claim's text (a claim that
+    claims a check is displayed NOT_ELIGIBLE), read from the composer itself so the auditor and the channel never drift. The
+    composer is asked only for a success display. A claim the composer refuses to compose (another claim's translation, a
+    stale claim text: RES-010 names it) keeps ``display_status_for``'s display. Raises what ``display_status_for`` raises."""
+    display = display_status_for(translation, verification, key, key_id)
+    if claim is None or display not in _SUCCESS_DISPLAYS:
+        return display
+    try:
+        # the composer refuses another claim's translation and a stale claim text (compose_outcome): those keep the plain display
+        if translation.claim_id != claim.claim_id or translation.request_id != claim.request_id or (
+                translation.claim_text_sha256 is not None and translation.claim_text_sha256 != sha256_text(claim.claim_text)):
+            return display
+        # round-10 clearance (overseer handoff 3b): the composer's own display rule, exported by the translator, instead of composing a
+        # whole outcome for it (the same function compose_outcome applies, so the two never drift)
+        return claim_display_status(claim, translation, verification, key, key_id)[0]
+    except Exception:  # noqa: BLE001 - an outcome the composer would never produce keeps the plain display (RES-010 names it)
+        return display
+
 __all__ = ["store_captured", "check_results", "binding_problems", "replayable_problem", "check_replayable", "check_unreplayed", "engine_run_problems",
-           "journaled_capture", "replay_source", "replay_config"]
+           "journaled_capture", "replay_source", "replay_config", "composed_display_status", "COMPOSED_DISPLAY_RULE"]
 
 
 
@@ -483,7 +518,7 @@ def _check_outcome(ctx: CheckContext, t: Transfer, i: int, o, channel_key_id: Op
         ctx.ovs(t.seq, "OVS-AUDIT-004", f"no verification key is configured for key id {kid!r}; the display status of outcome {path} cannot be derived", claim_ids=claim_ids, formal_result_id=rid, **ids)
         return
     try:
-        expected = display_status_for(o.translation, ver, key, kid)
+        expected = composed_display_status(claim, o.translation, ver, key, kid)  # rule composed-display
     except Exception as exc:
         ctx.ovs(t.seq, "OVS-AUDIT-001", f"display status of outcome {path} could not be derived ({type(exc).__name__})", claim_ids=claim_ids, formal_result_id=rid, **ids)
         return

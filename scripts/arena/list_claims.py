@@ -3,6 +3,7 @@
 so a dummy combinator can cite them and a translation provider can formalize them.
 Usage: list_claims.py <specialist.json> [--eligible] [--json] [--instructions <dir> [--allow-other-release]]
        list_claims.py --agent-view <specialist.json> <specialist.json> ... [--instructions <dir> [--allow-other-release]]
+       list_claims.py <specialist.json> --mutations [--json]
 (each <specialist.json> a file of <round>/specialists/, read with the other files of its group there)
 
 With ``--agent-view`` it prints, for the two to sixteen reports of one group, the one JSON document the combinator's
@@ -53,7 +54,21 @@ instructions (said on standard error). Without the sub-project here, only the ma
 checked. A transformation is one of those words, never a description of the edit: the hub refuses any other value
 (INT-REQ-009 with INT-SYNTH-014) and the synthesis is not delivered. Brief a combinator agent with the pack's
 ``INSTRUCTIONS.md`` and this script's ``--json`` output for each report (scripts/arena/README.md, "Synthesis
-format")."""
+format").
+
+With ``--mutations`` it lists, for one specialist file, every mutation run_arena.py delivers of the answer (the same
+mutated texts: ``run_arena.task_variants``), each parsed as the hub parses it on the mutation's own hub task, with the
+claims the mutation changed and, among them, those the pipeline translates (``translate``). The translation agents
+translate those into ``<round>/mutation_translations/<file stem>/<variant>.json`` (the ``template`` --json prints, with the
+digest each translation is bound to); run_arena.py serves each to the mutated claim it was produced for and names every
+changed claim no recorded translation reached (round 9's push check, major: mutated claims were never translated, so an
+injected fault on a translated claim reached the engine only through the deterministic checks).
+
+A file of the round that is not one JSON object of the round format is named, never a TypeError: listing it is refused
+(exit status 2) with the file and the reason, and so is listing a file of its group delivered after it; every other file
+of the round is listed as before (round c3: one file written as a one-element list made every listing of the round fail
+with "list indices must be integers or slices, not str"). The group's plan is the round's (``run_arena.load_items`` with
+the tasks of tasks.json), as run_arena.py and relay_peer.py build it."""
 from __future__ import annotations
 
 import hashlib
@@ -74,7 +89,7 @@ from epinoic_logic.translate.subjects import resolve_profile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # run_arena.py, beside this script: the order its genuine pass delivers a round's reports in, and each group's plan
-from run_arena import group_of, group_plan, load_items  # noqa: E402
+from run_arena import SpecialistFileError, group_of, group_plan, load_items  # noqa: E402
 
 #: The combinator sub-project of this repository, whose exporter writes the combinator agent's instructions.
 COMBINATOR_SRC = Path(__file__).resolve().parents[2] / "combinator" / "src"
@@ -219,19 +234,26 @@ def delivered_reports(spec_paths: list[Path]) -> list[Parsed]:
     run_arena.py serves a recorded translation under either form of a STEM claim id, so a fixture still reaches its
     claim). A file that is no specialist file of its directory is refused (exit status 2)."""
     rounds: dict[Path, list[dict]] = {}
+    unreadable: dict[Path, list[dict]] = {}
     parsed: dict[Path, Parsed] = {}
     for spec in spec_paths:
         if spec in parsed:
             continue
         directory = spec.parent
         if directory not in rounds:
+            # the round as run_arena.py reads it: its plan names every task of tasks.json, and a file that is no specialist file
+            # of the round format is named (round c3: one file written as a list made every listing of the round fail)
+            unreadable[directory] = []
             try:
-                rounds[directory] = load_items(directory)
+                rounds[directory] = load_items(directory, include_pending=True, refused=unreadable[directory])
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 _refuse(f"the specialist files in {directory} cannot be read as run_arena.py reads a round ({type(exc).__name__}: {str(exc)[:200]}); "
                         "a report is listed with the ids the hub delivers after the reports of its group")
         items = rounds[directory]
-        me = next((it for it in items if it["_path"].resolve() == spec), None)
+        bad = next((b for b in unreadable[directory] if b["path"].resolve() == spec), None)
+        if bad is not None:
+            _refuse(f"{SpecialistFileError(bad['path'], bad['reason'])}; it cannot be listed (run_arena.py records it as a failure of its task)")
+        me = next((it for it in items if it["_path"].resolve() == spec and not it.get("_pending")), None)
         if me is None:
             _refuse(f"{spec.name} is not a specialist file of {directory} (its *.json files), so its group's delivery order is unknown")
         group = group_of(me)
@@ -242,6 +264,11 @@ def delivered_reports(spec_paths: list[Path]) -> list[Parsed]:
                     "so run_arena.py cannot deliver its reports either")
         before: list[tuple[str, Parsed]] = []  # (file name, parse) of the members delivered so far, in delivery order
         for it in (x for x in items if group_of(x) == group):
+            if it.get("_refused"):  # answered, but its file cannot be read: the ids its report holds are unknown
+                _refuse(f"{SpecialistFileError(it['_path'], it['_refused'])}; it is a member of group {group} delivered before {spec.name}, so the "
+                        f"claim ids the hub delivers {spec.name} under are unknown until it is rewritten")
+            if it.get("_pending"):  # planned in tasks.json and never answered: nothing of it is delivered
+                continue
             path = it["_path"].resolve()
             if path not in parsed:
                 held = frozenset(ids_held_by_other_agents([p.report for _name, p in before], it["agent_id"]))
@@ -291,9 +318,99 @@ def agent_view(spec_paths: list[Path], manifest: dict) -> str:
     return proc.stdout.decode("utf-8")
 
 
-_flags = {"--eligible", "--json", "--allow-other-release", "--agent-view"}
+def mutation_listing(spec: Path) -> dict:
+    """``--mutations``: every mutation run_arena.py delivers of the file's answer, with the claims the translation agents
+    translate for it. The variants are run_arena.py's own (``run_arena.task_variants``: the same mutated texts, from the same
+    supplied texts, the relayed peer report included), each parsed as the hub parses it on the mutation's own hub task: the
+    group's plan, and only the peer's report delivered before it (a peer-dependent task), so its ids are qualified only when
+    that peer's report holds one of them (``channel.bus.needs_qualified_ids``). Each claim carries its text's digest and
+    whether the mutation changed it (``changed``: no claim of the genuine delivery carries its text under its id, in either
+    form of an id the hub may qualify); ``translate`` lists the changed claims the pipeline translates, and ``template`` is
+    the file the translation agents write, ``mutation_translations/<file stem>/<variant>.json``, with the digest each
+    translation is bound to (``claim_text_sha256``): fill ``claims`` with their output under those ids, keep the digests.
+    run_arena.py serves each translation to the mutated claim it was produced for, and names every changed claim it could
+    not translate (round 9's push check, major: mutated claims were never translated by the harness)."""
+    import run_arena as RA
+    genuine = delivered_reports([spec])[0]
+    raw = json.loads(spec.read_text(encoding="utf-8"))  # the file as run_arena.py reads it (no peer document added)
+    items = load_items(spec.parent, include_pending=True, refused=[])
+    plan = group_plan(items, genuine.group)
+    tag = RA.qualification_tag(raw)
+    texts = RA.supplied(raw)  # the task's own supplied texts, then the peer's report as run_arena.py's relay supplies it
+    held: frozenset = frozenset()
+    peer = raw.get("peer_of")
+    if peer:
+        peer_path = next((it["_path"].resolve() for it in items if it["task_id"] == peer and not it.get("_pending")), None)
+        if peer_path is None:
+            _refuse(f"the peer {peer} of {spec.name} has not answered: run_arena.py delivers no mutation of {spec.name} (its peer report is never relayed)")
+        peer_report = delivered_reports([peer_path])[0].report
+        held = frozenset(ids_held_by_other_agents([peer_report], raw["agent_id"]))
+        recorded = RA.load_recorded_relays(spec.parent.parent, [{**raw, "_path": spec}]).get(raw["task_id"])
+        texts.append(SuppliedText(document_id=f"peer:{peer}", title=f"{peer_report.agent_id} report {peer_report.report_id} relayed through the hub",
+                                  author=peer_report.agent_id,
+                                  text=recorded["payload"].get("original_response") if recorded is not None else peer_report.original_response))
+    genuine_texts = {c.claim_id: c.claim_text for c in genuine.report.claims}
+    parser = genuine.branch.parser()
+    agent = raw["agent_id"]
+    subject = plan.agent_subjects.get(agent, plan.subject)
+    args = dict(request_id=f"req-{genuine.group}", task_id=genuine.group, subject=subject, task_type=plan.agent_task_types.get(agent, plan.task_type),
+                supplied_texts=texts, agent_id=agent)
+    if getattr(parser, "accepts_request_text", False) is True and isinstance(raw.get("question"), str):
+        args["request_text"] = raw["question"]
+    out = {"file": spec.name, "task_id": raw["task_id"], "group": genuine.group, "mutations": [], "skipped": []}
+    for vi, (kind, text, expected) in enumerate(RA.task_variants(raw, texts)):
+        if kind == "genuine":
+            continue
+        if expected == "SKIP":
+            out["skipped"].append({"variant": kind, "why": "the answer has no site for this mutation: run_arena.py delivers no such variant"})
+            continue
+        report = parser.parse_response(text, report_id=f"rep-{raw['task_id']}-{vi}", **args)
+        qualified = needs_qualified_ids(parser, report, set(held))
+        if qualified:
+            report = parser.parse_response(text, report_id=f"rep-{raw['task_id']}-{vi}", **args, qualify_ids=True)
+        rows, translate = [], []
+        for c in report.claims:
+            same = genuine_texts.get(c.claim_id)
+            if same is None:
+                other = RA.other_id_form(c.claim_id, tag)
+                same = genuine_texts.get(other) if other is not None else None
+            changed = same != c.claim_text
+            eligible = RA.translation_eligible(c)
+            rows.append({"claim_id": c.claim_id, "role": c.claim_role, "materiality": c.materiality, "eligible": eligible, "changed": changed,
+                         "claim_text_sha256": sha256_text(c.claim_text), "text": c.claim_text})
+            if changed and eligible:
+                translate.append(c.claim_id)
+        rel = f"{RA.MUTATION_TRANSLATIONS_DIR}/{spec.stem}/{kind}.json"
+        out["mutations"].append({"variant": kind, "index": vi, "expected": expected, "report_id": f"rep-{raw['task_id']}-{vi}", "ids_qualified": qualified,
+                                 "claims": rows, "translate": translate, "translations_file": rel,
+                                 "template": {"task_id": raw["task_id"], "variant": kind, "claims": {},
+                                              "claim_text_sha256": {r["claim_id"]: r["claim_text_sha256"] for r in rows if r["claim_id"] in translate}}})
+    return out
+
+
+_flags = {"--eligible", "--json", "--allow-other-release", "--agent-view", "--mutations"}
 _instructions = sys.argv[sys.argv.index("--instructions") + 1] if "--instructions" in sys.argv[:-1] else None
 _positional = [a for k, a in enumerate(sys.argv[1:], start=1) if a not in _flags and a != "--instructions" and sys.argv[k - 1] != "--instructions"]
+if "--mutations" in sys.argv:
+    # the claims each mutation of the answer changes, for the translation agents (no synthesis format: the combinator reads no mutation)
+    if len(_positional) != 1:
+        _refuse("--mutations lists the mutations of one specialist file: list_claims.py <round>/specialists/<task>.json --mutations [--json]")
+    _listing = mutation_listing(Path(_positional[0]).resolve())
+    if "--json" in sys.argv:
+        print(json.dumps(_listing, indent=2, ensure_ascii=False))
+    else:
+        print(f"{_listing['file']} (group {_listing['group']}): {len(_listing['mutations'])} mutation(s) run_arena.py delivers; translate the claims marked "
+              f"TRANSLATE into {'mutation_translations/<file stem>/<variant>.json'} with the digests --json prints")
+        for _m in _listing["mutations"]:
+            print(f"[{_m['index']}] {_m['variant']} (expected {_m['expected']}; {_m['report_id']}{'; ids qualified' if _m['ids_qualified'] else ''}): "
+                  f"{len(_m['translate'])} to translate -> {_m['translations_file']}")
+            for _r in _m["claims"]:
+                if _r["changed"]:
+                    print(f"  {_r['claim_id']:12} {'TRANSLATE' if _r['claim_id'] in _m['translate'] else 'changed, not eligible':22} "
+                          f"sha256={_r['claim_text_sha256'][:16]}... :: {_r['text'][:140]}")
+        for _s in _listing["skipped"]:
+            print(f"(no {_s['variant']}: {_s['why']})")
+    sys.exit(0)
 _manifest, _fmt = combinator_pack(Path(_instructions).resolve() if _instructions else None, allow_other_release="--allow-other-release" in sys.argv)
 if "--agent-view" in sys.argv:
     sys.stdout.write(agent_view([Path(p).resolve() for p in _positional], _manifest))

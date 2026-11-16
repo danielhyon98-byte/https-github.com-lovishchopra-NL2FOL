@@ -14,7 +14,7 @@ travels in this package.
 | Part | Where | What it does |
 |---|---|---|
 | the agent's instructions | `src/epinoic_combinator/pack/` (`INSTRUCTIONS.md`, `output-format.json`) | what the agent is told, pinned by digest (`pack.py`: name `combinator-instructions`, version, SHA-256) |
-| the exporter | `python -m epinoic_combinator.export --out <dir>` | writes the instructions and a manifest for a workflow or a provider |
+| the exporter | `python -m epinoic_combinator.export --out <dir>` | writes the instructions and a manifest for a workflow or a provider; refuses a path it cannot write or look up with exit status 2 and one line (the path's control characters escaped, at most 200 characters of it shown) |
 | the runner | `src/epinoic_combinator/runner.py` | runs the agent once, on the cheapest tier, through a provider; lets out only what is in contract |
 | the provider interface | `src/epinoic_combinator/providers.py` | `Provider.complete(CompletionRequest) -> str`; deterministic fakes for tests; **no live provider** |
 | the published contract | `src/epinoic_combinator/contract/` (generated, never edited) and `contract.py` | the port's JSON Schemas, the synthesis vocabulary and the port rules, read by a small fail-closed validator (`schema.py`) |
@@ -27,9 +27,13 @@ of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized` (a category, ne
 certainty is never stronger than the weakest source; every figure, unit, mark, date and quotation is kept exactly as
 the source states it; qualifiers (a hedge, a frequency such as "usually", a bound such as "at least", "a minority") and attributions are
 kept, and no specialist or text is credited with what it does not say; a note, a self-certification, a word count or
-a question is never carried back as a claim (a source claim whose `role` is `other` is a note and is never cited in
-`claims`), and no verification label ("Verified:", "(checked)", "(Z3: proved)", "[OK]") is put on one (a source claim
-that carries one is written without it, as `narrowed`); the one note it carries is a decline or a deferral of the work
+a question that asks the student or the router something back ("Which edition are you using?", "Would you like me to say
+more about the reparations?") is never carried back as a claim (a source claim whose `role` is `other` is a note and is
+never cited in `claims`), and no verification label ("Verified:", "(checked)", "(Z3: proved)", "[OK]") is put on one (a
+source claim that carries one is written without it, as `narrowed`); a question the answer sets the student (a
+practice, test, revision or guiding question it tells the student to answer or think through) is content, never a note,
+and a sentence it keeps that announces questions, a list or steps keeps every question, item and step it announces
+unless the delivery roled it `other` (rule 6, split since pack 1.4); the one note it carries is a decline or a deferral of the work
 the student asked for ("I can't write your introduction ..., because the proposal must be your own work", "Reply
 'approve' and I will write the full evaluation"), word for word, as a synthesized claim of its own (`carried`, citing
 only that claim), whatever its role, so the student still learns that the work was withheld and why (rule 7, since pack
@@ -59,6 +63,18 @@ deferral is carried (rule 7). The faithful fake (`FaithfulFakeProvider`) follows
 package never imports the translator; a conformance test checks that the two readings agree on the round's material
 and on its examples), and still drops every other note.
 
+Arena round 10 (integrated round c3) showed why a question the answer sets is content: under pack 1.3, whose note rule
+listed "a question to the student or the router" among the notes, the ll-t16 synthesis carried the English A: Language
+and Literature specialist's "To test a direction, answer these from the adverts themselves: 1. ..." and dropped the four
+questions it announces ("What does the change of speaker add to the change of message?", "4. Does one question work
+across all three adverts, or only two?", ...) as "a question or practice prompt to the student, a note", so the student
+was told to answer questions the synthesis does not hold. Pack 1.4 splits rule 6: a question that asks something back
+stays a note; a question the answer sets is content, and nothing a kept sentence announces is dropped (rules 6 and 9).
+The faithful fake reads a note by its role only, as the hub does, so it keeps such a question unless the delivery roled
+it `other`; its reading of rule 7 now also reads the decline forms the hub reads since that round ("I can't choose your
+line of inquiry, and I can't write your introduction, ...", a choice made "for you", "supply", "invent", "make up",
+"compose", "generate"), which it had missed, so it dropped ll-t16's decline once the delivery roled it `other`.
+
 ## What the runner guarantees
 
 `runner.run(input_json, provider)` returns exactly one of a `combinator-output.v1` document or a `combinator-refusal.v1`
@@ -79,9 +95,12 @@ The agent is called once (no retry). Its output is validated against the publish
 in the agent's own, stricter format, then as the port message. **The runner checks the contract, never the
 faithfulness**: an inflated certainty, a dropped qualifier, a merged contradiction, an invented figure, a figure in
 another unit, a wrong attribution, a carried self-certification or note, a verification label on a claim, a dropped
-decline of the requested work or an invented conflict is in contract and leaves, and the translator's hub, the
-independent checker of every synthesis, names it (the translator's `tests/integration/test_combinator_subproject.py`;
-a dropped decline is `INT-LEDGER-019`, rule framing-content, `tests/test_withheld_work.py` here;
+decline of the requested work, a dropped question the answer sets or an invented conflict is in contract and leaves,
+and the translator's hub, the independent checker of every synthesis, names it (the translator's
+`tests/integration/test_combinator_subproject.py`; a dropped decline is `INT-LEDGER-019`, rule framing-content,
+`tests/test_withheld_work.py` here; a dropped question the answer sets is `INT-LEDGER-019` when the delivery roles it
+material, as the English parser does for a question under an "answer these ...:" lead since the round-10 clearance,
+`tests/test_questions_the_answer_sets.py` here;
 the forms each check reads are in the translator's `src/epinoic_logic/integrity/README.md`). Since the round-9
 clearance's second fix pass (c2b) the translator's ledger reads both of rule 7's forms: a decline carried word for word,
 alone, as `carried` is a note for the student, never a note carried back as a claim (no `INT-LEDGER-029`;
@@ -91,9 +110,13 @@ decline is (`INT-LEDGER-019`; `test_through_the_hub_a_synthesis_that_leaves_out_
 round-8 clearance c1's ps-p8d synthesis); both tests were strict xfails until then. One limit: a contradiction is
 named as undisclosed (`INT-CONFLICT-002`) only between claims the hub formalized; one between claims in prose ("signed
 in June 1919" against "signed in July 1919") is named only through the figures a synthesis changes or leaves out
-(`INT-LEDGER-023`, `INT-LEDGER-024`); and a conflict the combinator lists over claims in which the hub found no
-contradiction is named for information only (`INT-CONFLICT-006`), since the hub cannot decide a contradiction in prose.
-Nothing the combinator says about its own work is trusted.
+(`INT-LEDGER-023`, `INT-LEDGER-024`); a conflict the combinator lists over claims in which the hub found no
+contradiction is named for information only (`INT-CONFLICT-006`), since the hub cannot decide a contradiction in prose;
+and a synthesis that keeps a sentence announcing questions or a list and drops every question or item it announces is
+named only when the delivery roled them material: with the roles round 10's delivery gave ll-t16's questions
+(interpretation, supporting) the ledger names nothing, an item handed to the translator's integrity owner and pinned here
+by a strict xfail (`test_the_hubs_ledger_names_the_questions_the_recorded_synthesis_dropped_whatever_their_role`), with
+its control. Nothing the combinator says about its own work is trusted.
 
 ## The published contract
 
@@ -144,7 +167,18 @@ its reading is linear on hostile input, and through the hub the receipts record 
 synthesis that drops the decline is named while the one rule 7 asks for is not, a deferral carried word for word draws
 no finding, and the decline carried in any other form than rule 7's is still named; since the round-9 clearance's second
 fix pass the decline carried as rule 7 asks draws no `INT-LEDGER-029` and a synthesis that leaves out a deferral is named,
-both pinned by tests that were strict xfails until the translator's ledger changed).
+both pinned by tests that were strict xfails until the translator's ledger changed), rule 6's split on the recorded
+material of arena round 10 (`test_questions_the_answer_sets.py`, `tests/data/round10_ll_t16.json` copied verbatim from the
+round: the recorded synthesis dropped the four questions its kept sentence announces; rule 6 keeps a question back among
+the notes and makes a question the answer sets content, with the round's sentences as its examples, and rule 9 and the
+output format say the same; the faithful fake keeps the questions and drops every note; through the hub, a synthesis that
+drops the questions as the round's agent did is named on each while the fake's is accepted with no finding, and the fake
+reads the round's decline as the channel does; on the hub's ledger with the round's roles, the open item above), and every
+public entry point of every module on the standard hostile inputs (`test_hostile_input_sweep.py`: runs of about 20,000
+characters of blanks, tabs, line breaks, stops, closing marks, mark labels, parentheses, brackets, fence openers, number
+words joined by "and", "=" links, list markers and this package's own openers, each within a two-second bound; it found
+no stall, and two exits of the exporter outside its contract, fixed: a hostile `--out` path raised a traceback and a
+nested manifest raised RecursionError).
 
 ## Releasing a change
 

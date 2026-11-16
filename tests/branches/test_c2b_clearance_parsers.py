@@ -352,8 +352,9 @@ def test_a_precise_real_world_figure_no_text_holds_is_named_on_its_claim():
      None, "Table 1 gives exports of goods of 46.5 billion dalers in 2025.", "INT-SUBJ-001", "Exports of goods, 2025: 45.6"),
     (C.BM_T15, C.BM_T15_Q, "Business Management", "business-management-specialist", "structured_question", (C.BM_T15_DOC,),
      None, "Table 1 gives Pellow Cycles' 2025 revenue as $189,000.", "INT-SUBJ-001", "Pellow Cycles, 2025: 198,000"),
+    # stricter (clearance c3): 'the column says' credits the figure to the supplied text, so the misread figure is an error (it was a warning)
     (C.LL_T15, C.LL_T15_Q, "English A: Language and Literature", "english-a-lang-lit-specialist", "analytical_paragraph", (C.LL_T15_DOC,),
-     None, "Last year the baths recorded 34,000 swims, the column says.", "INT-SUBJ-004", "43,000"),
+     None, "Last year the baths recorded 34,000 swims, the column says.", "INT-SUBJ-001", "43,000"),
 ], ids=["ge-t15-table-misread", "ec-t15-table", "bm-t15-table", "ll-t15-figure-misread"])
 def test_a_figure_taken_from_a_supplied_table_or_text_is_checked_against_it(text, question, subject, agent, task_type, texts, old, new, code, needle):
     variant = text + "\n\n" + new if old is None else text.replace(old, new)

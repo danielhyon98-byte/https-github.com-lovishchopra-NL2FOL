@@ -3807,6 +3807,16 @@ _COUNT_WORD_RE = re.compile(r"(?<!\bthe )(?<!\bthese )(?<!\bthose )(?<!\bits )(?
 _RATIO_WORDS_RE = re.compile(r"\b(?P<a>one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:in|out\s+of)\s+(?P<b>two|three|four|five|six|seven|eight|nine|ten|twenty|a\s+hundred|\d{1,4})\b",
                              re.IGNORECASE)
 _VAGUE_COUNT_RE = re.compile(r"(?<![\w-])(?<!\d )(?P<v>dozens|scores|hundreds|thousands|millions)\b", re.IGNORECASE)
+#: Round-10 clearance (c3, the adversarial lens's syn-es variants: 'Volviste hace dos semanas' carried as 'Volviste hace tres semanas'
+#: drew INT-LEDGER-010 only, while 'two weeks' to 'three weeks' is INT-LEDGER-023): a course language's small count before a noun of
+#: time, of people or of a count is a figure as the English count is ('dos semanas', 'tres hermanos'), never after a determiner ('los
+#: dos poemas', 'sus dos hijos'). Spanish only (the course language of the arena's Language B); bounded, one pass.
+_ES_COUNT_NOUNS = (r"(?:segundos|minutos|horas|d[ií]as|semanas|meses|a[ñn]os|d[ée]cadas|siglos|veces|personas|hombres|mujeres|ni[ñn]os|ni[ñn]as|hijos|hijas"
+                   r"|hermanos|hermanas|amigos|amigas|vecinos|vecinas|trabajadores|soldados|muertos|v[ií]ctimas|miembros|votos|esca[ñn]os|pa[ií]ses|ciudades"
+                   r"|pueblos|kil[oó]metros|metros|euros|d[oó]lares|pesos|libras|noches|fines|cartas|correos|mensajes|p[aá]ginas|palabras|puntos)")
+_ES_COUNT_WORD_RE = re.compile(r"(?<!\blos )(?<!\blas )(?<!\bsus )(?<!\bmis )(?<!\btus )(?<!\bnuestros )(?<!\bnuestras )(?<!\bestos )(?<!\bestas )"
+                               r"(?<!\besos )(?<!\besas )(?<!\baquellos )(?<!\baquellas )"
+                               rf"(?<![\w-])(?P<n>dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once)[ \t]{{1,3}}(?={_ES_COUNT_NOUNS}\b)", re.IGNORECASE)
 _RELATIVE_DATE_RE = re.compile(r"\b(?P<n>a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|fifty|a\s+few|several|\d{1,3})\s+"
                                r"(?P<u>years?|decades?|centur(?:y|ies)|months?|weeks?|days?|generations?)\s+(?P<d>later|earlier|after(?:wards)?|before|on)\b", re.IGNORECASE)
 _RELATIVE_VALUES = {"a": "1", "an": "1", "a few": "few", "several": "several", **{w: str(v) for w, v in _CARDINAL_WORDS.items() if isinstance(v, int)}}
@@ -3853,6 +3863,10 @@ def _read_count_figures(text: str) -> list[_Figure]:
     for m in _COUNT_WORD_RE.finditer(plain):
         if not inside(m.start("n")):
             out.append(_Figure(str(_SMALL_VALUES[m.group("n").casefold()]), None, m.group("n")))
+    if _ES_HINT_RE.search(plain):
+        for m in _ES_COUNT_WORD_RE.finditer(plain):  # round 10 (c3): the course language's small counts ('dos semanas')
+            if not inside(m.start("n")):
+                out.append(_Figure(str(_ES_SMALL[m.group("n").casefold()]), None, m.group("n")))
     for m in _RATIO_WORDS_RE.finditer(plain):
         if inside(m.start()):
             continue
@@ -4409,6 +4423,30 @@ def _credits_at_head(text: str, named: list[str]) -> bool:
     return lead is not None and lead.end() == first
 
 
+#: The verbs with which a synthesis credits a specialist with a piece of work rather than a view (round-10 clearance c3, the
+#: communication-fidelity exchange p10c: "The Geography specialist calculated that one bus releases 0.2444 t of CO₂ per day.", the
+#: Chemistry report's s4.7): the crediting verbs of a view (``adapters.sources``) do not hold them.
+_WORK_VERBS = (r"(?:calculated|calculates|computed|computes|worked[ \t]{1,3}out|works[ \t]{1,3}out|estimated|estimates|derived|derives|determined"
+               r"|determines|measured|measures|counted|counts|found|finds|showed|shows|shown|obtained|obtains|got|reached|reaches|converted|converts"
+               r"|totalled|totaled|totals|solved|solves|proved|proves|demonstrated|demonstrates|established|establishes|checked|checks|gave|gives)")
+
+
+def _work_credits(text: str, agents: list[str]) -> list[str]:
+    """The agents a synthesized claim names as the subject of a work verb (:data:`_WORK_VERBS`: "The Geography specialist
+    calculated that ...", "the Chemistry specialist has worked out ..."), quotations masked. Bounded: one search per name."""
+    from ..adapters.markdown import mask_quotations
+    from ..adapters.sources import specialist_names
+    masked = mask_quotations((text or "")[:20_000])
+    out: list[str] = []
+    for agent in agents:
+        for name in specialist_names(agent):
+            words = r"[ \t]{1,3}".join(re.escape(w) for w in name.split())
+            if re.search(rf"\b{words}(?:['’]s)?[ \t]{{1,3}}(?:(?:has|have|had|also|first|then|already)[ \t]{{1,3}}){{0,2}}{_WORK_VERBS}\b", masked, re.IGNORECASE):
+                out.append(agent)
+                break
+    return out
+
+
 def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list[str]:
     """A synthesized claim that credits a view to a specialist (named with a possessive or as the subject of a crediting
     verb: "The English specialist dates the war ..."; or in the forms a combinator writes, :func:`_combinator_credits`: "...
@@ -4423,7 +4461,8 @@ def _view_credit(text: str, known: list[ClaimRecord], agents: list[str]) -> list
     from ..adapters.sources import credited_agents
     if len(agents) < 1:
         return []
-    credited = list(dict.fromkeys(credited_agents(text, agents) + _combinator_credits(text, agents)))
+    # round 10 (c3): a specialist credited with a piece of work ("The Geography specialist calculated that ...") is credited too
+    credited = list(dict.fromkeys(credited_agents(text, agents) + _combinator_credits(text, agents) + _work_credits(text, agents)))
     everyone = len(agents) >= 2 and _EVERY_SPECIALIST_RE.search(mask_quotations(text or "")) is not None
     if not credited and not everyone:
         return []
@@ -4508,6 +4547,34 @@ def _reported_speech_credits(text: str, name_texts: list[str]) -> list:
     return out
 
 
+#: The quotation marks a verbatim comparison folds to one (straight and curly, single and double, guillemets).
+_VERBATIM_QUOTES_RE = re.compile("[\"'“”‘’«»]")
+
+
+def _verbatim_form(text: str) -> str:
+    """``text`` as a verbatim comparison reads it: quotation marks folded, white space collapsed, case kept, the closing
+    sentence punctuation dropped."""
+    return " ".join(_VERBATIM_QUOTES_RE.sub('"', (text or "")[:20_000]).split()).rstrip(" .!?;:")
+
+
+def carried_verbatim(text: str, known: list[ClaimRecord]) -> bool:
+    """Whether a synthesized claim's text is one of its cited source claims' text word for word (round-10 clearance c3: such a
+    claim credits exactly what its source claim credits, so the credit readers of INT-LEDGER-026 charge it nothing)."""
+    form = _verbatim_form(text)
+    return bool(form) and any(_verbatim_form(c.claim_text) == form for c in known)
+
+
+#: A source named as a numbered part of a document ("Diagram 1", "Figure 2", "Table 3"): it names a supplied document only when that
+#: document carries the label (round-10 clearance c3, ec-t16 s20: "As Diagram 1 shows" names the answer's own diagram).
+_NUMBERED_KIND_RE = re.compile(r"\b(diagram|figure|fig\.|table|graph|chart|map|source|extract|document|exhibit|appendix)[ \t]{1,3}(\d{1,3}|[A-H])\b", re.IGNORECASE)
+
+
+def _carries_label(doc, kind: str, label: str) -> bool:
+    """Whether a supplied document carries the numbered label ("Diagram 1") in its title or its text."""
+    pattern = re.compile(rf"\b{re.escape(kind)}[ \t]{{1,3}}{re.escape(label)}\b", re.IGNORECASE)
+    return bool(pattern.search(doc.title or "") or pattern.search((doc.text or "")[:200_000]))
+
+
 def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistReport], agents: list[str]) -> list[str]:
     """A statement a synthesized claim credits, without quotation marks, to a named source ("The Treaty of Versailles
     states that Article 48 probably allowed ...", "According to Keynes, ...", "In the words of the treaty, ...";
@@ -4537,6 +4604,9 @@ def _text_credit(text: str, known: list[ClaimRecord], reports: list[SpecialistRe
         names = {w.casefold() for w in re.findall(r"[^\W\d_][\w'’-]*", source) if w[:1].isupper() and w.casefold() not in _NOT_A_NAME}
         head = (re.findall(r"[^\W\d_][\w'’-]*", source) or [""])[-1].casefold()
         doc = next((d for d in docs.values() if document_mentions(source, d)), None)
+        numbered = _NUMBERED_KIND_RE.search(source)
+        if doc is None and numbered is not None and not any(_carries_label(d, numbered.group(1), numbered.group(2)) for d in docs.values()):
+            continue  # round 10 (c3): "Diagram 1" no supplied document carries is the answer's own (ec-t16 s20), credited to no document
         if doc is None and head in _DOCUMENT_KIND_WORDS and docs:
             # a supplied document named by its kind (integration gate, round 1: "The table shows that ..." on a History
             # specialist's own view read as no credit at all)
@@ -4612,6 +4682,58 @@ def _credits_source(claim_text: str, names: set[str], doc) -> bool:
 #: A from-memory label or qualification in a text.
 _MEMORY_LABEL_RE = re.compile(r"\bfrom memory\b|\bmemory\b|\b(?:check|verify)\b[^.;]{0,40}\bnotes?\b|\bunverified\b|\bnot (?:been )?(?:verified|checked)\b|\bto be (?:checked|verified)\b", re.IGNORECASE)
 _MEMORY_PAREN_RE = re.compile(r"\(([^()]*\bmemory\b[^()]*)\)", re.IGNORECASE)
+#: Round-10 clearance (c3): what makes a note's from-memory wording no label of the figures its report gives: a figure the
+#: writer withholds or would give ("any number I gave would be unverified", bm-t16 g16.2), gives instead of something else, or
+#: declines ("I have left those figures out rather than give them from memory", ge-t16), or a source it says it has none of.
+_MEMORY_NOT_GIVEN_RE = re.compile(r"\bwould\b|\bcould\b|\brather[ \t]{1,3}than\b|\binstead[ \t]{1,3}of\b|\bcan(?:not|['’]t)\b|\bwon['’]t\b"
+                                  r"|\bwill[ \t]{1,3}not\b|\b(?:do|did)[ \t]{1,3}not\b|\b(?:don|didn)['’]t\b|\bI[ \t]{1,3}have[ \t]{1,3}no\b|\bno[ \t]{1,3}source\b"
+                                  r"|\bleft\b[^.;]{0,60}?\bout\b|\bnot[ \t]{1,3}used\b|\bdeclin|\brefus|\bwithh[eo]ld|\bnever\b", re.IGNORECASE)
+#: A sentence of a note (for :func:`labels_report_figures_from_memory`).
+_NOTE_SENTENCE_RE = re.compile(r"[^.!?;\n]+")
+#: Where the clause of a from-memory wording ends (round-10 clearance, handoff pass): a semicolon or a colon, or a comma or a dash
+#: before a coordinating or subordinating word ("..., so I have left those figures out rather than give them from memory").
+_MEMORY_CLAUSE_BREAK_RE = re.compile(r"[;:]|[,\u2014\u2013][ \t]{0,3}(?:and|but|so|or|because|since|while|whereas|although|though|yet)\b", re.IGNORECASE)
+
+
+def memory_label_vetoed(sentence: str, start: int, end: int) -> bool:
+    """Whether the clause of ``sentence`` that holds the from-memory wording at ``start:end`` says the figures are withheld,
+    declined, would be given or have no source (:data:`_MEMORY_NOT_GIVEN_RE`), read in that clause only (round-10 clearance,
+    handoff pass): "..., so I have left those figures out rather than give them from memory." (ge-t16) and "..., so any number I
+    gave would be unverified ..." (bm-t16 g16.2) are vetoed, while a word of another clause vetoes nothing ('The poem never
+    mentions the war, so this reading rests on the History specialist's context, whose "dates and figures" are, in its own
+    words, "from memory and should be checked before they are cited".' labels its figures). The ledger's note reader and the
+    core pack's label reader both read it. Linear in the sentence."""
+    a = 0
+    for m in _MEMORY_CLAUSE_BREAK_RE.finditer(sentence, 0, start):
+        a = m.end()
+    stop = _MEMORY_CLAUSE_BREAK_RE.search(sentence, end)
+    b = stop.start() if stop is not None else len(sentence)
+    return _MEMORY_NOT_GIVEN_RE.search(sentence, a, b) is not None
+#: A number that labels something rather than counting or measuring it ("Option 1", "Table 2", "Diagram 1", "Part 3"): blanked
+#: before the from-memory rule reads a claim's quantified items (round-10 clearance c3: bm-t16's 'Option 1' and 'Option 2').
+_LABEL_NUMBER_RE = re.compile(r"\b(?:options?|tables?|figures?|fig\.|diagrams?|sources?|parts?|questions?|papers?|units?|appendix|sections?|chapters?|steps?"
+                              r"|stages?|phases?|items?|scenarios?|cases?|groups?|models?|methods?|plans?|routes?|sites?|zones?|levels?|criteri(?:on|a)|paragraphs?"
+                              r"|lines?|rows?|columns?|exhibits?|extracts?|documents?|texts?)[ \t]{1,3}(?:no\.?[ \t]{0,2})?(\d{1,3})(?![\d.,])", re.IGNORECASE)
+
+
+def labels_report_figures_from_memory(note: str) -> bool:
+    """Whether a note of a report labels the figures its report gives from memory (round-10 clearance c3): one of its
+    sentences carries a from-memory wording (:data:`_MEMORY_LABEL_RE`) and says nothing that makes it a statement about
+    figures the writer withholds, declines, would give or gives no source for (:data:`_MEMORY_NOT_GIVEN_RE`, read in the
+    wording's own clause: :func:`memory_label_vetoed`): "Dates and figures here are from memory; check them against your notes."
+    labels; "any number I gave would be unverified" (a decline) and "rather than give them from memory" do not. One pass over the
+    note, bounded."""
+    for m in _NOTE_SENTENCE_RE.finditer((note or "")[:4000]):
+        sentence = m.group(0)
+        for w in _MEMORY_LABEL_RE.finditer(sentence):
+            if not memory_label_vetoed(sentence, w.start(), w.end()):
+                return True
+    return False
+
+
+def _without_label_numbers(text: str) -> str:
+    """``text`` with every number that labels something ("Option 1", "Table 2") blanked (same length otherwise)."""
+    return _LABEL_NUMBER_RE.sub(lambda m: m.group(0)[:m.start(1) - m.start()] + " " * len(m.group(1)), text) if text else text
 
 
 def _dropped_memory_labels(text: str, known: list[ClaimRecord], report_labelled: set[str]) -> Optional[tuple[list[str], list[str], list[str]]]:
@@ -4630,7 +4752,7 @@ def _dropped_memory_labels(text: str, known: list[ClaimRecord], report_labelled:
         own = _MEMORY_LABEL_RE.search(c.claim_text) or any(_MEMORY_LABEL_RE.search(a) for a in c.assumptions)
         if not own and c.claim_id not in report_labelled:
             continue
-        carried = {f.label for f in _figures(c.claim_text) if magnitude_keys(f.keys) & syn_keys}
+        carried = {f.label for f in _figures(_without_label_numbers(c.claim_text)) if magnitude_keys(f.keys) & syn_keys}
         if not carried:
             continue
         items |= carried
@@ -5052,7 +5174,9 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
     align_left = ALIGN_CHECK_STEP_BOUND
     read_used = 0  # the characters of claim text the lexical readers have compared so far (rule read-bound)
     quote_used = 0  # quotations times characters searched for them so far (rule quote-bound)
-    memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and _MEMORY_LABEL_RE.search(c.claim_text) for c in r.claims)}
+    # round 10 (c3): a note labels its report's figures from memory only when it says so of figures the report gives, never a
+    # note about figures it declines or withholds (bm-t16 g16.2: "so any number I gave would be unverified")
+    memory_reports = {r.report_id for r in reports if any(c.claim_role == "other" and labels_report_figures_from_memory(c.claim_text) for c in r.claims)}
 
     for sc in synthesis.claims:
         if sc.claim_id in all_source_ids:
@@ -5168,9 +5292,12 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
             changed_meaning = [d for d in meaning_differences(sc.text, [c.claim_text for c in known], sc.transformation,
                                                               aligned=(word_counts, aligned_meaning))
                                if not (neg_error and d.startswith("it adds a negation"))]
-            changed_meaning += _view_credit(sc.text, known, agents)
-            changed_meaning += _text_credit(sc.text, known, reports, agents)
-            changed_meaning += _party_credit(sc.text, known)
+            if not carried_verbatim(sc.text, known):
+                # round 10 (c3): a claim carried word for word credits exactly what its source claim credits (en-t16 s6 'The
+                # narrator notes that ...', ec-t16 s20 'As Diagram 1 shows, ...'): nothing new is credited to anyone
+                changed_meaning += _view_credit(sc.text, known, agents)
+                changed_meaning += _text_credit(sc.text, known, reports, agents)
+                changed_meaning += _party_credit(sc.text, known)
             if not located_here:
                 changed_meaning.append(f"its {quote_count} quotations were not located in the texts in scope: searching {sum(len(t) for t in corpus):,} characters "
                                        f"for them would bring this synthesis's quotation searches past the ledger's bound of {QUOTE_SCAN_BOUND:,} "
@@ -5257,7 +5384,7 @@ def check_synthesis_ledger(reports: list[SpecialistReport], synthesis: Synthesis
         if unknown:
             f.append(IntegrityFinding(code="INT-LEDGER-001", severity="error", message=f"conflict record {conf.conflict_id} cites unknown claims {unknown}", claim_ids=unknown, agent_ids=[synthesis.combinator_agent_id]))
 
-    f += _text_coverage(synthesis)
+    f += _text_coverage(synthesis, reports)
     return f
 
 
@@ -5377,6 +5504,81 @@ _STEP_NUMBER_RE = re.compile(r"^\s{0,3}(?:[^\W\d_][^.!?:\n]{0,40}:[ \t]{1,3})?\(
 #: to contrast them, add the differences."): the claim after it depends on it.
 _FRAMING_NOTE_RE = re.compile(r"^\s{0,3}(?:[^\W\d_][^.!?:\n]{0,30}:[ \t]{1,3})?(?:if|when|where)\b[^.!?\n]{1,200}?,[ \t]{1,3}"
                               r"(?:add|include|write|give|state|list|use|mention|keep|leave)\b", re.IGNORECASE)
+# Rule framing-content, announced items (round 10, clearance c3, ll-t16): a carried sentence that announces questions for the
+# student to answer ("To test a direction, answer these from the adverts themselves: 1. ...") or items or steps to follow, while
+# the synthesis carries none of the questions or items it announces, tells the student to answer or follow what the answer no
+# longer holds. Every pattern starts at a word boundary or the text's start and every gap is bounded (a constant amount of work
+# from each position).
+_COUNT_WORD = r"(?:two|three|four|five|six|seven|eight|nine|ten|\d{1,2})"
+#: The cue of a claim that announces questions: "answer these", "answer the following", "these questions", "ask yourself",
+#: "consider these", a count of questions ("four questions", "three guiding questions").
+_ANNOUNCES_QUESTIONS_RE = re.compile(
+    r"\b(?:answer[ \t]{1,3}(?:these|the[ \t]{1,3}following|the[ \t]{1,3}questions?[ \t]{1,3}below)"
+    r"|(?:these|the[ \t]{1,3}following|the[ \t]{1,3}next)[ \t]{1,3}(?:[^\W\d_]{1,20}[ \t]{1,3})?questions"
+    r"|ask[ \t]{1,3}yourself|consider[ \t]{1,3}these"
+    rf"|{_COUNT_WORD}[ \t]{{1,3}}(?:[^\W\d_]{{1,20}}[ \t]{{1,3}})?questions)\b", re.IGNORECASE)
+#: The cue of a claim that announces items or steps: "try these", "work through these", "test it with these", a count of steps,
+#: tasks or items ("three steps"), "the following steps", a "Steps ...:" lead; a text ending with ":" announces items too.
+_ANNOUNCES_ITEMS_RE = re.compile(
+    r"\b(?:try[ \t]{1,3}these|work[ \t]{1,3}through[ \t]{1,3}these"
+    r"|test[ \t]{1,3}(?:it|them|this|your[ \t]{1,3}[^\W\d_]{1,20})[ \t]{1,3}(?:with|against)[ \t]{1,3}these"
+    r"|the[ \t]{1,3}following[ \t]{1,3}(?:steps|tasks|items|points)"
+    rf"|{_COUNT_WORD}[ \t]{{1,3}}(?:[^\W\d_]{{1,20}}[ \t]{{1,3}})?(?:steps|tasks|items))\b"
+    r"|^\s{0,3}steps\b[^:\n]{0,60}:", re.IGNORECASE)
+#: A list item's marker at a claim's start: "- ", "• ", "* ", "– " (a numbered step is :data:`_STEP_NUMBER_RE`).
+_ITEM_MARKER_RE = re.compile(r"^\s{0,3}[-•*–][ \t]")
+#: The last part of a claim id: a claim's block is its id less it ("p4" for "p4-s02", "g2" for "g2.1"; a qualifier after "@" aside).
+_ID_LAST_PART_RE = re.compile(r"[-.][^-.]*\Z")
+
+
+def _claim_block(claim_id: str) -> str:
+    base = claim_id.split("@", 1)[0]
+    return _ID_LAST_PART_RE.sub("", base, count=1)
+
+
+def _announcement(masked: str) -> Optional[str]:
+    """"questions" when the claim (quotations masked) announces questions for the student to answer, "items" when it announces
+    items or steps (or ends with a colon), else None."""
+    if _ANNOUNCES_QUESTIONS_RE.search(masked) is not None:
+        return "questions"
+    if _ANNOUNCES_ITEMS_RE.search(masked) is not None or masked.rstrip().endswith(":"):
+        return "items"
+    return None
+
+
+def _is_question(masked: str) -> bool:
+    """A question the claim itself asks (a quoted question is the quoted text's): its masked text ends with a question mark,
+    closing brackets and blanks aside."""
+    return masked.rstrip(" \t\n)]*_").endswith("?")
+
+
+def _announced_items(claims: list, cited: set[str]) -> dict[int, tuple[int, list[int]]]:
+    """For each claim of a report that a carried announcing claim announces (rule framing-content, announced items), the index of
+    the announcing claim and the indexes of every item it announces: the claims after it in the same block (:func:`_claim_block`),
+    up to the next announcing claim, that are a question (an announcement of questions) or a question or a list item (an
+    announcement of items or steps); a quotation-only evidence claim between them is no item. One pass over the claims; each
+    claim's text is masked once, and only within a block after a carried announcing claim."""
+    from ..adapters.markdown import mask_quotations
+    out: dict[int, tuple[int, list[int]]] = {}
+    i, n = 0, len(claims)
+    while i < n:
+        c = claims[i]
+        mode = _announcement(mask_quotations(c.claim_text or "")) if c.claim_id in cited else None
+        if mode is None:
+            i += 1
+            continue
+        block, items, j = _claim_block(c.claim_id), [], i + 1
+        while j < n and _claim_block(claims[j].claim_id) == block:
+            masked = mask_quotations(claims[j].claim_text or "")
+            if claims[j].claim_id in cited and _announcement(masked) is not None:
+                break
+            if _is_question(masked) or (mode == "items" and (_STEP_NUMBER_RE.match(masked) or _ITEM_MARKER_RE.match(masked))):
+                items.append(j)
+            j += 1
+        for k in items:
+            out[k] = (i, items)
+        i = j
+    return out
 
 
 def framing_content_findings(synthesis: Synthesis, reports: list[SpecialistReport], colliding: Iterable[str] = ()) -> list[IntegrityFinding]:
@@ -5385,17 +5587,22 @@ def framing_content_findings(synthesis: Synthesis, reports: list[SpecialistRepor
     (``channel.bus.withheld_deliverable``, as the receipt records them: the answer no longer says the item is withheld and why,
     or pending and what the student must do; round-9 clearance c2b: a left-out deferral was named by nothing); a step of a numbered list whose earlier and later steps the
     synthesis carries (the list the student reads has a gap); a framing note right before a claim the synthesis carries, which
-    tells the reader how to take that claim (the claim reaches the student without it). A material claim is left to the
-    material rules (INT-LEDGER-019 when dropped, INT-LEDGER-002 when unaccounted). Linear in the claims."""
+    tells the reader how to take that claim (the claim reaches the student without it); a question or item that a claim the
+    synthesis carries announces ("answer these ...:", "Steps for this week:"), when the synthesis carries none of the questions or
+    items it announces that are not roled ``other`` (round 10, clearance c3, ll-t16: the student is told to answer questions the
+    answer no longer holds; :func:`_announced_items`). A material claim is left to the material rules (INT-LEDGER-019 when
+    dropped, INT-LEDGER-002 when unaccounted). Linear in the claims."""
     from ..channel.bus import withheld_deliverable  # a decline (adapters.markdown.declined_deliverable) or a deferral, as the receipt records them
     cited = {cid for sc in synthesis.claims for cid in sc.source_claim_ids}
     skip = set(colliding)
     listed = set(synthesis.source_report_ids)
     out: list[IntegrityFinding] = []
+    dropped_reason = {s: e.reason for e in synthesis.ledger if e.transformation == "dropped" and meaningful(e.reason) for s in e.source_claim_ids}
     for r in reports:
         if r.report_id not in listed:
             continue
         claims = list(r.claims)
+        announced = _announced_items(claims, cited)
         number: dict[int, int] = {i: int(m.group(1)) for i, c in enumerate(claims) if (m := _STEP_NUMBER_RE.match(c.claim_text or "")) is not None}
         # a numbered list: steps numbered 1, 2, 3, ... in order (claims between them allowed)
         lists: list[list[int]] = []
@@ -5430,6 +5637,16 @@ def framing_content_findings(synthesis: Synthesis, reports: list[SpecialistRepor
             elif c.claim_role == "other" and i + 1 < len(claims) and claims[i + 1].claim_id in cited and _FRAMING_NOTE_RE.match(text):
                 why = (f"it is a note that tells the reader how to take the claim after it ({claims[i + 1].claim_id}), which the synthesis carries "
                        "without it")
+            elif i in announced and c.claim_role != "other":
+                lead, members = announced[i]
+                if not any(claims[k].claim_id in cited for k in members if claims[k].claim_role != "other"):
+                    reason = dropped_reason.get(c.claim_id)
+                    said = ""
+                    if reason is not None:
+                        said = f" (recorded reason: {reason!r}" + ("; the combinator's own words: the reason states a check result, a self-report that is advisory "
+                                                                  "only and no evidence of a check; INT-LEDGER-029" if ledger_field_self_reports(reason) else "") + ")"
+                    why = (f"it is one of the questions or items that {claims[lead].claim_id}, which the synthesis carries, announces, and the synthesis "
+                           f"carries none of them{said}, so the student-facing answer tells the student to answer or follow items it does not hold")
             if why is not None:
                 out.append(IntegrityFinding(code="INT-LEDGER-019", severity="warning",
                                             message=f"source claim {c.claim_id} ({c.claim_role}, {c.materiality}) was left out of the synthesis although {why}: "
@@ -5520,10 +5737,41 @@ def contained_claims(claim_texts: list[str], text: Optional[str] = None) -> list
     return sorted(out)
 
 
-def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
+def _orphaned_quotation_findings(synthesis: Synthesis, reports: Iterable[SpecialistReport], body: str) -> tuple[list[IntegrityFinding], set[int]]:
+    """Rule orphaned-quotation (round 10, clearance c3, lit-t16 and exchange x10): a synthesized claim that is a source's quotation
+    and nothing else, whose every quoting source claim the synthesis left out (``integration.combinator_port.orphaned_quotations``,
+    the one reader the port composes the student-facing text with), is named INT-LEDGER-017 (warning) with its own reason: when the
+    student-facing text leaves it out (the port's composition), the synthesis carries evidence that nothing uses; when the text
+    renders it, the student reads it on its own, with no claim that uses it. Returns the findings and the indexes of the claims
+    named, which the generic presence message then leaves out. The sources are the reports the synthesis lists, in its order."""
+    from ..integration.combinator_port import orphaned_quotations  # one reader for the port and the hub
+    by_id = {r.report_id: r for r in reports}
+    listed = [by_id[rid] for rid in synthesis.source_report_ids if rid in by_id]
+    if not listed or not synthesis.claims:
+        return [], set()
+    orphans = orphaned_quotations([c.text for c in synthesis.claims], [list(c.source_claim_ids) for c in synthesis.claims],
+                                  [[(c.claim_id, c.claim_text) for c in r.claims] for r in listed])
+    out: list[IntegrityFinding] = []
+    for i, quoting in sorted(orphans.items()):
+        sc = synthesis.claims[i]
+        ids = [sc.claim_id] + [q for q in quoting if q != sc.claim_id]
+        if _norm(sc.text) not in body:
+            message = (f"synthesized claim {sc.claim_id} carries a quotation ({list(sc.source_claim_ids)}) whose every quoting claim ({quoting}) the "
+                       "synthesis left out: the student-facing text leaves it out, as the combinator port composes it, and the synthesis carries "
+                       "evidence that nothing uses (rule orphaned-quotation)")
+        else:
+            message = (f"synthesized claim {sc.claim_id} is a quotation whose every quoting claim ({quoting}) the synthesis left out: the student "
+                       "reads it on its own, with no claim that uses it (rule orphaned-quotation)")
+        out.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=message, claim_ids=ids[:64],
+                                    agent_ids=[synthesis.combinator_agent_id]))
+    return out, set(orphans)
+
+
+def _text_coverage(synthesis: Synthesis, reports: Iterable[SpecialistReport] = ()) -> list[IntegrityFinding]:
     """The student reads Synthesis.text, the Overseer reads the claim ledger; the two
     must agree. Each synthesized claim's text must occur in the student-facing text
-    (INT-LEDGER-017), every figure or date the text states (digits, number words, scale
+    (INT-LEDGER-017; an orphaned quotation is named with its own reason, rule orphaned-quotation,
+    :func:`_orphaned_quotation_findings`), every figure or date the text states (digits, number words, scale
     words, month-years: ``figure_spellings``) must be stated by some synthesized claim
     under some spelling (INT-LEDGER-023, error: "1834" or "under ten" where every claim
     says "1833" and "under nine" miscommunicates to the student while every claim stays
@@ -5543,9 +5791,12 @@ def _text_coverage(synthesis: Synthesis) -> list[IntegrityFinding]:
                                   "under any spelling: a changed or introduced figure or date in what the student reads", claim_ids=[synthesis.synthesis_id],
                                   agent_ids=[synthesis.combinator_agent_id]))
     body = _norm(synthesis.text)
+    orphan_findings, orphan_idx = _orphaned_quotation_findings(synthesis, reports, body)
     absent = [c.claim_id for c in synthesis.claims if _norm(c.text) not in body]
-    if absent:
-        f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {absent} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=absent, agent_ids=[synthesis.combinator_agent_id]))
+    unexplained = [c.claim_id for k, c in enumerate(synthesis.claims) if k not in orphan_idx and _norm(c.text) not in body]
+    if unexplained:
+        f.append(IntegrityFinding(code="INT-LEDGER-017", severity="warning", message=f"synthesized claims {unexplained} do not appear in the student-facing text; the ledger does not describe what the student reads", claim_ids=unexplained, agent_ids=[synthesis.combinator_agent_id]))
+    f += orphan_findings
     texts = [c.text for c in synthesis.claims]
     contained = contained_claims(texts, synthesis.text)
     if contained:

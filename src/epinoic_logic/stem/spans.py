@@ -63,7 +63,10 @@ from .units import stem_is_unit_atom as is_unit_atom  # rule count-noun: the STE
 __all__ = ["DISPLAY_ENVIRONMENTS", "Line", "PartLabel", "Span", "SpanSet", "find_spans", "split_lines"]
 
 SpanKind = Literal["code_block", "code_inline", "latex_display", "latex_inline", "chem", "math_run", "verbal", "quantity", "table", "data_line"]
-DISPLAY_ENVIRONMENTS = ("equation*", "equation", "align*", "align", "gather*", "gather")
+#: round-10 clearance (rule environment-rows): eqnarray, multline and flalign are read as align is (their rows split at '\\\\', the '&'
+#: marks dropped); before, they were read by nothing and named by nothing
+DISPLAY_ENVIRONMENTS = ("equation*", "equation", "align*", "align", "gather*", "gather", "eqnarray*", "eqnarray", "multline*", "multline",
+                        "flalign*", "flalign")
 _INNER_WRAPPERS = ("\\begin{aligned}", "\\end{aligned}", "\\begin{split}", "\\end{split}", "\\begin{gathered}", "\\end{gathered}")
 _STOPWORDS = frozenset({"is", "so", "of", "to", "be", "in", "by", "or", "if", "an", "it", "on", "we", "do", "no", "up", "us", "my", "he", "me", "am", "go",
                         "the", "and", "for", "then", "than", "that", "this", "with", "from", "into", "when", "only", "also", "here", "there", "each",

@@ -54,7 +54,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-__all__ = ["MASK_FILL", "MASK_HEAD", "SIGN_FORMS", "blank_ranges", "masked_view", "prose_view", "reading_view"]
+__all__ = ["CONTROL_CHARACTERS", "MASK_FILL", "MASK_HEAD", "SIGN_FORMS", "blank_ranges", "masked_view", "prose_view", "reading_view"]
 
 MASK_HEAD = "X"
 MASK_FILL = "x"
@@ -75,7 +75,12 @@ _IGNORABLE_RANGES = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x11
                      (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8),
                      (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF))
 _INVISIBLE = {chr(c): " " for a, b in _IGNORABLE_RANGES for c in range(a, b + 1)}
-_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | _INVISIBLE | SIGN_FORMS
+#: round-10 clearance (rule control-character): the C0 controls other than tab, line feed and carriage return, and DEL, are blanks of the
+#: reading view as the invisible characters are ('20/4\x00 = 6' is read as '20/4  = 6', its relation decided; it had been dropped with
+#: nothing named), and rule format-character names the statement that holds one (relations._control_characters)
+CONTROL_CHARACTERS = frozenset(chr(c) for c in list(range(0x00, 0x09)) + [0x0B, 0x0C] + list(range(0x0E, 0x20)) + [0x7F])
+_CONTROLS = {c: " " for c in CONTROL_CHARACTERS}
+_SIMPLE = {"−": "-", "⋅": "·", "∙": "·", "∗": "*", "Ω": "Ω", "‑": "-"} | _SPACES | _ZERO_WIDTH | _INVISIBLE | _CONTROLS | SIGN_FORMS
 _DASHES = frozenset({"–", "‒"})
 #: round-9 clearance (rule spaced-dash): the dashes a model writes for a minus between two numbers with a blank on each side ('20 – 4.0',
 #: '10⁴ — 5', '(3.0) ‐ (1.5)'): the en dash, the figure dash, the em dash and U+2010 HYPHEN

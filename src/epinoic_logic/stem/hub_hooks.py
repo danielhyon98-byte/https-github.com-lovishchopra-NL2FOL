@@ -32,6 +32,7 @@ import re
 from typing import Optional
 
 from .document import StemDocument, build_document
+from .layout import PART_LEAD_RE, annotation_ranges
 from .limits import PROFILES
 from .nodes import Quantity, Sym, WithUnit, walk
 from .units import Dimension
@@ -186,10 +187,14 @@ class StemHooks:
                     continue
                 parts.append(_numeral_lines(_LATEX_WORD_RE.sub(" ", text[pos:a])))
                 word = "Xcode" if kind in _CODE_KINDS else "Xmath"
-                parts.append(f" {word} " + "\n" * text.count("\n", a, b))
+                # round-10 clearance (rule working-view): a maths span that states a relation keeps its sign, glued to its one word
+                # ('Xmath='), so the line it stands in is still read as working by the channel's 'plus working' reader (the view had
+                # turned '840 ha = 8,400,000 m² …' into 'Xmath (Xmath)', counted as prose: ess-t16's working was charged to its bound)
+                sign = "=" if kind not in _CODE_KINDS and _RELATION_SIGN_RE.search(text, a, b) else ""
+                parts.append(f" {word}{sign} " + "\n" * text.count("\n", a, b))
                 pos = b
             parts.append(_numeral_lines(_LATEX_WORD_RE.sub(" ", text[pos:])))
-            return "".join(parts)
+            return _without_labels_and_marks("".join(parts))
         except Exception:
             return text
 
@@ -214,6 +219,39 @@ def _numeral_lines(segment: str) -> str:
     if "\n" not in segment and not _numeral_line(segment):
         return segment
     return "\n".join(" Xmath " if _numeral_line(line) else line for line in segment.split("\n"))
+
+
+#: round-10 clearance (rule working-view): a relation sign inside a maths span
+_RELATION_SIGN_RE = re.compile(r"[=≈≃≅≠<>≤≥⇒→]")
+#: the longest line whose mark annotations are looked for (``layout.annotation_ranges`` reads lines up to its own bound)
+_MAX_VIEW_LINE = 4000
+
+
+def _without_labels_and_marks(view: str) -> str:
+    """Round-10 clearance (rule working-view): ``view`` with the part label that opens a line ('(a)', '(ii)', '2.') and the mark annotations
+    that close a line or one of its sentences ('[1]', '[2 marks]', '(M1)', 'A1' after two blanks) blanked, one blank each character, so
+    they are no words of the answer (ess-t16's fourteen '[1]' and its part labels had been counted as words of its 450-word bound). One
+    pass over the lines; each line is read once by the label pattern and by ``layout.annotation_ranges`` (linear, bounded per line)."""
+    lines = view.split("\n")
+    out: list[str] = []
+    for line in lines:
+        if not line.strip() or len(line) > _MAX_VIEW_LINE:
+            out.append(line)
+            continue
+        chars = list(line)
+        m = PART_LEAD_RE.match(line)
+        if m is not None:
+            a, b = m.span("label")
+            chars[a:b] = " " * (b - a)
+            inner = PART_LEAD_RE.match(line[b:])  # a numbered point right after the part label ('(c) 1. Drainage …') is a label too
+            if inner is not None:
+                c, d = inner.span("label")
+                chars[b + c:b + d] = " " * (d - c)
+        if any(ch in line for ch in "[(MARNG"):
+            for a, b in annotation_ranges(line):
+                chars[a:b] = " " * (b - a)
+        out.append("".join(chars))
+    return "\n".join(out)
 
 
 def _one_line_maths(span_text: str) -> bool:

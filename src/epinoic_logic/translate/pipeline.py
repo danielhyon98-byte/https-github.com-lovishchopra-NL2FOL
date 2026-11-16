@@ -371,6 +371,13 @@ _CONDITIONAL_CUE_RE = re.compile(r"\b(?:if|when|whenever|unless|provided|assumin
                                  r"on\s{1,3}condition|in\s{1,3}case|as\s{1,3}(?:wind|the|a|an)\b)", re.IGNORECASE)
 
 
+#: Round 10 (clearance c3, cs-t16 c13.1 and c13.2, cs-p10a c10.1): a generic statement about any member of a kind ("A time slice that
+#: is too short means ..., so ...", "A small k, such as k = 1, classifies each item by ..."): a subject with an indefinite article or
+#: "any", "every", "each" opening the claim (a label before it aside, never "a 5% rise", a figure), or such a subject's verb
+#: "means": a conditional encoding of it is faithful.
+_GENERIC_SUBJECT_RE = re.compile(r"^\W{0,4}(?:\(?[a-z0-9]{1,4}\)[ \t]{0,3})?(?:a|an|any|every|each)[ \t]{1,3}(?![\d$£€¥%])[a-z]", re.IGNORECASE)
+
+
 def conditional_conclusion(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
     """Round 9 (c2, ch-t15 s15.4: "Fewer products and more reactants are present at equilibrium, so Kc falls." concluded
     ``shift_left -> kc_falls``): the ``conditional_conclusion`` flag when the claim draws its consequence categorically (a
@@ -382,6 +389,8 @@ def conditional_conclusion(problem: Problem, claim: ClaimRecord) -> Optional[Amb
     text = (claim.claim_text or "")[:4000]
     if _CATEGORICAL_CONSEQUENCE_RE.search(text) is None or _CONDITIONAL_CUE_RE.search(text) is not None:
         return None
+    if _GENERIC_SUBJECT_RE.match(text) is not None:
+        return None  # round 10 (c3): a generic statement about any member of a kind is conditional in its meaning
     return AmbiguityFlag(code="conditional_conclusion", message=truncate(
         "the claim draws its consequence categorically (a consequence connective and no conditional cue), while the encoding's conclusion "
         "is a link 'A implies B': the verdict would cover the link, not the consequence the claim asserts; encode the consequence as the "
@@ -527,7 +536,12 @@ def partial_encoding(problem: Problem, claim: ClaimRecord, interpretation: Optio
 #: A part of an answer that is no content of the claim a verdict checks: a sources line, a support listing, a framing label,
 #: a heading, a disclaimer or a line that is no claim ("the sources line (p6-point) is not a claim", "the listing also cites
 #: p1-point", "the 'what the question wants' label", "the disclaimer that only the teacher ... award real marks").
-_NON_CONTENT_PART_RE = re.compile(r"\b(?:sources?\s+line|source\s+list|listing|label|heading|framing|disclaimer|not\s+a\s+claim)\b", re.IGNORECASE)
+_NON_CONTENT_PART_RE = re.compile(r"\b(?:sources?\s+line|source\s+list|listing|label|heading|framing|disclaimer|not\s+a\s+claim|supporting\s+claims?)\b", re.IGNORECASE)
+#: A claim id as the parsers write them ("h1.2", "m24.1", "s4.10", "g1.2@economics-specialist", "p1-s01", "p6-q02", "p2-point"):
+#: a sentence of the reading that names another claim's id says what of THAT claim is not encoded (round-10 clearance c3, c1 bug
+#: r8-17: hi-p10b h1.1 "Supporting claims h1.2 (...) and h1.6 (...) are not encoded here", mai-t16 m26.1 "its nonlinear derivation
+#: in m24.1 is not encoded").
+_CLAIM_ID_RE = re.compile(r"(?<![\w.])(?:[a-z]{1,3}\d{1,3}\.\d{1,3}|p\d{1,2}-(?:s|q)\d{1,3}|p\d{1,2}-point)(?:@[a-z][\w-]{0,60})?(?![\w.]*\d)", re.IGNORECASE)
 
 
 def _names_claim_part(reading: str, start: int, end: int, claim: ClaimRecord) -> bool:
@@ -541,8 +555,30 @@ def _names_claim_part(reading: str, start: int, end: int, claim: ClaimRecord) ->
     left = max(reading.rfind(". ", 0, start), reading.rfind("\n", 0, start)) + 1
     stops = [k for k in (reading.find(". ", end), reading.find("\n", end)) if k != -1]
     sentence = reading[left:min(stops) if stops else len(reading)][:600]
+    if _about_another_claim(sentence, start - left, end - left, claim):
+        return False
     # what the reading leaves out may be written in symbols ("the square-root step"), so any part counts but these
     return _NON_CONTENT_PART_RE.search(sentence) is None
+
+
+_BRACKETED_RE = re.compile(r"\([^()]{0,600}\)")
+
+
+def _about_another_claim(sentence: str, start: int, end: int, claim: ClaimRecord) -> bool:
+    """Round 10 (clearance c3, c1 bug r8-17): whether what the reading's sentence says is not encoded is another claim's: the
+    bracket that holds the match (else the sentence without its bracketed asides) names another claim by its id and shares no
+    content word with the claim's own text ("Supporting claims h1.2 (...) and h1.6 (...) are not encoded here", hi-p10b h1.1; "(its
+    nonlinear derivation in m24.1 is not encoded)", mai-t16 m26.1). A part of this claim named beside another claim's id ("The
+    whereas clause (Haiti had no codes to enforce) ... carried in g5.1 and is not encoded here", ge-t16 g5.2) shares the claim's
+    words and is still this claim's part. Bounded: the sentence is read to 600 characters."""
+    own = (claim.claim_id or "").split("@")[0].casefold()
+    holder = next((m for m in _BRACKETED_RE.finditer(sentence) if m.start() <= start and end <= m.end()), None)
+    segment = holder.group(0) if holder is not None else _BRACKETED_RE.sub(" ", sentence)
+    others = [m for m in _CLAIM_ID_RE.finditer(segment) if m.group(0).split("@")[0].casefold() != own]
+    if not others:
+        return False
+    words = set(lexis.content_stems(_CLAIM_ID_RE.sub(" ", segment)))
+    return not words & set(lexis.content_stems((claim.claim_text or "")[:4000]))
 
 
 _ENCODED_CLAIM_RE = re.compile(r"\b(?:literal\s+)?equalit(?:y|ies)\b[^.;]*\b(?:is|are)\s+encoded\b|\bencoded\s+as\s+(?:a\s+)?literal\s+equalit", re.IGNORECASE)

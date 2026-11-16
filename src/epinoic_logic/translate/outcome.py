@@ -99,7 +99,8 @@ from .diag_core import build_context, claim_diagnostics
 from .pipeline import Translator
 from .review import SemanticReviewer, review_currency
 
-__all__ = ["compose_outcome", "display_status_for", "verify_claim", "assess_release", "outcome_diagnosis", "STATUS_MEANING", "SUMMARY_MAX_CHARS", "RELEASE_POLICY"]
+__all__ = ["compose_outcome", "display_status_for", "claim_display_status", "verify_claim", "assess_release", "outcome_diagnosis", "STATUS_MEANING",
+           "WITHHELD_SELF_REPORT_MEANING", "SUMMARY_MAX_CHARS", "RELEASE_POLICY"]
 
 #: The release rule's version (bump on any change to :func:`assess_release`). The argument diagnosis (rules argdiag-2)
 #: makes the rule stricter only: a named defect on the claim (warning or error by effective severity) is unresolved, a
@@ -275,6 +276,27 @@ def unlinked_judgement(verification: Optional[VerificationResult], problem: Opti
 
 #: Display statuses that read as a success to a reader of the outcome.
 _SUCCESS_DISPLAY = frozenset({VerificationStatus.ENTAILED, VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE})
+
+
+#: The meaning of a NOT_ELIGIBLE display the composer gives a claim whose own words claim a check (round-10 clearance c3, overseer
+#: handoff 3a, bug 21: the summary said "the claim is not a solver question under policy; it is routed to another check and nothing was
+#: verified" and then showed the engine's check of the translated problem as if it bore on the claim).
+WITHHELD_SELF_REPORT_MEANING = ("withheld: the claim's own words claim a check (an agent self-report, advisory only), so no success status is shown "
+                                "for it; any engine result below concerns the translated problem only and is no verdict on the claim")
+
+
+def claim_display_status(claim: ClaimRecord, translation: TranslationResult, verification: Optional[VerificationResult],
+                         signing_key: Optional[bytes] = None, key_id: Optional[str] = None) -> tuple[VerificationStatus, bool]:
+    """The display status the composer gives ``claim`` (:func:`compose_outcome`), and whether the self-report rule withheld a success
+    display: :func:`display_status_for`, then NOT_ELIGIBLE for a success display of a claim whose own words claim a check
+    (``adapters.self_report.claims_a_check``). The one rule the channel's composer and the transfer auditor's re-derivation apply
+    (round-10 clearance c3, overseer handoff 3b)."""
+    display = display_status_for(translation, verification, signing_key, key_id)
+    if display in _SUCCESS_DISPLAY and _self_report_claim(claim.claim_text):
+        # a self-report never shows a success status (second remedy of the round-9 push-check hold): eligibility rule 0 keeps it from
+        # the solver; a translator that bypassed that rule cannot turn the claim's own words into a verdict
+        return VerificationStatus.NOT_ELIGIBLE, True
+    return display, False
 
 
 def _self_report_claim(text: str) -> bool:
@@ -600,16 +622,21 @@ def build_summary(
     named: Sequence[NamedDiagnostic] = (),
     engine_state: str = "not_computed",
     incomplete: Sequence[str] = (),
+    withheld_self_report: bool = False,
 ) -> str:
     """Deterministic plain-language summary; ends with ``SCOPE_STATEMENT`` verbatim. The release line comes third, so a
     long summary is cut elsewhere. The argument diagnosis section follows the verification lines; ``engine_state`` is
     ``named.rules_state`` of the trusted engine result (``not_computed`` without one). Every line is one line
     (``named.one_line``) and the model text it shows (labels, ambiguity flags, review issues, retry changes) has its
-    forgery words masked (``named.model_text``), so no model text can write a status, a release line or a section."""
+    forgery words masked (``named.model_text``), so no model text can write a status, a release line or a section.
+    ``withheld_self_report`` (the composer withheld a success display because the claim's own words claim a check; round-10
+    clearance c3, overseer handoff 3a) gives the status its own meaning (:data:`WITHHELD_SELF_REPORT_MEANING`), never the policy
+    meaning of a claim the eligibility rules routed elsewhere."""
+    meaning = WITHHELD_SELF_REPORT_MEANING if withheld_self_report and display is VerificationStatus.NOT_ELIGIBLE else STATUS_MEANING[display]
     lines: list[str] = [
         f"Claim {claim.claim_id} (role {claim.claim_role}, subject {claim.subject}): "
         f"translation {translation.status.value}; display status {display.value}.",
-        f"Status meaning: {STATUS_MEANING[display]}.",
+        f"Status meaning: {meaning}.",
     ]
     lines += _release_lines(release)
     lines += _eligibility_lines(translation)
@@ -768,11 +795,7 @@ def compose_outcome(
     if review is not None and review.translation_id != translation.translation_id:
         raise ValueError("review does not belong to the translation")
     findings = list(structural)
-    display = display_status_for(translation, verification, signing_key, key_id)
-    if display in _SUCCESS_DISPLAY and _self_report_claim(claim.claim_text):
-        # a self-report never shows a success status (second remedy of the round-9 push-check hold): eligibility rule 0 keeps it from
-        # the solver; a translator that bypassed that rule cannot turn the claim's own words into a verdict
-        display = VerificationStatus.NOT_ELIGIBLE
+    display, withheld = claim_display_status(claim, translation, verification, signing_key, key_id)  # the one display rule
     review_state = review_currency(review, claim, translation, report, task) if review is not None else None
     trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
     engine_check = (release_check(trusted, translation.problem, signing_key=signing_key, key_id=key_id)
@@ -780,7 +803,7 @@ def compose_outcome(
     named, incomplete, engine_state = outcome_diagnosis(claim, translation, verification, display, signing_key, key_id, report, task)
     release = assess_release(translation, trusted, review, findings, display, review_state, engine_check, named, incomplete)
     summary = build_summary(claim, translation, verification, review, findings, display, signing_key, key_id, release, review_state,
-                            named=named, engine_state=engine_state, incomplete=incomplete)
+                            named=named, engine_state=engine_state, incomplete=incomplete, withheld_self_report=withheld)
     return ClaimVerificationOutcome(
         outcome_id=new_id("oc"),
         request_id=claim.request_id,

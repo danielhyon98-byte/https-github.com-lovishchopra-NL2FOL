@@ -49,6 +49,7 @@ pass of the shared tokenizer and the figure reader) and reads the problem and th
 """
 from __future__ import annotations
 
+import json
 import re
 from fractions import Fraction
 from typing import Any, Optional, Sequence
@@ -59,7 +60,8 @@ from .common import truncate
 from .contracts import AmbiguityFlag, ClaimRecord, SpecialistReport, TaskRecord
 
 __all__ = ["MAX_CLAIM_CHARS", "MAX_REPORT_CLAIMS", "unencoded_support", "unencoded_support_flag", "neighbour_content", "dropped_qualifier",
-           "reason_unconnected", "reported_conclusion", "stated_values_not_encoded", "fidelity_flags"]
+           "reason_unconnected", "reported_conclusion", "stated_values_not_encoded", "consequence_unchecked", "conjunct_asserted",
+           "reason_not_encoded", "fidelity_flags"]
 
 #: The longest claim text read (characters).
 MAX_CLAIM_CHARS = 4_000
@@ -530,14 +532,198 @@ def stated_values_not_encoded(problem: Problem, claim: ClaimRecord) -> Optional[
     return None
 
 
+# ------------------------------------------------------------------------- round-10 clearance (c3): the claim's own point dropped
+# The c3 translation-fidelity lens found three encodings displayed ENTAILED with no finding although their conclusion is not the
+# claim's (fidelity reference, causes F, S and D): sp-t16 g1.22 concluded a premise restated and the rule's consequent while the
+# claim's point, the correction 'vemos' -> 'veamos', sat in a declared symbol nothing used; ess-t16 s7.1 asserted its conjunct
+# 'its costs fall on particular groups' as a writer's premise on the conjunct's own symbol, though the supporting claim s10.2
+# states the costs it rests on; ph-t16 s2.8 ("A gas-law ratio needs kelvin, so the ratio is 308/290, not 35/17") checked only
+# 308/290 != 35/17, its reason and the kelvin step dropped. Each reader below names the shape as an ambiguity flag (the outcome is
+# AMBIGUOUS_TRANSLATION, never a verdict on the claim). The fourth c3 shape, a conditional claim proved from its own conditional
+# (bm-t16 g15.3), is the translator's E112 (``restatement``, rule link-weakening).
+
+#: A consequence or a correction the conclusion's label states after it: "so", "therefore", "thus", "hence", an arrow, "should read".
+_CONSEQUENCE_CUE_RE = re.compile(r"(?:,[ \t]{0,3}|[ \t])(?:so|therefore|thus|hence)\b|→|->|⇒|=>|\bshould[ \t]{1,3}(?:read|be)\b", re.IGNORECASE)
+
+
+def _symbol_kind(sym) -> Optional[str]:
+    return sym.grounding.kind if sym.grounding is not None else None
+
+
+def consequence_unchecked(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
+    """The ``consequence_unchecked`` flag, or None (round-10 clearance c3, sp-t16 g1.22): the conclusion's label states a
+    consequence or correction (after "so", "therefore", an arrow, "should read"), and some of its content stems (at least one,
+    with at least two shared in all) are held only by the meaning of a declared symbol of the writer's own that no premise and
+    no conclusion uses ('correction', "the verb should read 'veamos'"): the encoding declared the claim's point and dropped it,
+    so the verdict is on what the expression checks, not on the consequence the label states."""
+    if problem.conclusion is None:
+        return None
+    label = (problem.conclusion.label or "")[:MAX_CLAIM_CHARS]
+    m = _CONSEQUENCE_CUE_RE.search(label)
+    if m is None:
+        return None
+    consequence = _stems(label[m.start():])
+    if len(consequence) < 2:
+        return None
+    used = _used(problem) | _names(_dump(problem.conclusion.expr))
+    unused = [s for s in problem.symbols if s.name not in used and _symbol_kind(s) in _WRITER_KINDS]
+    if not unused:
+        return None
+    encoded: set[str] = set()
+    for pr in problem.premises:
+        encoded |= _stems(pr.label)
+    for s in problem.symbols:
+        if s.name in used:
+            encoded |= _stems(s.meaning)
+    for s in unused:
+        shared = _stems(s.meaning) & consequence
+        if len(shared) >= 2 and shared - encoded:
+            return _flag("consequence_unchecked",
+                         f"(deterministic) the conclusion's label states a consequence ({truncate(label[m.start():], 120)!r}) that only the "
+                         f"declared symbol {s.name!r} ({truncate(s.meaning or '', 100)!r}) holds, and no premise or conclusion uses that "
+                         "symbol: the expression does not check the consequence the label states; encode the claim's own point",
+                         ["the claim's consequence encoded", "the encoding as given (the consequence dropped)"])
+    return None
+
+
+#: Kinds of a premise that asserts content as the writer's own inference (no source behind it).
+_INFERENTIAL_KINDS = frozenset({None, "specialist_inference", "assumption"})
+
+
+def _bool_atom(node: dict, sorts: dict[str, str]) -> Optional[str]:
+    """The Boolean symbol a conjunct is, or negates, or None."""
+    if node.get("op") == "not" and isinstance(node.get("arg"), dict):
+        node = node["arg"]
+    if node.get("op") == "var" and sorts.get(node.get("name")) == "Bool":
+        return node["name"]
+    return None
+
+
+def conjunct_asserted(problem: Problem, claim: ClaimRecord, supporting: Sequence[ClaimRecord]) -> Optional[AmbiguityFlag]:
+    """The ``conjunct_asserted`` flag, or None (round-10 clearance c3, ess-t16 s7.1): the conclusion conjoins two or more parts,
+    one of them a Boolean statement (or its negation) that only premises of the writer's own inference assert as written (no
+    grounding, ``specialist_inference``, ``assumption``), and a supporting claim the claim cites (not an evidence line) states what
+    that premise or its symbol says (at least two content stems in common): the encoding asserts the part the support should
+    give, so that part of the conclusion is assumed, not derived."""
+    if problem.query != "entailment" or problem.conclusion is None or not supporting:
+        return None
+    concl = _dump(problem.conclusion.expr)
+    if concl.get("op") != "and" or len(concl.get("args") or []) < 2:
+        return None
+    sorts = {s.name: s.sort for s in problem.symbols}
+    meanings = {s.name: s.meaning or "" for s in problem.symbols}
+    support = [(c.claim_id, _stems(c.claim_text)) for c in list(supporting)[:MAX_REPORT_CLAIMS] if c.claim_role not in _EVIDENCE_ROLES]
+    if not support:
+        return None
+    premises = [(pr, _dump(pr.expr)) for pr in problem.premises]
+    for part in concl["args"]:
+        name = _bool_atom(part, sorts)
+        if name is None:
+            continue
+        key = json.dumps(part, sort_keys=True)
+        rows = [pr for pr, e in premises if json.dumps(e, sort_keys=True) == key]
+        if not rows or any((pr.grounding.kind if pr.grounding is not None else None) not in _INFERENTIAL_KINDS for pr in rows):
+            continue
+        said = _stems(meanings.get(name)) | {st for pr in rows for st in _stems(pr.label)}
+        hit = next((cid for cid, st in support if len(st & said) >= 2), None)
+        if hit is None:
+            continue
+        return _flag("conjunct_asserted",
+                     f"(deterministic) part of the conclusion ({name!r}, {truncate(meanings.get(name) or '', 100)!r}) is asserted as written by "
+                     f"the writer's own premise(s) {[pr.id for pr in rows][:4]}, while the supporting claim {hit!r} the claim cites states what "
+                     "it rests on: that part is assumed, not derived; encode it from what the support states",
+                     ["the part derived from the supporting claim", "the encoding as given (the part asserted)"])
+    return None
+
+
+def _reason_span(text: str) -> Optional[tuple[str, set[str], str]]:
+    """``(reason clause text, its content stems, consequence clause text)`` of the first reason connective of the claim
+    (quotations masked), read as :func:`_reason_clause` reads it, or None."""
+    from .diag_argument import REASON_CONNECTIVES
+    from .pipeline import _REASON_AFTER, _boundaries
+    masked = _masked(text)
+    spans = lexis.token_spans(masked)
+    toks = tuple(t for _s, _e, t in spans)
+    ends = _boundaries(masked)
+    for i, cue in lexis.find_cues(toks, REASON_CONNECTIVES):
+        if cue == ("because",) and i + 1 < len(toks) and toks[i + 1] == "of":
+            continue
+        at = spans[i][0]
+        stop = next((e for e in ends if e > at), len(masked))
+        start = max((e for e in ends if e < at), default=-1)
+        before = [k for k in range(0, i) if spans[k][0] > start]
+        after = [k for k in range(i + len(cue), len(spans)) if spans[k][0] < stop]
+        reason, consequence = (after, before) if cue in _REASON_AFTER else (before, after)
+        if not reason or not consequence:
+            continue
+        a, b = spans[reason[0]][0], spans[reason[-1]][1]
+        c, d = spans[consequence[0]][0], spans[consequence[-1]][1]
+        return masked[a:b], set(lexis.content_stems([toks[k] for k in reason])), masked[c:d]
+    return None
+
+
+#: A figure written in digits (a decimal point kept), as the consequence clause states it.
+_DIGITS_RE = re.compile(r"\d{1,15}(?:\.\d{1,15})?")
+
+
+def _closed(node: dict) -> bool:
+    """Whether an IR expression dict mentions no symbol (a computation on numbers alone)."""
+    return not _names(node)
+
+
+def reason_not_encoded(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
+    """The ``reason_not_encoded`` flag, or None (round-10 clearance c3, ph-t16 s2.8): the claim draws its consequence from a
+    reason it states in words (no figure in the reason clause: "A gas-law ratio needs kelvin, so the ratio is 308/290, not
+    35/17"), the encoding states nothing of that reason (fewer than two of its content stems in any premise label or any
+    meaning of a symbol a premise uses), and the conclusion rests on figures alone (every symbol it mentions is numeric and a
+    premise fixes it to a computation on numbers): the verdict checks the arithmetic of the figures and would hold whatever the
+    reason, so the claim's inference is not checked."""
+    if problem.query != "entailment" or problem.conclusion is None or not problem.premises:
+        return None
+    found = _reason_span(claim.claim_text or "")
+    if found is None:
+        return None
+    reason_text, reason, consequence_text = found
+    if len(reason) < 2 or any(ch.isdigit() for ch in reason_text):
+        return None
+    # the figures checked are the consequence's own ("the ratio is 308/290, not 35/17"): an encoding of the reason itself ("The
+    # division is exact, so no extra packet is needed", checked as 6000000 mod 1500 = 0) checks the claim's reason, not this shape
+    stated = {Fraction(x) for x in _DIGITS_RE.findall(consequence_text[:MAX_CLAIM_CHARS])}
+    if not stated or not stated & {v for pr in problem.premises for _w, v in _literals(_dump(pr.expr))}:
+        return None
+    sorts = {s.name: s.sort for s in problem.symbols}
+    concl_vars = _names(_dump(problem.conclusion.expr))
+    if not concl_vars or any(sorts.get(v) not in ("Int", "Real") for v in concl_vars):
+        return None
+    fixed: set[str] = set()
+    for pr in problem.premises:
+        e = _dump(pr.expr)
+        if e.get("op") != "eq":
+            continue
+        for var, rhs in ((e.get("left") or {}, e.get("right") or {}), (e.get("right") or {}, e.get("left") or {})):
+            if var.get("op") == "var" and _closed(rhs):
+                fixed.add(var["name"])
+    if not concl_vars <= fixed:
+        return None
+    if any(len(st & reason) >= 2 for st in _encoded_stem_sets(problem)):
+        return None
+    return _flag("reason_not_encoded",
+                 f"(deterministic) the claim draws its consequence from a reason it states ({truncate(reason_text, 120)!r}), and the encoding "
+                 "states nothing of that reason: its conclusion rests on figures alone, so the verdict checks their arithmetic and would hold "
+                 "whatever the reason; encode the claim's reason and the step it licenses",
+                 ["the claim's reason and step encoded", "the encoding as given (the arithmetic of the figures alone)"])
+
+
 def fidelity_flags(problem: Problem, claim: ClaimRecord, supporting: Sequence[ClaimRecord], report: Optional[SpecialistReport],
                    task: Optional[TaskRecord] = None) -> list[AmbiguityFlag]:
     """Every flag of :func:`neighbour_content`, :func:`dropped_qualifier`, :func:`reason_unconnected`,
-    :func:`reported_conclusion` and :func:`stated_values_not_encoded` that fires on the encoding (the pipeline adds
-    :func:`unencoded_support` itself, since it asks the engine for the verdict first)."""
+    :func:`reported_conclusion`, :func:`stated_values_not_encoded` and, since round 10 (clearance c3),
+    :func:`consequence_unchecked`, :func:`conjunct_asserted` and :func:`reason_not_encoded` that fires on the encoding (the pipeline
+    adds :func:`unencoded_support` itself, since it asks the engine for the verdict first)."""
     out: list[AmbiguityFlag] = []
     for flag in (neighbour_content(problem, claim, supporting, report, task), dropped_qualifier(problem, claim), reason_unconnected(problem, claim),
-                 reported_conclusion(problem, claim), stated_values_not_encoded(problem, claim)):
+                 reported_conclusion(problem, claim), stated_values_not_encoded(problem, claim), consequence_unchecked(problem, claim),
+                 conjunct_asserted(problem, claim, supporting), reason_not_encoded(problem, claim)):
         if flag is not None:
             out.append(flag)
     return out

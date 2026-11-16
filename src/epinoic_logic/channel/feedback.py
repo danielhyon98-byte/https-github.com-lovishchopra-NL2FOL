@@ -115,9 +115,12 @@ class FeedbackRule:
 #: a constraint value or text the answer, the question or the supplied texts contain.
 FEEDBACK_RULES: Mapping[str, FeedbackRule] = {
     # ------------------------------------------------------------------ fidelity
+    # round-10 clearance (overseer handoff 5): the words in quotation marks may be the writer's own (a correction, a model, a gloss, a
+    # suggested form): the instruction says so, and a quotation of a text no text holds is still to be removed
     "src.quote_not_found": FeedbackRule("fidelity", True, (
         "The quoted words in this passage are not found in any text you were given. Quote the words exactly as the text gives them; if no text you "
-        "were given contains them, remove the quotation and what is credited to it.")),
+        "were given contains them, remove the quotation and what is credited to it. If the words are your own (a correction, a model, a gloss or a "
+        "suggested form) rather than a quotation of a text, say so, and do not present them as a quotation.")),
     "src.colleague_words": FeedbackRule("fidelity", True, (
         "Words in this passage occur only in a colleague's report, but they are credited to another source. Credit them to the colleague's report, "
         "or quote the source's own words exactly.")),

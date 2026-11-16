@@ -298,10 +298,12 @@ from epinoic_logic.api.translate import check_assertion as _reference_checked
 from epinoic_logic.api.translate import binding_problem as _binding_problem, assess_release, build_summary, display_status_for, outcome_diagnosis
 from epinoic_logic.api.translate import apply_subject_policy
 from epinoic_logic.api.translate import review_currency
+from epinoic_logic.api.translate import compose_outcome
 from epinoic_logic.api.engine import POLICY_VERSION
 from ..contracts import StoredResult
 from ..view import REPORT_KINDS, OverseerView, Transfer
 from . import CheckContext
+from .results import composed_display_status
 
 __all__ = [
     "TranslationRecord", "translation_records", "check_translations", "circular_premises", "untraced_content", "grounding_faults", "status_faults",
@@ -316,7 +318,8 @@ __all__ = [
     "GRADE_REDUNDANT", "GRADE_UNDECIDED", "GRADE_NOTE_REDUNDANT", "FREQUENCY_MARKER", "figure_reading", "FigureReading", "FIGURE_REFUTED", "FIGURE_READ",
     "FIGURE_UNREAD", "value_atoms", "TABLE_RULE", "CONTEXT_RULE", "CONTEXTS", "CONTEXT_STATEMENT", "CONTEXT_QUESTION", "CONTEXT_NEGATION",
     "CONTEXT_ALTERNATIVE", "CONTEXT_EXAMINED", "CONTEXT_REQUIREMENT", "CONTEXT_LIMIT", "CONTEXT_WORDS", "figure_context", "figure_negates",
-    "EXCERPT_UNITS_RULE", "overseer_grounding", "task_equation", "TASK_EQUATION_RULE",
+    "CONTEXT_UNREAD", "LINEAR_CONTEXT_RULE",
+    "EXCERPT_UNITS_RULE", "overseer_grounding", "task_equation", "TASK_EQUATION_RULE", "TASK_RECORD_RULE", "task_record_validated", "labelled_figure",
 ]
 
 #: The checks a translation record may list in ``checks_run``.
@@ -1133,10 +1136,20 @@ def number_traced(value: Fraction, known: set[Fraction], *, date_encoded: bool =
 #: * ``prefix-factor``: a unit symbol written with an SI prefix (``kJ``, ``cm``) states the factor between it and the unit
 #:   without the prefix (1000, 1/100), so a translation that converts J to kJ by it is not named for the factor;
 #: * ``written-operation``: a product or quotient the text writes between two figures (``120 tonnes × 4.212``) states its
-#:   exact value (505.44).
+#:   exact value (505.44);
+#: * ``unit-factors`` (round-10 clearance c3, the c3 translation-fidelity lens: false OVS-TRN-005 on ch-t16 s4.1, ch-p10c s4.2 and
+#:   s4.7): a text that writes a unit of length, area, volume or mass with or without an SI prefix (``cm³``, ``dm⁻³``, ``mL``,
+#:   ``kg``, ``0.2444 t``) states the factor of each such unit to its unprefixed unit at the unit's power (``cm³``: 10⁻⁶) and the
+#:   factor between every two units of one quantity it writes (``dm³`` and ``cm³``: 1000; ``g`` and ``t``: 10⁶; a litre is a
+#:   ``dm³``, a bare "l" or "L" only after a figure), never a factor to a unit the text does not write;
+#: * ``stated-powers`` (round-10 clearance c3, maa-t16 m5.7): a text that writes a symbol raised to a power (``u⁴``, ``4u³``, ``x^3``,
+#:   ``(x − 3)²``; never a unit, ``cm³`` or ``5 m²``) states each whole figure it writes from 2 to 20 (a value substituted for the
+#:   symbol) raised to that power (``6⁴`` = 1296 for the value of ``u⁴/4`` at ``u = 6``);
+#: * ``cut-decimal`` (round-10 clearance c3, mai-t16 m26.1): a decimal cut with an ellipsis (``6.2330…``, ``6.2330...``,
+#:   ``6.2330\ldots``) states the upper end of the interval it cuts (6.2331: its value is at least 6.2330 and below 6.2331).
 #:
-#: A unit or time conversion the translator makes on its own (minutes to seconds, years to months) is still named, as a
-#: warning (Inspection I91), and so is a figure no reading derives.
+#: A unit or time conversion the translator makes on its own (minutes to seconds, years to months, a unit the texts never
+#: write) is still named, as a warning (Inspection I91), and so is a figure no reading derives.
 DERIVED_FIGURES_RULE = "derived-figures"
 _SPACE_CHARS = " \u00a0\u2009\u202f"
 _THOUSANDS_SEP = r"(?:[" + _SPACE_CHARS + r"]|\\,|\{,\})"
@@ -1148,6 +1161,86 @@ _THOUSANDS_SEP_RE = re.compile(_THOUSANDS_SEP)
 #: A unit symbol written with an SI prefix (rule ``prefix-factor``): the texts that write ``kJ`` beside ``J`` state the factor
 #: 1000 between them.
 _PREFIXED_UNIT_RE = re.compile(r"(?<![A-Za-zΩµμ])([kMGcmµμnp])(mol|Pa|Hz|eV|m|g|s|L|N|J|W|V|A|C|Ω)(?![A-Za-zΩ])")
+#: Rule ``unit-factors`` (round-10 clearance c3): a unit of length, area or volume (``m`` at a power), of volume (``L``) or of mass
+#: (``g``), with an optional SI prefix (deci included) and power (``³``, ``⁻³``, ``^3``, ``^-3``, ``-3`` or ``3`` glued), standing on
+#: its own; and a figure followed by ``t`` or ``tonne(s)`` (a tonne is 10⁶ g). Fixed-width alternatives, one pass (linear).
+_UNIT_FACTOR_RE = re.compile(r"(?<![A-Za-zΩµμ])([kMGcdmµμn]?)(m|L|l|g)(?:\^\{?\(?[-−]?([23])\)?\}?|([²³])|⁻([²³])|[-−]?([23])(?![\d.,]))?(?![A-Za-z\d])")
+_TONNE_RE = re.compile(r"(?<![\w.])\d[\d.,]{0,24}(?:[ \t]t|[ \t]?tonnes?)(?![A-Za-z])")  # "0.2444 t", "5 tonnes"; never "2t + 3"
+_UNIT_PREFIX_FACTORS = {"": Fraction(1), "k": Fraction(10 ** 3), "M": Fraction(10 ** 6), "G": Fraction(10 ** 9), "c": Fraction(1, 10 ** 2),
+                        "d": Fraction(1, 10), "m": Fraction(1, 10 ** 3), "µ": Fraction(1, 10 ** 6), "μ": Fraction(1, 10 ** 6), "n": Fraction(1, 10 ** 9)}
+#: Rule ``stated-powers`` (round-10 clearance c3): a symbol raised to a power of 2 to 6 (``u⁴``, ``4u³``, ``x^3``, ``x**2``, ``x^{4}``,
+#: ``(x − 3)²``): a letter standing alone (not inside a word or a unit, ``cm³``) and not a unit written after a figure (``5 m²``), or a
+#: closing bracket.
+_SYMBOL_POWER_RE = re.compile(r"(?:(?<![A-Za-z])(?<!\d )(?<!\d\t)[A-Za-z]|[)\]])(?:[ \t]?(?:\^\{?|\*\*)([2-6])(?![\d])|([²³⁴⁵⁶]))")
+_SUPERSCRIPT_DIGITS = {"²": 2, "³": 3, "⁴": 4, "⁵": 5, "⁶": 6}
+_POWER_BASE_MAX = 20
+#: Rule ``cut-decimal`` (round-10 clearance c3): a decimal followed by an ellipsis ("…", "...", LaTeX ``\ldots``, ``\cdots``, ``\dots``).
+_CUT_DECIMAL_RE = re.compile(r"(?<![\w.])(\d{1,12})\.(\d{1,12})[ \t]?(?:\.{3}|…|\\(?:ldots|cdots|dots)(?![A-Za-z]))")
+
+
+def _unit_factors(text: str) -> set[Fraction]:
+    """Rule ``unit-factors`` (:data:`DERIVED_FIGURES_RULE`): the factor of each unit of length, area, volume or mass ``text``
+    writes to its unprefixed unit at its power, and the factor between every two units of one quantity it writes (a litre read
+    as a cubic decimetre, a tonne as 10⁶ g), each with its reciprocal. One pass; the factors per quantity are at most a few."""
+    groups: dict[tuple[str, int], set[Fraction]] = {}
+    for m in _UNIT_FACTOR_RE.finditer(text or ""):
+        prefix, base = m.group(1), m.group(2)
+        power = next((int(g.translate(_SUPERSCRIPTS)) for g in m.group(3, 4, 5, 6) if g), 1)
+        f = _UNIT_PREFIX_FACTORS.get(prefix)
+        if f is None:
+            continue
+        if base in ("L", "l"):
+            if m.group(3, 4, 5, 6) != (None, None, None, None):
+                continue  # a litre has no power
+            if not prefix and not any(ch.isdigit() for ch in text[max(0, m.start() - 2):m.start()]):
+                continue  # a bare "l" or "L" is a litre only after a figure ("2 L", "1.5 l"), never a symbol ("l = 2.0 m")
+            groups.setdefault(("m", 3), set()).add(f / 1000)
+        elif base == "m":
+            groups.setdefault(("m", power), set()).add(f ** power)
+        elif power == 1:
+            groups.setdefault(("g", 1), set()).add(f)
+    if _TONNE_RE.search(text or ""):
+        groups.setdefault(("g", 1), set()).add(Fraction(10 ** 6))
+    out: set[Fraction] = set()
+    for scales in groups.values():
+        for a in scales:
+            out.update({a, 1 / a})
+            for b in scales:
+                if a != b:
+                    out.add(a / b)
+    out.discard(Fraction(1))
+    return out
+
+
+def _stated_powers(text: str) -> set[Fraction]:
+    """Rule ``stated-powers`` (:data:`DERIVED_FIGURES_RULE`): when ``text`` writes a symbol raised to a power of 2 to 6, each whole
+    figure it writes from 2 to :data:`_POWER_BASE_MAX` raised to each such power. Linear: one pass for the powers, one for the figures,
+    at most five powers."""
+    powers = set()
+    for m in _SYMBOL_POWER_RE.finditer(text or ""):
+        powers.add(int(m.group(1)) if m.group(1) else _SUPERSCRIPT_DIGITS[m.group(2)])
+    if not powers:
+        return set()
+    out: set[Fraction] = set()
+    for m in _FIGURE_RE.finditer(text):
+        if m.group(2) or not _digits_ok(m.group(1)):
+            continue
+        a = int(m.group(1).replace(",", ""))
+        if 2 <= a <= _POWER_BASE_MAX:
+            out.update(Fraction(a) ** k for k in powers)
+    return out
+
+
+def _cut_decimal_ends(text: str) -> set[Fraction]:
+    """Rule ``cut-decimal`` (:data:`DERIVED_FIGURES_RULE`): the upper end of the interval each decimal cut with an ellipsis states
+    (``6.2330…``: 6.2331). One pass."""
+    out: set[Fraction] = set()
+    for m in _CUT_DECIMAL_RE.finditer(text or ""):
+        if not _digits_ok(m.group(1), m.group(2)):
+            continue
+        unit = Fraction(1, 10 ** len(m.group(2)))
+        out.add(Fraction(int(m.group(1))) + Fraction(int(m.group(2)), 10 ** len(m.group(2))) + unit)
+    return out
 #: A product or quotient the text writes between two figures, a unit word or two after the first allowed ("120 tonnes ×
 #: 4.212", "6000 ÷ 2.00"): rule ``written-operation`` reads its exact value.
 _WRITTEN_OPERATION_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:[ \t]+[A-Za-z]{1,12}){0,2}[ \t]*([×xX*·÷/])[ \t]*"
@@ -1249,6 +1342,10 @@ def _read_derived_numbers(text: str) -> set[Fraction]:
         f = _SI_PREFIXES.get(m.group(1))
         if f is not None:
             out.update({f, 1 / f})
+    # rules unit-factors, stated-powers and cut-decimal (round-10 clearance c3)
+    out |= _unit_factors(text)
+    out |= _stated_powers(text)
+    out |= _cut_decimal_ends(text)
     # rule written-operation: a product or quotient written between two figures states its exact value
     for m in _WRITTEN_OPERATION_RE.finditer(text):
         if not _digits_ok(m.group(1), m.group(2), m.group(4), m.group(5)):
@@ -1911,11 +2008,20 @@ CONTEXT_ALTERNATIVE = "alternative"
 CONTEXT_EXAMINED = "examined"
 CONTEXT_REQUIREMENT = "requirement"
 CONTEXT_LIMIT = "limit"
-CONTEXTS = (CONTEXT_STATEMENT, CONTEXT_QUESTION, CONTEXT_NEGATION, CONTEXT_ALTERNATIVE, CONTEXT_EXAMINED, CONTEXT_REQUIREMENT, CONTEXT_LIMIT)
+#: Rule ``linear-context`` (round-10 clearance c3, the class sweep of the round's stall rule): a figure whose sentence is longer
+#: than :data:`_CONTEXT_SENTENCE_MAX` characters or holds more than :data:`_CONTEXT_FIGURES_MAX` figures is not read for its
+#: context: it is read as no statement (fail closed: such a figure is never the source's data), never scanned once per figure.
+CONTEXT_UNREAD = "unread"
+CONTEXTS = (CONTEXT_STATEMENT, CONTEXT_QUESTION, CONTEXT_NEGATION, CONTEXT_ALTERNATIVE, CONTEXT_EXAMINED, CONTEXT_REQUIREMENT, CONTEXT_LIMIT,
+            CONTEXT_UNREAD)
 #: How a message names each context that is not a statement.
 CONTEXT_WORDS = {CONTEXT_QUESTION: "in a yes/no question", CONTEXT_NEGATION: "under a negation", CONTEXT_ALTERNATIVE: "as one of alternatives",
                  CONTEXT_EXAMINED: "inside a claim the answer must examine", CONTEXT_REQUIREMENT: "as a requirement on the answer",
-                 CONTEXT_LIMIT: "as the value of a limit or target set on a quantity"}
+                 CONTEXT_LIMIT: "as the value of a limit or target set on a quantity",
+                 CONTEXT_UNREAD: "in a sentence too long or too crowded with figures to read (rule linear-context: read as no statement)"}
+LINEAR_CONTEXT_RULE = "linear-context"
+_CONTEXT_SENTENCE_MAX = 2_000
+_CONTEXT_FIGURES_MAX = 32
 
 _NUMBER_WORDS_ALT = "|".join(sorted(set(_TENS) | set(_UNITS) | {"hundred", "thousand", "dozen"}, key=len, reverse=True))
 #: The end of a sentence (as for a target: a full stop, question or exclamation mark before a space, a quote or bracket,
@@ -2219,7 +2325,8 @@ _BLANK_LINE_RE = re.compile(r"\n[ \t]*\n")
 def _next_sentence(spans: list[tuple[int, int, str]], i: int, text: str) -> Optional[tuple[int, int, str]]:
     """The sentence after ``spans[i]`` in its paragraph (None when a blank line comes first)."""
     end = spans[i][1]
-    for sp in spans[i + 1:]:
+    for k in range(i + 1, len(spans)):  # rule linear-context: by index, never a copy of the remaining sentences for each figure
+        sp = spans[k]
         body = text[sp[0]:sp[1]]
         lead = len(body) - len(body.lstrip())
         if _BLANK_LINE_RE.search(text, end, sp[0] + lead):
@@ -2229,31 +2336,82 @@ def _next_sentence(spans: list[tuple[int, int, str]], i: int, text: str) -> Opti
     return None
 
 
-def _examined_by_prompt(text: str, spans: list[tuple[int, int, str]], i: int, start: int) -> bool:
+@dataclass(frozen=True)
+class _TextIndex:
+    """Rule ``linear-context``: what the context readers of one text look up once per figure, built once per text in one pass each:
+    the sentences' starts, the paragraph starts (ends of :data:`_BLANK_LINE_RE` matches), the blank lines a search from a position
+    finds (``blank_from`` the line break that opens each, ``blank_to`` where it ends), the positions of every quotation mark of
+    :data:`_QUOTE_PAIRS`, and the sentences crowded with figures (indexes into the sentences)."""
+    starts: tuple
+    paragraph_starts: tuple
+    blank_from: tuple
+    blank_to: tuple
+    quotes: dict
+    crowded: frozenset
+
+
+_BLANKS_TO_LINE_BREAK_RE = re.compile(r"[ \t]*\n")
+
+
+def _text_index(text: str, spans: list[tuple[int, int, str]], figure_starts: Iterable[int] = ()) -> _TextIndex:
+    """Rule ``linear-context``: the :class:`_TextIndex` of ``text`` with its sentences ``spans``; ``figure_starts`` are where its figures
+    start, counted per sentence for :data:`_CONTEXT_FIGURES_MAX`. Linear in the text."""
+    starts = [sp[0] for sp in spans]
+    blank_from, blank_to = [], []
+    for m in re.finditer("\n", text):
+        b = _BLANKS_TO_LINE_BREAK_RE.match(text, m.end())
+        if b is not None:
+            blank_from.append(m.start())
+            blank_to.append(b.end())
+    quotes = {ch: tuple(m.start() for m in re.finditer(re.escape(ch), text)) for pair in _QUOTE_PAIRS for ch in pair}
+    counts: dict[int, int] = {}
+    for p in figure_starts:
+        k = bisect.bisect_right(starts, p) - 1
+        counts[k] = counts.get(k, 0) + 1
+    return _TextIndex(starts=tuple(starts), paragraph_starts=tuple(m.end() for m in _BLANK_LINE_RE.finditer(text)), blank_from=tuple(blank_from),
+                      blank_to=tuple(blank_to), quotes=quotes, crowded=frozenset(k for k, n in counts.items() if n > _CONTEXT_FIGURES_MAX))
+
+
+def _blank_line_between(index: _TextIndex, a: int, b: int) -> bool:
+    """Whether ``_BLANK_LINE_RE.search(text, a, b)`` finds a blank line: the first one opening at or after ``a`` ends by ``b``."""
+    k = bisect.bisect_left(index.blank_from, a)
+    return k < len(index.blank_from) and index.blank_to[k] <= b
+
+
+def _examined_by_prompt(text: str, spans: list[tuple[int, int, str]], i: int, start: int, index: Optional[_TextIndex] = None) -> bool:
     """Whether the figure at ``start``, in the sentence ``spans[i]``, is put up for examination by a prompt that follows:
     its sentence opens with "Discuss:" or "Evaluate:"; the next sentence of its paragraph is a prompt ("The extract
     mentions 3 workers. To what extent do you agree?"); or it stands in a quotation that a prompt follows ('"... 3 workers
-    ..." Discuss.')."""
+    ..." Discuss.'). With ``index`` (rule ``linear-context``) every look-up of the paragraph and its quotation marks is a
+    binary search of positions found once per text, never a scan from the paragraph's start for each figure."""
+    if index is None:
+        index = _text_index(text, spans)
     s, e, _mark = spans[i]
     if _EXAMINE_LEAD_RE.match(text, _lead_end(text, s, e)):
         return True
     nxt = _next_sentence(spans, i, text)
     if nxt is not None and _is_prompt(text, nxt[0], nxt[1]):
         return True
-    para = max((m.end() for m in _BLANK_LINE_RE.finditer(text, 0, start)), default=0)
+    k = bisect.bisect_right(index.paragraph_starts, start) - 1
+    para = index.paragraph_starts[k] if k >= 0 else 0
     for opener, closer in _QUOTE_PAIRS:
-        o = text.rfind(opener, para, start)
+        opens, closes = index.quotes[opener], index.quotes[closer]
+        k = bisect.bisect_left(opens, start) - 1
+        o = opens[k] if k >= 0 and opens[k] >= para else -1
         if o == -1:
             continue
         if opener == closer:
-            if text.count(opener, para, start) % 2 == 0:
+            if (bisect.bisect_left(opens, start) - bisect.bisect_left(opens, para)) % 2 == 0:
                 continue
-        elif text.rfind(closer, o, start) != -1:
+        else:
+            k = bisect.bisect_left(closes, o)
+            if k < len(closes) and closes[k] < start:
+                continue
+        k = bisect.bisect_left(closes, start)
+        c = closes[k] if k < len(closes) else -1
+        if c == -1 or _blank_line_between(index, start, c):
             continue
-        c = text.find(closer, start)
-        if c == -1 or _BLANK_LINE_RE.search(text, start, c):
-            continue
-        j = bisect.bisect_right([sp[0] for sp in spans], c) - 1
+        j = bisect.bisect_right(index.starts, c) - 1
         k = j if j >= 0 and spans[j][0] <= c < spans[j][1] else j
         for sp in spans[max(k, 0):max(k, 0) + 2]:
             a2 = max(sp[0], c + 1)
@@ -2304,16 +2462,24 @@ def _requirement(text: str, s: int, e: int, start: int, end: int) -> bool:
     return False
 
 
-def _context_in(text: str, spans: list[tuple[int, int, str]], start: int, end: int) -> tuple[str, str, tuple[str, ...]]:
+def _context_in(text: str, spans: list[tuple[int, int, str]], start: int, end: int,
+                index: Optional[_TextIndex] = None) -> tuple[str, str, tuple[str, ...]]:
     """:func:`figure_context` with the sentences of ``text`` given, and what a negation after the figure in its clause
-    negates (:func:`_negated_words`)."""
-    i = bisect.bisect_right([sp[0] for sp in spans], start) - 1
+    negates (:func:`_negated_words`). Rule ``linear-context`` (round-10 clearance c3): with ``index`` built once per text, a figure
+    costs a binary search and a read of its own sentence; a sentence longer than :data:`_CONTEXT_SENTENCE_MAX` characters, or one
+    the index names crowded (more than :data:`_CONTEXT_FIGURES_MAX` figures), is not read for its figures at all: each of them is
+    :data:`CONTEXT_UNREAD`, which states nothing (fail closed). Before, every figure rebuilt the sentence list and re-read its
+    sentence and paragraph from their starts, so a hostile 20,000-character text of figures took over a minute."""
+    i = bisect.bisect_right(index.starts if index is not None else [sp[0] for sp in spans], start) - 1
     if i < 0:
         return CONTEXT_STATEMENT, "", ()
     s, e, mark = spans[i]
     if not s <= start < max(e, start + 1):
         return CONTEXT_STATEMENT, "", ()
     e = max(e, end)
+    if e - s > _CONTEXT_SENTENCE_MAX or (index is not None and i in index.crowded):
+        lead = " ".join(text[s:min(e, s + 240)].split())
+        return CONTEXT_UNREAD, (lead[:117] + "..."), ()
     sentence = " ".join(text[s:e].split())
     phrase = sentence if len(sentence) <= 120 else sentence[:117] + "..."
     scope = _scope_start(text, s, start)
@@ -2329,7 +2495,7 @@ def _context_in(text: str, spans: list[tuple[int, int, str]], start: int, end: i
         return CONTEXT_NEGATION, phrase, after
     if _alternative(text, s, e, start, end):
         return CONTEXT_ALTERNATIVE, phrase, after
-    if _EXAMINED_RE.search(text, scope, start) or _examined_by_prompt(text, spans, i, start):
+    if _EXAMINED_RE.search(text, scope, start) or _examined_by_prompt(text, spans, i, start, index):
         return CONTEXT_EXAMINED, phrase, after
     if _requirement(text, s, e, start, end):
         return CONTEXT_REQUIREMENT, phrase, after
@@ -2547,15 +2713,24 @@ def _occurrences_of(text: str) -> list[_Occurrence]:
     if not text:
         return out
     cells = _table_cells(text)
+    cell_starts = [c.start for c in cells]
     spans = _sentence_spans(text)
+    # rule linear-context (round-10 clearance c3): the figures read in one pass, then each looked up in an index built once
+    nums = [m for m in _NUM_RE.finditer(text) if _digits_ok(m.group(1), m.group(2), m.group(3))]
+    words = list(_WORD_RE.finditer(text))
+    freqs = list(_FREQUENCY_RE.finditer(text))
+    index = _text_index(text, spans, [m.start() for m in (*nums, *words, *freqs)])
 
     def cell_at(start: int, end: int) -> Optional[_Cell]:
-        return next((c for c in cells if c.start <= start and end <= c.end), None) if cells else None
+        if not cells:
+            return None
+        k = bisect.bisect_right(cell_starts, start) - 1  # cells are disjoint and in the text's order
+        return cells[k] if k >= 0 and cells[k].start <= start and end <= cells[k].end else None
 
     def occurrence(start: int, end: int, values: set, marker: Optional[str], after: int, bound: bool) -> _Occurrence:
         c = cell_at(start, end)
         if c is None:
-            context, phrase, negates = _context_in(text, spans, start, end)  # rule statement-context
+            context, phrase, negates = _context_in(text, spans, start, end, index)  # rule statement-context
             names: frozenset = frozenset()
             if marker is not None and _norm_marker(marker) in _AMOUNT_UNITS:
                 # rule chemical-amounts (round-9 clearance c2): "2 mol NH3" states 2 for NH3 too (c2 ch-t15 s4.1: the task's
@@ -2589,7 +2764,7 @@ def _occurrences_of(text: str) -> list[_Occurrence]:
             j -= 1
         return _CURRENCY_BEFORE.get(text[j]) if j >= 0 else None
 
-    for m in _NUM_RE.finditer(text):
+    for m in nums:
         whole, dec, denom = m.group(1).replace(",", ""), m.group(2), m.group(3)
         value = Fraction(int(whole)) + (Fraction(int(dec), 10 ** len(dec)) if dec else 0)
         values = {value}
@@ -2606,7 +2781,7 @@ def _occurrences_of(text: str) -> list[_Occurrence]:
         cur = currency_before(m.start())
         out.append(occurrence(m.start(), m.end(), values, marker, _after, bound_before(m.start())) if not cur else
                    occurrence(m.start(), m.end(), values, cur, m.end(), bound_before(m.start())))
-    for m in _WORD_RE.finditer(text):
+    for m in words:
         w, unit = m.group(1).lower(), (m.group(2) or "").lower()
         base = _TENS.get(w, _UNITS.get(w, _OTHER_WORDS.get(w)))
         if base is None:
@@ -2622,7 +2797,7 @@ def _occurrences_of(text: str) -> list[_Occurrence]:
         if marker == "%" and not (cell_at(m.start(), m.end()) and _after > cell_at(m.start(), m.end()).end):
             values.add(value / 100)
         out.append(occurrence(m.start(), m.end(), values, marker, _after, bound_before(m.start())))
-    for m in _FREQUENCY_RE.finditer(text):
+    for m in freqs:
         w = m.group(1).lower()
         out.append(occurrence(m.start(), m.end(), {Fraction(_FREQUENCY_WORDS[w])}, FREQUENCY_MARKER, m.end(), False))
     return out
@@ -2680,6 +2855,10 @@ class FigureReading:
     kind: str
     reason: str
     context: Optional[str] = None
+    #: Rule ``task-record`` (round-10 clearance c3): set on an UNREAD figure that some place outside a target states bare (no unit,
+    #: counted noun or table column beside it) while no place states it for a quantity the premise's statement names, so no check
+    #: can compare the quantity of the bare place with the premise's: neither read nor refuted there.
+    bare: bool = False
 
 
 def _names_quantity(o: _Occurrence, own: list[str]) -> bool:
@@ -2697,7 +2876,7 @@ def _unstated(o: _Occurrence, statement: str) -> Optional[str]:
     answer must examine never state it."""
     if o.context in (CONTEXT_REQUIREMENT, CONTEXT_LIMIT) and not _REQUIREMENT_NAME_RE.search(statement or ""):
         return o.context
-    if o.context in (CONTEXT_QUESTION, CONTEXT_NEGATION, CONTEXT_ALTERNATIVE, CONTEXT_EXAMINED):
+    if o.context in (CONTEXT_QUESTION, CONTEXT_NEGATION, CONTEXT_ALTERNATIVE, CONTEXT_EXAMINED, CONTEXT_UNREAD):
         return o.context
     if o.negates and set(o.negates) & {_stem(w) for w in _statement_words(statement or "")}:
         return CONTEXT_NEGATION
@@ -2867,18 +3046,20 @@ def _reading(v: Fraction, occs: list[_Occurrence], texts: list[str], statement: 
         return FigureReading(FIGURE_UNREAD, f"its figure {_fig(v)} is stated in {where} for the quantity the premise names only {CONTEXT_WORDS[ctx]} "
                                             f"('{o.phrase[:100]}'){_context_extra(ctx, o)}: never {where}'s statement of its value (rules "
                                             f"{SAME_QUANTITY_RULE} and {CONTEXT_RULE})", context=ctx)
+    bare_only = False
     if not own:
         why = (f"its figure {_fig(v)} is stated in {where}, but the premise's own statement (its label and its symbols' meanings) names no quantity to read "
                "it for")
     elif not same:
         others = sorted({_said(v, o) for o in occs if not o.bare})
+        bare_only = any(o.bare for o in occs)
         why = (f"its figure {_fig(v)} is stated in {where} only bare, with no quantity a check reads beside it" if not others else
                f"its figure {_fig(v)} is stated in {where} only bare or as {' / '.join(others[:3])}, a quantity the premise's own statement does not name")
     elif any(_as_the_premise_states(o, relations, statement) for o in same):
         why = f"its figure {_fig(v)} is stated in {where} for the quantity the premise names only in a table row its statement does not name (rule {TABLE_RULE})"
     else:
         why = f"its figure {_fig(v)} is stated in {where} for the quantity the premise names only otherwise than the premise states it (a bound for a value or a value for a bound)"
-    return FigureReading(FIGURE_UNREAD, f"{why} (rule {SAME_QUANTITY_RULE})")
+    return FigureReading(FIGURE_UNREAD, f"{why} (rule {SAME_QUANTITY_RULE})", bare=bare_only)
 
 
 def figure_refutation(v: Fraction, texts: list[str], statement: str, relations: Optional[set[str]] = None, *, where: str = "the request") -> Optional[str]:
@@ -2932,7 +3113,8 @@ def _undeclared_data(names: Iterable[str], problem: Optional[Problem]) -> list[s
 
 
 def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iterable[str] = (), sorts: Optional[dict[str, str]] = None,
-                     request_documents: Iterable[Any] = (), problem: Optional[Problem] = None, *, request_constraints: Iterable[str] = ()) -> Standing:
+                     request_documents: Iterable[Any] = (), problem: Optional[Problem] = None, *, request_constraints: Iterable[str] = (),
+                     task_validated: Iterable[str] = ()) -> Standing:
     """Rule ``data-standing`` (decision 55, corrected by decision 56) on one restating premise ``premise`` as re-grounded
     by :func:`_regrounded` (its ``verified`` the deterministic grounding check's): what a deterministic check SHOWS of it
     (:data:`STANDINGS`).
@@ -2977,7 +3159,9 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
       overseer agents (Inspection I77, I78).
 
     ``sorts`` maps the problem's symbols to their sorts and ``problem`` is the re-grounded problem (its symbols' and its
-    conclusion's declared groundings)."""
+    conclusion's declared groundings). ``task_validated`` names the premises the translator's own task-record check validates
+    (rule ``task-record``, :func:`task_record_validated`): one of them whose figures its held source states only bare is
+    ``undecided`` when each such figure stands right after a list label its statement names (:func:`labelled_figure`)."""
     g = getattr(premise, "grounding", None)
     if g is None:
         return Standing(OWN_KIND, "it has no grounding")
@@ -2999,7 +3183,8 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
         # stated bare) stays the writer's own: the kind label alone is IR data, not evidence (decision 55, its pinned cases unchanged), and
         # an invented task figure stays named OVS-TRN-006
         if g.kind == "arithmetic_fact" and g.verified is None and _TASK_ORIGIN_RE.search(str(getattr(premise, "label", "") or "")[:400]):
-            read = _task_figures_reading(premise, report, request_texts, sorts, request_documents, problem, request_constraints)
+            read = _task_figures_reading(premise, report, request_texts, sorts, request_documents, problem, request_constraints,
+                                         task_validated=task_validated)
             if read is not None:
                 return read
         return Standing(OWN_KIND, f"its {g.kind} grounding is not verified by the deterministic grounding check (no excerpt located in a supplied text "
@@ -3096,6 +3281,9 @@ def premise_standing(premise: Any, report: SpecialistReport, request_texts: Iter
                                      f"data) as the value of a quantity, so no deterministic check reads all of it against {where}: {label_only}")
     unread = [r for _v, r in readings if r.kind != FIGURE_READ and abs(_v) not in (0, 1)]
     if unread:
+        validated = _task_record_reading(premise, readings, texts, statement, task_validated, where, unverified)
+        if validated is not None:
+            return validated
         return Standing(UNCHECKABLE, f"{unverified}: {unread[0].reason}, and a number match is no evidence: {label_only}")
     read = "; ".join(r.reason for _v, r in readings if abs(_v) not in (0, 1) or r.kind == FIGURE_READ)
     return Standing(UNDECIDED, f"{unverified}: {read}. So read it is data presented as given there, but a number match is no evidence of a "
@@ -3114,7 +3302,8 @@ _TASK_ORIGIN_RE = re.compile(r"\b(?:task|question|request|prompt|data[ \t]{1,3}t
 
 
 def _task_figures_reading(premise: Any, report: SpecialistReport, request_texts: Iterable[str], sorts: Optional[dict[str, str]],
-                          request_documents: Iterable[Any], problem: Optional[Problem], request_constraints: Iterable[str]) -> Optional[Standing]:
+                          request_documents: Iterable[Any], problem: Optional[Problem], request_constraints: Iterable[str], *,
+                          task_validated: Iterable[str] = ()) -> Optional[Standing]:
     """Rule ``task-figures`` (:data:`TASK_FIGURES_RULE`): the ``undecided`` standing of an unverified ``arithmetic_fact`` premise (no
     located excerpt) whose whole content is the values of quantities, each figure READ in the request (its input, its constraints and
     the texts supplied with it) exactly as a ``task_setting`` premise's is (the same reading, the request's constraints read as
@@ -3122,13 +3311,111 @@ def _task_figures_reading(premise: Any, report: SpecialistReport, request_texts:
     try:
         g = premise.grounding
         as_task = premise.model_copy(update={"grounding": g.model_copy(update={"kind": "task_setting", "verified": None})})
-        st = premise_standing(as_task, report, request_texts, sorts, request_documents, problem, request_constraints=tuple(request_constraints))
+        st = premise_standing(as_task, report, request_texts, sorts, request_documents, problem, request_constraints=tuple(request_constraints),
+                              task_validated=task_validated)
     except Exception:  # noqa: BLE001 - a reading that fails reads nothing: the premise stays the writer's own
         return None
     if st.kind != UNDECIDED:
         return None
     return Standing(UNDECIDED, st.reason.replace("its task_setting grounding", f"its {g.kind} grounding", 1)
                     + f" (rule {TASK_FIGURES_RULE}: an arithmetic fact the request states is read as a task setting's figures are)")
+
+
+#: Rule ``task-record`` (round-10 clearance c3, the c3 results-audit and translation-fidelity lenses: bi-t16 s4.1 and s4.3, whose
+#: premises restate the task's own counts "interphase 412", "metaphase 21" under a task label, were named OVS-TRN-006 at error level and
+#: failed a correct answer's audit while the receipt showed them verified by the translator's task-record check): the translator's own
+#: grounding check, re-run here with the task record of the journaled request whose digest the translation records
+#: (``translation.task_sha256``), is evidence the auditor reads too. A premise it validates (method ``numeric_in_task``) whose figures
+#: the task states only bare (no unit, counted noun or table column beside them, so rule ``same-quantity`` can neither read nor refute
+#: them) is ``undecided`` data, as the receipt presents it, when each such figure stands right after a list label its own statement
+#: names ("interphase 461" for "the task states interphase = 461"): an OVS-TRN-011 warning at most, never the claim assumed and never a
+#: transcription (no excerpt was located: a number match is no evidence of one). A figure the task does not state (the translator's
+#: check refutes it), one stated for another quantity, one with no label or under a label the statement does not name, and every
+#: premise of a translation recorded under another task record, keep their standing (OVS-TRN-006 where the result rests on them).
+TASK_RECORD_RULE = "task-record"
+#: The label a data list writes right before a figure ("interphase 412", "Control: 412", "metaphase = 21"): a word of three letters
+#: or more, then at most three blanks and one colon or equals sign. Read in a window of :data:`_LIST_LABEL_WINDOW` characters before
+#: each figure, so the reading is linear in the text.
+_LIST_LABEL_RE = re.compile(r"([^\W\d_]{3,40})[ \t]{0,3}[:=]?[ \t]{0,3}$")
+_LIST_LABEL_WINDOW = 48
+
+
+def task_record_validated(problem: Optional[Problem], report: SpecialistReport, task: Optional[TaskRecord]) -> frozenset[str]:
+    """Rule ``task-record`` (:data:`TASK_RECORD_RULE`): the ids of the premises of ``problem`` of a task-authority kind that the
+    translator's own grounding check (``translate.grounding.check_problem_grounding``) validates against the task record ``task``
+    (method ``numeric_in_task``, verified, and no check of it refuted), re-run here on the report's supplied texts and that record: the
+    translator's decision re-derived, never read from the IR's own flags. Empty without a record. Never raises."""
+    if problem is None or task is None:
+        return frozenset()
+    try:
+        _rerun, checks = check_problem_grounding(problem, list(report.supplied_texts), task=task)
+    except Exception:  # noqa: BLE001 - a check that fails validates nothing
+        return frozenset()
+    ok = {c.target_id for c in checks if c.method == "numeric_in_task" and c.verified is True}
+    refuted = {c.target_id for c in checks if c.verified is False}
+    kinds = {p.id: p.grounding.kind for p in problem.premises if p.grounding is not None}
+    return frozenset(pid for pid in ok - refuted if kinds.get(pid) in TASK_AUTHORITY_KINDS)
+
+
+def _label_named(label: str, words: Iterable[str]) -> bool:
+    """Whether the list label ``label`` is a word of the premise's statement (``words``): one a prefix of the other, case folded, the
+    statement's word of three letters or more ("meta" names "metaphase"; "inter" names "interphase")."""
+    lab = label.casefold()
+    for w in words:
+        w2 = str(w).casefold().strip("'’-")
+        if len(w2) >= 3 and (lab.startswith(w2) or w2.startswith(lab)):
+            return True
+    return False
+
+
+def labelled_figure(v: Fraction, texts: Iterable[str], statement: str) -> Optional[str]:
+    """Rule ``task-record``: the phrase ("interphase 461") of a place in ``texts``, outside any target, that states the figure ``v``
+    bare, as a statement, right after a list label (:data:`_LIST_LABEL_RE`) the premise's ``statement`` names (:func:`_label_named`);
+    None when no place does. Each occurrence reads a bounded window before it (linear)."""
+    words = _statement_words(statement)
+    if not words:
+        return None
+    v = abs(v)
+    for t in texts:
+        if not t:
+            continue
+        free = _blank(t, target_spans(t))
+        for o in _occurrences(free):
+            if not _states(o, v) or not o.bare or o.context != CONTEXT_STATEMENT:
+                continue
+            m = _LIST_LABEL_RE.search(free[max(0, o.start - _LIST_LABEL_WINDOW):o.start])
+            if m and _label_named(m.group(1), words):
+                return f"{m.group(1)} {free[o.start:o.end].strip()}"
+    return None
+
+
+def _task_record_reading(premise: Any, readings: list, texts: Iterable[str], statement: str, task_validated: Iterable[str], where: str,
+                         unverified: str) -> Optional[Standing]:
+    """Rule ``task-record`` on a premise whose figures rule ``same-quantity`` left unread: ``undecided`` when the translator's own
+    task-record check validates it (``task_validated``, :func:`task_record_validated`) and each unread figure is unread for want of a
+    quantity (stated bare somewhere, for the premise's quantity nowhere a check reads: :attr:`FigureReading.bare`) and stated bare
+    right after a list label its statement names; None otherwise (its standing stays as read)."""
+    if getattr(premise, "id", None) not in set(task_validated or ()):
+        return None
+    texts = [t for t in texts if t]
+    phrases: list[str] = []
+    for v, r in readings:
+        if abs(v) in (0, 1) or r.kind == FIGURE_READ:
+            continue
+        if not r.bare:
+            return None
+        phrase = labelled_figure(v, texts, statement)
+        if phrase is None:
+            return None
+        phrases.append(phrase)
+    if not phrases:
+        return None
+    shown = "', '".join(phrases[:4])
+    return Standing(UNDECIDED, f"{unverified}: the translator's own task-record check validates it (method numeric_in_task, re-run on the task "
+                               f"record whose digest the translation records), and {where} states its figure(s) bare, each right after a list "
+                               f"label its own statement names ('{shown}'), which rule {SAME_QUANTITY_RULE} can neither read as that quantity's "
+                               f"value nor refute (rule {TASK_RECORD_RULE}). So read it is data presented as given with the task, but a number "
+                               f"match is no evidence of a transcription: no excerpt was located (rule {STANDING_RULE})")
 
 
 #: Rule ``task-equation`` (integration gate round 1, hold-out control ho_c_disjunction_maa): a ``task_setting`` premise
@@ -3891,7 +4178,7 @@ class Restatement:
 
 def restatement(problem: Optional[Problem], report: SpecialistReport, request_texts: Iterable[str] = (), problem_obj: Optional[dict] = None,
                 request_documents: Iterable[Any] = (), *, request_constraints: Iterable[str] = (), task: Optional[TaskRecord] = None,
-                claim_text: Optional[str] = None, translator_floor: bool = True) -> Restatement:
+                claim_text: Optional[str] = None, translator_floor: bool = True, task_sha256: Optional[str] = None) -> Restatement:
     """Rules ``circularity-agreement``, ``semantic-restatement``, ``grounded-transcription`` and ``receipt-disclosure``
     on ``problem`` re-grounded against ``report``. ``request_texts`` are the journaled request's input and constraint
     texts and ``request_documents`` the texts supplied with it (rules ``data-standing`` and ``same-quantity``);
@@ -3904,9 +4191,15 @@ def restatement(problem: Optional[Problem], report: SpecialistReport, request_te
     ``circularity-agreement``, :func:`translator_semantic_floor`), and the overseer's own readings exempt a restating premise
     that is the claim's stated step input (rule ``stated-step``) or a definition the conclusion is an identity of (rule
     ``definitional-identity``). ``translator_floor=False`` reads the overseer's own rules alone (what they give where the
-    translator's semantic rule names nothing), for a caller that measures them apart."""
+    translator's semantic rule names nothing), for a caller that measures them apart.
+
+    Rule ``task-record`` (round-10 clearance c3): ``task_sha256`` is the digest of the task record the translation was validated
+    against (``translation.task_sha256``); when it is ``task``'s, the premises the translator's own task-record check validates
+    (:func:`task_record_validated`) are read by rule ``data-standing`` as the receipt presents them (:func:`premise_standing`)."""
     if problem is None or problem.query != "entailment" or problem.conclusion is None:
         return Restatement()
+    validated = (task_record_validated(problem, report, task)
+                 if task is not None and task_sha256 is not None and getattr(task, "text_sha256", None) == task_sha256 else frozenset())
     if claim_text is None:
         claim_text = next((c.claim_text for c in report.claims if c.claim_id == problem.claim_id), None)
     req_list = [x for x in request_texts if x]
@@ -3998,7 +4291,8 @@ def restatement(problem: Optional[Problem], report: SpecialistReport, request_te
     order = [pr.id for pr in grounded.premises if pr.id in restates]
     sorts = {s.name: s.sort for s in grounded.symbols}
     # rule data-standing (decision 55): what a deterministic check shows of each restating premise
-    standing = {pid: premise_standing(by_id[pid], report, req, sorts, docs, grounded, request_constraints=tuple(request_constraints)) for pid in order}
+    standing = {pid: premise_standing(by_id[pid], report, req, sorts, docs, grounded, request_constraints=tuple(request_constraints),
+                                      task_validated=validated) for pid in order}
     for pid in floor:
         if pid in standing and standing[pid].kind not in SHOWN_STANDINGS:
             standing[pid] = Standing(OWN_KIND, f"the translator's own semantic circularity rule (translate.restatement, kind {floor_kind}) reads it as "
@@ -4679,7 +4973,13 @@ def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     release assessment (``release``) are, all three from one signing configuration and one context the composer could have
     used (rule ``diagnosis-image``, integration step). A diagnosis dropped, lowered, uncapped or relabelled, or a release
     refusal dropped (rules 8 and 9 included), is not the image: the summary may still read as the composer wrote it, so the
-    structured fields are compared on their own."""
+    structured fields are compared on their own.
+
+    Rule ``composed-display`` (round-10 clearance c3, ph-t16 s4.13 and s4.15): the composer withholds a success display from a claim
+    that claims a check (the shared self-report reader on the claim's text) and states the withheld display in the summary, the
+    diagnosis and the release assessment; the outcome is first rebuilt by the composer itself (``compose_outcome``, under each
+    signing configuration and context it could have been given), so every rule of the composer is the auditor's too, and the
+    statement is then re-derived piece by piece with the composer's display (:func:`.results.composed_display_status`) as before."""
     tr = o.translation
     review = o.semantic_review
     structural = list(o.structural_findings)
@@ -4719,9 +5019,24 @@ def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     have_incomplete = list(o.diagnosis_incomplete)
     have_release = o.release.model_dump(mode="json") if o.release is not None else None
     summary_ok = rest_ok = False
+    # rule composed-display: the composer's own rebuild of the outcome, under each configuration and context it could have used
+    for k, k_id in options:
+        for rep, tk in contexts:
+            try:
+                again = compose_outcome(claim, tr, verification, review, structural, k, k_id, report=rep, task=tk)
+            except Exception:  # noqa: BLE001 - an outcome the composer refuses to rebuild is re-derived piece by piece below
+                continue
+            if not summary_ok and again.summary == o.summary:
+                summary_ok = True
+            if (not rest_ok and _same_json([d.model_dump(mode="json") for d in again.named_diagnostics], have_named)
+                    and list(again.diagnosis_incomplete) == have_incomplete
+                    and (have_release is None or (again.release is not None and _same_json(again.release.model_dump(mode="json"), have_release)))):
+                rest_ok = True
+            if summary_ok and rest_ok:
+                return True, True
     for k, k_id in options:
         try:
-            display = display_status_for(tr, verification, k, k_id)
+            display = composed_display_status(claim, tr, verification, k, k_id)
             trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
             engine_check = (release_check(trusted, tr.problem, signing_key=k, key_id=k_id)
                             if trusted is not None and tr.problem is not None else None)
@@ -5009,7 +5324,8 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
             # without them decides whether the result rests on them)
             problem_obj6 = json.loads(problem_json) if problem_json else None
             rs = restatement(tr.problem, report, request_texts, problem_obj6, request_documents=_request_documents(ctx.view, t),
-                             request_constraints=_request_constraints(ctx.view, t), task=_task_of(ctx, t), claim_text=claim.claim_text)
+                             request_constraints=_request_constraints(ctx.view, t), task=_task_of(ctx, t), claim_text=claim.claim_text,
+                             task_sha256=tr.task_sha256)
             entailed = o.verification is not None and o.verification.status is VerificationStatus.ENTAILED
             partial = not rs.holds and bool(rs.partial_own) and entailed
             circ = list(rs.own) if rs.holds else (list(rs.partial_own) if partial else [])

@@ -63,8 +63,10 @@ the label will need when it returns, not a label any answer receives now.
   an ``OVS-TRN-*`` error is a fault of the translator's product, not of the answer): when the task audit's only faults of
   an answer are such findings, its exclusion and its AUDIT_FAILED clearance keep it a candidate (custody re-checked as
   the router's rule re-checks it), and each claim so named has its formal outcome withdrawn in the accuracy. A
-  COUNTEREXAMPLE that carries the engine's coverage warning W110 or W111 (perhaps a gap of the translation) still refutes
-  its claim; the receipt names the warning (rule ``coverage-gap``, recorded only this round). A claim whose working the
+  COUNTEREXAMPLE that carries the engine's coverage warning W110 or W111 (perhaps a gap of the translation) neither refutes
+  nor confirms its claim: the claim is unassessed, the warning named as its evidence, never ``refuted_by_signed_result``
+  (rule ``coverage-gap``, read since round-9 clearance c2b; round-10 clearance c3 corrected this text, which still said it
+  refuted the claim). A claim whose working the
   receipt names unchecked is never accurate on a verdict's silence; a supporting claim so named is scored with the
   material claims (rule ``unchecked-working``).
 * ``not_checked``: only when the operator configured ``on_overseer_timeout="deliver_canonical_not_checked"`` and the
@@ -120,6 +122,7 @@ from epinoic_logic.api.translate import ProviderError
 from epinoic_logic.api.translate import review_currency
 from epinoic_logic.api.translate import resolve_profile
 from .audit import verify_audit
+from .checks.results import composed_display_status
 from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
@@ -682,7 +685,7 @@ def _rederive(claim: ClaimRecord, o: ClaimVerificationOutcome, report: Specialis
         except Exception:
             authentic = False
     if key is not None:
-        display = display_status_for(tr, ver, key, kid)
+        display = composed_display_status(claim, tr, ver, key, kid)  # rule composed-display: the composer's own display of the claim
     else:  # a result under a key id the auditor holds no key for cannot be authenticated: never displayed as a verdict
         display = display_status_for(tr, ver)
         if ver is not None and tr.status is TranslationStatus.TRANSLATED:

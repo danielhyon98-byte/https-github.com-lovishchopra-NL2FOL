@@ -579,8 +579,14 @@ def memory_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...])
 
 
 def strand_findings(report: SpecialistReport, paragraphs: tuple[Paragraph, ...]) -> list[StructuralFinding]:
-    """ES-STR-001: body paragraph with fewer than two quotations of at least two words (P7 proxy)."""
+    """ES-STR-001: body paragraph with fewer than two quotations of at least two words (P7 proxy). Round-10 clearance (overseer handoff
+    5, c3 ll-t16): an answer that declines the analysis it was asked for and coaches instead (``markdown.declined_deliverable``: "I can't
+    choose your line of inquiry, and I can't write your introduction, ...") writes no analytical paragraph, so its coaching paragraphs
+    are held to no strands rule (they drew three warnings, fed back as "add a second strand quoted exactly from the text")."""
+    from ..markdown import declined_deliverable
     out: list[StructuralFinding] = []
+    if declined_deliverable(report.original_response or "") is not None:
+        return out
     for para in paragraphs:
         if para.kind != "body":
             continue

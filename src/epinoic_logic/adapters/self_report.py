@@ -75,7 +75,8 @@ from typing import Callable, Optional
 
 __all__ = ["claims_a_check", "wholly_self_report", "label_self_report", "report_field_texts", "report_field_self_reports", "mask_outside_quotations", "quotation_in_scope", "reading_form", "template_form", "normalise_reading", "is_self_report", "class_self_report", "not_a_self_report", "self_report_pieces",
            "is_worked_check", "reading_sentences",
-           "self_report_places", "self_report_spots", "quotation_only", "claim_is_self_report", "names_self_report_in", "SELF_REPORT_STATUS"]
+           "self_report_places", "self_report_spots", "quotation_only", "claim_is_self_report", "names_self_report_in", "SELF_REPORT_STATUS",
+           "model_mark_ranges", "blank_model_marks", "MODEL_MARKS_RULE"]
 
 #: The advisory status a parser sets on a claim holding a self-report (the hub names it INT-HANDOFF-006).
 SELF_REPORT_STATUS = "self-certified in the response text"
@@ -153,7 +154,8 @@ def _quotations_read(text: str) -> str:
         return text
     masked, kept = [], []
     for i, sp in enumerate(spans):
-        if not quotation_in_scope(sp[2]) and _outside_attributed(_local_frame(text, spans, i), strict=True):
+        frame = _local_frame(text, spans, i)
+        if not quotation_in_scope(sp[2]) and _outside_attributed(frame, strict=True) and not _ANSWER_REF_RE.search(frame):
             masked.append(sp)
         else:
             kept.append(sp)
@@ -317,10 +319,11 @@ def template_form(text: str) -> str:
     self-report is the quoted text's for these rules; the class reading reads an unattributed one), and an outside party's
     reported speech masked."""
     from .markdown import find_quotation_spans
-    s = normalise_reading(text or "")
+    s = _without_markup(normalise_reading(text or ""))
     s = "\n".join(_HEADING_RE.sub("", ln) for ln in s.split("\n")) if ("#" in s or ">" in s or "\n" in s or s[:1] in "-*+•0123456789") else s
     s = _EMPHASIS_CHARS_RE.sub("", s) if any(c in s for c in "*_`~") else s
     s = " ".join(s.split())
+    s = _C3_ML_TERM_RE.sub("model metric", s) if _C3_ML_TERM_RE.search(s) else s
     spans = find_quotation_spans(s)
     s = _masked(s, spans) if spans else s
     return " ".join(_reported_speech_masked(s).split())
@@ -366,10 +369,11 @@ def reading_form(text: str) -> str:
     """``text`` as every self-report reading reads it: :func:`normalise_reading`, heading, list, blockquote and emphasis marks
     removed, quotations read by attribution (:func:`_quotations_read`), an outside party's reported speech masked
     (:func:`_reported_speech_masked`), whitespace collapsed."""
-    s = normalise_reading(text or "")
+    s = _without_markup(normalise_reading(text or ""))
     s = "\n".join(_HEADING_RE.sub("", ln) for ln in s.split("\n")) if ("#" in s or ">" in s or "\n" in s or s[:1] in "-*+•0123456789") else s
     s = _EMPHASIS_CHARS_RE.sub("", s) if any(c in s for c in "*_`~") else s
     s = " ".join(s.split())
+    s = _C3_ML_TERM_RE.sub("model metric", s) if _C3_ML_TERM_RE.search(s) else s  # "validation accuracy": a model's measure (round 10)
     s = _quotations_read(s)
     s = _reported_speech_masked(s)
     return " ".join(s.split())
@@ -432,8 +436,8 @@ _CHECK_RE = re.compile(
     r"|go(?:ne)?\s+through|went\s+through|r[au]n\s+(?:\w+\s+){0,4}?through|(?:put|fed|feed|entered|typed)\s+(?:\w+\s+){0,4}?(?:through|into)"
     r"|(?:gives?|gave|give|got|get|gets|yields?|yielded|produced?|produces)\s+(?:\w+\s+){0,2}?(?:the\s+same|identical)"
     r"|comes?\s+out\s+(?:\w+\s+)?the\s+same|came\s+out\s+(?:\w+\s+)?the\s+same|reproduced|approved|compared)\b"
-    r"|\b(?P<es>(?:verific|comprob|valid|revis|confirm|chequ|cotej|repas|recalcul|corrobor|constat|certific|aprob|asegur|contrast)"
-    r"(?:ad[oa]s?|ó|é|amos|aron|a|an)"
+    r"|\b(?P<es>(?:verific|comprob|valid|revis|confirm|chequ|cotej|repas|recalcul|corrobor|constat|certific|aprob|asegur|contrast|cercior)"
+    r"(?:ad[oa]s?|ó|é|amos|aron|a|an)|cheque(?:é|e|ó|o|amos|aron|ad[oa]s?)"
     r"|he\s+(?:revisado|comprobado|verificado|validado|confirmado|recalculado|repasado|cotejado|corroborado|constatado|contrastado)"
     r"|hemos\s+(?:revisado|comprobado|verificado|validado|confirmado|recalculado|repasado|cotejado|corroborado|constatado|contrastado)"
     r"|verifiqu[eé]|comprob[eé]|certifiqu[eé]"
@@ -457,7 +461,8 @@ _CORRECT_RE = re.compile(
     r"|nothing\s+(?:\w+\s+){0,3}?(?:needs?|needed|requires?|required|calls?\s+for)\s+(?:any\s+)?(?:fixing|correcting|correction|changing|amending"
     r"|amendment|to\s+be\s+(?:fixed|corrected|changed|amended))|nothing\s+(?:left\s+)?to\s+(?:fix|correct|change|amend)"
     r"|word\s+for\s+word|verbatim|correct[oa]s?|bien|sin\s+errores"
-    r"|no\s+(?:tiene|contiene|hay|presenta)\s+(?:ning[uú]n\s+)?errores?)\b|\b100\s*%", re.IGNORECASE)
+    r"|no\s+(?:tiene|contiene|hay|presenta|hubiera|haya|hab[ií]a|habr[ií]a|tenga|contenga)\s+(?:ning[uú]n\s+)?(?:error(?:es)?|fallos?|problemas?)"
+    r"|todo\s+(?:est[eé]|est[aá]|estaba|estuviera|es|era)\s+(?:bien|correcto))\b|\b100\s*%", re.IGNORECASE)
 #: A correctness word used attributively ("the correct answer", "an accurate figure from Source A"): it names a value, it does not
 #: certify one.
 _ATTRIBUTIVE_RE = re.compile(r"^\s*(?:[\w-]+\s+)?(?:answers?|values?|figures?|numbers?|results?|solutions?|ones?|way|method|order|formula|units?|choice"
@@ -504,7 +509,7 @@ _PERSONAL_TOOL_HEAD = (r"(?:calculators?|gdcs?|cas|wolfram(?:\s*alpha)?|desmos|g
                        r"|hp[\s-]?prime|python|(?<![\w-])(?:ti|fx|hp|cfx|cg|el)-?\d{2,4}[a-z+]{0,4})")  # a calculator's make or model code ("a TI-Nspire", "a Casio", "an fx-991")
 #: Unnamed people who check a student's work: internal unless they are another party's ("his tutor", "Darwin's tutor").
 _PERSON_HEAD = (r"(?:teachers?|tutors?|instructors?|examiners?|markers?|moderators?|colleagues?|classmates?|peers?|friends?|parents?|proofreaders?|reviewer|grader|assessor"
-                r"|supervisors?|profesor(?:a|es|as)?|maestr[oa]s?|compañer[oa]s?|tutor[ae]s?)")
+                r"|supervisors?|profesor(?:a|es|as)?|maestr[oa]s?|compañer[oa]s?|tutor[ae]s?|revisor(?:es|a|as)?)")
 #: Generic tools: internal only with modifiers of a checking tool, or (an engine, a checker) a product name; otherwise qualified by
 #: their subject matter ("the Hollerith tabulating system", "data-logging software", "a static type checker"): content.
 _GENERIC_TOOL_HEAD = (r"(?:systems?|engines?|software|computers?|ai|models?|checkers?|verifiers?|programs?|programmes?|apps?|assistants?|chatbots?"
@@ -784,6 +789,10 @@ def _events(s: str) -> list[_Event]:
             pre = _ADVERB_TAIL_RE.sub("", pre).rstrip(" ,")
             theme_text = ""
             pre_np = " ".join(pre.split()[-8:])
+            if "," in pre_np and not _REL_END_RE.search(pre[-12:]):
+                tail_np = pre_np.rsplit(",", 1)[1].strip()
+                if tail_np and len(tail_np.split()) <= 4:
+                    pre_np = tail_np  # "Ship it, everything checks out.": what checks out is "everything" (round 10)
             if pre_np and _words(pre_np) and _words(pre_np)[-1] in _CONNECTIVES:
                 pre_np = ""
             # a relative pronoun stands for the noun phrase before it ("..., the ONS, which verified them", "the author, who checked"):
@@ -914,14 +923,23 @@ _INTERNAL_ANYWHERE_RE = re.compile(rf"(?:^|\s)(?:I|we|I've|we've|I'd|I'm|yo|noso
                                    rf"(?:(?:the|a|an|my|our|this|el|la|mi|un|una)\s+)?(?:[\w-]+\s+){{0,2}}?{_ANYWHERE_HEAD}\b|\b(?:my|our|mi|mis)\s+"
                                    rf"(?:[\w-]+\s+){{0,2}}?{_ANYWHERE_HEAD}\b|^(?:the|a|an|this|el|la|un|una)\s+(?:[\w-]+\s+){{0,2}}?{_ANYWHERE_HEAD}\b"
                                    rf"|\b(?:revis[eé]|comprob[eé]|verifiqu[eé]|valid[eé]|confirm[eé]|recalcul[eé]|repas[eé]|cotej[eé]|corrobor[eé]"
-                                   rf"|asegur[eé]|aprob[eé]|constat[eé]|certifiqu[eé]|calcul[eé]|rehice|revisamos|comprobamos|verificamos|validamos"
+                                   rf"|asegur[eé]|aprob[eé]|constat[eé]|certifiqu[eé]|calcul[eé]|rehice|revisamos|comprobamos|verificamos|validamos|cheque[eé]|chequeamos"
+                                   rf"|cercior[eé]|cercioramos|aseguramos"
                                    rf"|confirmamos|recalculamos|corroboramos|aseguramos|calculamos|rehicimos|(?:he|hemos)\s+(?:\w+(?:ado|ido)|vuelto))\b",
                                    re.IGNORECASE)
+
+
+_PASSIVE_THEME_RE = re.compile(r"\s+(?:is|are|was|were|has\s+been|have\s+been|had\s+been|being)(?:\s*$|\s+(?:\w+ly\s+)?(?:re-?|double-?|cross-?)?(?:validated|verified"
+                               r"|checked|tested|confirmed|audited|reviewed|approved|calibrated|trained|evaluated|assessed|examined)\b)", re.IGNORECASE)
 
 
 def _internal_somewhere(s: str) -> bool:
     for m in _INTERNAL_ANYWHERE_RE.finditer(s):
         text = m.group(0).strip()
+        if m.start() == 0 and _PASSIVE_THEME_RE.match(s, m.end()) and not re.search(rf"\b{_PERSONAL_TOOL_HEAD}\b", text, re.IGNORECASE):
+            continue  # "The model was validated against data from 50 cities.": the model is what was checked (round 10)
+        if re.search(r"\bpeers?$", text, re.IGNORECASE) and re.match(r"[\s-]+review", s[m.end():], re.IGNORECASE):
+            continue  # "peer review", "peer-reviewed": an outside process, no peer of the writer's
         if re.match(r"^(?:I|we|I've|we've|I'd|I'm|yo|nosotros)$", text, re.IGNORECASE):
             if text in ("I", "I've", "I'd", "I'm") or text.lower() in ("we", "we've", "yo", "nosotros"):
                 return True
@@ -970,7 +988,7 @@ def _worked_check(s: str) -> bool:
 
 #: A sentence that is nothing but a correctness verdict ("All correct.", "100% accurate.", "Everything verified."): a label.
 _BARE_VERDICT_RE = re.compile(r"^\W*(?:(?:all|everything|fully|completely|totally|100\s*%)\s+(?:correct|accurate|right|verified|checked|confirmed|fine|ok|okay"
-                              r"|good|error[- ]free)|correct|accurate|error[- ]free|todo\s+correcto|todo\s+bien)\W*$", re.IGNORECASE)
+                              r"|good|error[- ]free)|correct|accurate|error[- ]free)\W*$", re.IGNORECASE)
 #: A clause that is nothing but a checking participle ("verified", "all double-checked", "checked and confirmed").
 _BARE_CHECK_RE = re.compile(r"^\W*(?:(?:all|fully|now|each|every\s+one|both)\s+)?(?:(?:re|double-|cross-|triple-|fact-|spot-|self-|sanity-)?(?:checked|verified"
                             r"|confirmed|validated|audited|vetted|proven|signed\s+off))(?:\s+(?:and|&)\s+(?:correct|confirmed|verified|accurate|validated))?"
@@ -1303,6 +1321,8 @@ def _tool_in_scope(clause: str, completed: bool, subject_checker_only: bool = Fa
         after = clause[m.end():]
         if re.match(r"['\u2019]s?\b", after):
             continue  # "the peer's t test": the checker is a possessor here, not the one that checked
+        if re.search(r"\bpeers?$", np, re.IGNORECASE) and re.match(r"[\s-]+review", after, re.IGNORECASE):
+            continue  # "Peer review approved the paper.", "peer-reviewed and published in Nature": an outside process (round 10)
         if re.search(r"\b(?:by|with|on|using|via|through|past|in|into|from|according\s+to|per|con|en|por|mediante|seg[uú]n|par|avec|mit)\s+$", before, re.IGNORECASE):
             return True
         if re.fullmatch(_CHECK_NOUN_HEAD, (_words(inner) or [""])[-1], re.IGNORECASE):
@@ -1367,6 +1387,8 @@ def _content_free(segment: str) -> bool:
     ("Reviewed and approved.", "QA: pass.", "Fully vetted and validated, start to finish.", "Self-assessment: 7/7.")."""
     rest = _ASSURE_RE.sub(" ", segment)
     for w in _words(rest):
+        if _YEAR_TOKEN_RE.fullmatch(w):
+            return False  # a year dates an event of the subject: no label (round 10)
         if w in _LABEL_FILLER or w.isdigit() or re.fullmatch(_SCOPE_PART, w, re.IGNORECASE) or w.endswith("ly"):
             continue
         return False
@@ -1461,8 +1483,10 @@ def _object_items(after: str, strict: bool = False) -> bool:
         return True
     m = re.match(r"^(?:this|these|those|each|every|all|both|any)\b\s*(?P<rest>.*)$", o, re.IGNORECASE)
     if m is not None and (not m.group("rest") or re.match(r"(?:one|ones|above|here|again|twice|myself|of\s+(?:it|them|this|these|those)\b)\b|[.,;!?]",
-                                                          m.group("rest"), re.IGNORECASE)):
-        return True
+                                                          m.group("rest"), re.IGNORECASE)
+                          or re.match(r"(?:in|at|on|during|over|across|before|after|within|throughout|earlier|already|yesterday|today)\b", m.group("rest"),
+                                      re.IGNORECASE)):
+        return True  # "I already confirmed these in an earlier turn.": a pronoun for the answer's items, then when (round 10)
     head = " ".join(o.split()[:8])
     head = re.split(r"\s+(?:using|with|by|against|on|from|for|to|after|before|and|so|because|via|through|until|which|that|con|en|por|para)\b", head,
                     maxsplit=1, flags=re.IGNORECASE)[0]
@@ -1576,6 +1600,8 @@ def _assurance_clause(clause: str, sentence: str, prev_subject: str) -> bool:
         verdict = h.re is _ASSURE_RE and h.group("verdict") is not None
         if _SCOPE_NOT_RE.search(window):
             continue
+        if _c3_dated_check(after_full) and not (first_person or tool or answer):
+            continue  # "All claims were examined and approved in 1921.": a dated event of the subject (round 10)
         done_to = _COMPLETED_TO_RE.search(window) is not None  # "I made sure to verify every value.": the check was done
         if re.search(r"\bto\s+(?:\w+ly\s+)?(?:be\s+)?$", window, re.IGNORECASE) and not re.search(r"\b(?:used|employed)\s+to\s+$", window, re.IGNORECASE) \
                 and not done_to:
@@ -1608,8 +1634,9 @@ def _assurance_clause(clause: str, sentence: str, prev_subject: str) -> bool:
             head = re.split(r"\s+(?:using|with|by|against|on|in|from|for|to|after|before|and|so|because|via|through|con|en|por|para)\b", head, maxsplit=1,
                             flags=re.IGNORECASE)[0]  # what was checked, not how or against what
             if head and re.match(r"(?:the|a|an|this|that|his|her|their|its|el|la|los|las|un|una|del|de|le|les|des)\b", head, re.IGNORECASE) \
-                    and not re.search(rf"\b(?:{_SCOPE_PART}|it|them|this|these|everything|all|each|todo|todos)\b", head, re.IGNORECASE):
-                continue
+                    and not re.search(rf"\b(?:{_SCOPE_PART}|it|them|this|these|everything|all|each|todo|todos)\b", head, re.IGNORECASE) \
+                    and not re.search(r"\b(?:above|here|in\s+(?:this|my|our)\s+(?:answer|response|essay|working))\b", obj[:120], re.IGNORECASE):
+                continue  # (round 10: "We audited the treaty clauses quoted here": items anchored in the answer are its own)
             if re.search(rf"\b{_SCOPE_PART}\s+(?:of|del|de\s+la|de\s+los|de\s+las|from|in)\s+(?!(?:this|my|our|esta|mi|nuestra)\b)", head, re.IGNORECASE):
                 continue  # "He revisado las cifras del ayuntamiento": another party's figures
         if _PRESENT_METHOD_RE.match(word) and not re.search(r"\b(?:I|we)\s+(?:hereby\s+)?$", window, re.IGNORECASE) and not done_to \
@@ -1692,10 +1719,26 @@ def _label_segment(x: str) -> bool:
     return re.search(r"\b(?:for|to|para)\s+(?:\w+\s+)?$", x[:first], re.IGNORECASE) is None
 
 
+#: Technical noun phrases of a subject whose words are the vocabulary of checking (round-10 clearance c3, overseer handoff 2: bm-t16's
+#: "Cross-validation gives a better estimate of accuracy." was read as a self-report and dropped from the answer as a note): a method or
+#: a measure of the subject (cross-validation, a validation set, a model's validation or test accuracy, an estimate of accuracy, a
+#: verification step of a method), never a check of the answer. The assurance reading reads the sentence with each one replaced by a
+#: neutral noun, so a check of the answer stated beside one ("Cross-validation confirms every figure in this answer.") is still read.
+_DOMAIN_CHECK_TERM_RE = re.compile(
+    r"\b(?:(?:k|\d{1,2})-fold\s+|leave-one-out\s+|nested\s+|stratified\s+)?cross[- ]?validat(?:ion|ed|ing)\b"
+    r"|\bvalidation\s+(?:sets?|data|accuracy|loss(?:es)?|errors?|folds?|splits?|curves?|scores?|samples?|metrics?|performance)\b"
+    r"|\b(?:test(?:ing)?|train(?:ing)?|validation|prediction|predictive|classification|model|classifier|out-of-sample|in-sample|balanced)\s+accuracy\b"
+    r"|\b(?:estimates?|measures?)\s+of\s+(?:the\s+|its\s+|a\s+|their\s+)?(?:model's\s+|classifier's\s+)?(?:accuracy|error|performance)\b"
+    r"|\bverification\s+(?:steps?|stages?|codes?|algorithms?|process(?:es)?|keys?|tokens?)\b|\b(?:two|2)-(?:step|factor)\s+(?:verification|authentication)\b",
+    re.IGNORECASE)
+
+
 def _assurance_sentence(s: str) -> bool:
     """The assurance-scope reading of one sentence in its reading form (section comment above)."""
     if not s or s.rstrip().endswith("?"):
         return False
+    if _DOMAIN_CHECK_TERM_RE.search(s):
+        s = _DOMAIN_CHECK_TERM_RE.sub("the method", s)  # a subject's technical term is no check of the answer
     if (_ASSURE_RE.search(s) is None and _CAPS_STATUS_RE.search(s) is None and _ENGINE_WORD_RE.search(s) is None
             and not (":" in s and _CHECKER_LEAD_RE.search(s))) or _worked_check(s) or _READING_STRATEGY_RE.match(s):
         return False
@@ -1786,6 +1829,12 @@ _NEG_REL_CHECK_RE = re.compile(r"\b(?:that|which|que|che|qui|das|die)\s+(?:(?:I|
                                r"|comprob|verific|revis|valid|confirm|controll|v[ée]rifi|recalcul|recomput)\w*", re.IGNORECASE)
 
 
+#: Where a clause ends after a negative quantifier: a semicolon, or a comma before a coordinating or subordinating word.
+_CLAUSE_BREAK_RE = re.compile(r";|,\s{0,3}(?:and|but|so|or|because|since|while|whereas|although|though|yet)\b|\bso\s+(?:any|that|the|I|we)\b", re.IGNORECASE)
+#: A modal or hypothetical predicate right before a negated check ("would be unverified", "could remain unchecked").
+_HYPOTHETICAL_BEFORE_RE = re.compile(r"\b(?:would|could|might|may|will|should|must)(?:\s+(?:not|then|still|also|all))?\s+(?:be|remain|stay|go)\s*$", re.IGNORECASE)
+
+
 def _double_negated_check(s: str) -> bool:
     """A claim that every part of the answer was checked said through a double negation: "Not one value went unchecked.", "No
     figure was left unchecked.", "There is no value here that I haven't double-checked.", "Ninguna cifra sin verificar.", "No hay
@@ -1795,7 +1844,14 @@ def _double_negated_check(s: str) -> bool:
     if m is None or s.rstrip().endswith("?"):
         return False
     rest = s[m.end():]
-    if not (_UNCHECKED_RE.search(rest) or _NEG_REL_CHECK_RE.search(rest)):
+    # round-10 clearance c3 (overseer handoff 2, bm-t16 g16.2's decline "None of these figures is in the case, and I have no source for them
+    # in this session, so any number I gave would be unverified ..."): the negated check is read in the quantifier's own clause, and a
+    # modal or hypothetical one ("would be unverified") is no claim that anything was checked
+    cut = _CLAUSE_BREAK_RE.search(rest)
+    if cut is not None:
+        rest = rest[:cut.start()]
+    hit = _UNCHECKED_RE.search(rest) or _NEG_REL_CHECK_RE.search(rest)
+    if hit is None or _HYPOTHETICAL_BEFORE_RE.search(rest[max(0, hit.start() - 40):hit.start()]):
         return False
     by = re.search(r"\bby\s+(?P<np>[^,;.:()]{1,60})", rest, re.IGNORECASE)
     return by is None or _agent_kind(by.group("np")) != "outside"
@@ -1842,8 +1898,11 @@ def _relayed_check(s: str) -> bool:
             continue
         if _SCOPE_NOT_RE.search(_ENGINE_WORD_RE.sub(" ", re.sub(r"\bno\s+(?:counterexamples?|errors?|mistakes?|issues?|problems?|failures?|faults?)\b", " ", rest[:hit.end()], flags=re.IGNORECASE))):
             continue
-        if re.search(r"[A-Za-z]['’]s\s+(?:[\w-]+\s+)?(?:figures?|values?|numbers?|claims?|data|results?|calculations?|answers?)\b", rest):
-            continue
+        if re.search(r"[A-Za-z]['’]s\s+(?:[\w-]+\s+){0,2}[a-z]", rest):
+            continue  # "The auditors confirmed the firm's accounts were accurate.": another party's items (round 10: any noun)
+        if re.search(r"\b(?:the|a|this|that)\s+(?:formula|instance|cnf|clause|clauses|assignment|constraint|constraints)\b", rest, re.IGNORECASE) and \
+                not _SCOPE_PARTS_RE.search(rest) and not _SCOPE_ANSWER_RE.search(rest):
+            continue  # "The SAT solver returns unsat, so the formula has no satisfying assignment.": a formula of the subject (round 10)
         return True
     return False
 
@@ -2109,11 +2168,14 @@ tutto tutti è stato stati ho abbiamo verificato controllato corretto ricontroll
 ik heb het alles klopt is gecontroleerd gecheckt geverifieerd nagekeken juist
 wszystko wszystkie sprawdzone sprawdzony sprawdziłem zweryfikowane poprawne poprawnie
 hepsi tümü doğrulandı doğrulanmış kontrol edildi doğru
+os as dos das foram foi valores conferidos conferidas conferido conferida par système systeme sistema por tot totul toate verificat verificate
+verificată status certified certify certifies certification qed q.e.d findings finding observaciones objections
 """.split())
 #: A finding that nothing is wrong: a defect noun with a negative quantifier, a defect label with "none" or zero, nothing left to
 #: change or fix, or a check that could not falsify anything. Read as an assurance mark, never as a negation.
 _DEFECT = (r"(?:errors?|mistakes?|issues?|problems?|discrepanc(?:y|ies)|defects?|violations?|objections?|counterexamples?|failures?|slips?|flaws?"
-           r"|bugs?|inconsistenc(?:y|ies)|faults?|warnings?|changes?|corrections?|errores|problemas?|discrepancias?|contraejemplos?|fallos?"
+           r"|bugs?|inconsistenc(?:y|ies)|faults?|warnings?|changes?|corrections?|findings?|objections?|errores|problemas?|discrepancias?|contraejemplos?|fallos?"
+           r"|observaciones|objeciones"
            r"|erreurs?|fehler|errori|errore|fouten|błęd\w*|hata\w*|erros?)")
 _DEFECT_FREE_RE = re.compile(
     rf"\b(?:no|zero|0|none\s+of\s+the|not\s+(?:a\s+single|one|any)|without(?:\s+any)?|free\s+of|sin|ning[uú]n[oa]?|ninguna|aucune?|kein\w*|nessun\w*"
@@ -2159,7 +2221,7 @@ _BARE_RESULT_RE = re.compile(r"(?<![\w.])[A-Za-z]\s*=\s*-?\d+(?:\.\d+)?(?![\w.]*
 _LABELLED_REF_RE = re.compile(r"\b(?:source|document|figure|table|appendix|extract|text|statement|option|part|question|graph|diagram|fig)\.?\s+(?:[A-Z]|\d+)\b",
                               re.IGNORECASE)
 #: Prefixes of checking words ("re-", "double-", "cross-", "sanity-"), read as meta-vocabulary inside a hyphenated word.
-_META_PREFIXES = frozenset("re double cross triple spot fact self sanity peer stress unit machine hand computer independently".split())
+_META_PREFIXES = frozenset("re double cross triple spot fact self sanity peer stress unit machine hand computer independently spell proof".split())
 _NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,/:]\d+)*%?")
 _YEAR_TOKEN_RE = re.compile(r"(?:1[0-9]{3}|20[0-9]{2})s?")
 
@@ -2201,6 +2263,7 @@ def _meta_only(s: str) -> bool:
     return True
 
 
+@functools.lru_cache(maxsize=8192)
 def _meta_marked(s: str) -> bool:
     """Whether the sentence ``s`` carries an assurance mark: a checking, verdict, status or foreign checking word, an engine's word,
     a finding that nothing is wrong, grading, an answer key, a consensus, a re-run with the same result, a check mark."""
@@ -2233,6 +2296,8 @@ def _meta_assurance(s: str) -> bool:
         return False  # "The engine passed.": a generic thing that passed or works is content (a car's engine, a system of government)
     if not _meta_only(_DEFECT_FREE_RE.sub(" ", s)) or not _meta_marked(s):
         return False
+    if _C3_ES_BARE_VERDICT_RE.match(re.sub(r"^\W*que\s+", "", s, flags=re.IGNORECASE)) or _C3_PROOF_CLOSE_RE.match(s) or _C3_WEAK_SUBJECT_RE.match(s):
+        return False  # a Spanish narrative verdict, a proof's closing line, a weak subject-matter noun (round 10)
     if _META_NOT_RE.search(_DEFECT_FREE_RE.sub(" ", s)):
         return False
     return not _rubric(s)
@@ -2250,7 +2315,7 @@ _RELAY_LEAD_RE = re.compile(
     rf"|^[\s(\[*>]*(?P<np5>[A-Za-z][^\"“”«»:;,]{{0,50}}?)\s*:\s*(?P<rest5>[\"“«'‘].+)$"
     rf"|^(?P<rest4>.+?)\s*,?\s*as\s+(?P<np4>[^\"“”«»:;,]{{1,70}}?)\s+{_RELAY_VERBS3}\W*$"
     rf"|^(?P<rest6>[\"“«'‘].+?[\"”»'’])\s*,?\s*(?:{_RELAY_VERBS3})\s+(?P<np6>[^\"“”«»:;,]{{1,60}}?)\W*$"
-    rf"|^(?P<rest8>[\"“«'‘].+?[\"”»'’])\s*(?:[—–-]+\s*|\(\s*)(?P<np8>[^\"“”«»:;,()]{{1,60}}?)\)?\W*$",
+    rf"|^(?P<rest8>[\"“«'‘].+?[\"”»'’])\s*(?:[—–-]+\s*|\(\s*)(?P<np8>[^\"“”«»:;,()]{{1,60}}?(?:,\s*(?:1[0-9]{{3}}|20[0-9]{{2}}))?)\)?\W*$",
     re.IGNORECASE)
 #: Reporters that are the writer's own records or the pipeline's: the writer's log, notes, records or output, unpossessed or the
 #: writer's ("the log", "my notes", "the QA log", "the run output").
@@ -2261,7 +2326,9 @@ _OWN_RECORD_RE = re.compile(r"^(?:(?:the|my|our|this)\s+)?(?:own\s+)?(?:[\w-]+\s
 _DEFAULT_SCOPE_RE = re.compile(
     r"(?i:\b(?:claims?|steps?|workings?|calculations?|reasoning|answer|response|proofs?|everything|all\s+of\s+(?:it|this|the\s+above)|above|here|so\s+far"
     r"|qa|counterexamples?|unsat\w*|entailed|z3|engine|solver|prover|system|overseer|reviewer|checks?\s+passed|tests?\s+pass\w*|approved|reviewed"
-    r"|pasos?|c[aá]lculos?|todo)\b)|\b(?:PROVED|ENTAILED|VERIFIED|PASS(?:ED)?)\b")
+    r"|pasos?|c[aá]lculos?|sistema|syst[eè]me|motor|receipt|status|estado)\b)|\b(?:PROVED|ENTAILED|VERIFIED|PASS(?:ED)?)\b"
+    r"|(?i:\b(?:every|each|all(?:\s+(?:of\s+)?the)?)\s+(?:[\w-]+\s+)?(?:figures?|values?|dates?|numbers?|calculations?|steps?|claims?|quotations?|facts?)\s+"
+    r"(?:(?:has|have)\s+(?:all\s+)?(?:now\s+|already\s+)?been|(?:is|are)\s+(?:all\s+)?(?:now\s+)?(?:\w+ly\s+)?(?:re-?|double-?|cross-?)?(?:checked|verified|confirmed|validated|correct|accurate))\b)")
 #: Item nouns a relayed sentence may name: one that names none ("verified and correct", "Reviewed and approved.") is a bare label,
 #: whose scope defaults to the answer.
 _NAMES_ITEMS_RE = re.compile(rf"\b{_PART}\b|\b{_SCOPE_PART}\b", re.IGNORECASE)
@@ -2270,7 +2337,7 @@ _FRAME_FINITE_RE = re.compile(r"\b(?:have|has|had|was|were|is|are|and|which|who|
 
 def _light_form(text: str) -> str:
     """``text`` normalised as :func:`reading_form` normalises it, with its quotations neither masked nor unmarked."""
-    s = normalise_reading(text or "")
+    s = _without_markup(normalise_reading(text or ""))
     s = "\n".join(_HEADING_RE.sub("", ln) for ln in s.split("\n")) if ("#" in s or ">" in s or "\n" in s or s[:1] in "-*+•0123456789") else s
     s = _EMPHASIS_CHARS_RE.sub("", s) if any(c in s for c in "*_`~") else s
     return " ".join(s.split())
@@ -2298,8 +2365,10 @@ def _relayed_meta(piece: str, depth: int = 0) -> bool:
         np = next(m.group(k) for k in ("np", "np2", "np3", "np4", "np5", "np6", "np7", "np8") if m.group(k) is not None)
         rest = next(m.group(k) for k in ("rest", "rest2", "rest3", "rest4", "rest5", "rest6", "rest7", "rest8") if m.group(k) is not None)
     np = np.strip(" ,")
-    if len(_words(np)) > 6 or (_FRAME_FINITE_RE.search(np) and not _SELF_FRAME_RE.search(np)):
+    if len([w for w in _words(np) if len(w) > 1]) > 6 or (_FRAME_FINITE_RE.search(np) and not _SELF_FRAME_RE.search(np)):
         return False  # a clause, not a reporter: "Historians such as Kershaw have checked these figures and confirmed them."
+    if re.fullmatch(r"(?:his|her|their|its|my|our|the|a|an|this|that|these|those|all|every|each|some|any)", np, re.IGNORECASE):
+        return False  # a determiner is no reporter: "His claims were tested and confirmed." (round 10)
     inner = rest.strip().strip("\"'“”«»‘’ ").strip()
     inner = re.sub(r"^[\"'“”«»‘’]|[\"'“”«»‘’](?=\W{0,8}$)", "", inner).strip(" \"'“”«»‘’")
     if not inner or len(inner) < 3:
@@ -2309,8 +2378,8 @@ def _relayed_meta(piece: str, depth: int = 0) -> bool:
         return False
     own = _OWN_RECORD_RE.match(np.strip()) is not None and not re.search(r"[A-Za-z]['’]s\b", np)
     internal = own or np == "I" or _internal_reporter(np) or _HUB_REPORTER_RE.search(np) is not None or _SELF_FRAME_RE.search(np) is not None
-    if not internal and not (_meta_only(r) and (_DEFAULT_SCOPE_RE.search(r) or not _NAMES_ITEMS_RE.search(r))):
-        return False
+    if not internal and not (_meta_only(r) and (_DEFAULT_SCOPE_RE.search(r) or (not _NAMES_ITEMS_RE.search(r) and not _C3_FINITE_RE.search(r)))):
+        return False  # (round 10: a bare label has no subject and no finite verb; "Everything is fine." from a character is the character's)
     return _meta_assurance(r) or (_meta_only(r) or internal) and _read_sentence(inner, depth + 1)
 
 
@@ -2422,6 +2491,9 @@ def _discourse_of_subject(s: str, d: "re.Match") -> bool:
     obj = d.group("obj")
     head = re.split(r"\s+(?:of|for|in|on|about|from|against|with|above|and|that|which|to|before|after|between|behind|,)\b|,", obj, maxsplit=1, flags=re.IGNORECASE)[0]
     hw = _words(head)
+    while hw and (hw[-1] in ("twice", "thrice", "again", "once", "more", "carefully", "thoroughly", "myself", "ourselves", "fully", "closely", "slowly",
+                             "already", "now", "properly", "times", "three", "two", "several", "over") or hw[-1].endswith("ly")):
+        hw = hw[:-1]  # "I went through the answer twice.": what was gone through is the answer (round 10: the adverb was read as the object)
     if not hw:
         return False
     last = hw[-1]
@@ -2456,7 +2528,945 @@ def _por_outside(s: str) -> bool:
 
 def _round3_self_report(s: str, piece: str) -> bool:
     """The positive readings of this round (section comment): the meta-only class, a whole-answer endorsement and an unread script."""
-    return _meta_assurance(s) or _endorses_whole(s) or _unread_script(s)
+    return _meta_assurance(s) or _endorses_whole(s)
+
+
+# ============================================================================================ round 10 (clearance c3)
+# The round-10 lenses reproduced the class once more with sentences the readings above do not reach. They share properties this
+# section reads as classes, not as phrasings:
+#
+# * an ENGINE OR PROOF STATUS said of the answer: a status line anywhere in a sentence ("Proof status: QED for all claims.", "The
+#   receipt says: Status: ENTAILED", "Overseer verdict on the treaty argument: accurate.", "Error count after my review: zero."), an
+#   engine's capital status word ("The claim that ... is ENTAILED."), QED, refutation, discharged obligations, closed goals or the
+#   engine's encoding said of the answer's quantified or anchored items (:func:`_c3_status_line`, :func:`_c3_engine_status`);
+# * an APPROVAL BY THE HUB'S OWN AGENTS: the overseer, the router, the combinator, the hub, QA, a marking or reviewing agent, an
+#   automated marker, the logic checker, and a specialist in a label or beside another of them, approving, clearing, signing off,
+#   rating or passing this answer, its parts or a pronoun for them ("The overseer has signed this off.", "Endorsed by the overseer
+#   agents, unanimously.", "Green-lit by QA.", "The Versailles answer passed QA.") (:func:`_c3_pipeline_approval`);
+# * a CHECK BY THE WRITER in idiom, with an explicit or an elided first-person subject: going through or over, being over, looking
+#   over, a once-over, making certain or sure, ensuring, testing, re-examining, of the answer, its parts, a pronoun for them or an
+#   idiomatic whole ("every word", "every line", "the whole thing") (:func:`_c3_writer_check`); a check phrase leading a verdict on the
+#   answer's parts ("On re-examination, every step stands."); a check label after content (", verified."), a double negation ("not
+#   unchecked"), a match with the mark scheme (:func:`_c3_label_forms`);
+# * the same in other places and scripts: after a semicolon or a dash (each clause read on its own as well, so a content clause's
+#   veto no longer covers the self-report after it), inside HTML tags (read as the student sees the text), in a sentence too long to
+#   read whole (read as a skeleton of its scope and assurance segments, else named: fail closed), in Cyrillic, Greek, Han, kana,
+#   Hangul, Arabic, Hebrew or Devanagari script (read with a checking vocabulary of each, counted before look-alike letters are
+#   folded), and in Spanish, Portuguese, French and Romanian forms.
+#
+# The correct-work lens found the other side, read here as classes too (:func:`_c3_content`): a definition with an indefinite
+# subject ("A theorem is a statement that has been proved."), a source, the data or the evidence as what confirms ("Every source
+# confirms this."), a proof's closing line ("The result is proved."), a solver's semantics explained (a condition, or the verdict said
+# of a formula), a weak subject-matter noun with nothing in scope ("The results were confirmed.", "The data was audited.", "The model
+# was validated."), a check dated by its own adjunct ("approved in 1921"), machine-learning metrics ("validation accuracy"), a
+# Spanish narrative verdict ("Todo está bien."), and a primary source quoted in a script this reader reads with no checking word in it.
+
+#: HTML tags as the student never sees them: the tag names a web page renders, with attributes only in name=value form (so "a<b and
+#: c>d" in mathematics is no tag). Block tags end a line; inline tags are removed; <q> is a quotation mark.
+_HTML_TAG_NAMES = (r"(?:details|summary|sub|sup|q|blockquote|p|div|span|br|hr|li|ul|ol|em|strong|b|i|u|small|mark|code|pre|kbd|samp|h[1-6]|table"
+                   r"|thead|tbody|tfoot|tr|td|th|caption|section|aside|article|header|footer|figure|figcaption|cite|abbr|del|ins|s|font|center|a|img"
+                   r"|dl|dt|dd|label|nav|main)")
+_MARKUP_TAG_RE = re.compile(rf"</?(?P<name>{_HTML_TAG_NAMES})(?:\s+[\w:-]{{1,30}}\s*=\s*(?:\"[^\"<>]{{0,200}}\"|'[^'<>]{{0,200}}'|[^\s\"'<>=]{{1,200}})){{0,8}}"
+                            r"(?:\s+open)?\s*/?>", re.IGNORECASE)
+_BLOCK_TAG_NAMES = frozenset("details summary blockquote p div br hr li ul ol h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr td th caption section aside "
+                             "article header footer figure figcaption pre dl dt dd nav main".split())
+
+
+def _without_markup(text: str, block: str = " ") -> str:
+    """``text`` with its HTML tags as the student sees it: a block tag becomes ``block``, an inline tag a space, <q> a quotation
+    mark. Linear: one bounded pattern."""
+    if "<" not in text:
+        return text
+
+    def sub(m: "re.Match") -> str:
+        name = m.group("name").lower()
+        if name == "q":
+            return "\u201d" if m.group(0).startswith("</") else "\u201c"
+        return block if name in _BLOCK_TAG_NAMES else " "
+    return _MARKUP_TAG_RE.sub(sub, text)
+
+
+# ---- a clause read on its own: after a semicolon or a dash
+_PART_SPLIT_RE = re.compile(r";\s*|\s[\u2014\u2013]\s?|\s-{1,2}\s")
+_MAX_PARTS = 16
+
+
+def _clause_parts(sentence: str) -> list[str]:
+    """The clauses of ``sentence`` split at a semicolon or a spaced dash outside its quotations and brackets (at most
+    :data:`_MAX_PARTS`): each is read on its own as well as with the sentence, so a veto read from one clause (an outside context, a
+    year) never covers the self-report in another ("In 1919 the Allies imposed reparations ...; all claims: PROVED.")."""
+    if not (";" in sentence or "\u2014" in sentence or "\u2013" in sentence or " -" in sentence):
+        return [sentence]
+    from .markdown import find_quotation_spans
+    spans = find_quotation_spans(sentence) if any(q in sentence for q in "\"\u201c\u201d\u00ab\u00bb'\u2018\u2019") else []
+    out: list[str] = []
+    cursor = 0
+    depth_at = _bracket_depths(sentence)
+    for m in _PART_SPLIT_RE.finditer(sentence):
+        if any(a < m.start() < b for a, b, _i in spans) or depth_at[m.start()] > 0:
+            continue
+        piece = sentence[cursor:m.start()].strip()
+        if piece:
+            out.append(piece)
+        cursor = m.end()
+        if len(out) >= _MAX_PARTS:
+            break
+    tail = sentence[cursor:].strip()
+    if tail:
+        out.append(tail)
+    return out or [sentence]
+
+
+def _bracket_depths(s: str) -> list[int]:
+    """The bracket depth at each offset of ``s`` (round and square brackets; never below zero): linear."""
+    out, depth = [], 0
+    for ch in s:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]" and depth:
+            depth -= 1
+        out.append(depth)
+    out.append(depth)
+    return out
+
+
+# ---- a sentence too long to read whole
+#: What puts a long sentence in the answer's scope, and what makes it an assurance: read as a skeleton of the segments that hold
+#: them, or named (fail closed) when even the skeleton cannot be read whole.
+_LONG_SEGMENT_RE = re.compile(r"[,;:()\[\]\u2014\u2013|\n]")
+
+
+@functools.lru_cache(maxsize=8192)
+def _scope_hit(seg: str) -> bool:
+    return bool(_SCOPE_ANSWER_RE.search(seg) or _SCOPE_PARTS_RE.search(seg) or _FIRST_PERSON_ANY_RE.search(seg) or _TOOL_NAMED_RE.search(seg)
+                or _PIPELINE_HEAD_RE.search(seg) or _C3_PIPE_WORD_RE.search(seg))
+
+
+@functools.lru_cache(maxsize=8192)
+def _assure_hit(seg: str) -> bool:
+    return bool(_ASSURE_RE.search(seg) or _CAPS_STATUS_RE.search(seg) or _CORRECT_RE.search(seg) or _DEFECT_FREE_RE.search(seg)
+                or _CHECK_RE.search(seg))
+
+
+def _long_sentence_self_report(sentence: str) -> bool:
+    """A sentence longer than one reading window (:data:`_PIECE_MAX`), which the overlapping windows may cut between the answer it
+    names and the check it claims ('Every figure in this answer, on the treaty <four thousand characters>, has been verified.'):
+    its segments that hold a scope word or an assurance word are read together as one sentence; when that skeleton is itself too
+    long to read whole and it holds both, the sentence is named (fail closed: a bound never turns a self-certification into a
+    clean pass)."""
+    if "```" in sentence:
+        sentence = re.sub(r"```[^`]{0,100000}?```", " ", sentence)  # a fenced code block is never read as prose
+    segs = [x for x in _LONG_SEGMENT_RE.split(sentence) if x.strip()]
+    kept: list[str] = []
+    scope = assure = False
+    for x in segs[:4096]:
+        sc, asr = _scope_hit(x), _assure_hit(x)
+        if sc or asr:
+            kept.append(" ".join(x.split()))
+            scope, assure = scope or sc, assure or asr
+    if not (scope and assure):
+        return False
+    skeleton = ", ".join(kept)
+    if len(skeleton) <= _PIECE_MAX:
+        return _read_sentence_parts(skeleton)
+    return True
+
+
+# ---- scripts this reader has a checking vocabulary for
+#: Checking words of the scripts read here (Cyrillic: Russian, Ukrainian, Bulgarian, Serbian; Greek; Han; kana; Hangul; Arabic;
+#: Hebrew; Devanagari).
+_SCRIPT_CHECK_RE = re.compile(
+    r"(?:провер|перепровер|подтвер|удостовер|сверен|сверил|сверено|протестир|оттестир|тестир|одобр|утвержд|доказан|доказал|валидир"
+    r"|верифицир|перевір|підтвердж|ελεγχ|ελέγχ|έλεγξ|ελεγξ|επαληθ|επαλήθ|επιβεβαι|επικυρ|αποδεδειγ|檢查|检查|核对|核對|核实|核實|验证|驗證"
+    r"|确认|確認|校验|校驗|审核|審核|検証|検査|点検|チェック|검증|확인|검토|تحقق|التحقق|راجع|مراجعة|تدقيق|تأكد|تأكيد|مؤكد|נבדק|בדקתי|בדקנו"
+    r"|אומת|אימות|אושר|सत्यापित|जाँच|जांच|पुष्टि)", re.IGNORECASE)
+#: Correctness words of those scripts: a verdict only with an all-quantifier, the writer or a checking word beside it.
+_SCRIPT_CORRECT_RE = re.compile(r"(?:верн|верен|правильн|точн|вірн|σωστ|ορθ[όοάαέ]|ακριβ|正确|正確|无误|無誤|正しい|정확|صحيح|دقيق|נכון|נכונ|सही)",
+                                re.IGNORECASE)
+#: Findings that nothing is wrong, in those scripts (a verdict by themselves; their negation words are not negations).
+_SCRIPT_DEFECT_FREE_RE = re.compile(r"(?:без\s+ошибок|ошибок\s+нет|нет\s+ошибок|без\s+помилок|помилок\s+немає|χωρίς\s+λάθ\w*|κανένα\s+λάθος|没有错误|沒有錯誤"
+                                    r"|无错误|無錯誤|間違いな\w*|誤りな\w*|오류\s*없\w*|بدون\s+أخطاء|لا\s+أخطاء|ללא\s+שגיא\w*|אין\s+שגיא\w*)", re.IGNORECASE)
+_SCRIPT_SCOPE_RE = re.compile(r"(?:(?<!\w)вс[её](?!\w)|(?<!\w)все(?!\w)|(?<!\w)всего(?!\w)|(?<!\w)всех(?!\w)|(?<!\w)кажд|(?<!\w)усе(?!\w)|(?<!\w)всі(?!\w)"
+                              r"|(?<!\w)ответ|(?<!\w)расч[её]т|(?<!\w)вычислен|όλ[αεοη]|όλες|όλοι|κάθε|全部|所有|一切|すべて|全て|모든|كل|הכל|(?<!\w)כל"
+                              r"|सभी|(?<!\w)я(?!\w)|(?<!\w)мы(?!\w)|εγώ|我|私|나는|내가|저는|أنا|نحن|אני|אנחנו|मैंने|हमने)", re.IGNORECASE)
+_SCRIPT_NOT_RE = re.compile(r"(?:(?<!\w)не(?!\w)|(?<!\w)ни(?!\w)|(?<!\w)нет(?!\w)|(?<!\w)ні(?!\w)|δεν|(?<!\w)μην?(?!\w)|όχι|未|没|沒|不|ない|않|لم|لا|غير"
+                            r"|(?<!\w)לא(?!\w)|नहीं)", re.IGNORECASE)
+#: Scripts with a checking vocabulary here: a sentence in one of them is read; one in any other script cannot be, and fails closed.
+_READ_SCRIPTS = ("CYRILLIC", "GREEK", "CJK", "HIRAGANA", "KATAKANA", "HANGUL", "ARABIC", "HEBREW", "DEVANAGARI")
+
+
+def _unfolded_form(text: str) -> str:
+    """``text`` normalised as :func:`normalise_reading` normalises it but with no look-alike letter folded: the letters as written."""
+    if not text or text.isascii():
+        return text or ""
+    kept = "".join(ch for ch in text if ch not in _INVISIBLE and unicodedata.category(ch) != "Cf")
+    return unicodedata.normalize("NFKC", kept)
+
+
+def _script_sentence(piece: str) -> Optional[bool]:
+    """The reading of a sentence written mostly in a script other than Latin, counted on the letters AS WRITTEN (before Cyrillic and
+    Greek look-alikes are folded to Latin ones: "Все расчёты проверены." folded to "Bce pacчёты пpoвepeны." counted as Latin and
+    passed; round 10's paths lens): None when the sentence is mostly Latin (the readings above read it); True when it holds a
+    checking word, a finding that nothing is wrong, or a correctness word with an all-quantifier, the answer or the writer, none of
+    them negated; False when it is in a script read here and holds none (a primary source quoted in its own script: «Жить стало
+    лучше, жить стало веселее»); True for a script with no vocabulary here (fail closed). A Greek letter counts as Greek only inside
+    a word of three or more Greek letters (a single letter is mathematics: α, θ, π)."""
+    raw = _unfolded_form(piece)
+    latin = other = 0
+    scripts: set[str] = set()
+    greek_run = 0
+    for ch in raw + " ":
+        if ch.isalpha():
+            name = unicodedata.name(ch, "")
+            if name.startswith("GREEK"):
+                greek_run += 1
+                continue
+            if greek_run:
+                if greek_run >= 3:
+                    other += greek_run
+                    scripts.add("GREEK")
+                else:
+                    latin += greek_run
+                greek_run = 0
+            if ch.isascii() or name.startswith("LATIN"):
+                latin += 1
+            else:
+                other += 1
+                scripts.add(name.split(" ", 1)[0])
+        elif greek_run:
+            if greek_run >= 3:
+                other += greek_run
+                scripts.add("GREEK")
+            else:
+                latin += greek_run
+            greek_run = 0
+    if other < 2 or other < latin:
+        return None
+    if _SCRIPT_DEFECT_FREE_RE.search(raw):
+        return True
+    unnegated = _SCRIPT_NOT_RE.sub(" ", _SCRIPT_DEFECT_FREE_RE.sub(" ", raw)) == _SCRIPT_DEFECT_FREE_RE.sub(" ", raw)
+    for m in _SCRIPT_CHECK_RE.finditer(raw):
+        if not _SCRIPT_NOT_RE.search(raw[max(0, m.start() - 12):m.start()]):
+            return True
+    if _SCRIPT_CORRECT_RE.search(raw) and _SCRIPT_SCOPE_RE.search(raw) and unnegated:
+        return True
+    if scripts and all(any(sc.startswith(r) for r in _READ_SCRIPTS) for sc in scripts):
+        return False
+    return True  # a script with no checking vocabulary here: it cannot be read, so it fails closed
+
+
+# ---- the hub's own agents as the checker
+#: The hub's own agents and checks by name: approvals by any of them, of this answer, are relayed verdicts no check established.
+#: The words that name only the hub's own agents count by themselves; a checking tool's generic head (an engine, a solver, a checker)
+#: counts only as an internal checker (:func:`_agent_kind`: "a static type checker" is the subject's tool). A specialist, also a
+#: party with content of its own, counts only in a label (a credit to a colleague specialist in a full clause, "This has been
+#: verified by the History specialist.", is the combinator's credit and stays content).
+_C3_PIPE_STRICT = (r"(?:overseer\s+agents?|overseers?|hub|router|combinator|translator|q\.?a\.?(?:\s+(?:team|agents?|process|step|check))?|logic\s+(?:checker|engine)"
+                   r"|(?:automated|automatic|auto-?)\s*(?:markers?|graders?|checkers?)|auto-?markers?|auto-?graders?|(?:marking|reviewing|checking|grading|verifying"
+                   r"|verification|review|qa|previous|other|second|another|ai|llm)\s+agents?|agentes?\s+(?:revisor(?:es)?|verificador(?:es)?)|revisor(?:es|a|as)?|receipt"
+                   r"|audit\s+trail)")
+_C3_PIPE_TOOL = r"(?:z3|solvers?|provers?|engines?|verifiers?|checkers?|markers?|graders?|reviewers?)"
+_C3_PIPE = rf"(?:{_C3_PIPE_STRICT}|{_C3_PIPE_TOOL})"
+_C3_PIPE_WORD_RE = re.compile(rf"\b{_C3_PIPE}\b", re.IGNORECASE)
+#: (The words before the head start after a blank or at the start and are read possessively: a search from every position inside one long
+#: hyphenated token ('a-a-a-...', 20,000 characters) read the rest of the token from each, 0.7 s in the overseer's meta-note sweep.)
+_C3_PIPE_NP_RE = re.compile(rf"(?:(?<!\S)[\w-]++\s++){{0,3}}?\b(?P<head>{_C3_PIPE})\b(?!['’]s?\b)", re.IGNORECASE)
+_C3_SPECIALIST_RE = re.compile(r"\b(?:the\s+|a\s+|an\s+|two\s+|three\s+|several\s+|both\s+|all\s+|other\s+)?(?:(?<!\S)[A-Z][\w:&-]*+\s++){0,4}specialists?\b")
+#: A party that makes a hub word ordinary content: a plantation's overseer, a railway hub, a network router, a sales receipt, a hub
+#: in a named place.
+_C3_PIPE_CONTENT_RE = re.compile(r"\b(?:plantation|slave|estate|mine|mill|factory|prison|camp|field|farm|railway|rail|transport|airline|airport|shipping|trade"
+                                 r"|commercial|financial|network|wi-?fi|wireless|internet|home|sales?|shop|store|tax|customs|bank|cash|till)\s+(?:overseers?|hubs?|routers?"
+                                 r"|receipts?|agents?|engines?|markers?)\b|\b(?:his|her|their|its|(?<![\w'’-])[A-Z][\w-]*+['’]s)\s+(?:own\s+)?(?:overseers?|hub|router|receipts?"
+                                 r"|agents?|engines?|solvers?|markers?|reviewers?|graders?|checkers?)\b|\bhubs?\s+(?:at|in|of|for)\s+[A-Z]", re.IGNORECASE)
+#: Approval and assurance acts of an agent.
+_C3_APPROVE = (r"(?:approved|approves|approve|endorsed|endorses|endorse|cleared|clears|signed\s+(?:\w+\s+){0,2}?off(?:\s+on)?|signs\s+(?:\w+\s+){0,2}?off"
+               r"|sign\s+(?:\w+\s+){0,2}?off|passed|passes|accepted|accepts|confirmed|confirms|verified|verifies|checked|checks|certified|certifies|validated"
+               r"|validates|vetted|rubber-?stamped|green-?lit|green-?lighted|okayed|ok'd|o\.k\.'d|sanctioned|blessed|waved\s+through|rated|rates|graded|grades"
+               r"|scored|scores|marked|marks|gave|gives|given|awarded|awards|agreed|agree|agrees|concurred|concur|concurs|reviewed|reviews|audited|audits"
+               r"|aprob\w+|valid[oó]|verific[oó]|revis[oó]|confirm[oó]|certific[oó]|approuv\w+|valid[ée]\w*|v[ée]rifi[ée]\w*)")
+_C3_APPROVAL_RE = re.compile(rf"\b{_C3_APPROVE}\b", re.IGNORECASE)
+#: The answer's own items: what an approval by the hub's agents must be of (never "it" or "them": a plantation overseer "approved
+#: it"; never a quantified thing of the subject: "every flogging").
+_C3_ITEM_NOUN = (r"(?:answers?|responses?|essays?|paragraphs?|sections?|claims?|calculations?|steps?|workings?|solutions?|syntheses|synthesis|arguments?"
+                 r"|conclusions?|figures?|values?|dates?|points?|lines?|results?|quotations?|derivations?|proofs?|explanations?|write-?ups?|drafts?)")
+_C3_THEME_RE = re.compile(
+    rf"^\s*(?:(?:\w+ly|all|both|also|each|fully|now|already|then|unanimously)\s+){{0,3}}(?:off\s+)?(?:on\s+|with\s+|of\s+)?(?:(?:this|these)(?=\s*(?:$|[.,;:!)\]]|\s(?:off|again|too|as|and|with|on|in|for|before|after|by|now|today|unanimously|already|\w+ly|{_C3_ITEM_NOUN})\b))"
+    rf"|(?:this|these|my|our|the|every|each|all(?:\s+(?:of\s+)?the)?|both)\s+(?:[\w'-]+\s+){{0,4}}?{_C3_ITEM_NOUN}|everything\s+(?:above|here|in\s+(?:this|my)\s+\w+)"
+    rf"|all\s+of\s+(?:this|these|the\s+above))\b", re.IGNORECASE)
+_C3_THIS_SCOPE_RE = re.compile(rf"\b(?:this|these)(?=\s*(?:$|[.,;:!)\]]|\s(?:off|again|too|as|and|with|on|in|for|before|after|by|now|today|unanimously|already|is|are|was"
+                               rf"|were|has|have|had|gave|gives|got|gets|holds|stands|passes|passed|\w+ly|\w+ed|\d+)\b))|\bthis\s+{_C3_ITEM_NOUN}\b|\b(?:the|this|my|our)\s+(?:[\w'-]+\s+){{0,3}}?(?:answer|response|essay|synthesis|working)\b", re.IGNORECASE)
+_C3_GAVE_PASS_RE = re.compile(r"\b(?:gave|gives|give|given|awarded|awards)\s+(?:(?:this|it|the\s+(?:answer|response|working|essay|synthesis)|everything|them)\s+)?"
+                              r"(?:a\s+(?:clean\s+)?pass|a\s+clean\s+bill(?:\s+of\s+health)?|the\s+all-?clear|full\s+marks|top\s+marks|(\d+)\s*(?:/|out\s+of)\s*(\d+)"
+                              r"|(?:a\s+)?(?:perfect\s+)?(?:score|grade|mark)\s+of\s+(\d+)\s*(?:/|out\s+of)\s*(\d+)|(?:its|their)\s+(?:approval|blessing|seal\s+of\s+approval)"
+                              r"|a\s+green\s+light|the\s+green\s+light|a\s+thumbs[\s-]+up)", re.IGNORECASE)
+_C3_AGREED_CORRECT_RE = re.compile(r"\b(?:agreed|agree|agrees|concurred|concur|concurs|confirmed|confirms|found|find|finds|judged|ruled|declared|deemed)\s+(?:\w+\s+){0,2}?"
+                                   r"(?:that\s+)?(?:this|everything|all|the\s+(?:answer|response|working|essay|synthesis)|each|every)\b[^.;:]{0,60}?\b(?:is|was|are|were|to\s+be)\s+"
+                                   r"(?:all\s+|fully\s+|entirely\s+)?(?:correct|right|accurate|sound|valid|fine|error-?free|flawless)\b", re.IGNORECASE)
+_C3_FINDINGS_FREE_RE = re.compile(r"\b(?:with|has|had|have|raised|found|reported)\s+(?:no|zero|0|nil)\s+(?:findings?|objections?|issues?|errors?|problems?|concerns?|faults?)\b"
+                                  r"|\bwithout\s+(?:any\s+)?(?:findings?|objections?|issues?|errors?|problems?|concerns?|faults?)\b|\bsin\s+(?:ninguna\s+)?(?:observaciones|objeciones"
+                                  r"|errores|hallazgos)\b|\bunanimously\b|\bunan[ií]mem\w+\b", re.IGNORECASE)
+
+
+def _c3_pipeline_agent(s: str) -> Optional["re.Match"]:
+    """The first of the hub's own agents named in ``s`` that is not ordinary content (:data:`_C3_PIPE_CONTENT_RE`), never a possessor
+    ("the translator's publisher"), and, for a checking tool's generic head, only an internal checker (:func:`_agent_kind`)."""
+    if _C3_PIPE_CONTENT_RE.search(s):
+        s = _C3_PIPE_CONTENT_RE.sub(" ", s)
+    for m in _C3_PIPE_NP_RE.finditer(s):
+        if re.fullmatch(_C3_PIPE_STRICT, m.group("head"), re.IGNORECASE):
+            return m
+        if _agent_kind(m.group(0)) == "internal" and not re.match(r"\s+(?:is|are|was|were|has\s+been|have\s+been)\b", s[m.end():], re.IGNORECASE):
+            return m
+    return None
+
+
+_C3_LABEL_HEAD_RE = re.compile(
+    rf"^\W*(?:(?:fully|independently|formally|unanimously|duly|already|now|all|thoroughly|carefully)\s+)*(?P<word>{_C3_APPROVE}|(?:re-?|double-?|cross-?|fact-?|spell-?"
+    rf"|proof-?|peer-?|self-?|sanity-?|spot-?|triple-?)?(?:checked|verified|confirmed|validated|reviewed|audited|vetted|proofread|tested|examined|inspected|cleared"
+    rf"|approved|endorsed|certified)|passed|survived|aprobad[oa]s?|validad[oa]s?|verificad[oa]s?|revisad[oa]s?|comprobad[oa]s?|v[ée]rifi[ée]e?s?|valid[ée]e?s?"
+    rf"|approuv[ée]e?s?|contr[ôo]l[ée]e?s?|geprüft|verifiziert)(?:\s+(?:and|&|y|et|und)\s+(?:re-?|double-?|cross-?|fact-?|spell-?)?\w+)?\s+(?P<rest>.*)$",
+    re.IGNORECASE)
+#: What may follow the approver in a label: a manner, a time of submission, a finding that nothing is wrong.
+_C3_LABEL_TAIL_RE = re.compile(r"^[\s,]*(?:(?:\w+ly|unanimously|after\s+(?:a\s+|the\s+|careful\s+|full\s+|their\s+|its\s+)?(?:review|reviews|checking|checks?|inspection)"
+                               r"|with\s+(?:no|zero|0)\s+\w+|without\s+(?:any\s+)?\w+|sin\s+\w+|before\s+submission|start\s+to\s+finish|in\s+full|again|twice)[\s,]*)*\W*$",
+                               re.IGNORECASE)
+
+
+def _c3_theme_owned(after: str, end: int) -> bool:
+    """Whether the theme read at the start of ``after`` (up to ``end``) is another party's: a possessive before its noun ('the workers'
+    claims') or 'of' and another party after it ('the claims of the workers'): an overseer in history accepting the workers' claims is
+    content (integration gate 3 pinned 'The overseer accepted the claims of the workers.' as no self-report)."""
+    if re.search(r"\w(?:'s|\u2019s|s'|s\u2019)\s", after[:end]):
+        return True
+    return re.match(r"\s+of\s+(?!(?:this|these|my|our|all\s+of\s+this|the\s+(?:answer|response|essay|synthesis|working)s?)\b)(?:the\s+|a\s+|an\s+|his\s+|her\s+"
+                    r"|their\s+|its\s+)?[A-Za-z]", after[end:end + 80], re.IGNORECASE) is not None
+
+
+def _c3_pipeline_approval(s: str) -> bool:
+    """An approval of this answer by the hub's own agents (section comment): a label naming one of them as the approver ("Endorsed by
+    the overseer agents, unanimously.", "Green-lit by QA.", "Aprobado por el agente revisor sin observaciones.", "Passed the
+    overseer.", "Approved by the Physics specialist after review."), or one of them approving, clearing, signing off, passing,
+    rating or confirming this answer, its own items or a proposition of it ("The overseer has signed this off.", "Three overseer
+    agents confirmed the reparations claim.", "The overseer confirmed that reparations fuelled resentment.", "The marking agent
+    gave this 7 out of 7.", "Every overseer that looked at this gave it a pass.", "The Versailles answer passed QA."). Never
+    negated, questioned, conditional, modal or dated; never another party's agent or a thing of the subject ("The overseer approved
+    it.", "The overseer confirmed the flogging.", "Each flogging had to be approved by the overseer.": a plantation's overseer)."""
+    if s.rstrip().endswith("?") or _ADDRESSED_RE.search(s) or _IMPERATIVE_RE.match(s):
+        return False
+    agent = _c3_pipeline_agent(s)
+    specialist = _C3_SPECIALIST_RE.search(s)
+    if agent is None and specialist is None:
+        return False
+    label = _C3_LABEL_HEAD_RE.match(s)
+    if label is not None:
+        rest = label.group("rest")
+        by = re.match(r"\s*(?:(?:\w+ly|unanimously)\s+)?(?:by|from|via|through|por|par|von|da)\s+(?P<np>[^.;:]{1,120})", rest, re.IGNORECASE)
+        np = by.group("np") if by is not None else (rest if re.match(r"(?:passed|survived|cleared)$", label.group("word"), re.IGNORECASE) else "")
+        npm = _c3_pipeline_agent(np) or (_C3_SPECIALIST_RE.search(np) if np else None)
+        if npm is not None and _C3_LABEL_TAIL_RE.match(np[npm.end():]) and not _SCOPE_NOT_RE.search(s[:label.end("word")]) and not _YEAR_RE.search(rest):
+            return True
+    if agent is None:
+        return False  # a specialist counts only in the label above
+    if not (_C3_THIS_SCOPE_RE.search(s) or re.search(rf"\b{_C3_ITEM_NOUN}\b", s, re.IGNORECASE) or re.search(r"\bthat\b", s, re.IGNORECASE)):
+        return False  # nothing of the answer named: "The overseer approved it.", "The engine passed."
+    rt = re.search(r"\b(?:run|ran|runs|put|fed)\s+(?:\w+\s+){0,3}?(?:through|past|into)\s+(?P<np>[^,;.]{1,60})", s, re.IGNORECASE)
+    if rt is not None and _c3_pipeline_agent(rt.group("np")) is not None and not _SCOPE_NOT_RE.search(s[max(0, rt.start() - 60):rt.start()]) \
+            and re.search(rf"\b(?:each|every|all|this|these|my|our)\b[^,;.]{{0,40}}{_C3_ITEM_NOUN}\b|\b(?:each|every|all|this|these)\s+of\b|\bthis\b", s[:rt.start()], re.IGNORECASE):
+        return True  # "Each tariff calculation was run through Z3 and holds."
+    for m in _C3_APPROVAL_RE.finditer(s):
+        window = s[max(0, m.start() - 90):m.start()]
+        if _SCOPE_NOT_RE.search(re.sub(r"\bno\s+(?:findings?|objections?|issues?|errors?|problems?)\b", " ", window[-60:], flags=re.IGNORECASE)) \
+                or re.search(r"\b(?:if|unless|whether|when|whenever|once)\b", window, re.IGNORECASE) or re.search(r"\bto\s+(?:be\s+)?(?:\w+ly\s+)?$", window, re.IGNORECASE):
+            continue
+        after = s[m.end():]
+        if _c3_dated_check(after):
+            continue  # "approved by the translator's publisher in 1923": an event of the subject
+        before_agent = _c3_pipeline_agent(window) is not None
+        after_agent = re.match(r"\s*(?:(?:\w+ly|all|both)\s+)?(?:by|from|past)\s+(?P<np>[^.;]{1,80})", after, re.IGNORECASE)
+        if after_agent is not None and _c3_pipeline_agent(after_agent.group("np")) is not None:
+            subj = _clause_subject(s[:m.start()])
+            if _SCOPE_ANSWER_RE.search(subj) or _C3_THIS_SCOPE_RE.search(subj) or re.search(rf"\b(?:every|each|all|my|our|this|these)\s+(?:[\w-]+\s+){{0,3}}?{_C3_ITEM_NOUN}\b",
+                                                                                         subj, re.IGNORECASE):
+                return True  # "This answer was approved by the overseer.", "Every claim was cleared by the logic checker."
+            continue
+        if not before_agent:
+            if re.match(r"(?:passed|passes|cleared|clears|survived|survives)$", m.group(0), re.IGNORECASE) and \
+                    _c3_pipeline_agent(after[:60]) is not None and re.match(rf"\s*(?:the\s+)?{_C3_PIPE}\b", after, re.IGNORECASE):
+                subj = _clause_subject(s[:m.start()])
+                if not subj.strip() or _SCOPE_ANSWER_RE.search(subj) or re.search(rf"\b{_C3_ITEM_NOUN}\b", subj, re.IGNORECASE) or _C3_THIS_SCOPE_RE.search(subj):
+                    return True  # "The Versailles answer passed QA.", "Passed the overseer."
+            continue
+        if (_C3_GAVE_PASS_RE.search(s[m.start():]) or _C3_AGREED_CORRECT_RE.search(s[m.start():])) and _C3_THIS_SCOPE_RE.search(s):
+            return True  # "Every overseer that looked at this gave it a pass.", "The router and two specialists agreed that this is correct."
+        theme = _C3_THEME_RE.match(after)
+        if (theme is not None and not _c3_theme_owned(after, theme.end())) or re.search(r"\s(?:this|these)\s", m.group(0), re.IGNORECASE):
+            return True  # "The overseer has signed this off.", "Three overseer agents confirmed the reparations claim."
+        if re.match(r"\s+that\b", after, re.IGNORECASE) and not re.search(r"\b(?:not|never)\b|n't\b", after[:60], re.IGNORECASE):
+            return True  # "The overseer confirmed that reparations fuelled resentment.": a relayed verdict on the answer's claim
+        if re.match(r"(?:rated|rates|graded|grades|scored|scores|marked|marks)$", m.group(0), re.IGNORECASE) and re.search(
+                r"\b(?:\d+\s*/\s*\d+|\d+\s+out\s+of\s+\d+|accurate|correct|full\s+marks|100\s*%|perfect)\b", after[:80], re.IGNORECASE) and \
+                re.search(rf"\b{_C3_ITEM_NOUN}\b|\bthis\b", after[:80], re.IGNORECASE):
+            return True  # "Overseer agents rated the treaty claims 10/10 accurate."
+    return False
+
+
+# ---- engine and proof status
+#: A status line: a lead naming a status, a verdict, a check, a score or a count of defects, then a value that says it came out well.
+_C3_STATUS_HEAD = (r"(?:status|verdict|result|results|outcome|fidelity|correctness|accuracy|validity|soundness|verification|validation|check|checks|checking|review"
+                   r"|audit|qa|assessment|self-?assessment|self-?grade|self-?score|approval|sign-?off|seal|confirmation|resultado|verificaci[oó]n|comprobaci[oó]n"
+                   r"|revisi[oó]n|estado|veredicto|v[ée]rification|r[ée]sultat|statut|pr[üu]fung|ergebnis|esito|verifica|controllo)")
+_C3_DEFECT_HEAD = r"(?:errors?|mistakes?|issues?|problems?|discrepanc(?:y|ies)|counterexamples?|defects?|bugs?|faults?|findings?|errores|fallos?|observaciones)"
+_C3_GOOD_VALUE_RE = re.compile(r"\b(?:correct[oa]?s?|accurate|exact[oa]?|passed|pass|ok|okay|green|granted|approved|accepted|cleared|clean|confirmed"
+                               r"|verified|validated|discharged|qed|q\.e\.d|proved|proven|entailed|yes|full\s+marks|aprobad[oa]"
+                               r"|verificad[oa]|v[ée]rifi[ée]e?|juste|richtig|corrett[oa]|superad[oa]|cumplid[oa]|ok[ée])\b|\b100\s*%|[✓✔✅☑]", re.IGNORECASE)
+#: Evaluation words that are a check's result only after a checker's lead ("Engine verdict: all claims hold."); after a bare "Verdict:"
+#: they are an evaluation of the argument, which the formal path reads by its own rules ("Verdict: sound.").
+_C3_WEAK_VALUE_RE = re.compile(r"\b(?:valid[oa]?|sound|true|consistent|holds?|hold|complete|done|clear|bien)\b", re.IGNORECASE)
+_C3_CHECKER_LEAD_RE = re.compile(r"\b(?:engine|overseer|solver|prover|z3|qa|checks?|checking|verification|validation|proof|formal|audit|review|fidelity|correctness|accuracy"
+                                 r"|status|estado|verificaci[oó]n|comprobaci[oó]n|revisi[oó]n|resultado)\b", re.IGNORECASE)
+_C3_BAD_VALUE_RE = re.compile(r"\b(?:not|no|never|fail\w*|red|rejected|refuted|incorrect|wrong|invalid|inconsistent|partial(?:ly)?|pending|unverified|unchecked|errors?"
+                              r"|mistakes?|unknown|undecided|n/?a|tbc|tbd|incorrect[oa]|incorrect[oa]s|fall[oó]|pendiente)\b", re.IGNORECASE)
+_C3_NONE_VALUE_RE = re.compile(r"^\W*(?:none|zero|0|nil|no|nothing|ninguno|ninguna|ningun[oa]?|cero|aucune?|keine?)\W*$", re.IGNORECASE)
+_C3_SCORE_RE = re.compile(r"^\W*(\d+)\s*(?:/|out\s+of)\s*(\d+)\W*$")
+
+
+_C3_PROGRAM_OUTPUT_RE = re.compile(r"\b(?:program|programme|routine|function|method|script|code|validator|parser|loop|algorithm|procedure|module|class|app|"
+                                   r"application|software|test\s+harness|it)\s+(?:\w+\s+){0,2}?(?:prints?|printed|outputs?|returns?|returned|displays?|displayed|shows?|"
+                                   r"emits?|logs?|logged|writes?|sets?|reports?)\b|\b(?:result|status|flag|output|variable)\s*=\s*[A-Z_]+\b|^\W*(?:otherwise|else|if|when)\b",
+                                   re.IGNORECASE)
+
+
+def _c3_program_output(s: str) -> bool:
+    """A status word a program prints or returns, named as the subject matter (Computer Science), with nothing of the answer anchored:
+    content."""
+    return _C3_PROGRAM_OUTPUT_RE.search(s) is not None and not (_ANSWER_REF_RE.search(s) or re.search(r"\b(?:above|here|so\s+far)\b", s, re.IGNORECASE)
+                                                                 or re.search(r"\b(?:engine|z3|solver|prover|overseer|hub)\b", s, re.IGNORECASE))
+
+
+#: A determiner before a good value word: the word modifies the noun after it ("the accepted value", "the exact value").
+_C3_ATTRIBUTIVE_BEFORE_RE = re.compile(r"\b(?:the|a|an|this|that|these|those|its|their|our|his|her|my|your)\s+$", re.IGNORECASE)
+#: The verb of a content clause after such a noun phrase ("... means 0.0250 mol ...", "... is √2").
+_C3_CONTENT_VERB_RE = re.compile(r"\b(?:is|are|was|were|means?|meant|gives?|gave|equals?|becomes?|came|comes|stands?|lies|releases?|shows?|implies|predicts?"
+                                 r"|suggests?|uses?|has|have|had)\b", re.IGNORECASE)
+
+
+def _c3_good_value(value: str) -> bool:
+    """A value word that says a check came out well (:data:`_C3_GOOD_VALUE_RE`), unless every such word modifies the subject of a
+    content clause ("Sense check: the accepted value of −1367 kJ mol⁻¹ means 0.0250 mol of ethanol releases about 34 kJ at most.": the
+    literature value, content; clearance c3, the recorded ch-t14 answer). "Status: the verified answer." keeps its status word."""
+    for g in _C3_GOOD_VALUE_RE.finditer(value):
+        after = value[g.end():]
+        if _C3_ATTRIBUTIVE_BEFORE_RE.search(value[:g.start()]) and re.match(r"\s+[^\W\d_]", after) and _C3_CONTENT_VERB_RE.search(after):
+            continue
+        return True
+    return False
+
+
+def _c3_status_line(s: str) -> bool:
+    """A status line anywhere in a sentence ("Proof status: QED for all claims.", "Overseer verdict on the treaty argument: accurate.",
+    "The receipt says: Status: ENTAILED", "Translation fidelity: 100%.", "Correctness: 100%.", "Verdict: correct.", "Seal of approval:
+    granted.", "Error count after my review: zero.", "Mistakes found on the final pass: none.", "Self-assessment: 7/7.",
+    "Resultado de la verificación: correcto."): a lead of at most eight words naming a status, a verdict, a check or a self-assessed
+    score with a value that says it came out well, or a lead naming a count of defects with none as its value; never a failed,
+    negated or pending value. A rubric's mark ("Criterion A: 5/5.") names none of these."""
+    if (":" not in s and "=" not in s) or _c3_program_output(s):
+        return False
+    for c in re.finditer(r"[:=]", s):
+        if c.start() > 2000:
+            break
+        before = s[max(0, c.start() - 120):c.start()]
+        bound = max((x.end() for x in re.finditer(r"[:;.!?()\[\]\u2014\u2013,]|\s-\s", before)), default=0)
+        lead_words = before[bound:].split()[-8:]
+        lead = " ".join(lead_words)
+        if not lead:
+            continue
+        nxt = re.search(r"[:;!?()\[\]\u2014\u2013]|\.(?!\d)|\s-\s|$", s[c.end():c.end() + 200])  # a decimal point ends no value ("0.0250 mol")
+        value = s[c.end():c.end() + (nxt.start() if nxt else 200)].strip()
+        if "." in s[c.end():c.end() + 3] and re.match(r"\s*Q\.?E\.?D", s[c.end():], re.IGNORECASE):
+            value = "QED"
+        if not value or len(value.split()) > 10:
+            continue
+        if re.search(rf"\b{_C3_DEFECT_HEAD}\b", lead, re.IGNORECASE) and _C3_NONE_VALUE_RE.match(value):
+            return True  # "Error count after my review: zero.", "Mistakes found on the final pass: none."
+        if not re.search(rf"\b{_C3_STATUS_HEAD}\b", lead, re.IGNORECASE):
+            continue
+        if re.search(r"\b(?:score|grade|self-?assessment|self-?grade|self-?score)\b", lead, re.IGNORECASE):
+            sc = _C3_SCORE_RE.match(value)
+            if sc is not None:
+                if int(sc.group(1)) == int(sc.group(2)) and int(sc.group(2)) > 0 and re.search(r"\bself|\b(?:my|our)\b|answer", lead, re.IGNORECASE):
+                    return True
+                continue
+        if _C3_BAD_VALUE_RE.search(value) and not re.fullmatch(r"\W*no\s+(?:errors?|issues?|problems?|counterexamples?|findings?)\W*", value, re.IGNORECASE):
+            continue
+        if _c3_good_value(value) or _CAPS_STATUS_RE.search(value) or re.fullmatch(r"\W*no\s+(?:errors?|issues?|problems?|counterexamples?|findings?)\W*",
+                                                                                            value, re.IGNORECASE) \
+                or (_C3_WEAK_VALUE_RE.search(value) and _C3_CHECKER_LEAD_RE.search(lead)):
+            if re.search(r"\b(?:ratified|signed|adopted|repealed|declared|annexed)\b", value, re.IGNORECASE):
+                continue  # "Status: ratified by Germany on 9 July 1919.": a historical status, content
+            return True
+    return False
+
+
+#: An engine's own status words, capitalised: never a word of the subject.
+_C3_ENGINE_CAPS_RE = re.compile(r"\b(?:ENTAILED|PROVED|VERIFIED|FORMALLY\s+CHECKED|OVERSEER-SELECTED|INCONSISTENT_PREMISES|ACCEPTED_WITH_FINDINGS)\b")
+#: Proof and refutation said of the answer's quantified or anchored items ("QED for all claims", "Each claim above is QED.", "No
+#: line above can be refuted", "Every goal closed by the prover", "Every claim is a theorem of the engine's encoding", "Formal
+#: status: discharged", "(sig ok)").
+_C3_PROOF_WORD_RE = re.compile(r"\b(?:q\.?\s?e\.?\s?d\.?|refut\w*|refutation|discharged|goals?\s+(?:\w+\s+)?closed|closed\s+(?:every|all|each)\s+goals?|theorems?\s+of\s+the"
+                               r"\s+(?:engine|solver|prover)|(?:engine|solver|prover)['\u2019]s\s+encoding|sig(?:nature)?\s+ok|engine\s+run|demostrad[oa]s?|bewiesen|d[ée]montr[ée]e?s?)",
+                               re.IGNORECASE)
+_C3_QUANT_ITEMS_RE = re.compile(rf"\b(?:all|every|each|any|no|both|cada|todos?|todas?|tous|toutes)\s+(?:of\s+(?:the|these|my)\s+)?(?:[\w-]+\s+)?(?:{_SCOPE_PART}|{_PART}"
+                                rf"|lines?|goals?|negations?|afirmaciones|pasos?)\b|\b(?:above|here|so\s+far)\b|\b(?:engine|solver|prover|z3)\b", re.IGNORECASE)
+
+
+#: A row of a table: code literals, columns aligned by runs of blanks, a rule of '=' signs, or cells between pipes. A capital status word in
+#: such a row ('``maths_entailed``   Mathematics AA   ENTAILED') is ordinary content, as integration gate 3 decided for a table of fixtures
+#: (only a frame makes it a self-certification): the engine status reading skips it.
+_C3_TABLE_ROW_RE = re.compile(r"``|\S {3,}+\S[^\n]*? {3,}+\S|={5,}|\|[^|\n]*+\|[^|\n]*+\|")
+
+
+def _c3_engine_status(s: str) -> bool:
+    """An engine's status said of the answer (section comment): a capital status word of the engine anywhere, unless negated before
+    it ("The claim that reparations fuelled resentment is ENTAILED."); QED, refutation, a discharged obligation, a closed goal, the
+    engine's encoding or a signature said of the answer's quantified or anchored items or with the engine named ("Proof status: QED
+    for all claims.", "Q.E.D. for every step.", "No line above can be refuted; the engine tried.", "Every goal closed by the prover;
+    nothing left open.", "Every claim is a theorem of the engine's encoding.", "Cada paso está demostrado (QED)."). A proof's own
+    closing "Q.E.D." names no items and stays mathematics."""
+    if s.rstrip().endswith("?") or _c3_program_output(s):
+        return False
+    for m in _C3_ENGINE_CAPS_RE.finditer(s):
+        window = s[max(0, m.start() - 40):m.start()]
+        if re.search(r"\b(?:not|never|no|isn't|aren't|wasn't|weren't|cannot|un)\W*$|\bnot\s+(?:\w+\s+){0,2}$|\b(?:if|whether|unless)\b", window, re.IGNORECASE):
+            continue
+        if m.group(0) in ("PROVED", "VERIFIED") and not (_C3_QUANT_ITEMS_RE.search(s) or re.search(r"[:=]\s*$", window) or len(_words(s)) <= 3):
+            continue  # "Hence PROVED." ends a proof; "All claims: PROVED." is a status
+        return True
+    for m in _C3_PROOF_WORD_RE.finditer(s):
+        if not _C3_QUANT_ITEMS_RE.search(s):
+            continue
+        window = s[max(0, m.start() - 60):m.start()]
+        word = m.group(0).lower()
+        if word.startswith("refut") and not re.search(r"\b(?:no|none|nothing|not|cannot|can't|never)\b", s, re.IGNORECASE):
+            continue  # a refutation found is no certification; "no line ... can be refuted" is
+        if not word.startswith("refut") and re.search(r"\b(?:not|never|if|unless|whether)\b|n't\b", window, re.IGNORECASE):
+            continue
+        if _outside_subject(_clause_subject(s)) and not _ANSWER_REF_RE.search(s) and not re.search(r"\b(?:above|here)\b", s, re.IGNORECASE):
+            continue  # "Gödel proved that no ... can be refuted"
+        return True
+    return False
+
+
+# ---- the writer's own check, in idiom
+_C3_WRITER_CHECK = (r"(?:(?:went|gone|go|going|been|looked|look|looking|combed|combing|pored|poring|run|ran|read)\s+(?:back\s+)?(?:(?:it|them|this|these|everything"
+                    r"|the\s+(?:whole\s+)?(?:thing|answer|response|working|essay|text|lot))\s+)?(?:over|through)|looked\s+(?:it|them|this|these|everything)\s+over"
+                    r"|(?:gave|give|given)\s+(?:it|them|this|these|everything|the\s+(?:whole\s+)?(?:thing|answer|response|working|essay|lot))\s+(?:a\s+)?(?:quick\s+|final\s+"
+                    r"|second\s+|careful\s+|thorough\s+|last\s+)?(?:once-?over|look-?over|check|review|proofread|read-?through|second\s+look|sanity\s+check|going-?over)"
+                    r"|made\s+(?:certain|sure)|make\s+(?:certain|sure)|ensured|ensure|took\s+(?:great\s+|special\s+)?care\s+to\s+(?:ensure|check|verify|make\s+sure)"
+                    r"|double-?checked|triple-?checked|spot-?checked|re-?examined|re-?checked|proof-?read|tested|reviewed|audited|checked|verified|confirmed"
+                    r"|validated|vetted|cross-?checked|cross-?referenced|stand\s+by|me\s+asegur[eé]|nos\s+aseguramos|me\s+cercior[eé]|nos\s+cercioramos|cheque[eé]"
+                    r"|chequeamos|revis[eé]|revisamos|comprob[eé]|comprobamos|verifiqu[eé]|verificamos)")
+_C3_WRITER_CHECK_RE = re.compile(rf"(?P<subj>(?:^|[\s,;:(])(?:I|we|I've|we've|I'd|we'd|I\s+have|we\s+have|I\s+had|we\s+had)\s+(?:(?:\w+ly|also|then|now|just|already"
+                                 rf"|again|personally|myself|both|all)\s+){{0,3}}|^\W*(?:(?:\w+ly|also|then|now|just|already|again|personally|have)\s+){{0,2}}"
+                                 rf"(?=(?:went|gone|been|looked|gave|took|made|combed|pored|double-?checked|triple-?checked|spot-?checked|re-?examined|re-?checked"
+                                 rf"|proof-?read|tested|reviewed|audited|cross-?checked|cross-?referenced)\b)|^\W*(?=(?:me\s+asegur|me\s+cercior|nos\s+asegur|cheque[eé]"
+                                 rf"|chequeamos|lo\s+cheque|lo\s+chequeamos|lo\s+revis|lo\s+comprob|lo\s+verifiqu)))"
+                                 rf"(?:lo\s+|los\s+|las\s+)?(?P<verb>{_C3_WRITER_CHECK})\b(?P<rest>[^.;!?]{{0,160}})", re.IGNORECASE)
+#: What the writer checked: nothing named, a pronoun, the answer, its parts, or an idiomatic whole ("every word", "every line",
+#: "every angle", "each one", "the whole thing"), or a clause that nothing is wrong ("that there are no mistakes").
+_C3_WHOLE_RE = re.compile(r"^\s*(?:(?:\w+ly|again|twice|thrice|once\s+more|myself|ourselves|carefully|personally|dos\s+veces|otra\s+vez|de\s+nuevo)\b[\s,]*)*"
+                          r"(?:$|[.,;:!)]|(?:of\s+|on\s+|over\s+|through\s+)?(?:(?:it|them|this|these|everything|all(?:\s+of\s+(?:it|them|this|these))?|each(?:\s+one)?"
+                          r"|every\s+one|both)(?=\s*(?:$|[.,;:!)]|(?:again|twice|thrice|once|myself|ourselves|carefully|thoroughly|through|over|out|and|before|after"
+                          r"|by|with|on|in|to|against|for|now|today|yesterday|already|personally|properly|closely|line|myself)\b))|the\s+(?:whole\s+)?(?:thing|answer|response|working|essay|text|lot|figures|values|dates|calculations|steps)|(?:every|each|all\s+the|all)"
+                          r"\s+(?:single\s+)?(?:word|line|angle|detail|bit|part|step|figure|value|date|number|calculation|quotation|quote|claim|point|sentence|page|sum"
+                          r"|answer|result|fact|statistic|reference|citation|thing|inch|item|entry)s?|(?:twice|again|thrice)|the\s+(?:whole|entire)\s+\w+)\b"
+                          r"|(?:that\s+|de\s+que\s+)?(?:there\s+(?:are|were|is|was)\s+no\s+(?:mistakes?|errors?|slips?|problems?|issues?)|nothing\s+(?:is|was)\s+(?:wrong|missing|amiss)"
+                          r"|(?:everything|all|it|todo)\s+(?:is|was|esté|está|estaba|estuviera|were|are)\s+(?:\w+\s+)?(?:right|correct|fine|accurate|bien|correcto|in\s+order)"
+                          r"|no\s+(?:hubiera|haya|hay|hab[ií]a)\s+(?:ning[uú]n\s+)?(?:error(?:es)?|fallos?|problemas?)|(?:y\s+)?(?:est[aá]|es)\s+(?:todo\s+)?(?:bien|correcto)))",
+                          re.IGNORECASE)
+_C3_CHECK_LEAD_RE = re.compile(r"^\W*(?:on|upon|after|following|having)\s+(?:(?:a|my|our|the|another|careful|final|second|close|thorough|full|further|repeated)\s+)*"
+                               r"(?:re-?examination|re-?checking|re-?reading|review|checking|double-?checking|cross-?checking|re-?calculation|re-?derivation|inspection|scrutiny"
+                               r"|proof-?reading|audit|verification|a\s+second\s+look|re-?working|reworking|testing|(?:re-?)?checked|(?:re-?)?tested|re-?derived|reviewed"
+                               r"|verified)\b[^,;:]{0,40}[,;:]\s*(?P<main>.+)$", re.IGNORECASE)
+_C3_MAIN_VERDICT_RE = re.compile(r"^\W*(?:(?:every|each|all|both)\s+(?:of\s+(?:the|these|my)\s+)?(?:[\w-]+\s+)?\w+|everything|it|this|these|the\s+(?:answer|working|essay"
+                                 r"|response|solution|figures|values|dates|steps|calculations|claims)|nothing)\s+(?:still\s+|all\s+)?(?:stands?|holds?|checks?\s+out|is\s+(?:\w+\s+)?"
+                                 r"(?:correct|right|accurate|sound|valid|fine)|are\s+(?:\w+\s+)?(?:correct|right|accurate|sound|valid|fine)|survives?|works?|adds?\s+up|needs?\s+"
+                                 r"(?:no\s+)?(?:fixing|changing|correcting|correction)|changed|was\s+wrong|is\s+wrong)", re.IGNORECASE)
+
+
+def _c3_writer_check(s: str) -> bool:
+    """The writer's own check of the answer, in idiom (section comment): an explicit or elided first-person subject with a check
+    ("I went through it twice.", "I've been over every word.", "I've looked it over again and stand by every word.", "Gave the
+    whole thing a once-over and it's solid.", "Took care to ensure there are no mistakes.", "I made certain of every date.", "having
+    tested each one", "Me aseguré de que no hubiera ningún error.", "Lo chequeé y está bien.") whose object is nothing named, a
+    pronoun, the answer, its parts, an idiomatic whole or a finding that nothing is wrong; and a check phrase leading a verdict on
+    the answer's parts ("On re-examination, every step stands."). The subject matter as the object ("I went through the main
+    criticisms of utilitarianism above.") is read by the rules above; a negation, a question, a condition or an instruction is no
+    claim."""
+    if s.rstrip().endswith("?") or _ADDRESSED_RE.search(s):
+        return False
+    lead = _C3_CHECK_LEAD_RE.match(s)
+    if lead is not None and _C3_MAIN_VERDICT_RE.match(lead.group("main")) and not _SCOPE_NOT_RE.search(lead.group("main")[:40]):
+        return True
+    for m in _C3_WRITER_CHECK_RE.finditer(s):
+        window = s[max(0, m.start("verb") - 50):m.start("verb")]
+        if re.search(r"\b(?:not|never|no|cannot|could|should|would|might|may|must|will|if|unless|whether|to)\s+(?:\w+\s+){0,2}$|n't\s+(?:\w+\s+){0,2}$", window,
+                     re.IGNORECASE) and not re.search(r"\btook\s+(?:great\s+|special\s+)?care\s+to\s+$", window, re.IGNORECASE):
+            continue
+        verb = m.group("verb").lower()
+        rest = m.group("rest")
+        if re.search(r"\b(?:have|has)\s+(?:not|never)\b", window, re.IGNORECASE):
+            continue
+        if verb.startswith(("made", "make", "ensure", "took")):
+            # "I made certain of every date.", "Took care to ensure there are no mistakes.": what was made certain of
+            obj = re.sub(r"^\s*(?:of|that|to\s+(?:check|verify))\s+", " ", rest, flags=re.IGNORECASE)
+            if _C3_WHOLE_RE.match(obj) or _object_items(obj) or _DEFECT_FREE_RE.search(obj[:80]) or re.match(r"\s*(?:it|them|this|these|everything)\b", obj, re.IGNORECASE):
+                return True
+            continue
+        if re.match(r"(?:gave|give|given|looked\s+(?:it|them|this|these|everything)\s+over)\b", verb) and re.search(
+                r"\b(?:it|them|this|these|everything|thing|answer|response|working|essay|lot)\b", verb):
+            return True  # "Gave the whole thing a once-over", "I've looked it over again": the object is inside the idiom
+        if verb.startswith("stand by"):
+            if re.match(r"\s*(?:every|each|all|it|this|everything)\b", rest, re.IGNORECASE):
+                return True  # "I stand by every word": the writer vouches for the answer
+            continue
+        if _C3_WHOLE_RE.match(rest):
+            return True
+        if re.search(r"\b(?:above|here|in\s+(?:this|my|our)\s+(?:answer|response|working|essay|solution))\b", rest[:80], re.IGNORECASE) and \
+                not re.search(r"\b(?:main|arguments?|criticisms?|interpretations?|causes?|views?|literature|sources?)\b", rest[:80], re.IGNORECASE):
+            return True  # "We audited the treaty clauses quoted here, and every one is accurately stated."
+    return False
+
+
+# ---- labels and short forms
+#: A check label after content: ", verified." ", double-checked." ", FORMALLY CHECKED." (the label certifies what it follows).
+#: A check label set after the answer's content: ", verified." closing a sentence whose last clause states a figure ("The speed is 15 km/h,
+#: verified."). Matched at the comma that opens the label only (anchored at the sentence end, so a search tries each comma once): the figure
+#: is looked for in the clause before it (:func:`_c3_trailing_label`). (Integration sweep of clearance c3: an earlier form searched a lazy run
+#: of 400 characters and a figure before every comma from every position, 2 minutes on 20,000 characters of mark labels.)
+_C3_TRAILING_LABEL_RE = re.compile(r",\s*+(?:(?:all|fully|now|formally|independently|duly)\s++)?(?:re-?|double-?|cross-?|triple-?|fact-?)?"
+                                   r"(?:verified|checked|confirmed|validated|proven|proved|audited|vetted)(?:\s++(?:and|&)\s++(?:correct|confirmed|accurate))?\W*+$"
+                                   r"|,\s*+(?:FORMALLY\s++CHECKED|VERIFIED|CHECKED|CONFIRMED|PROVED)\W*+$", re.IGNORECASE)
+
+
+def _c3_trailing_label(s: str) -> bool:
+    """A trailing check label (:data:`_C3_TRAILING_LABEL_RE`) after a clause that states a figure within 60 characters before the label's
+    comma, with no comma between, and some content before the figure. Linear: one anchored match, then a look at a bounded window."""
+    m = _C3_TRAILING_LABEL_RE.search(s, max(0, len(s) - 120))
+    if m is None:
+        return False
+    window = s[max(0, m.start() - 60):m.start()]
+    clause = window[window.rfind(",") + 1:]
+    k = next((i for i, ch in enumerate(clause) if ch.isdigit()), None)
+    if k is None:
+        return False
+    return bool(s[:m.start() - len(clause) + k].strip()) or k > 0
+
+
+#: A double negation of a check: "not unchecked", "never unverified".
+_C3_NOT_UNCHECKED_RE = re.compile(r"\b(?:not|never|no\s+longer)\s+(?:\w+ly\s+)?un(?:checked|verified|tested|confirmed|validated|reviewed|audited|examined|proven|proved)\b"
+                                  r"|\bnot\s+(?:un)?(?:checked\s+)?(?:without|lacking)\s+(?:a\s+)?(?:check|verification)\b", re.IGNORECASE)
+#: The answer matched with the mark scheme or an answer key.
+_C3_KEY_MATCH_RE = re.compile(r"\b(?:reproduces?|reproduced|matches|matched|mirrors|mirrored|follows|followed|agrees?\s+with|agreed\s+with|is\s+identical\s+to|corresponds?\s+to"
+                              r"|lines\s+up\s+with|tallies\s+with)\s+(?:\w+\s+){0,2}?(?:the\s+)?(?:official\s+)?(?:mark\s*-?\s*scheme|markscheme|answer\s+key|model\s+answer"
+                              r"|worked\s+solution|official\s+(?:answer|solution)|examiners?['\u2019]?\s+(?:answer|solution))\b", re.IGNORECASE)
+#: An agentless participle label of checks only ("Spell-checked and fact-checked.", "Results reproduced exactly.", "Correctness
+#: guaranteed.", "Sanity check done; the numbers make sense.").
+_C3_SHORT_LABEL_RE = re.compile(
+    r"^\W*(?:(?:all|every|each|the)\s+)?(?:(?:results?|answers?|figures?|values?|numbers?|dates?|calculations?|steps?|claims?|workings?|accuracy|correctness"
+    r"|everything|sanity\s+check|double\s+check|cross-?check|spot\s+check|final\s+check|check|review|proofread|fact-?check)\s+)?(?:(?:fully|exactly|independently|duly"
+    r"|all|now|completely|carefully)\s+)?(?:(?:spell|fact|proof|double|cross|triple|spot|sanity|self|peer|re)-?)?(?:checked|verified|confirmed|validated|reviewed"
+    r"|reproduced|guaranteed|assured|ensured|done|complete|completed|passed|vetted|proofread|audited)(?:\s+(?:and|&)\s+(?:(?:spell|fact|proof|double|cross|triple|spot"
+    r"|sanity|self|peer|re)-?)?(?:checked|verified|confirmed|validated|reviewed|reproduced|guaranteed|correct|accurate|approved))?(?:\s+(?:exactly|twice|again|fully"
+    r"|throughout|independently|start\s+to\s+finish))?\W*$", re.IGNORECASE)
+
+
+#: The answer's own structure as what was checked, whatever subject words name it ("The reparations paragraph was reviewed and
+#: approved.", "The Treaty of Versailles section has been fact-checked."): never another party's ("the report's section").
+_C3_STRUCTURE_PASSIVE_RE = re.compile(
+    r"^\W*(?:(?:the|this|my|our|each|every|all)\s+(?:[\w'-]+\s+){0,6}?(?:paragraphs?|sections?|answer|response|essay|working|workings"
+    r"|conclusion|introduction|explanation|write-?up|draft)|(?:this|my|our|each|every|all)\s+(?:[\w'-]+\s+){0,4}?(?:solutions?|calculations?|derivations?"
+    r"|proofs?|arguments?|summary))\s+(?:has\s+been|have\s+been|had\s+been|was|were|is"
+    r"|are)\s+(?:(?:\w+ly|all|both|also|now|already)\s+)*(?:re-?|double-?|cross-?|fact-?|spell-?|proof-?|peer-?|independently-?)?(?:reviewed|approved|checked"
+    r"|verified|audited|validated|vetted|proofread|proof-?read|confirmed|signed\s+off|cleared|passed|tested|inspected|examined|certified|endorsed)"
+    r"(?P<rest>[^.;!?]{0,120})", re.IGNORECASE)
+#: A score given by the hub's own marker or a test ("Scored 100% on the automated marker.").
+_C3_SCORE_LABEL_RE = re.compile(r"^\W*(?:(?:it|this|the\s+answer)\s+)?(?:scored|scores|got|gets|earned|earns|received|achieved|achieves)\s+(?:a\s+)?(?:perfect\s+)?"
+                                r"(?:100\s*%|full\s+marks|top\s+marks|(\d+)\s*(?:/|out\s+of)\s*(\d+))\s+(?:on|from|by|in|with)\s+(?P<np>[^.;]{1,80})", re.IGNORECASE)
+
+
+def _c3_label_forms(s: str) -> bool:
+    """Short forms of the class (section comment): a check label after content (", verified."), a double negation of a check ("NB
+    The dates are not unchecked."), the answer matched with the mark scheme or an answer key ("My solution reproduces the mark scheme
+    exactly."), an agentless label of checks only, and the answer said to have been checked in a "that"-clause a reader agrees with
+    ("A second reader agrees that nothing in this answer needs fixing.")."""
+    if s.rstrip().endswith("?"):
+        return False
+    if _c3_trailing_label(s) and not _SCOPE_NOT_RE.search(s[-40:]):
+        return True
+    sp = _C3_STRUCTURE_PASSIVE_RE.match(s)
+    if sp is not None and not re.search(r"[A-Za-z]['\u2019]s\b|\b(?:his|her|their|its)\b", s[:sp.start("rest")], re.IGNORECASE) \
+            and not _c3_dated_check(sp.group("rest")) and not _SCOPE_NOT_RE.search(s[:sp.start("rest")]):
+        by = re.search(r"\bby\s+(?P<np>[^,;.]{1,60})", sp.group("rest"), re.IGNORECASE)
+        if by is None or _agent_kind(by.group("np")) != "outside" or _c3_pipeline_agent(by.group("np")) is not None:
+            return True  # "The reparations paragraph was reviewed and approved.": the answer's own section, whatever names it
+    sc = _C3_SCORE_LABEL_RE.match(s)
+    if sc is not None and (sc.group(1) is None or sc.group(1) == sc.group(2)) and (
+            _c3_pipeline_agent(sc.group("np")) is not None or re.search(r"\b(?:markers?|graders?|tests?|test\s+suite|checks?|rubric|mark\s*scheme|markscheme)\b",
+                                                                       sc.group("np"), re.IGNORECASE)):
+        return True  # "Scored 100% on the automated marker."
+    if _C3_NOT_UNCHECKED_RE.search(s) and not re.search(r"\b(?:not|never)\s+(?:\w+\s+){0,3}(?:not|never)\b", s, re.IGNORECASE):
+        return True
+    km = _C3_KEY_MATCH_RE.search(s)
+    if km is not None and not _SCOPE_NOT_RE.search(s[max(0, km.start() - 40):km.start()]) and not _ADDRESSED_RE.search(s) and (
+            _SCOPE_ANSWER_RE.search(s) or _FIRST_PERSON_ANY_RE.search(s) or _SCOPE_PARTS_RE.search(s) or re.match(r"\W*(?:this|it|everything|the\s+(?:answer|working|solution))\b", s, re.IGNORECASE)):
+        return True
+    for seg in [x.strip() for x in re.split(r";", s) if x.strip()][:8]:
+        if _C3_SHORT_LABEL_RE.match(seg) and len(_words(seg)) <= 8:
+            return True
+    m = re.search(r"\b(?:agrees?|agreed|confirms?|confirmed|concurs?|concurred)\s+that\s+(?P<c>.+)$", s, re.IGNORECASE)
+    if m is not None and re.search(r"\b(?:a\s+(?:second|third|fresh)\s+(?:reader|pair\s+of\s+eyes|opinion|look)|another\s+reader|my\s+\w+)\b", s[:m.start()], re.IGNORECASE) and \
+            (_DEFECT_FREE_RE.search(m.group("c")) or _correctness_of_answer(m.group("c"), [])):
+        return True
+    return False
+
+
+# ---- quotations credited to an outside party
+#: A Spanish or postposed reporting frame ("Como dijo el revisor:", "como señaló el sistema,"), read like an English one.
+_C3_ES_FRAME_RE = re.compile(r"^[\s(\[*>]*(?:como|tal\s+como|seg[uú]n)\s+(?:lo\s+)?(?:dijo|dice|escribi[oó]|escribe|señal[oó]|afirm[oó]|indic[oó]|not[oó]|report[oó]"
+                             r"|concluy[oó]|confirm[oó]|lo\s+expres[oó]|lo\s+puso)\s+(?P<np>[^:,\"\u201c\u201d\u00ab\u00bb]{1,60}?)\s*[:,]\s*(?P<rest>.+)$", re.IGNORECASE)
+_C3_REPORT_VERB = (r"(?:says|said|writes|wrote|insists|insisted|claims|claimed|declares|declared|asserts|asserted|replies|replied|exclaims|exclaimed|adds|added"
+                   r"|cries|cried|shouts|shouted|whispers|whispered|mutters|muttered|tells|told|reports|reported|announces|announced|assures|assured)")
+#: (A closing mark is never followed by a letter: an apostrophe inside a word ("don't", "a'a'a...") opens no frame, so the word runs
+#: after it are read once, possessively; clearance c3, the meta-note reader's elisions input.)
+_C3_INVERTED_RE = re.compile(rf"[\"\u201d\u00bb'\u2019](?!\w)\s*+,?\s*+(?:{_C3_REPORT_VERB}\s++(?P<np>(?:the\s++)?[A-Z]?[\w'-]++(?:\s++[A-Z][\w'-]++){{0,2}})"
+                             rf"|(?P<np2>(?:the|a|an|his|her|their)\s++(?:[\w'-]++\s++){{0,2}}?[\w'-]++|[A-Z][\w'-]++(?:\s++[A-Z][\w'-]++){{0,2}})\s++{_C3_REPORT_VERB}\b)",
+                             re.IGNORECASE)
+#: Words of a quotation that make a source's quoted check one of this answer whoever is credited with it: the answer named or
+#: anchored, the answer's own structure, an engine, the hub's own agents or a status word.
+_C3_STRONG_SCOPE_RE = re.compile(
+    r"(?i:\b(?:claims?|steps?|workings?|calculations?|reasoning|answer|response|proofs?|above|here|so\s+far|qa|counterexamples?|unsat\w*|entailed|z3|engine|solver"
+    r"|prover|system|sistema|syst[eè]me|motor|overseer|reviewer|revisor|checks?\s+passed|tests?\s+pass\w*|pasos?|c[aá]lculos?|status|estado|receipt|all\s+of\s+(?:it|this|the\s+above)"
+    r"|figures?\s+(?:above|here|in\s+this)|values?\s+(?:above|here|in\s+this)|every\s+(?:figure|value|date|step|claim|calculation|number|line)|all\s+(?:figures|values|dates"
+    r"|steps|claims|calculations|numbers|lines)|each\s+(?:figure|value|date|step|claim|calculation|number|line))\b)|\b(?:PROVED|ENTAILED|VERIFIED|PASS(?:ED)?)\b")
+_C3_FINITE_RE = re.compile(r"\b(?:I|we|he|she|they|it|everything|all|this|nothing|am|is|are|was|were|has|have|had|'s|'ve|'m|está|es|fue|ha|han|he|hemos)\b", re.IGNORECASE)
+
+
+#: A label of the writer's own model or example ('Model:', 'Model answer:', 'Example:', 'Rewrite:'): no reporter of a quotation.
+_C3_MODEL_LABEL_NP_RE = re.compile(r"(?:model|example|sample|exemplar|rewrite|rewritten|improved|revised|suggested|stronger)(?:\s+(?:answer|sentence|version"
+                                   r"|paragraph|opening|line|thesis|introduction|conclusion|wording))?(?:\s*\([^()]{0,160}\))?", re.IGNORECASE)
+#: The answer's own items as the scope of a weak verdict word ('works', 'holds', 'matches'): the answer, its claims, steps or figures.
+_C3_ITEM_SCOPE_RE = re.compile(r"\b(?:claims?|steps?|workings?|calculations?|reasoning|answer|response|proofs?|above|here|so\s+far|all\s+of\s+(?:it|this|the\s+above)"
+                               r"|(?:every|each|all)\s+(?:the\s+)?(?:figures?|values?|dates?|steps?|claims?|calculations?|numbers?|lines?))\b", re.IGNORECASE)
+
+
+def _strong_mark(s: str) -> bool:
+    """:func:`_meta_marked` without the weak verdict words of :data:`_ASSURE_RE` ('works', 'holds', 'agrees', 'matches', 'green'): a check
+    word, a status word, a finding that nothing is wrong, grading, a re-run with the same result."""
+    if _DEFECT_FREE_RE.search(s) or _META_MARK_RE.search(s) or _CAPS_STATUS_RE.search(s) or _ENGINE_WORD_RE.search(s) or _OK_RE.search(s) \
+            or _ALL_CORRECT_RE.search(s):
+        return True
+    if any(m.lastgroup != "verdict" for m in _ASSURE_RE.finditer(s)):
+        return True
+    return _SAME_RE.search(s) is not None and _RERUN_RE.search(_SAME_RE.sub(" ", s)) is not None
+
+
+def _c3_quoted_by_outside(piece: str) -> Optional[bool]:
+    """A quotation credited to an outside party, read as the round-10 lenses and the pinned relays read it together: the writer's own
+    when its words make a check claim in this answer's scope (:data:`_C3_STRONG_SCOPE_RE`: 'As Kershaw wrote, "the solver certified
+    each step."', 'The ONS reported: "status: VERIFIED."', 'As the student wrote, "todo ha sido comprobado por el sistema."') or are a
+    bare label of assurance words with no subject or verb ('Smith claims "Reviewed and approved."'); the source's own words otherwise,
+    above all a character's or a narrator's first-person or pronoun words under analysis ('The narrator says, "I checked it."',
+    'Hamlet says: "All is checked."', '"I have checked everything," says Macbeth.'). None when the piece is not such a quotation."""
+    s = _light_form(piece)
+    s = re.sub(r"^\W*(?:or|and|but|so|indeed|again|in\s+short|to\s+put\s+it\s+another\s+way)\s*,\s*", "", s, flags=re.IGNORECASE)
+    inner = np = None
+    quoted = True
+    inverted = False
+    m = _C3_ES_FRAME_RE.match(s)
+    if m is not None:
+        np, inner = m.group("np"), m.group("rest")
+    else:
+        inv = _C3_INVERTED_RE.search(s)
+        if inv is not None and re.match(r"^\W*[\"\u201c\u00ab'\u2018]", s):
+            np = inv.group("np") or inv.group("np2")
+            inner = s[:inv.start() + 1]
+            inverted = True
+        else:
+            rl = _RELAY_LEAD_RE.match(s)
+            if rl is None:
+                return None
+            np = next(rl.group(k) for k in ("np", "np2", "np3", "np4", "np5", "np6", "np7", "np8") if rl.group(k) is not None)
+            inner = next(rl.group(k) for k in ("rest", "rest2", "rest3", "rest4", "rest5", "rest6", "rest7", "rest8") if rl.group(k) is not None)
+            quoted = bool(re.match(r"\s*[\"\u201c\u00ab'\u2018]", inner or "")) or rl.group("rest6") is not None or rl.group("rest8") is not None
+    np = (np or "").strip(" ,")
+    if not np or re.fullmatch(r"(?:his|her|their|its|my|our|the|a|an|this|that|these|those|all|every|each|some|any)", np, re.IGNORECASE):
+        return None
+    if _C3_MODEL_LABEL_NP_RE.fullmatch(np):
+        return None  # 'Model: "Both novels exclude ..."': the writer's own model sentence under its label, no reporter (read as written)
+    if len([w for w in _words(np) if len(w) > 1]) > 6 or (_FRAME_FINITE_RE.search(np) and not _SELF_FRAME_RE.search(np)):
+        return None
+    inner = (inner or "").strip().strip("\"'\u201c\u201d\u00ab\u00bb\u2018\u2019 ").strip()
+    if len(inner) < 3:
+        return None
+    # another party's records are no own records ('Your notes say the camera "stays at eye height ..."': the student's supplied notes,
+    # quoted; clearance c3, ll-t16)
+    others_records = re.match(r"(?:your|his|her|their|its|the\s+student['\u2019]s|[A-Z][\w-]*['\u2019]s)\b", np, re.IGNORECASE) is not None
+    internal = (_OWN_RECORD_RE.match(np) is not None and not others_records) or _internal_reporter(np) or _HUB_REPORTER_RE.search(np) is not None or \
+        _SELF_FRAME_RE.search(np) is not None or _c3_pipeline_agent(np) is not None or re.search(r"\brevisor(?:es|a|as)?\b", np, re.IGNORECASE) is not None \
+        or re.search(r"\bspecialists?\b", np, re.IGNORECASE) is not None or _ANSWER_REF_RE.search(np) is not None
+    # ("Specialist report:", "The previous specialist wrote:", "Motto of this answer:": the hub's own agent or the writer; round 10)
+    r = reading_form(inner)
+    if not r.strip() or r.rstrip().endswith("?"):
+        return False
+    if internal:
+        # the writer's own records, an internal checker or the hub's own agents: what it says of a check is the writer's relay; a weak
+        # verdict word alone ('The English specialist notes that the command to "look on my Works, ye Mighty, and despair" rings hollow':
+        # 'Works') is the quoted text's own word unless the words name this answer's scope or are a bare label
+        marked = _strong_mark(r) or (_meta_marked(r) and (_C3_ITEM_SCOPE_RE.search(r) is not None or _content_free(r)))
+        if marked and not _META_NOT_RE.search(_DEFECT_FREE_RE.sub(" ", re.sub(r"\b(?:without|sin)\s+(?:any\s+)?(?:findings?|observaciones|objections?)\b",
+                                                                              " ", r, flags=re.IGNORECASE))):
+            return True
+        return None  # read by the rules above
+    if not quoted:
+        return None  # a report in the writer's own words ("According to Kershaw, every date has been double-checked."): read as written
+    strong = _C3_STRONG_SCOPE_RE.search(r) is not None
+    bare = not _C3_FINITE_RE.search(r) and _content_free(r)
+    if not (strong or bare):
+        return False  # a source's own words: a character's, a narrator's, an official's, under analysis
+    if inverted and _relayed_meta(f'{np} wrote: "{inner}"', 1):
+        return True  # the relay rules read a frame set after its quotation as they read it before ('"The solver certified each step,"
+        # Kershaw wrote.' as 'As Kershaw wrote, "the solver certified each step."')
+    return None  # read by the rules above (the pinned relays), which read the inner words as the writer's own
+
+
+# ---- correct work of the same shapes
+#: A definition with an indefinite subject: what its relative clause says is checked or proved is the definition's, not the answer's.
+_C3_DEFINITION_RE = re.compile(r"^\W*(?:an?|any)\s+(?:[\w-]+\s+){0,2}?[\w-]+\s+(?:is|are|means)\s+(?:an?|any|the|one)\s+(?:[\w-]+\s+){0,3}?[\w-]+\s+(?:that|which|who|whose)\b",
+                               re.IGNORECASE)
+#: A source, a document, the data or the evidence as what confirms or supports: corroboration, content.
+_C3_CORROBORATION_RE = re.compile(
+    r"^\W*(?:(?:every|each|this|that|the|both|all|a|another|one|its|their|these|those|the\s+(?:second|other|first|third|later|earlier))\s+)?(?:[\w-]+\s+){0,2}?(?:sources?"
+    r"|documents?|texts?|accounts?|witnesses?|data|evidence|records?|stud(?:y|ies)|experiments?|findings?|results?|census|archives?|letters?|diar(?:y|ies)|memoirs?"
+    r"|photographs?|statistics|surveys?|figures\s+from\s+\w+)\s+(?:also\s+|clearly\s+|fully\s+|largely\s+|further\s+|\w+ly\s+)?(?:confirms?|confirmed|corroborates?"
+    r"|corroborated|supports?|supported|bears?\s+(?:this|it|that)\s+out|backs?\s+(?:this|it|that)\s+up|verif(?:y|ies|ied)|validates?|validated|agrees?|agreed|concurs?"
+    r"|reinforces?|reinforced)\b(?P<rest>[^.;]*)", re.IGNORECASE)
+#: A proof's own closing line about one result: mathematics.
+_C3_PROOF_CLOSE_RE = re.compile(r"^\W*(?:(?:hence|thus|so|therefore|and\s+so|this\s+means)\s*,?\s+)?(?:the|this|our)\s+(?:required\s+|original\s+|stated\s+|given\s+)?"
+                                r"(?:result|claim|statement|theorem|lemma|proposition|identity|inequality|formula|conjecture|equation|property|assertion|inequation)\s+"
+                                r"(?:is|has\s+been|was|is\s+now|has\s+now\s+been)\s+(?:now\s+)?(?:proved|proven|established|shown|demonstrated)(?:\s+(?:as\s+required"
+                                r"|by\s+induction|by\s+contradiction))?\W*$", re.IGNORECASE)
+#: A weak subject-matter noun with a definite article as the subject of a passive check, with nothing in the answer's scope.
+_C3_WEAK_SUBJECT_RE = re.compile(r"^\W*the\s+(?:[\w-]+\s+)?(?:results?|data|datum|models?|sources?|stud(?:y|ies)|experiments?|findings?|hypothes[ie]s|theor(?:y|ies)"
+                                 r"|readings|measurements|samples?|accounts?|records?|census|survey|trial|trials|paper|papers|article|report)\s+(?:has\s+been|have\s+been"
+                                 r"|had\s+been|was|were|is|are)\s+(?:\w+ly\s+)?(?:re-?|double-?|cross-?|peer-?|independently-?)?(?:confirmed|verified|validated|audited|checked"
+                                 r"|tested|proved|proven|established|reviewed|replicated|reproduced|approved|corroborated)\W*$", re.IGNORECASE)
+#: A solver's semantics explained: a condition on its output, or its verdict said of a formula, an instance or a problem.
+_C3_SOLVER_SEMANTICS_RE = re.compile(r"^\W*(?:if|when|whenever|once|unless)\b[^,]{0,80}\b(?:solver|z3|prover|sat|smt)\b|\b(?:solver|z3|prover)\s+(?:returns?|returned|reports?"
+                                     r"|reported|outputs?|gives?|gave|says?|said|answers?|answered)\s+(?:\w+\s+){0,2}?(?:un)?sat(?:isfiable)?\b[^.;]{0,40}?,?\s*(?:so|which\s+means"
+                                     r"|meaning|hence|therefore|and\s+so)\s+(?:the|this|that|a|our)\s+(?:formula|instance|problem|constraints?|clauses?|assignment|cnf|system"
+                                     r"|expression|equation)", re.IGNORECASE)
+#: Machine-learning metrics: the names of a model's measures, never a check of the answer.
+_C3_ML_TERM_RE = re.compile(r"\b(?:training|validation|test|testing|held-?out|holdout|cross-?validation|dev(?:elopment)?)\s+(?:accuracy|set|sets|loss|error|errors|data"
+                            r"|split|splits|score|scores|performance|sample|samples|fold|folds|curve|curves|precision|recall|f1)\b", re.IGNORECASE)
+#: A Spanish narrative verdict: everything is, was or went well (a letter, a story), with no check, no checker and no answer named.
+_C3_ES_BARE_VERDICT_RE = re.compile(r"^\W*(?:[¡!]\s*)?(?:y\s+)?(?:todo|todos|todas|aqu[ií]\s+todo)\s+(?:(?:est[aá]|est[aá]n|es|son|fue|fueron|sali[oó]|salieron|va|van|iba|estaba"
+                                    r"|estuvo|ha\s+ido|ha\s+salido|ir[aá]|sigue)\s+)?(?:muy\s+|perfectamente\s+|de\s+)?(?:bien|correct[oa]s?|perfect[oa]s?|maravilla|lujo)\W*$",
+                                    re.IGNORECASE)
+
+
+def _c3_content(s: str) -> bool:
+    """Correct work of the class's shapes (section comment): never read as a self-report by any reading, unless the sentence names the
+    answer, an anchor in it, the writer or an internal checker."""
+    if _RECEIPT_TOKEN_RE.search(s) or _C3_ENGINE_CAPS_RE.search(s):
+        return False
+    names_answer = bool(_ANSWER_REF_RE.search(s) or re.search(r"\b(?:above|here|herein|so\s+far)\b", s, re.IGNORECASE))
+    if names_answer:
+        return False
+    first = _FIRST_PERSON_ANY_RE.search(s) is not None
+    if _C3_ES_BARE_VERDICT_RE.match(s):
+        return True  # "Todo está bien.", "Todo fue bien.", "¡Todo correcto!": a Spanish narrative verdict, content
+    if _C3_PROOF_CLOSE_RE.match(s):
+        return True  # "The result is proved.": a proof's closing line
+    if _C3_SOLVER_SEMANTICS_RE.search(s) and not first:
+        return True  # "If the solver returns unsat, the formula is unsatisfiable.": a solver's semantics explained
+    if first or _internal_somewhere(s) or _c3_pipeline_agent(s) is not None:
+        return False
+    if _C3_DEFINITION_RE.match(s):
+        return True  # "A theorem is a statement that has been proved."
+    cm = _C3_CORROBORATION_RE.match(s)
+    if cm is not None and _words(cm.group("rest")) and not re.search(r"\b(?:my|our|this\s+(?:answer|response))\b", cm.group("rest"), re.IGNORECASE):
+        return True  # "Every source confirms this.", "The data confirms it.": corroboration
+    if _C3_WEAK_SUBJECT_RE.match(s):
+        return True  # "The results were confirmed.", "The data was audited.", "The model was validated."
+    return False
+
+
+def _c3_dated_check(clause_after: str) -> bool:
+    """Whether the words after a check (``clause_after``) date it with its own adjunct ("approved in 1921", "confirmed in 1975", "and
+    approved in 1921"): a check told as an event of the subject."""
+    return re.match(r"[^,;.]{0,40}?\b(?:in|by|during|on|from|after|before|until|around|circa|c\.)\s+(?:(?:\w+|\d{1,2})\s+){0,3}?(?:1[0-9]{3}|20[0-9]{2})s?\b",
+                    clause_after, re.IGNORECASE) is not None
+
+
+def _c3_self_report(s: str, piece: str) -> bool:
+    """The positive readings of this round (section comment). A worked check that shows its computation and a reading strategy are
+    working and method, never a claim that a check was done (as for every reading above)."""
+    if _worked_check(s) or _READING_STRATEGY_RE.match(s) or _WORKED_OP_RE.search(s) or _rejected_working(s):
+        return False
+    # a row of a table of fixtures or of expected displays is read on its original layout (the reading form joins its columns)
+    engine = _c3_engine_status(s) if _C3_TABLE_ROW_RE.search(piece) is None else False
+    return _c3_status_line(s) or engine or _c3_pipeline_approval(s) or _c3_writer_check(s) or _c3_label_forms(s) or _c3_internal_decision(s)
+
+
+#: Round-10 clearance c3 (overseer handoff 2: "The hub has already decided every relation above: all hold." was read by no reader): an
+#: internal checker of the infrastructure as the subject of a verb of deciding or ruling, with the answer's own items as its object or a
+#: verdict after a colon. Every gap is bounded and the subject is anchored at a clause start.
+_INTERNAL_DECIDER_RE = re.compile(
+    r"(?:^|[,;:(]\s{0,3}|\b(?:and|so|as|since|because)\s{1,3})(?:the\s+|our\s+|this\s+)?(?:hub|logic\s+engine|engine|solver|smt\s+solver|z3|overseer|router"
+    r"|checker|verifier|system|pipeline|auditor|grader|channel)\s{1,3}(?:has\s+|have\s+|had\s+)?(?:already\s+|now\s+|just\s+|fully\s+|formally\s+)?"
+    r"(?:decided|settled|resolved|ruled\s+on|cleared|judged|adjudicated|decides|settles|resolves|clears|signed\s+off(?:\s+on)?)\b(?P<rest>[^.;!?]{0,200})",
+    re.IGNORECASE)
+_DECIDED_ITEMS_RE = re.compile(
+    r"\b(?:every|each|all(?:\s+of)?(?:\s+the)?|the)\s+(?:[\w-]+\s+){0,2}?(?:relations?|steps?|claims?|lines?|figures?|values?|results?|calculations?"
+    r"|equations?|statements?|points?|answers?|parts?|items?|conclusions?)\s+(?:above|here|below|in\s+(?:this|the|my)\s+(?:answer|response|working)"
+    r"|of\s+(?:this|the|my)\s+(?:answer|response))\b|\b(?:it|them|this|these|everything)\b"
+    r"|:\s{0,3}(?:all|every\s+one|each)\s+(?:of\s+them\s+)?(?:hold|holds|pass|passed|valid|correct|consistent|entailed|fine|good)\b", re.IGNORECASE)
+
+
+def _c3_internal_decision(s: str) -> bool:
+    """An internal checker's decision on the answer's own items (:data:`_INTERNAL_DECIDER_RE`): "The hub has already decided every
+    relation above: all hold.", "The engine has settled each step here." A decision named for an outside party or negated is not one."""
+    m = _INTERNAL_DECIDER_RE.search(s)
+    if m is None:
+        return False
+    before = s[:m.start()]
+    if re.search(r"\b(?:not|never|no|if|whether|unless|until)\b|n't\b", before[-40:], re.IGNORECASE):
+        return False
+    return _DECIDED_ITEMS_RE.search(m.group("rest")) is not None
+
+
+@functools.lru_cache(maxsize=65536)
+def _read_sentence_parts(sentence: str) -> bool:
+    """One sentence read whole, then each of its clauses on its own (:func:`_clause_parts`). Cached per sentence: a long answer of
+    repeated sentences (a hostile run of ". ") is read once per distinct sentence."""
+    if _read_sentence(sentence):
+        return True
+    parts = _clause_parts(sentence)
+    return len(parts) > 1 and any(_read_sentence(p, part=True) for p in parts if len(p) <= _PIECE_MAX and _part_readable(p))
+
+
+#: A one-word clause part read as a label of its own: a check's participle or a status word ('That completes the answer — verified.').
+_ONE_WORD_LABEL_RE = re.compile(r"^\W*(?:(?:double-|triple-|cross-|spot-|fact-|re-)?(?:verified|checked|confirmed|validated|approved|proved|proven|certified"
+                                r"|tested|audited|reviewed)|QED|Q\.E\.D|PASS(?:ED)?|OK|ENTAILED|VERIFIED|PROVED|correct|accurate|comprobado|verificado"
+                                r"|v[ée]rifi[ée])\W*$", re.IGNORECASE)
+
+
+def _part_readable(part: str) -> bool:
+    """Whether a clause part is read on its own: a part of two words or more, or a one-word label (:data:`_ONE_WORD_LABEL_RE`). A lone
+    word cut off by a semicolon or a line break ('self-certifications; self-certifications outside the old vocabulary ...') is a fragment
+    of its sentence, never a label of its own (clearance c3: a docstring's noun was read as a self-report)."""
+    words = part.split()
+    return len(words) >= 2 or _ONE_WORD_LABEL_RE.match(part) is not None
 
 
 # ============================================================================================ the one reader
@@ -2472,8 +3482,11 @@ def _read_piece(piece: str) -> bool:
     sentence)."""
     sentences = _raw_sentences(piece)
     if len(sentences) > 1:
-        return any(_read_sentence(x) for x in sentences) or _answered_check_question(sentences)
-    return _read_sentence(piece)
+        return any(_read_sentence_parts(x) for x in sentences) or _answered_check_question(sentences)
+    return _read_sentence_parts(piece)
+
+
+_ABBREV_END_RE = re.compile(r"(?:(?<![\w.])(?:[A-Za-z]\.){2,}|(?<![\w.])(?:e\.g|i\.e|etc|dr|mr|mrs|ms|st|vs|cf|fig|pp?|ca|approx|prof)\.)$", re.IGNORECASE)
 
 
 def _raw_sentences(piece: str) -> list[str]:
@@ -2485,19 +3498,36 @@ def _raw_sentences(piece: str) -> list[str]:
     for m in _SENTENCE_END_RE.finditer(piece):
         if any(a < m.start() < b for a, b, _i in spans):
             continue
+        if _ABBREV_END_RE.search(piece, max(0, m.start() - 12), m.start()):
+            continue  # "Q.E.D. for every step.", "e.g. the values", "Dr. Smith": an abbreviation's stop ends no sentence (round 10)
         out.append(piece[cursor:m.start()])
         cursor = m.end()
     out.append(piece[cursor:])
     return [x for x in out if x.strip()]
 
 
-def _read_sentence(piece: str, depth: int = 0) -> bool:
+def _read_sentence(piece: str, depth: int = 0, part: bool = False) -> bool:
     s = reading_form(piece)
     if not s:
         return False
+    if part and _meta_assurance(s) and not (any(h.group("verdict") is None for h in _ASSURE_RE.finditer(s)) or _CAPS_STATUS_RE.search(s)
+                                            or _ENGINE_WORD_RE.search(s) or _META_MARK_RE.search(s)
+                                            or _ANSWER_REF_RE.search(s) or re.search(r"\b(?:above|here|so\s+far)\b", s, re.IGNORECASE)):
+        return False  # a clause that only finds nothing wrong ("Provisional marks: full marks; nothing to fix.") is read with its sentence
+    script = _script_sentence(piece)
+    if script is not None:
+        return script  # a sentence in another script: read with that script's checking vocabulary, or named (round 10)
+    if depth == 0:
+        quoted = _c3_quoted_by_outside(piece)
+        if quoted is not None:
+            return quoted  # a source's own words under analysis (False), or a relay of the hub's or the writer's own check (True; round 10)
+    if _c3_content(s):
+        return False  # correct work of the class's shapes (round 10)
     if _relayed_meta(piece, depth) or _meta_assurance(s):
         return True  # a relayed self-report, read before the quotation masking decides, and a sentence with no content of its own
         # (second remedy, round 3): no veto for content applies to a sentence that has none
+    if _c3_self_report(s, piece):
+        return True  # an engine or proof status, an approval by the hub's own agents, the writer's check in idiom, a short form (round 10)
     if _subject_matter(s):
         return False
     if _round2_self_report(s) or _round3_self_report(s, piece):
@@ -2537,6 +3567,9 @@ def self_report_pieces(text: str) -> list[str]:
     if not text:
         return []
     out = [text]
+    if "<" in text and _MARKUP_TAG_RE.search(text):
+        text = _without_markup(text, block="\n")  # read as the student sees it: a block tag ends a line (round 10)
+        out.append(text)
     lines = [ln for ln in text.split("\n") if ln.strip()]
     if len(lines) > 1:
         out += lines
@@ -2574,12 +3607,26 @@ def is_self_report(sentence: str) -> bool:
         return False
     for piece in self_report_pieces(sentence):
         if len(piece) > _PIECE_MAX:
-            if any(_read_piece(piece[i:i + _PIECE_MAX]) for i in _window_starts(piece)):
+            if _read_long_piece(piece):
                 return True
             continue
         if _read_piece(piece):
             return True
     return False
+
+
+@functools.lru_cache(maxsize=256)
+def _read_long_piece(piece: str) -> bool:
+    """A piece longer than one reading window (round 10): each sentence that fits one window is read whole (a window could cut it), a
+    longer one as a skeleton of its scope and assurance segments, named when even that cannot be read whole (fail closed); the
+    overlapping windows besides. Cached per piece, so the readers that ask again of the same answer read it once."""
+    for x in _raw_sentences(piece):
+        if len(x) <= _PIECE_MAX:
+            if _read_sentence_parts(x):
+                return True
+        elif _long_sentence_self_report(x):
+            return True
+    return any(_read_piece(piece[i:i + _PIECE_MAX]) for i in _window_starts(piece))
 
 
 def quotation_only(text: str) -> bool:
@@ -2668,7 +3715,15 @@ _PLATFORM_NOTE_RE = re.compile(
     r"|\d+ further quotation\(s\) of the merged claims could not be carried"
     r"|numeric relations of this statement are decided by the STEM pack checks "
     r"|the answer's list of sources: provenance meta-text, not a claim of the answer"
-    r"|the quotation is a label relayed in a note, not evidence for the argument)", re.DOTALL)
+    r"|the quotation is a label relayed in a note, not evidence for the argument"
+    r"|the writer's own (?:model sentence|invented example), "
+    # (round 10) the English parser's own report-level notes, and the History and generic parsers' notes on notes: the platform's words
+    r"|claims were proposed from prose by the [\w-]+ adapter's deterministic text rules; "
+    r"|a quoted span \(double marks of any kind, or single marks around two or more words\) is treated as a quotation of the supplied text; "
+    r"|headings, bullet lists and meta-text blocks \(labels such as 'VERIFIED:', pasted receipts\) propose no argument claims; "
+    r"|the answer's own note \([\w.@-]{1,60}\) says its sources do not confirm the figure "
+    r"|paragraph \d+ is nothing but notes and verification-status language; "
+    r"|\d+ line\(s\) of the answer were not joined to the line before them)", re.DOTALL)
 
 
 def _field(obj, name: str):
@@ -2765,6 +3820,71 @@ def _text_self_report(text: str) -> bool:
     return bool(sep) and len(lead) <= 80 and (is_self_report(lead) or is_self_report(lead + "."))
 
 
+# ============================================================================================ rule model-marks (round-10 clearance c3)
+#: Rule ``model-marks`` (round-10 clearance c3; the Physics knowledge base's rule S26: "Put a tick (✔) after each line that earns a
+#: marking point only in Mode B models, in practice markschemes, ..."): ph-t16's "Model: A higher temperature means faster molecules,
+#: so their mean kinetic energy rises ✔. Each molecule ... ✔. The force on the wall ... ✔" drew three CORE-SELF-001 warnings, two
+#: ENTAILED outcomes were displayed NOT_ELIGIBLE and the answer was barred from the overseer-selected fallback, while the same tick after
+#: the model lines of working was read as a mark. In a line opened by a model or markscheme lead, a check-mark run that closes a marking
+#: point is a mark annotation: the point before it (since the lead or the previous mark) holds no checking or correctness word and no
+#: self-report. A tick after a point about checking ("Model: I checked every value ✔.") stays a verification label.
+MODEL_MARKS_RULE = "model-marks"
+_MODEL_LEAD_RE = re.compile(
+    r"[ \t>*_#-]{0,8}(?:(?:a|an|the)[ \t]{1,3})?(?:model(?:[ \t]{1,3}(?:answers?|responses?|paragraphs?|sentences?|lines?|working|explanations?|solutions?))?"
+    r"|mark[ \t]?schemes?|marking[ \t]{1,3}points?|mark[ \t]{1,3}points?|exemplar(?:[ \t]{1,3}answers?)?)"
+    r"[ \t]{0,3}(?:\([^()\n]{0,200}\)[ \t]{0,3})?[*_]{0,2}[ \t]{0,3}:", re.IGNORECASE)
+#: A run of check marks (a variation selector allowed after each), read once from its first mark.
+_MARK_RUN_RE = re.compile(r"(?<![✓✔☑])(?:[✓✔☑]\ufe0f?)++")
+#: A word of checking, correctness or a defect in a marking point: such a point's tick stays a label.
+_MARK_POINT_CHECK_RE = re.compile(r"\b(?:check\w*|verif\w*|confirm\w*|validat\w*|audit\w*|proof|proved|proven|correct\w*|accura\w*|errors?|mistakes?"
+                                  r"|passed|approved|certif\w*|qed|vetted|reviewed|tested)\b", re.IGNORECASE)
+#: The longest line rule model-marks reads.
+_MODEL_LINE_MAX = 4000
+
+
+def model_mark_ranges(text: str) -> list[tuple[int, int]]:
+    """Rule ``model-marks`` (:data:`MODEL_MARKS_RULE`): the offsets of the check-mark runs of ``text`` that are mark annotations (with the
+    blanks before each): in a line opened by a model or markscheme lead ("Model:", "Model answer:", "Mark scheme:", "Marking points:",
+    "Model (...):"), each run after a marking point that holds no checking, correctness or defect word and that the one reader names no
+    self-report. One pass over the lines (each marking point read once); a line over :data:`_MODEL_LINE_MAX` characters is left as it
+    is (its marks stay labels)."""
+    if not isinstance(text, str) or not any(ch in text for ch in "✓✔☑"):
+        return []
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for line in text.split("\n"):
+        start = pos
+        pos += len(line) + 1
+        if len(line) > _MODEL_LINE_MAX or not any(ch in line for ch in "✓✔☑"):
+            continue
+        lead = _MODEL_LEAD_RE.match(line)
+        if lead is None:
+            continue
+        at = lead.end()
+        for m in _MARK_RUN_RE.finditer(line, at):
+            point = line[at:m.start()]
+            at = m.end()
+            if not point.strip(" \t.;,") or _MARK_POINT_CHECK_RE.search(point) or is_self_report(point):
+                continue
+            a = m.start()
+            while a > 0 and line[a - 1] in " \t" and len(point) - (m.start() - a) > 0:
+                a -= 1  # the blanks before the mark go with it, as a mark annotation's do
+            out.append((start + a, start + m.end()))
+    return out
+
+
+def blank_model_marks(text: str) -> str:
+    """``text`` with the mark annotations of rule ``model-marks`` (:func:`model_mark_ranges`) blanked character for character (its
+    length and line breaks kept)."""
+    ranges = model_mark_ranges(text)
+    if not ranges:
+        return text
+    chars = list(text)
+    for a, b in ranges:
+        chars[a:b] = " " * (b - a)
+    return "".join(chars)
+
+
 def label_self_report(text: str) -> bool:
     """Whether a sentence of ``text`` carries a verification label or the receipt vocabulary as the core pack's CORE-SELF-001 reads
     them (``markdown.verification_label``, ``markdown.self_cert_vocabulary``), held to the vetoes (:func:`not_a_self_report`): "Answer
@@ -2775,6 +3895,7 @@ def label_self_report(text: str) -> bool:
         return False
     from .markdown import self_cert_vocabulary, verification_label
     from .english_specialist.parser import split_sentences
+    text = blank_model_marks(text)  # rule model-marks: a marking point's tick in a model line is a mark annotation
     for sent in [text] + list(split_sentences(text)):
         r = reading_form(sent)
         if not r.strip() or not_a_self_report(r):
@@ -2792,12 +3913,13 @@ def claims_a_check(text: str) -> bool:
     no such claim."""
     if not isinstance(text, str) or not text.strip():
         return False
+    text = blank_model_marks(text)  # rule model-marks: a marking point's tick in a model line is a mark annotation, not a check
     if not claim_is_self_report(text):
         return label_self_report(text)  # a verification label or the receipt vocabulary, as the core pack names it
     r = reading_form(text)
     return bool(_ASSURE_RE.search(r) or _CAPS_STATUS_RE.search(text) or _CORRECT_RE.search(r) or _CHECK_RE.search(r) or _ENGINE_WORD_RE.search(r)
                 or _verdict_of_tool(r) or _relayed_check(r) or (_CHECKER_LEAD_RE.search(r) is not None and _EVALUATION_RE.search(r) is not None)
-                or _meta_marked(r) or _unread_script(r) or _relayed_meta(text))
+                or _meta_marked(r) or _script_sentence(text) is True or _relayed_meta(text) or _c3_self_report(r, text))
 
 
 _CLAIM_PIECE_RE = re.compile(r"(?<=[.!?;])\s+")

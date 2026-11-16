@@ -74,6 +74,16 @@ substitution in a bracketed sum after its value (INT-SUBJ-004, rule parenthetica
 placed mutations in a Python block and a mark range, which the design never checks as working. A STEM mutation's expected
 codes are now its own and its site's (stem_mutations.StemInjection.site_codes), and code, mark annotations and mark lines
 are no site. None of these tests was rewritten.
+
+Round 10 (integrated round c3), the harness fixer: a specialist file written as a one-element list stopped the round in
+load_items with a bare TypeError and no results (and list_claims.py printed it for every file of the round); the four
+peer-dependent tasks tasks.json planned and that never answered were reported nowhere, their groups planned as
+single-subject groups and their syntheses counted functional (major); and, carried from round 9's push check (major),
+mutated claims were never translated. A file that is not one JSON object of the round format is now refused by name and
+recorded as a failure of its task while the round runs on; the round is read with its plan, a planned task never answered
+is a named failure with its relay not run and its group's synthesis failing; and list_claims.py --mutations lists the
+claims each mutation changes, a recorded translation of a mutated text is served to it, and every changed claim no
+translation reached is named. None of these tests was rewritten.
 """
 from __future__ import annotations
 
@@ -2220,6 +2230,33 @@ def test_the_arena_composes_the_student_facing_text_as_the_port_does(monkeypatch
     assert ra.group_synthesis(items, TASK, {TASK: {"claims": [7]}}, {TASK: reply}, plan)["text"] == "(empty)"
 
 
+def test_the_arena_composes_with_the_citations_and_sources_as_the_port_does_and_drops_an_orphaned_quotation(monkeypatch):
+    """Round-10 clearance (integration handoff H2, c3 lit-t16): the port composes the student-facing text with the synthesized claims'
+    citations and the sources they cite, so a quotation whose every quoting source claim the synthesis left out (the dropped 'Next step'
+    note's '"The queen is somewhere in the dark"') is not rendered on its own; the arena passes the same citations and the delivered
+    members' claims, so it relays the text production relays (parity). A composer that declares no citations is called with the texts
+    alone, as before."""
+    from epinoic_logic.integration import combinator_port as CB
+    data = json.loads((Path(__file__).resolve().parents[2] / "tests" / "integration" / "data" / "c3_orphaned_quotation.json").read_text(encoding="utf-8"))
+    item = data["lit-t16"]
+    queen = '"The queen is somewhere in the dark"'
+    task = "lit-x1"
+    items = [{**item, "task_id": task, "_path": Path("specialists") / f"{task}.json"}]
+    plan = ra.group_plan(items, task)
+    claims = [{"claim_id": c["claim_id"], "claim_text": c["text"], "source_refs": []} for c in item["delivered_claims"]]
+    reply = types.SimpleNamespace(payload={"report_id": f"rep-{task}-0", "claims": claims})
+    body = {"claims": [dict(c) for c in item["synthesis"]["claims"]], "dropped": item["synthesis"]["dropped"]}
+    got = ra.group_synthesis(items, task, {task: body}, {task: reply}, plan)
+    texts = [c["text"] for c in body["claims"]]
+    port = CB.student_facing_text(texts, citations=[c["source_claim_ids"] for c in body["claims"]],
+                                  sources=[[(c["claim_id"], c["claim_text"]) for c in claims]])
+    assert got["text"] == port and queen not in got["text"] and got["text_sha256"] == ra.sha256_text(got["text"])
+    assert CB.student_facing_text(texts).endswith(queen), "the round-9 composer (texts only) still renders it: the citations decide"
+    # a composer that declares no citations is called with the texts alone
+    monkeypatch.setattr(CB, ra.PORT_TEXT_COMPOSER, lambda texts: " | ".join(texts), raising=False)
+    assert ra.group_synthesis(items, task, {task: body}, {task: reply}, plan)["text"] == " | ".join(texts)
+
+
 #: The bidirectional embedding, override and isolate controls (U+202A to U+202E, U+2066 to U+2069). Written raw in a
 #: source file they reorder what a reviewer reads (Trojan Source); a test input writes them as escapes ("\u202e").
 _RAW_BIDI_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
@@ -2288,3 +2325,247 @@ def test_a_pass_not_run_for_want_of_the_overseer_fails_the_run_unless_said(tmp_p
     monkeypatch.setattr(ra, "overseer_installed", lambda: True)
     monkeypatch.setattr(ra, "DELIVERY_PASS", False)
     assert ra.main([str(rd)]) == 0
+
+
+# ============================================================================================ round 10 (integrated round c3)
+#
+# The round's overseers (results audit, communication fidelity, adversarial live, STEM integration) and the record carried
+# from round 9's push check found three harness defects:
+# - specialists/bi-t16.json, written by its builder as a one-element list, stopped the round in load_items with a bare
+#   TypeError ('list indices must be integers or slices, not str') before any record was written, and list_claims.py printed
+#   the same TypeError for every file of the round (minor, five records);
+# - the four peer-dependent tasks of tasks.json (mai-p10a, ec-p10b, ge-p10c, en-p10d) were never relayed and never answered,
+#   but the harness read specialists/ only: they appeared nowhere in results.json or summary.md, each p10 plan named one
+#   subject, each p10 synthesis of one report was counted functional, and the headline read 'Genuine traffic delivered and
+#   decided: 40 of 40 (genuine replies 20, peer relays 0, syntheses 20)' (major, with two minors);
+# - mutated claims were never translated by the harness (round 9's push check, major; c1 translation-fidelity r8-8): no
+#   translation of a mutated text could be recorded, so the genuine claim's translation was refused as stale and an injected
+#   fault on a translated claim reached the engine only through the deterministic checks.
+# None of the tests above was rewritten.
+
+def _write(path: Path, value) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def _list_claims(*args, timeout: int = 300):
+    import subprocess
+    import epinoic_logic
+    env = {"PYTHONPATH": str(Path(epinoic_logic.__file__).resolve().parents[1]), "PATH": "/usr/bin:/bin"}
+    return subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "list_claims.py"), *map(str, args)], capture_output=True, text=True,
+                          env=env, timeout=timeout)
+
+
+def test_a_specialist_file_that_is_not_one_json_object_is_refused_by_name_and_the_round_runs_on(tmp_path):
+    """Round c3 (results audit, communication fidelity, adversarial live, STEM integration; minor): a specialist file holding
+    a one-element list stopped the whole round with 'list indices must be integers or slices, not str' and no results. The
+    loader now names the file and its shape (SpecialistFileError, never a TypeError), the round records it as a failure of
+    its task and runs every other file, and so does a file without one of the fields every specialist file carries; the
+    listing of another file of the round still works, and the listing or relay of the refused file is refused by name."""
+    rd = tmp_path / "r"
+    _write(rd / "specialists" / f"{TASK}.json", HISTORY_ITEM)
+    _write(rd / "specialists" / "bi-x2.json", [{**HISTORY_ITEM, "task_id": "bi-x2"}])
+    _write(rd / "specialists" / "ps-x3.json", {k: v for k, v in {**HISTORY_ITEM, "task_id": "ps-x3"}.items() if k != "response_text"})
+    with pytest.raises(ra.SpecialistFileError) as err:
+        ra.load_items(rd / "specialists")
+    assert "specialists/bi-x2.json" in str(err.value) and "a list of 1 element(s)" in str(err.value) and "list indices" not in str(err.value)
+    refused: list = []
+    assert [it["task_id"] for it in ra.load_items(rd / "specialists", refused=refused)] == [TASK]
+    assert [(b["file"], b["task_id"]) for b in refused] == [("bi-x2.json", "bi-x2"), ("ps-x3.json", "ps-x3")]
+    assert "has no response_text" in refused[1]["reason"]
+    assert ra.specialist_file_problem({**HISTORY_ITEM, "task_id": 7}) == "holds task_id as a number (a word expected)"
+    assert ra.specialist_file_problem({**HISTORY_ITEM, "supplied_texts": [{"title": "x"}]}) == "supplied_texts[0] has no document_id"
+    assert ra.specialist_file_problem(HISTORY_ITEM) is None
+    out = ra.run_round(rd)
+    recs = {(r["file"], r["variant"]): r for r in out["records"]}
+    assert all(r["functional"] for r in out["records"] if r["file"] == f"{TASK}.json"), "the readable answer runs as before"
+    assert len([r for r in out["records"] if r["file"] == f"{TASK}.json"]) == 1 + len(ra.MUTATIONS)
+    for name, why in (("bi-x2.json", "a list of 1 element(s)"), ("ps-x3.json", "has no response_text")):
+        rec = recs[(name, "genuine")]
+        assert rec["functional"] is False and rec["answer_unreadable"] is True and f"specialists/{name}" in rec["error"] and why in rec["error"], rec
+        assert rec in out["failures"]
+    t = out["metrics"]["transport"]["genuine_traffic"]
+    assert t["answers_unreadable"] == ["bi-x2.json", "ps-x3.json"] and (t["functional_by_variant"]["genuine"], t["by_variant"]["genuine"]) == (1, 3)
+    assert [b["file"] for b in out["planned_tasks"]["answers_unreadable"]] == ["specialists/bi-x2.json", "specialists/ps-x3.json"]
+    summary = (rd / "summary.md").read_text()
+    assert "- UNREADABLE ANSWER: specialists/bi-x2.json (task bi-x2): the file holds a list of 1 element(s)" in summary
+    assert "answers whose specialist file cannot be read: 2 (bi-x2.json, ps-x3.json), each counted as not delivered" in summary
+    if not out["deliveries"].get("skipped"):  # nothing to deliver: withheld, with the reason
+        held = {t["file"]: t for t in out["deliveries"]["tasks"]}
+        assert {held[n]["withheld_why"] for n in ("bi-x2.json", "ps-x3.json")} == {"answer_unreadable"} and not held["bi-x2.json"]["delivered"]
+    # the listing: the readable file is listed as before; the refused one is refused by name, never with a traceback
+    ok, bad = _list_claims(rd / "specialists" / f"{TASK}.json", "--json"), _list_claims(rd / "specialists" / "bi-x2.json", "--json")
+    assert ok.returncode == 0 and json.loads(ok.stdout)["report_id"] == f"rep-{TASK}-0", ok.stderr[-400:]
+    assert bad.returncode == 2 and bad.stdout == "" and "specialists/bi-x2.json is not a specialist file of the round format" in bad.stderr
+    assert "Traceback" not in bad.stderr and "list indices" not in bad.stderr
+    # the relay: a peer whose file is a list is refused by name before anything is written
+    pr = tmp_path / "peer"
+    _write(pr / "specialists" / "hi-y1.json", [{**HISTORY_ITEM, "task_id": "hi-y1", "group": "y1"}])
+    _write(pr / "specialists" / "en-y1.json", ENGLISH_PEER_ITEM)
+    with pytest.raises(ra.RoundInputError, match="specialists/hi-y1.json is not a specialist file of the round format"):
+        ra.relay_peer(pr, "en-y1")
+    import subprocess
+    cli = subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parent / "relay_peer.py"), str(pr), "en-y1"], capture_output=True, text=True, timeout=300)
+    assert cli.returncode == 2 and "specialists/hi-y1.json is not a specialist file of the round format" in cli.stderr and "Traceback" not in cli.stderr
+    assert not (pr / "relayed").exists() and not (pr / "router").exists()
+    with pytest.raises(ra.RoundInputError, match="has no peer_of"):
+        ra.relay_peer(rd, TASK)
+    with pytest.raises(ra.RoundInputError, match="no task of the round"):
+        ra.relay_peer(rd, "zz-x9")
+    # the other tools that read the round's specialist files name the file too, never an AttributeError or a TypeError
+    import bind_adjudications as ba
+    import bind_translations as bt
+    (rd / "translations").mkdir()
+    bound = ba.bind(rd, [{"task_id": TASK, "claim_id": "h1.1", "verdict": "faithful"}, {"task_id": "bi-x2", "claim_id": "h1.1", "verdict": "faithful"}])
+    assert bound["judgments"][0]["file"] == f"{TASK}.json" and bound["without_a_recorded_fixture"] == [f"{TASK} h1.1", "bi-x2 h1.1"]
+    assert [x.split(":")[0] for x in bound["specialist_files_unreadable"]] == ["specialists/bi-x2.json", "specialists/ps-x3.json"]
+    assert [x.split(":")[0] for x in bt.bind(rd, {})["unreadable_specialists"]] == ["specialists/bi-x2.json", "specialists/ps-x3.json"]
+
+
+def _planned_peer_round(rd: Path, *, answered: bool = False) -> Path:
+    """The c3 p10 shape: a group of two tasks in tasks.json, the peer's answer (hi-y1) and its one-report synthesis recorded,
+    the peer-dependent task (en-y1) never relayed and never answered (unless ``answered``)."""
+    hi = {**HISTORY_ITEM, "task_id": "hi-y1", "group": "y1"}
+    _write(rd / "specialists" / "hi-y1.json", hi)
+    if answered:
+        _write(rd / "specialists" / "en-y1.json", ENGLISH_PEER_ITEM)
+    _write(rd / "syntheses" / "hi-y1.json", {**HISTORY_SYNTHESIS, "dropped": [{"source_claim_ids": ["h1.3"], "reason": "the sonnet is the English specialist's"}]})
+    _write(rd / "tasks.json", [{k: v for k, v in t.items() if k != "response_text"} for t in (hi, ENGLISH_PEER_ITEM)] + [{"task_id": "zz-x9", "revision_rounds": 1}])
+    return rd
+
+
+def test_a_planned_task_never_answered_is_named_counted_and_fails_its_groups_synthesis(tmp_path):
+    """Round c3 (results audit, major; communication fidelity and adversarial live, minor): tasks.json planned four
+    peer-dependent tasks that were never relayed or answered, and the harness, reading specialists/ only, reported none of
+    them. A task of the round's plan with no specialist file is now a genuine reply not delivered (named with its group
+    and peer), its relay a peer relay not run, its group's plan the round's (built from tasks.json, as relay_peer.py builds
+    it), and its group's synthesis of the delivered report fails naming it; results.json and summary.md say so, and the
+    delivery pass withholds it. An entry of tasks.json that only records a setting plans nothing. Control: the same round
+    with the answer recorded counts its reply and relay as delivered."""
+    rd = _planned_peer_round(tmp_path / "r")
+    items = ra.load_items(rd / "specialists", include_pending=True)
+    assert [(it["task_id"], bool(it.get("_pending"))) for it in items] == [("hi-y1", False), ("en-y1", True)], "zz-x9 plans nothing"
+    plan = ra.group_plan(items, "y1")
+    assert (plan.subject, plan.task_type) == ("English A: Literature", "analytical_paragraph") and plan.agent_task_types == {"history-specialist": "short_answer"}
+    out = ra.run_round(rd)
+    recs = {(r["file"], r["variant"]): r for r in out["records"]}
+    reply, relay, syn = recs[("en-y1.json", "genuine")], recs[("en-y1.json", "peer_relay")], recs[("en-y1.json", "synthesis")]
+    assert reply["functional"] is False and reply["not_answered"] is True and "tasks.json" in reply["error"] and "group y1, peer of hi-y1" in reply["error"]
+    assert relay["functional"] is False and relay["relay_not_run"] is True and "relayed/en-y1.json" in relay["error"]
+    assert [r for r in out["records"] if r["variant"] == "synthesis"] == [syn], "one synthesis record for the group"
+    assert syn["functional"] is False and syn["members_not_delivered"] == ["en-y1"] and syn["members_not_answered"] == ["en-y1"]
+    assert syn["delivered"] is True and syn["source_report_ids"] == ["rep-hi-y1-0"] and (syn["subject"], syn["task_type"]) == (plan.subject, plan.task_type)
+    assert any("['en-y1'] never answered" in x for x in syn["failure_reasons"]) and any("were not delivered" in x for x in syn["failure_reasons"])
+    assert not [r for r in out["records"] if r["file"] == "en-y1.json" and r["variant"] in ra.INJECTED_VARIANTS], "nothing of an unanswered task is mutated"
+    assert all(r["functional"] for r in out["records"] if r["file"] == "hi-y1.json")
+    pt = out["planned_tasks"]
+    assert (pt["source"], pt["planned"], pt["answered"]) == ("tasks.json", 2, 1)
+    assert pt["not_answered"] == [{"task_id": "en-y1", "group": "y1", "peer_of": "hi-y1", "agent_id": "english-specialist", "subject": "English A: Literature"}]
+    assert pt["peer_relays"] == {"expected": 1, "run": 0, "delivered": 0, "not_run": ["en-y1"], "answered_without_recorded_relay": []}
+    g = out["metrics"]["transport"]["genuine_traffic"]
+    assert g["by_variant"] == {"genuine": 2, "peer_relay": 1, "synthesis": 1} and g["functional_by_variant"] == {"genuine": 1, "peer_relay": 0, "synthesis": 0}
+    assert (g["not_answered"], g["peer_relays_not_run"]) == (["en-y1"], ["en-y1"])
+    summary = (rd / "summary.md").read_text()
+    assert ("Genuine traffic delivered and decided: 1 of 4 (genuine replies 1 of 2, peer relays 0 of 1, syntheses 0 of 1); of the planned genuine "
+            "traffic, planned in tasks.json and never answered: 1 (en-y1); peer relays the plan holds and the round never ran: 1 (to en-y1)") in summary
+    assert "- NOT ANSWERED: en-y1 (English A: Literature, english-specialist; group y1, peer of hi-y1)" in summary
+    assert "Peer relays: 0 of 1 expected run (0 delivered); NOT run: en-y1" in summary
+    if not out["deliveries"].get("skipped"):
+        d = next(t for t in out["deliveries"]["tasks"] if t["task_id"] == "en-y1")
+        assert (d["mode"], d["delivered"], d["withheld_why"]) == ("withheld", False, "not_answered")
+    # the router relayed (relay_peer.py, the plan as tasks.json gives it) and the agent never answered: the relay is run, the reply is not
+    relayed = ra.relay_peer(rd, "en-y1")
+    assert relayed["relayed"]["delivered"] is True and relayed["router"]["plan"]["agent_task_types"] == {"history-specialist": "short_answer"}
+    again = ra.run_round(rd)
+    recs = {(r["file"], r["variant"]): r for r in again["records"]}
+    assert recs[("en-y1.json", "peer_relay")]["functional"] and recs[("en-y1.json", "peer_relay")]["document_source"] == "recorded relay payload"
+    assert recs[("en-y1.json", "genuine")]["not_answered"] is True and recs[("en-y1.json", "synthesis")]["functional"] is False
+    assert again["planned_tasks"]["peer_relays"]["run"] == 1 and again["planned_tasks"]["peer_relays"]["not_run"] == []
+    # control: the answer recorded, its reply and its relay are delivered and nothing is named
+    control = ra.run_round(_planned_peer_round(tmp_path / "control", answered=True))
+    cg = control["metrics"]["transport"]["genuine_traffic"]
+    assert control["planned_tasks"]["not_answered"] == [] and cg["not_answered"] == [] and cg["peer_relays_not_run"] == []
+    assert (cg["functional_by_variant"]["genuine"], cg["functional_by_variant"]["peer_relay"]) == (2, 1)
+    assert control["planned_tasks"]["peer_relays"]["answered_without_recorded_relay"] == ["en-y1"]
+
+
+def test_a_tasks_json_that_cannot_be_read_is_named_and_plans_nothing(tmp_path):
+    """tasks.json that is not a list plans nothing: the round runs from its specialist files and says why."""
+    rd = tmp_path / "r"
+    _write(rd / "specialists" / f"{TASK}.json", HISTORY_ITEM)
+    (rd / "tasks.json").write_text('{"task_id": "en-y1"}', encoding="utf-8")
+    assert ra.read_tasks(rd / "tasks.json") == ([], "tasks.json holds an object, not a list of tasks")
+    out = ra.run_round(rd)
+    assert out["planned_tasks"]["tasks_json_problem"] == "tasks.json holds an object, not a list of tasks" and out["functional"] == out["transmissions"]
+    assert "- tasks.json: tasks.json holds an object, not a list of tasks; the plan is read from the specialist files." in (rd / "summary.md").read_text()
+
+
+class _DeliveredClaims(ra.RouterHub):
+    """Keeps every delivered payload's claims by report id (rep-<task>-<variant index>): what the round served each variant."""
+    seen: dict = {}
+
+    def receive(self, task_id, request_message_id, payload, **kw):
+        reply, rc = super().receive(task_id, request_message_id, payload, **kw)
+        if reply is not None:
+            _DeliveredClaims.seen[kw.get("report_id")] = [(c["claim_id"], ra.sha256_text(c["claim_text"])) for c in reply.payload["claims"]]
+        return reply, rc
+
+
+def test_mutated_claims_are_listed_for_translation_served_their_recorded_translation_and_named_when_none_is(tmp_path, monkeypatch):
+    """Round 9's push check (major; c1 translation-fidelity r8-8): the harness never translated a mutated claim. The genuine
+    claim's recorded translation is refused as stale for the mutated text and no translation of the mutated text could be
+    recorded, so an injected fault on a translated claim reached the engine only through the deterministic checks, and
+    nothing said so. ``list_claims.py --mutations`` now lists, for every variant run_arena.py delivers, the claims the
+    mutation changed (the texts the round serves, under the ids the hub delivers them, with their digests), the round serves
+    a translation recorded for a mutated text (mutation_translations/<file stem>/<variant>.json, bound by its digest) to that
+    claim, and every changed claim the pipeline translates and no recorded translation reached is named, per record and in
+    the replay configuration. A translation without its digest, or bound to another text, is never served."""
+    rd = _k1_round(tmp_path / "r", {"s1.2": _k1_fixture("s1.2")})
+    listed = _list_claims(rd / "specialists" / f"{K1}.json", "--mutations", "--json")
+    assert listed.returncode == 0, listed.stderr[-600:]
+    listing = json.loads(listed.stdout)
+    by_variant = {m["variant"]: m for m in listing["mutations"]}
+    slip = by_variant["stem_arithmetic_slip"]
+    assert slip["translate"] == ["s1.2"] and slip["translations_file"] == f"mutation_translations/{K1}/stem_arithmetic_slip.json"
+    assert [r["text"] for r in slip["claims"] if r["changed"]] == ["F = ma = 2.0 × 3.0 = 9.0 N."]
+    # the listed texts are the texts the round delivers for each variant, claim for claim
+    monkeypatch.setattr(ra, "RouterHub", _DeliveredClaims)
+    _DeliveredClaims.seen = {}
+    out = ra.run_round(rd)
+    assert {m["variant"] for m in listing["mutations"]} == {r["variant"] for r in out["records"] if r["variant"] in ra.INJECTED_VARIANTS}
+    for m in listing["mutations"]:
+        assert _DeliveredClaims.seen[m["report_id"]] == [(r["claim_id"], r["claim_text_sha256"]) for r in m["claims"]], m["variant"]
+    rec = next(r for r in out["records"] if r["variant"] == "stem_arithmetic_slip")
+    assert rec["mutated_claims"] == {"translated": [], "not_translated": ["s1.2"], "not_eligible": []} and rec["stale_fixtures_refused"] == ["s1.2"]
+    mc = out["metrics"]["replay"]["mutated_claims"]
+    assert (mc["translated"], mc["recorded"]) == (0, 0) and f"{K1}.json stem_arithmetic_slip s1.2" in mc["not_translated_claims"]
+    assert f"NOT translated (no translation of the mutated text was recorded" in _replay_line(rd) and f"{K1}.json stem_arithmetic_slip s1.2" in _replay_line(rd)
+    # the translation agents' output for the listed claim, written into the listing's template: served to the mutated claim
+    fixture = _k1_fixture("s1.2")
+    fixture["problem"]["conclusion"]["expr"]["right"] = {"op": "real", "value": "9.0"}
+    _write(rd / slip["translations_file"], {**slip["template"], "claims": {"s1.2": fixture}})
+    _DeliveredClaims.seen = {}
+    served = ra.run_round(rd)
+    rec = next(r for r in served["records"] if r["variant"] == "stem_arithmetic_slip")
+    o = next(o for o in rec["outcomes"] if o["claim_id"] == "s1.2")
+    assert (o["display_status"], o["stale_fixture_refused"]) == ("COUNTEREXAMPLE", False), "the engine decides the mutated claim"
+    assert rec["mutated_claims"]["translated"] == ["s1.2"] and rec["stale_fixtures_refused"] == []
+    mc = served["metrics"]["replay"]["mutated_claims"]
+    assert (mc["translated"], mc["recorded"], mc["recorded_not_served"], mc["not_servable"]) == (1, 1, [], [])
+    sub = next(r for r in served["records"] if r["variant"] == "stem_substitution")
+    assert sub["mutated_claims"]["not_translated"] == ["s1.2"], "another variant's translation is never served to this one"
+    assert _genuine_outcome(served, "s1.2") == _genuine_outcome(out, "s1.2"), "the genuine pass is unchanged"
+    assert "1 of " in _replay_line(rd) and "translated from a recorded translation of the mutated text (mutation_translations/: 1 recorded)" in _replay_line(rd)
+    # bound to another text, or recorded without its digest: never served, and named
+    _write(rd / slip["translations_file"], {**slip["template"], "claims": {"s1.2": fixture}, "claim_text_sha256": {"s1.2": "0" * 64}})
+    stale = ra.run_round(rd)
+    assert next(r for r in stale["records"] if r["variant"] == "stem_arithmetic_slip")["mutated_claims"]["not_translated"] == ["s1.2"]
+    assert stale["metrics"]["replay"]["mutated_claims"]["recorded_not_served"] == [f"mutation_translations/{K1}/stem_arithmetic_slip.json s1.2"]
+    _write(rd / slip["translations_file"], {"claims": {"s1.2": fixture}})
+    unbound = ra.run_round(rd)
+    mc = unbound["metrics"]["replay"]["mutated_claims"]
+    assert mc["recorded"] == 0 and mc["not_servable"][0]["claim_id"] == "s1.2" and "no claim_text_sha256" in mc["not_servable"][0]["why"]
+    assert next(r for r in unbound["records"] if r["variant"] == "stem_arithmetic_slip")["mutated_claims"]["not_translated"] == ["s1.2"]
+    # transport is the same in every configuration: translating a mutated claim never moves the count by itself here
+    assert out["functional"] == served["functional"] == stale["functional"] == unbound["functional"] == out["transmissions"]

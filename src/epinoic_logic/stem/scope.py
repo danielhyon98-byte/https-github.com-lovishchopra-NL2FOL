@@ -35,6 +35,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Iterator, Optional
@@ -107,6 +109,10 @@ class Formula:
     params: tuple[str, ...] = ()
     start: int = 0
     end: int = 0
+    #: round-10 clearance (rule show-that-target): a relation of the request that the request asks to show, prove or verify ('(b) Show that
+    #: the surface area … is S = x² + 2000/x'): what the answer must establish, never a premise of the steps that establish it. The label of
+    #: the part whose question asks for it ('(b)'), or '*' when the request's stem does; '' for any other formula
+    target: str = ""
 
 
 @dataclass(frozen=True)
@@ -249,7 +255,35 @@ def prescan_names(text: str, *, limits: StemLimits = DEFAULT_LIMITS, cs: bool = 
         name = _name_before(text, k)
         if name:
             names.add(name)
+    names.update(a for a, _k, _v in defined_abbreviations(text))
     return frozenset(names)
+
+
+#: round-10 clearance (rule abbreviation): a capital abbreviation the text defines in brackets right after the words it stands for ('true
+#: positives (TP) 132', 'false positives (FP) = 18'), with the number written right after it when there is one (anchored, bounded runs)
+_ABBREVIATION_RE = re.compile(r"\b[a-z][a-z-]{1,24}(?:[ \t]++[a-z][a-z-]{1,24}){0,3}[ \t]*+\([ \t]*+(?P<abbr>[A-Z]{2,4})[ \t]*+\)"
+                              r"(?:[ \t]*+(?:=|:|is|are|was|were|of)?[ \t]*+(?P<num>\d{1,9}(?:\.\d{1,9})?)(?![\d.,]?\d))?")
+#: the most abbreviations read per text
+_MAX_ABBREVIATIONS = 32
+
+
+def defined_abbreviations(text: str) -> list[tuple[str, int, str]]:
+    """Rule ``abbreviation`` (round-10 clearance): the capital abbreviations ``text`` defines in brackets after their words, each with the
+    offset just after its bracket and the number written right after it ('' when none): '(TP) 132' names TP and states 132. The first
+    definition of an abbreviation counts. One scan of at most the first 200,000 characters, at most :data:`_MAX_ABBREVIATIONS` read."""
+    out: list[tuple[str, int, str]] = []
+    seen: set[str] = set()
+    if "(" not in text:
+        return out
+    for m in _ABBREVIATION_RE.finditer(text[:200_000]):
+        if len(out) >= _MAX_ABBREVIATIONS:
+            break
+        a = m.group("abbr")
+        if a in seen:
+            continue
+        seen.add(a)
+        out.append((a, m.start("num") if m.group("num") else m.end("abbr"), m.group("num") or ""))
+    return out
 
 
 def _relation_positions(text: str) -> Iterator[int]:

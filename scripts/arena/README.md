@@ -6,19 +6,22 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | File | What it does |
 | --- | --- |
 | `run_arena.py` | Feeds one round through the hub and writes `<round>/results.json` and `<round>/summary.md` (definitions in its docstring) |
-| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload, its document id and the relay status only) and the router's record of it (`<round>/router/<task>.json`: the plan, the request, the peer's receipt and the relay receipt; no agent reads it) |
+| `relay_peer.py` | Records the peer relay a peer-dependent agent reads (`<round>/relayed/<task>.json`: the delivered payload, its document id and the relay status only) and the router's record of it (`<round>/router/<task>.json`: the plan, the request, the peer's receipt and the relay receipt; no agent reads it). A relay that cannot be made (a task the round does not hold, a task with no peer, a peer that has not answered, a peer's file that is not one JSON object of the round format) is refused by name before anything is written, exit status 2 |
 | `revision_feedback.py` | Records the infrastructure's feedback on every genuine answer (`<round>/feedback/<task>.json`: whether a revision request was issued and, if not, why; the signed block; `rendered`, the exact message the specialist reads, and its digest; the flaws), built through an audited hub from the answer's receipt and a signed task audit, never from an agent (design section 53 of `overseer/docs/OVERSEER_DESIGN.md`). The pipeline sends `rendered` alone as the specialist's next turn, after its own answer, and records the revision in `<round>/revisions/<task>.json` |
-| `list_claims.py` | Lists the claims of an answer as transmitted, under the claim ids the hub delivers (below, "Claim ids in a group"); with `--json`, each claim text's digest, the file's group, the files of the group delivered before it and whether its ids are agent-qualified, and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`) |
+| `list_claims.py` | Lists the claims of an answer as transmitted, under the claim ids the hub delivers (below, "Claim ids in a group"); with `--json`, each claim text's digest, the file's group, the files of the group delivered before it and whether its ids are agent-qualified, and the synthesis format the combinator writes (`synthesis_format`: the combinator sub-project's exported instructions, checked against the synthesis contract; `--instructions <dir>` reads a given export, which must be this repository's combinator release unless `--allow-other-release`); with `--mutations`, every mutation `run_arena.py` delivers of one answer with the claims it changed and those the translation agents translate (below, "Mutated claims") |
 | `stem_mutations.py` | The STEM fault injections (STEM subjects only) |
 | `stress_arena.py` | Replays a round under load (`docs/STRESS_RESULTS.md`) |
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
 | `bind_translations.py` | Records with each translation fixture the digest of the claim text it was produced for (`claim_text_sha256`), from the listings the translation agent was given or, as the recording step, from the current parse ("Replay configuration", below) |
 | `test_arena_rules.py` | Regression tests of the functional rule and the reporting (run by path, below) |
 
-A round directory holds `specialists/*.json` (the answers), and optionally `translations/*.json` (recorded translations,
-with `claim_text_sha256` binding each to the claim text it was produced for, written by `bind_translations.py` when the
-translations are recorded), `syntheses/*.json`, `relayed/*.json`, `router/*.json`, `tasks.json` and
-`adjudications/translation_fidelity.json`.
+A round directory holds `specialists/*.json` (the answers, each one JSON object of the round format: `task_id`, `subject`,
+`agent_id`, `question`, `response_text`, and optionally `group`, `peer_of`, `task_type`, `supplied_texts`), and optionally
+`translations/*.json` (recorded translations, with `claim_text_sha256` binding each to the claim text it was produced for,
+written by `bind_translations.py` when the translations are recorded), `mutation_translations/<file stem>/<variant>.json`
+(the recorded translations of the claims a mutation changes, below, "Mutated claims"), `syntheses/*.json`,
+`relayed/*.json`, `router/*.json`, `tasks.json` (the round's plan: every task the router dispatches, below, "The round's
+plan") and `adjudications/translation_fidelity.json`.
 
 ## Claim ids in a group: what the listing prints and what a fixture is keyed by
 
@@ -87,6 +90,51 @@ reads only `delivered`, `document_id` and `payload` of a recorded file, and each
 (`recorded_relay_checks` in results.json, the recorded peer relays in summary.md) names the file's other fields as
 `router_fields_exposed`, so an answer written by an agent that could read its peer's receipt reads as one. It changes no
 count.
+
+## The round's plan: tasks never answered, files that cannot be read
+
+`tasks.json` is the round's plan: every task the router dispatches, answered or not. `run_arena.py` reads the round with it
+(`load_items(..., include_pending=True)`), so each group's plan is the one `relay_peer.py` relays under (built from every
+task of the group, the peer-dependent task the deliverable), and a task of the plan with no specialist file is accounted
+for, never left out:
+
+- its genuine reply is a record of its own that is not delivered (`not_answered`: planned in tasks.json, no specialist
+  file), a failure of the transport measure naming its group and peer;
+- a peer-dependent task the round never relayed (no `relayed/<task>.json`) and that never answered has a peer relay
+  record that was not run (`relay_not_run`); when the round recorded the relay (the router relayed, the agent never
+  answered), the relay is run as recorded and only the reply is missing. The replay never runs a relay in the round's
+  place;
+- nothing of it is mutated, and its group's synthesis of the delivered reports fails naming it (`members_not_delivered`,
+  `members_not_answered`);
+- results.json carries `planned_tasks` (the plan's source, the tasks planned and answered, every task never answered with
+  its group, peer, agent and subject, every file that cannot be read, and the peer relays expected, run, delivered and
+  not run, with the answered dependents whose relay the round never recorded), `metrics.transport.genuine_traffic`
+  counts each genuine variant delivered against its total and names the tasks never answered and the relays not run, and
+  summary.md says the same on its transport line and in "The round's plan against what the round holds". The delivery
+  pass withholds such a task (`withheld_why`: `not_answered`); it is no answer to revise.
+
+A file of `specialists/` that is not one JSON object of the round format (a list, a missing or non-string field, supplied
+texts that are no supplied texts) is refused by name (`SpecialistFileError`, the file and its shape), never a TypeError:
+`run_arena.py` records it as a genuine reply not delivered (`answer_unreadable`; the delivery pass withholds it) and runs
+every other file, `list_claims.py` refuses to list it (exit status 2) and lists every other file as before, `relay_peer.py`
+refuses a relay whose peer's file it is, and `bind_translations.py` and `bind_adjudications.py` name it and bind every
+other file's material. An entry of tasks.json that only records a setting of a task (`{"task_id", "revision_rounds"}`)
+plans nothing, and a tasks.json that is not a list of objects is named (`planned_tasks.tasks_json_problem`) and plans
+nothing.
+
+Round c3 (results audit, major; communication fidelity, adversarial live and STEM integration, minor): the round's
+tasks.json planned four peer-dependent tasks (mai-p10a, ec-p10b, ge-p10c, en-p10d) that were never relayed or answered,
+and the harness read `specialists/` only. Nothing named them: each p10 plan was built from its one specialist file (one
+subject), each p10 synthesis of one report was counted functional, and the headline read "Genuine traffic delivered and
+decided: 40 of 40 (genuine replies 20, peer relays 0, syntheses 20)". Replayed with the plan, the round reads 164 of 176:
+genuine replies 20 of 24, peer relays 0 of 4, syntheses 16 of 20 (the four p10 syntheses fail naming the dependent never
+answered); every receipt of the twenty answers, and of the four p10 syntheses, is the one it was, and only the plan's
+subject of those syntheses moved to the deliverable's. The same round's `specialists/bi-t16.json`, first written as a
+one-element list, stopped `run_arena.py` with "list indices must be integers or slices, not str" before any record, and
+`list_claims.py` printed that TypeError for every file of the round. Tests: `scripts/arena/test_arena_rules.py`
+(`test_a_specialist_file_that_is_not_one_json_object_is_refused_by_name_and_the_round_runs_on`,
+`test_a_planned_task_never_answered_is_named_counted_and_fails_its_groups_synthesis`,
+`test_a_tasks_json_that_cannot_be_read_is_named_and_plans_nothing`).
 
 ## Synthesis format (the combinator's instructions)
 
@@ -191,7 +239,14 @@ quotation claim beside the sentence that quotes it: the student reads the quotat
 hub names such a synthesis (INT-LEDGER-017, rule duplicated-content). Rendering the quotation only inside the sentence
 that quotes it is a change of the port's composer: made in the harness alone, it would show the arena a text that
 production never sends. The harness follows the port's composer with no change of its own
-(`test_the_arena_composes_the_student_facing_text_as_the_port_does`).
+(`test_the_arena_composes_the_student_facing_text_as_the_port_does`). Since the round-10 clearance's handoff pass (c3
+lit-t16) the port composes the text with the synthesized claims' citations and the sources they cite
+(`combinator_port.synthesis_payload`: a quotation whose every quoting source claim the synthesis left out is not rendered
+on its own), so the harness passes the claims' citations as written and the delivered members' claims, in group order, to
+the composer whenever it declares them, and the texts alone otherwise
+(`test_the_arena_composes_with_the_citations_and_sources_as_the_port_does_and_drops_an_orphaned_quotation`). On the
+recorded rounds this changes one record: the c3 lit-t16 synthesis's text loses its trailing quotation, and its receipt
+names the quotation the student does not read (INT-LEDGER-017, rule orphaned-quotation, a warning).
 
 Integration gate, round 1 (combinator faults): the harness kept only the cited ids the file's own member's report held
 whenever one of them did. An invented citation beside a real one vanished before the hub saw it (no INT-LEDGER-001 on an
@@ -245,7 +300,7 @@ under the headline, one line each, each with its own denominator.
 
 | Measure | What it counts | What it does not say |
 | --- | --- | --- |
-| Transport (`metrics.transport`; the headline functional count) | Transmissions the hub delivered and decided: genuine traffic (genuine replies, peer relays, syntheses) delivered, injected faults named by a finding of the expected code on the injected claim, no INTERNAL_ERROR. Every injection no finding names is a miss in it (below) | Whether a finding is true, whether a translation is faithful, whether an answer is better |
+| Transport (`metrics.transport`; the headline functional count) | Transmissions the hub delivered and decided: genuine traffic (genuine replies, peer relays, syntheses) delivered, injected faults named by a finding of the expected code on the injected claim, no INTERNAL_ERROR. Every injection no finding names is a miss in it (below). A task of the round's plan never answered, or answered in a file that cannot be read, is a genuine reply not delivered, and a planned peer relay the round never ran a peer relay not delivered ("The round's plan", above): each genuine variant is counted against its total | Whether a finding is true, whether a translation is faithful, whether an answer is better |
 | Fixture coverage (`metrics.fixture_coverage`) | Recorded translations this run served (the pipeline translated their claims with them) against those it lost, by reason: report not delivered, claim id no longer delivered, refused as stale, claim not eligible, dropped by the channel, verification failed; served translations bound to a recorded claim-text digest against those bound by claim id only | Whether the served translations are faithful |
 | Translation fidelity (`metrics.translation_fidelity`) | Of the translations this run served that an adjudicator judged, how many were judged faithful; only judgments whose recorded digests match the translation and claim text served apply | Anything when the round has no adjudications: then it reads "not adjudicated" and no figure is given. The engine never decides fidelity |
 | Claims (`metrics.claims`, per record `claim_measures`) | On the genuine pass, each delivered claim once: extracted; eligible for translation; attempted (a recorded translation offered); completed (a definitive verdict displayed); faithful (where adjudicated); approved (displayed ENTAILED with no error-level finding on the claim), with how many approved claims rest on an ungrounded premise, how many rest on any unresolved dependency (ungrounded, or a premise whose task or source authority no check validated) and how many adjudicated approved claims were judged unfaithful; release permitted (the outcome's release assessment, `ClaimVerificationOutcome.release`, permits releasing the answer on the claim's checks, with no error-level finding on the claim) | "Approved" is what the receipt presents as verified, not an application's release decision. "Release permitted" is that decision's rule (established premises, a current faithful review made with the evidence): a replay calls no fidelity reviewer, so it permits none |
@@ -306,6 +361,45 @@ summary.md gives it on one line, "Replay configuration", after the measures. Non
   round 8's clearance every synthesis was stamped 2026-10-11T15:00:00Z, and the time-order rule (INT-HANDOFF-016, which
   the overseer's audit runs over the journaled transfers and reports as OVS-DIV-002) named every synthesis of every
   replay made after that day.
+- **Mutated claims.** A claim a mutation changes is translated only from a recorded translation of the mutated text
+  (`mutation_translations/`, above, "Mutated claims"); without one it gets no verdict where production translates it.
+  `metrics.replay.mutated_claims` counts the changed claims the pipeline translates, those translated and those not, each
+  named, and the line says how many were not.
+
+## Mutated claims: translations of the mutated texts
+
+A recorded translation is bound to the claim text it was produced for, so a claim a mutation changes is refused the
+genuine claim's translation as stale (STALE_FIXTURE_REFUSED) and gets no verdict, where production translates the
+mutated text. Round 9's push check (major, carried from c1 translation-fidelity r8-8): no translation of a mutated text
+could be recorded, so every injected fault on a translated claim reached the engine only through the deterministic checks
+(24 of 24 STEM injections of c1 ended with no translation; 11 went unnamed), and nothing said so. Record them as a step of
+recording a round, after the translations of the genuine claims:
+
+```
+python scripts/arena/list_claims.py <round>/specialists/<task>.json --mutations --json   # per variant: the claims it changed, translate, template
+```
+
+The listing builds every variant with `run_arena.py`'s own builder (`run_arena.task_variants`: the same mutated texts, from
+the same supplied texts and relayed peer report) and parses each as the hub parses it on the mutation's own hub task (the
+group's plan, only its peer's report delivered before it), so it prints the texts the round delivers, under the ids the hub
+delivers them, each with its digest; a claim is `changed` when no claim of the genuine delivery carries its text under its
+id (in either form of an id the hub may qualify), and `translate` lists the changed claims the pipeline translates. Brief the
+translation agents with those claims and write their output into the variant's `template`:
+`<round>/mutation_translations/<file stem>/<variant>.json`, `{"task_id", "variant", "claims": {claim id: output},
+"claim_text_sha256": {claim id: digest}}`, keeping the digests the listing printed. `run_arena.py` serves each translation,
+beside the genuine ones and in their place under the same id, to the mutated claim of that variant whose text has the
+recorded digest, and to no other claim or variant; a translation recorded without its digest is never served.
+
+Every mutation record names the claims the mutation changed by what became of their translation (`mutated_claims`:
+`translated`, `not_translated` (eligible, no translation of the mutated text recorded), `not_eligible`), and the replay
+configuration counts them (`metrics.replay.mutated_claims`: eligible, translated, not translated with each named, the
+mutation translations recorded and those served to no mutated claim, and what of the directory cannot be served) and
+says so on summary.md's "Replay configuration" line. A round recorded without mutation translations therefore reads
+"0 of N translated", with the N named: only the deterministic checks could name those injections. None of it moves the
+transport measure. Tests: `scripts/arena/test_arena_rules.py`
+(`test_mutated_claims_are_listed_for_translation_served_their_recorded_translation_and_named_when_none_is`: the listing
+equals what the round delivers for every variant, a recorded translation of the mutated text is served and the engine
+decides the mutated claim, and one bound to another text or recorded without its digest is never served).
 
 ## Injections no finding names
 
@@ -477,7 +571,7 @@ feedback exercise whose specialists cannot be shown to have read the feedback as
 
 ```
 python -I -m pytest -q tests/e2e/test_arena_revisions.py   # the specialist revisions: feedback files, the revision pass, the headline unchanged, feedback as read, the round's budget
-python -I -m pytest -q scripts/arena/test_arena_rules.py   # the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py), the revision budgets and the digest of what a specialist read (round 9), the overseer-selected fallback with --overseer-provider beside the withheld baseline (round 9), the student-facing text composed as the combinator port composes it, and no raw bidirectional control in the harness owner's files (round 9)
+python -I -m pytest -q scripts/arena/test_arena_rules.py   # round c3: a specialist file that is no JSON object refused by name, a task of the plan never answered counted and named, mutated claims listed, translated and named (round 9's push check); the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py), the revision budgets and the digest of what a specialist read (round 9), the overseer-selected fallback with --overseer-provider beside the withheld baseline (round 9), the student-facing text composed as the combinator port composes it, and no raw bidirectional control in the harness owner's files (round 9)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)
 python -m pytest -q tests/e2e/test_arena_deliveries.py      # the delivery decisions in results.json and summary.md (default suite)
 python -m pytest -q tests/e2e/test_arena_without_the_overseer.py   # a round where the overseer is not installed: both of its passes recorded as not run (default suite)

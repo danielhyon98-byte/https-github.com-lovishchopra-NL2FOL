@@ -202,12 +202,21 @@ def test_undisclosed_contradiction_found_by_the_entailment_path_is_flagged():
     syn = synthesis([SynthesizedClaim(claim_id="s-1", text="The speed is 15 m/s.", source_claim_ids=["ph-1", "ma-1"], transformation="merged", evidence_refs=[DOC])],
                     ledger=[drop("other", "ph-2", "ph-3")], reports=("rep-physics-specialist", "rep-maths-specialist", "rep-third"))
     rep = run_integrity_checks(plan(), [p, m, third], syn, formalized, {"s-1": Assertion(id="S", expr=cmp("eq", V("v"), R(15)))}, signing_key=KEY, config=CFG)
-    assert "INT-GLOSSARY-001" in codes(rep.findings)  # cross-report check withheld
+    # Round 10 (clearance c3, rewritten to a stricter rule): the sort clash of 'other' (v declared Int) no longer withholds the
+    # cross-report check (INT-GLOSSARY-001, an error charged to no one who caused it): it is named as the translation fault it is
+    # (INT-GLOSSARY-005, both parties) and the check runs with the two declarations read apart, so the contradiction is named by
+    # the cross-report check as well as by the entailment path, and its disclosure is still demanded
+    clash = [f for f in by_code(rep.findings, "INT-GLOSSARY-005") if "declared as Real" in f.message and "as Int" in f.message]
+    assert clash and clash[0].claim_ids == ["other", "ph-1"] and clash[0].severity == "warning" and "INT-GLOSSARY-001" not in codes(rep.findings)
+    c1 = by_code(rep.findings, "INT-CONFLICT-001")
+    assert any(f.claim_ids == ["ma-1", "ph-1"] for f in c1)                                        # the cross-report check
+    assert any(f.claim_ids[:1] == ["s-1"] and set(f.claim_ids[1:]) == {"ph-1", "ma-1"} for f in c1)  # the entailment path
     c2 = by_code(rep.findings, "INT-CONFLICT-002")
     assert c2 and set(c2[0].claim_ids) == {"ph-1", "ma-1"}
-    # Round 4 (stricter): on the entailment path too, a self-refuting ma-1 (phys(..., 16)) is named alone and demands no disclosure
+    # Round 4 (stricter): on the entailment path too, a self-refuting ma-1 (phys(..., 16)) is named alone and demands no disclosure;
+    # round 10: the cross-report check, no longer withheld, names it alone as well
     rep = run_integrity_checks(plan(), [p, m, third], syn, {**formalized, "ma-1": phys("ma-1", 16)}, {"s-1": Assertion(id="S", expr=cmp("eq", V("v"), R(15)))}, signing_key=KEY, config=CFG)
-    assert [f.claim_ids for f in by_code(rep.findings, "INT-CONFLICT-005")] == [["s-1", "ma-1"]]
+    assert sorted(f.claim_ids for f in by_code(rep.findings, "INT-CONFLICT-005")) == [["ma-1"], ["s-1", "ma-1"]]
     assert "INT-CONFLICT-001" not in codes(rep.findings) and "INT-CONFLICT-002" not in codes(rep.findings)
 
 
@@ -382,8 +391,11 @@ def test_non_verdict_statuses_name_the_responsible_party():
 def test_glossary_findings_name_both_parties():
     other = Problem.model_validate({"problem_id": "x", "request_id": REQ, "claim_id": "other", "query": "consistency", "symbols": [{"name": "v", "sort": "Int"}], "premises": [{"id": "P", "expr": cmp("gt", V("v"), I(0))}]})
     for order in ([phys("ph-1", 15), other], [other, phys("ph-1", 15), phys("ma-1", 15)]):
-        _, f = check_cross_report_consistency(order, request_id=REQ, config=CFG)
-        assert by_code(f, "INT-GLOSSARY-001")[0].claim_ids == ["other", "ph-1"]
+        res, f = check_cross_report_consistency(order, request_id=REQ, config=CFG)
+        # Round 10 (clearance c3, rewritten to a stricter rule): a sort clash between translations still names both parties, as
+        # the translation fault it is (INT-GLOSSARY-005, warning), and the joint check is decided instead of withheld
+        clash = [x for x in f if x.code == "INT-GLOSSARY-005" and "declared as" in x.message]
+        assert clash[0].claim_ids == ["other", "ph-1"] and res is not None and res.status is S.CONSISTENT and "INT-GLOSSARY-001" not in codes(f)
     res, f = check_cross_report_consistency([phys("ph-1", 15), phys("ma-1", 15, meaning="volume of the cylinder in cm^3")], request_id=REQ, config=CFG)
     assert res.status is S.CONSISTENT and codes(f) == ["INT-GLOSSARY-005"] and f[0].claim_ids == ["ma-1", "ph-1"]
     _, f = check_cross_report_consistency([phys("ph-1", 15), phys("ma-1", 15, meaning=" Speed in M/S ")], request_id=REQ, config=CFG)

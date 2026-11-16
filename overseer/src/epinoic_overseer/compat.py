@@ -29,9 +29,9 @@ API_MAJOR = 1
 
 REQUIRED_API: dict[str, tuple[str, ...]] = {
     'adapters': (
-        'BARE_NOTE_LEAD_RE', 'MAX_CLAIM_TEXT_CHARS', 'META_NARRATION_RE', 'PARAGRAPH_SPLIT_RE', 'TAIL_CLAIM_ID', 'check_excerpt',
-        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_certification', 'label_self_report', 'mask_outside_quotations', 'mask_quotations', 'not_a_self_report',
-        'opens_note_paragraph', 'quotation_only', 'reading_form', 'report_field_self_reports', 'segment', 'self_cert_vocabulary', 'self_report_spots', 'split_sentences',
+        'BARE_NOTE_LEAD_RE', 'MAX_CLAIM_TEXT_CHARS', 'META_NARRATION_RE', 'PARAGRAPH_SPLIT_RE', 'TAIL_CLAIM_ID', 'blank_model_marks', 'check_excerpt',
+        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_certification', 'label_self_report', 'mask_outside_quotations', 'mask_quotations', 'model_mark_ranges', 'not_a_self_report',
+        'OWN_TEXT_RULE', 'opens_note_paragraph', 'own_model_spans', 'own_text_spans', 'quotation_only', 'reading_form', 'report_field_self_reports', 'segment', 'self_cert_vocabulary', 'self_report_spots', 'split_sentences',
         'template_form', 'verification_label',
     ),
     'branches': (
@@ -78,7 +78,7 @@ REQUIRED_API: dict[str, tuple[str, ...]] = {
         'BLOCK_CLOSE', 'BLOCK_OPEN', 'ClaimRecord', 'ClaimVerificationOutcome', 'ProviderError', 'ProviderOutputError', 'ProviderResponse',
         'SpecialistReport', 'SuppliedText', 'TASK_AUTHORITY_KINDS', 'TaskRecord', 'TranslationResult', 'TranslationStatus', 'apply_subject_policy',
         'assess_release', 'binding_problem', 'build_summary', 'check_assertion', 'check_claim_sources', 'check_problem_grounding',
-        'compose_outcome', 'decide_eligibility', 'display_status_for', 'locate_quotation', 'outcome_diagnosis', 'parse_json_object',
+        'claim_display_status', 'compose_outcome', 'decide_eligibility', 'display_status_for', 'locate_quotation', 'outcome_diagnosis', 'parse_json_object',
         'previous_lines', 'report_diagnostics', 'resolve_profile', 'review_currency', 'semantic_restatement', 'sha256_text', 'subjects', 'truncate',
     ),
 }

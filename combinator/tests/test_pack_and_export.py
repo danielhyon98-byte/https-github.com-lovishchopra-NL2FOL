@@ -3,8 +3,9 @@
 * the instructions say what the agent combines (the specialists' answers to one request), name exactly the five closed
   transformation words, keep certainty at most the weakest source's, keep every figure, unit, mark, date and quotation
   exactly, never carry a note, self-certification, word count or question back as a claim, carry a decline or a deferral
-  of the work the student asked for word for word (pack 1.3), list every dropped claim with its reason, never hide a
-  contradiction, and ask for the exact output format and nothing else;
+  of the work the student asked for word for word (pack 1.3), keep a question the answer sets the student as content and
+  leave out only a question that asks the student or the router something back (pack 1.4), list every dropped claim
+  with its reason, never hide a contradiction, and ask for the exact output format and nothing else;
 * the machine-readable format is the published contract's vocabulary, word for word, and names no model;
 * the pack's identity is stable and changes with any byte of either file;
 * ``python -m epinoic_combinator.export --out <dir>`` writes the files and a manifest that ``read_export`` accepts, and
@@ -72,6 +73,13 @@ def _flat(text: str) -> str:
     "Do this whatever its `role` (such a sentence is often roled `other`).",
     "Never leave it out, never merge it with another claim, never reword or shorten it",
     "Never drop a decline or a deferral (rule 7).",
+    # pack 1.4 (round 10, integrated round c3: the ll-t16 synthesis kept "answer these ..." and dropped the questions as notes)
+    "a question to the student or the router that asks something back",
+    "A question the answer sets the student is not a note:",
+    "is content of the answer",
+    "never list it in `dropped` as a note or as a question to the student.",
+    "keep every question, item and step it announces as well, unless its `role` is `other`.",
+    "Never drop a question the answer sets the student as a note",
 ])
 def test_the_instructions_say_what_the_agent_must_do(phrase):
     assert phrase in _flat(INSTRUCTIONS), phrase
@@ -120,7 +128,7 @@ def test_the_identity_is_stable_and_changes_with_any_byte_or_the_version():
         changed = {**PACK.files, name: PACK.files[name] + b" "}
         assert pack_sha256(PACK.name, PACK.version, changed) != PACK.sha256
     assert pack_sha256(PACK.name, PACK.version + ".1", PACK.files) != PACK.sha256  # another version, whatever this release's is
-    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.3", "sha256": PACK.sha256}
+    assert PACK.identity() == {"name": "combinator-instructions", "version": "1.4", "sha256": PACK.sha256}  # 1.3 until round 10's clearance
 
 
 def test_export_writes_the_pack_and_a_manifest_read_export_accepts(tmp_path):

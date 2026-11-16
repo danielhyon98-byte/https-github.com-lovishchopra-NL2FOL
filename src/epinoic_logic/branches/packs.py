@@ -25,8 +25,8 @@ from ..adapters.history_specialist.sentences import split_sentences as _split_se
 from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
                                  find_quotation_spans, is_memory_label, is_self_certification, parser_quotation_spans, self_cert_vocabulary,
                                  strip_emphasis, unbalanced_double_quotes, verification_label)
-from ..adapters.self_report import is_worked_check, not_a_self_report, reading_form, report_field_self_reports, self_report_spots
-from ..adapters.sources import OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
+from ..adapters.self_report import blank_model_marks, is_worked_check, not_a_self_report, reading_form, report_field_self_reports, self_report_spots
+from ..adapters.sources import OWN_EXAMPLE_NOTE, OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from ..translate.grounding import FORM_DIFFERS, check_claim_sources, find_quotation, locate_excerpt, locate_quotation_inexact
@@ -70,6 +70,31 @@ def study_attributions(text: str) -> list[str]:
     return [x for _pos, x in sorted(found, key=lambda t: t[0])]
 _PCT_RE = re.compile(r"\b(\d{1,3}(?:\.\d+)?)\s*(?:per cent|percent(?!age)|%)")
 #: A from-memory label that speaks of quotations (a figures label does not vouch for a quotation).
+#: How far before and after a from-memory wording :func:`_labels_figures_from_memory` reads its sentence (a sentence is short).
+_MEMORY_SENTENCE_WINDOW = 600
+
+
+def _labels_figures_from_memory(text: str) -> bool:
+    """Whether the answer carries a from-memory label of the figures it gives (round-10 clearance, core handoff K5): a from-memory
+    wording (:data:`_MEMORY_LABEL_RE`) in a sentence that says nothing making it a statement about figures the writer withholds,
+    declines, would give or gives no source for (the ledger's own reading, ``integrity.ledger.labels_report_figures_from_memory``:
+    "... so I have left those figures out rather than give them from memory." labels nothing; ge-t16's mutations were told "the
+    from-memory label concerns dates and figures"), in the wording's own clause (``integrity.ledger.memory_label_vetoed``: a word of
+    another clause, "The poem never mentions the war, so ...", vetoes nothing). Each wording's sentence is read in a bounded window
+    around it (linear)."""
+    from ..integrity.ledger import memory_label_vetoed
+    for m in _MEMORY_LABEL_RE.finditer(text or ""):
+        lo = max(0, m.start() - _MEMORY_SENTENCE_WINDOW)
+        a = max(text.rfind(".", lo, m.start()), text.rfind("\n", lo, m.start()), text.rfind(";", lo, m.start()), lo - 1) + 1
+        stop = _MEMORY_SENTENCE_END_RE.search(text, m.end(), min(len(text), m.end() + _MEMORY_SENTENCE_WINDOW))
+        b = stop.start() if stop is not None else min(len(text), m.end() + _MEMORY_SENTENCE_WINDOW)
+        # the wording's own clause decides (``integrity.ledger.memory_label_vetoed``): a veto word of another clause vetoes nothing
+        if not memory_label_vetoed(text[a:b], m.start() - a, m.end() - a):
+            return True
+    return False
+
+
+_MEMORY_SENTENCE_END_RE = re.compile(r"[.;!?\n]")
 _QUOTE_MEMORY_LABEL_RE = re.compile(r"quot(?:ation|e)s?[^.;\n]{0,60}\bfrom memory\b|\bquoted from memory\b|\bfrom memory\b[^.;\n]{0,60}quot(?:ation|e)", re.IGNORECASE)
 #: Shortest quoted span the core pack reports as an unverifiable quotation (a title or a single term is not one).
 _MIN_QUOTE_CHARS = 12
@@ -92,7 +117,9 @@ _ATTRIBUTION_RE = re.compile(
 #: A credit to a source that was NOT supplied to this agent: '<Name>'s speaker / poem / narrator / lines' or '<Name> writes / admits / says'
 #: ('Hardy's speaker himself admits that ...', 'Hardy's poem identifies ...'), and, when no literary text was supplied, 'the poem', 'the poet',
 #: 'the speaker', 'the narrator'. Words credited this way that occur only in a colleague's own prose are the colleague's (CORE-SRC-005).
-_UNSUPPLIED_WORK_RE = re.compile(r"\b([A-ZÀ-ÖØ-Þ][\w'’-]+(?:\s+[A-ZÀ-ÖØ-Þ][\w'’-]+)?)(?:'s|’s)\s+(?:own\s+)?(speaker|poem|narrator|persona|poet|monologue|lines?|verse|stanza|text|novel|play|story|words|soldier|protagonist|character|sonnet|ode)\b")
+#: (A name starts after a blank or a mark and each of its words is at most 41 characters long: a joined token, "A-A-A..." or "A'A'A...",
+#: was read again from each of its letters; round 10, clearance c3.)
+_UNSUPPLIED_WORK_RE = re.compile(r"(?<![\w'’-])([A-ZÀ-ÖØ-Þ][\w'’-]{1,40}(?:\s+[A-ZÀ-ÖØ-Þ][\w'’-]{1,40})?)(?:'s|’s)\s+(?:own\s+)?(speaker|poem|narrator|persona|poet|monologue|lines?|verse|stanza|text|novel|play|story|words|soldier|protagonist|character|sonnet|ode)\b")
 _UNSUPPLIED_AUTHOR_RE = re.compile(r"\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ'’-]{2,})\s+(?:himself\s+|herself\s+|itself\s+)?(?=(?:writes|wrote|says|said|admits|admitted|identifies|identified|suggests|suggested|calls|called|describes|described|presents|presented|claims|claimed|insists|insisted|states|stated|declares|declared)\b)")
 _UNSUPPLIED_GENERIC = ("the poem", "the poet", "the speaker", "the narrator", "the persona", "the sonnet")
 _NOT_A_NAME = frozenset({"The", "This", "That", "These", "Those", "It", "Its", "He", "She", "They", "We", "I", "Against", "In", "On", "By", "And", "But", "Yet", "So", "Here", "There", "When", "While"})
@@ -313,6 +340,25 @@ def _figure_formal(report: SpecialistReport, prefix: str, limit: Optional[int] =
     return figure_grounding_checks(report, prefix, limit)
 
 
+def _prose_arith_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = None, reading: QuantReading = GENERAL) -> list[FormalCheck]:
+    """The arithmetic a prose answer states in words with its result in brackets or in a relation (:func:`.worked.prose_problems`: a share with
+    its per cent, a change with its per cent, a per cent with its working, a difference, a distance from a bound; clearance c3), each naming the
+    claims of its sentence, on every prose branch (the STEM branches read their own arithmetic)."""
+    if reading.si:
+        return []
+    from ..ir.schema import Problem
+    from .worked import prose_problems
+    out: list[FormalCheck] = []
+    for wp in prose_problems(report.original_response, report_id=report.report_id, request_id=report.request_id, prefix=f"{prefix}-prose"):
+        if limit is not None and len(out) >= limit:
+            break
+        out.append(FormalCheck(check_id=f"{prefix}-prose-{len(out) + 1}", kind="worked_arithmetic", description=wp.description,
+                               problem=Problem.model_validate(wp.problem), expected_if_sound="ENTAILED",
+                               claim_ids=tuple(_claims_for_statement(report, wp.statement, wp.phrase) or _claims_for_statement(report, wp.phrase, wp.phrase)),
+                               policy="linear", failure_severity="error", inconsistent_is_failure=False))
+    return out
+
+
 def _excerpt_around(statement: str, phrase: str, width: int = 160) -> str:
     """``statement`` as quoted in a check's description: whole when short, otherwise a window of ``width`` characters around the
     phrase the check reads, so a false phrase at the end of a long unpunctuated block is quoted, not cut off."""
@@ -415,6 +461,9 @@ def _source_names(texts: list[SuppliedText]) -> dict[str, tuple[str, str]]:
             if _is_peer_text(t):
                 phrase = re.sub(r"[-_]+", " ", author.lower())
                 names[phrase] = (t.document_id, f"the {phrase}")
+                # the colleague's other names ('the Spanish B specialist' for language-b-spanish-specialist; clearance c3, en-p10d)
+                for other in specialist_names(author):
+                    names.setdefault(other.lower(), (t.document_id, f"the {other.lower()}"))
             else:
                 names[author.lower()] = (t.document_id, author)
                 surname = author.split()[-1]
@@ -587,6 +636,9 @@ def _is_english_subject(subject: Optional[str]) -> bool:
         return False
 
 
+#: The request as a source of the misattribution check, and the phrases a sentence names it by ('The question states that "..."').
+_REQUEST_DOC_ID = "request:question"
+_REQUEST_NAMES = ("the question", "the task", "the prompt", "the request", "the exam question", "your question", "the assignment", "the brief")
 _UNSUPPLIED = "unsupplied:"
 #: A colleague credited by name whose report was not supplied to this agent ('The Economics specialist's view that ...').
 _UNSUPPLIED_PEER = _UNSUPPLIED + "specialist:"
@@ -725,6 +777,15 @@ _MARK_TOTAL_RE = re.compile(r"\b(?:provisional\s{1,3})?total(?:\s{1,3}mark)?(?:\
 #: 6/5 ... Total: 14/20", 6 over its maximum and criteria summing to 17, drew no finding).
 _MARK_PART_RE = re.compile(r"\b(?:(?:provisional\s{1,3})?mark(?:\s{1,3}for\s{1,3}[^:\n]{1,20})?\s{0,3}:|criterion\s{1,3}[A-Za-z](?![\w])(?:\s{0,3}\([^)\n]{1,60}\))?\s{0,3}[:\u2013\u2014-])"
                            r"\s{0,3}" + _MARK_VALUE, re.IGNORECASE)
+#: A line of criterion marks with its total in brackets: 'Provisional marks: A Language 7/12 · B Message 9/12 · C Conceptual understanding 5/6
+#: — provisional (23/30)' (clearance c3, sp-t16: a total that is not the sum of the criteria, and a criterion mark above its maximum, crossed
+#: with no finding).
+_MARK_LINE_RE = re.compile(r"\b(?:provisional\s{1,3})?marks\s{0,3}:[ \t]{0,3}(?P<body>[^\n]{1,400})", re.IGNORECASE)
+#: One criterion's mark in such a line: its letter and name, then the mark ('B Message 9/12', 'Criterion C: 5/6').
+_MARK_LINE_ITEM_RE = re.compile(r"(?:^|[·•;|,])\s{0,3}(?:criterion\s{1,3})?[A-Z](?![\w'’])(?:\s{1,3}[A-Za-z][\w'’-]{0,30}){0,4}\s{0,3}[:\u2013\u2014-]?\s{0,3}"
+                                + _MARK_VALUE)
+#: The line's total: '(23/30)', '(total 23/30)', 'total: 23/30'.
+_MARK_LINE_TOTAL_RE = re.compile(r"(?:\(\s{0,3}(?:total\s{0,3}:?\s{0,3})?|\btotal\s{0,3}:?\s{0,3})" + _MARK_VALUE, re.IGNORECASE)
 #: The most part marks one total is read against.
 _MAX_MARK_PARTS = 24
 MARKS_SCOPE = ("Marks check: proves a property of its encoding only: that the marks the feedback states are consistent with one another "
@@ -827,6 +888,75 @@ def _marks_formal(report: SpecialistReport, prefix: str, limit: Optional[int] = 
                                    description=(f"the total '{total.group(0)[:120]}' against the sum of the {len(part_marks)} part marks, whose maxima make up "
                                                 f"its maximum of {mx} [rule: the stated total lies within the sum of the parts' marks, their ranges included]"),
                                    problem=Problem.model_validate(prob), claim_ids=claims(total)))
+    if total is None and not parts:
+        out += _mark_line_checks(report, prefix, text, (limit if limit is not None else MAX_FORMAL_CHECKS) - len(out))
+    return out
+
+
+def _mark_line_checks(report: SpecialistReport, prefix: str, text: str, room: int) -> list[FormalCheck]:
+    """The checks of the marks lines of ``text`` (:data:`_MARK_LINE_RE`; clearance c3): each criterion mark against its maximum, and the line's
+    total against the sum of its criterion marks when their maxima make up the total's maximum. A line with fewer than two criterion marks
+    is not read (a lone 'Marks: 3/5' is the part reader's)."""
+    from ..ir.schema import Problem
+    out: list[FormalCheck] = []
+    V = lambda name: {"op": "var", "name": name}  # noqa: E731
+    I = lambda v: {"op": "int", "value": str(v)}  # noqa: E731
+    grounded = {"kind": "supplied_text", "verified": True, "note": "figure stated in the report itself"}
+    for line_no, line in enumerate(_MARK_LINE_RE.finditer(text), start=1):
+        body = line.group("body")
+        items = list(_MARK_LINE_ITEM_RE.finditer(body))[:_MAX_MARK_PARTS]
+        if len(items) < 2:
+            continue
+        spans = [(m.start(), m.end()) for m in items]
+        totals = [t for t in _MARK_LINE_TOTAL_RE.finditer(body) if not any(a <= t.start() < b for a, b in spans)]
+        claim_ids = tuple(_claims_mentioning(report, line.group(0)[:200]) or _claims_for_statement(report, line.group(0)[:200], line.group(0)[:200]))[:8]
+        for k, m in enumerate(items, start=1):
+            if len(out) >= room:
+                return out
+            n, mx, lo, hi = _mark_of(m)
+            prob = {"problem_id": f"marks-{report.report_id}-l{line_no}-{k}", "request_id": report.request_id, "claim_id": f"{report.report_id}:marks-l{line_no}-{k}",
+                    "query": "entailment", "symbols": [{"name": "awarded", "sort": "Int", "meaning": "the highest mark stated"},
+                                                       {"name": "maximum", "sort": "Int", "meaning": "the maximum it is stated out of"}],
+                    "premises": [{"id": "AWARDED", "expr": {"op": "eq", "left": V("awarded"), "right": I(max(n, hi))}, "label": f"stated mark {m.group(0).strip(' ·•;|,')[:80]}",
+                                  "grounding": grounded},
+                                 {"id": "MAXIMUM", "expr": {"op": "eq", "left": V("maximum"), "right": I(mx)}, "label": f"stated maximum {mx}", "grounding": grounded}],
+                    "conclusion": {"id": "WITHIN_MAXIMUM", "expr": {"op": "le", "left": V("awarded"), "right": V("maximum")},
+                                   "label": f"the mark stated in '{m.group(0).strip(' ·•;|,')[:80]}' is at most its maximum"},
+                    "notes": MARKS_SCOPE}
+            out.append(FormalCheck(check_id=f"{prefix}-marks-{len(out) + 1}", kind="marks_arithmetic",
+                                   description=f"the criterion mark '{m.group(0).strip(' ·•;|,')[:120]}' against its maximum [rule: a mark, and the top of its range, is at most its maximum]",
+                                   problem=Problem.model_validate(prob), claim_ids=claim_ids))
+        if not totals or len(out) >= room:
+            continue
+        total = totals[-1]
+        tn, tmx, tlo, thi = _mark_of(total)
+        part_marks = [_mark_of(m) for m in items]
+        if sum(p[1] for p in part_marks) != tmx:
+            continue  # the criteria's maxima do not make up the total's: no sum to check
+        symbols = [{"name": f"p{j}", "sort": "Int", "meaning": f"criterion mark {j} as stated (its highest)"} for j in range(1, len(part_marks) + 1)]
+        symbols += [{"name": f"p{j}_lo", "sort": "Int", "meaning": f"criterion mark {j}, its lowest"} for j in range(1, len(part_marks) + 1)]
+        symbols += [{"name": "total", "sort": "Int", "meaning": "the total the line states (its highest)"},
+                    {"name": "total_lo", "sort": "Int", "meaning": "the total the line states, its lowest"}]
+        premises = []
+        for j, (pn, pmx, plo, phi) in enumerate(part_marks, start=1):
+            premises.append({"id": f"P{j}", "expr": {"op": "eq", "left": V(f"p{j}"), "right": I(phi)}, "label": f"criterion {j}: {items[j - 1].group(0).strip(' ·•;|,')[:60]}",
+                             "grounding": grounded})
+            premises.append({"id": f"P{j}_LO", "expr": {"op": "eq", "left": V(f"p{j}_lo"), "right": I(plo)}, "label": f"criterion {j}, its lowest value {plo}",
+                             "grounding": grounded})
+        premises.append({"id": "TOTAL", "expr": {"op": "eq", "left": V("total"), "right": I(thi)}, "label": f"stated total {total.group(0).strip(' (')[:60]}", "grounding": grounded})
+        premises.append({"id": "TOTAL_LO", "expr": {"op": "eq", "left": V("total_lo"), "right": I(tlo)}, "label": f"stated total, its lowest value {tlo}", "grounding": grounded})
+        low = {"op": "add", "args": [V(f"p{j}_lo") for j in range(1, len(part_marks) + 1)]}
+        high = {"op": "add", "args": [V(f"p{j}") for j in range(1, len(part_marks) + 1)]}
+        prob = {"problem_id": f"marks-{report.report_id}-l{line_no}-total", "request_id": report.request_id, "claim_id": f"{report.report_id}:marks-l{line_no}-total",
+                "query": "entailment", "symbols": symbols, "premises": premises,
+                "conclusion": {"id": "TOTAL_OF_PARTS", "expr": {"op": "and", "args": [{"op": "ge", "left": V("total_lo"), "right": low},
+                                                                                     {"op": "le", "left": V("total"), "right": high}]},
+                               "label": "the stated total lies within the sum of the criterion marks (their ranges included)"},
+                "notes": MARKS_SCOPE}
+        out.append(FormalCheck(check_id=f"{prefix}-marks-{len(out) + 1}", kind="marks_arithmetic",
+                               description=(f"the total '{total.group(0).strip(' (')[:60]}' of the marks line '{line.group(0)[:120]}' against the sum of its {len(part_marks)} "
+                                            f"criterion marks, whose maxima make up its maximum of {tmx} [rule: the stated total lies within the sum of the criterion marks]"),
+                               problem=Problem.model_validate(prob), claim_ids=claim_ids))
     return out
 
 
@@ -1133,7 +1263,7 @@ class CorePack:
                 # 'not found': the hub names it INT-REQ-010 and the subject pack warns, so no error here contradicts them
                 if g.verified is False and FORM_DIFFERS not in (g.detail or ""):
                     f.append(StructuralFinding(code="CORE-SRC-001", severity="error", message="cited excerpt not found in the supplied text", claim_ids=[c.claim_id], rule_source="source integrity (every pack's non-negotiable 2)"))
-        has_memory_label = bool(_MEMORY_LABEL_RE.search(text))
+        has_memory_label = _labels_figures_from_memory(text)
         if _PCT_RE.search(text) and not report.supplied_texts and not has_memory_label and not any(c.source_refs for c in report.claims):
             f.append(StructuralFinding(code="CORE-SRC-002", severity="info", message="figures stated without supplied sources, library references or a from-memory label", rule_source="sources.md L5 (working rule)"))
         f += self._guarded("unsourced real-world figures", lambda: _unsourced_world_figures(report, request_text), f) or []
@@ -1141,7 +1271,7 @@ class CorePack:
         f += disagreeing or []
         f += self._guarded("unverifiable quotations", lambda: self._unverifiable_quotations(report, has_memory_label, disputed or frozenset(), request_text, r), f) or []
         if report.supplied_texts:
-            f += self._guarded("misattributed quotations", lambda: self._misattributed_quotations(report, r), f) or []
+            f += self._guarded("misattributed quotations", lambda: self._misattributed_quotations(report, r, request_text), f) or []
             f += self._guarded("names of the supplied texts", lambda: self._near_miss_case_names(report, request_text), f) or []
         f += self._guarded("quotation marks", lambda: self._unbalanced_quotation_marks(report, r), f) or []
         f += self._guarded("self-certification", lambda: self._self_certification(report, r), f) or []
@@ -1224,7 +1354,7 @@ class CorePack:
         all_notes = " ".join(a for c in report.claims for a in c.assumptions).casefold()
         all_carried = {_quote_key(r.excerpt) for x in report.claims for r in x.source_refs if r.excerpt}
         for c in report.claims:
-            if c.claim_role == "other" or OWN_MODEL_NOTE in c.assumptions:
+            if c.claim_role == "other" or OWN_MODEL_NOTE in c.assumptions or OWN_EXAMPLE_NOTE in c.assumptions:
                 continue  # (the writer's own model sentence the parser recorded as such is no quotation: round 9, c2 la-3)
             text, _removed = strip_json_spans(c.claim_text)
             # the quotations a parser reads (``parser_quotation_spans``): a correction or a suggestion in a marking task is the writer's
@@ -1318,7 +1448,7 @@ class CorePack:
         # the writer's own model sentence under a 'Model:' or 'Rewrite:' label (``sources.own_model_words``, recorded by the parser as
         # OWN_MODEL_NOTE) is no quotation to verify (round 9, c2 la-3: once CORE-SRC-006 no longer charged it, it was named unverifiable)
         own = {_quote_key(q) for _s, _e, inner in spans for q in [inner.strip()] if q
-               and any(OWN_MODEL_NOTE in c.assumptions and q in c.claim_text for c in report.claims)}
+               and any((OWN_MODEL_NOTE in c.assumptions or OWN_EXAMPLE_NOTE in c.assumptions) and q in c.claim_text for c in report.claims)}
         if own:
             quoted = [q for q in quoted if _quote_key(q) not in own]
         # a word quoted from a quotation the answer already gives ('the verb "killed"' after '"We killed him openly"') is that quotation's
@@ -1347,7 +1477,7 @@ class CorePack:
         return [StructuralFinding(code="CORE-SRC-003", severity="warning", message=f"{len(quoted)} quotation(s) cannot be verified: {where} and {why}: {shown}", claim_ids=claim_ids, rule_source=rule)]
 
     @staticmethod
-    def _misattributed_quotations(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
+    def _misattributed_quotations(report: SpecialistReport, reading: QuantReading = GENERAL, request_text: Optional[str] = None) -> list[StructuralFinding]:
         """CORE-SRC-005: a quotation that the sentence attributes to a named source (a
         supplied text's author or title, a peer agent such as 'the History specialist',
         'the poem' when one non-peer text was supplied) with a saying verb, but whose
@@ -1363,7 +1493,15 @@ class CorePack:
             return []
         names = _source_names(texts)
         own_names = frozenset(n.lower() for n in specialist_names(report.agent_id or ""))
-        by_id = {t.document_id: t for t in texts}
+        held_in = list(texts)
+        if request_text and request_text.strip():
+            # the request as a source a sentence credits ('The question states that "..."'; clearance c3, ge-p10c: words only in the Chemistry
+            # specialist's report credited to the question crossed with a source reference to the peer): checked like any named text
+            request_doc = SuppliedText(document_id=_REQUEST_DOC_ID, title=None, author="router", text=request_text[:50_000])
+            held_in.append(request_doc)
+            for phrase in _REQUEST_NAMES:
+                names.setdefault(phrase, (_REQUEST_DOC_ID, phrase))
+        by_id = {t.document_id: t for t in held_in}
         by_claim = {c.claim_id: c.claim_text for c in report.claims}
         out: list[StructuralFinding] = []
         seen: set[tuple[str, str]] = set()
@@ -1378,7 +1516,9 @@ class CorePack:
                 if attributed is None:
                     continue
                 doc_id, label, others = attributed
-                located = sorted(t.document_id for t in texts if _holds_quotation(excerpt, t))
+                # the request holds words only for a credit that names it: 'the essay ... answers "how and why"' quotes the task's words
+                # in a sentence about the essay, and no credit of the request is read there
+                located = sorted(t.document_id for t in (held_in if doc_id == _REQUEST_DOC_ID else texts) if _holds_quotation(excerpt, t))
                 if doc_id.startswith(_UNSUPPLIED_PEER):
                     # credited to a colleague whose report this agent was not given: the words of a supplied text are not the colleague's
                     if not located or (excerpt, doc_id) in seen:
@@ -1577,11 +1717,14 @@ class CorePack:
         out: list[StructuralFinding] = []
         seen: set[str] = set()
         covered: list[str] = []  # the reading forms of the sentences named, so the answer-wide pass never names one twice
+        # rule model-marks (round-10 clearance c3, ph-t16): the tick after each marking point of a model line is a mark annotation, read
+        # as one in every reading below (the answer with those ticks blanked keeps its length, so every offset and sentence stays)
+        response = blank_model_marks(report.original_response)
         # the SI reading reads a view with maths and quantities masked; a worked check ("Check: 2(4) + 3 = 11 ✓") shows its
         # computation only in the statement as written, so the vetoes also read that
-        written = ({(p, n): report.original_response[a:b] for p, n, a, b in si_statements(report.original_response, reading.profile)}
+        written = ({(p, n): response[a:b] for p, n, a, b in si_statements(response, reading.profile)}
                    if reading.si else {})
-        for pi, si, sent, _para in _sentences_for(report.original_response, reading):
+        for pi, si, sent, _para in _sentences_for(response, reading):
             # an outside party's check, a worked check, a question: never a self-report
             read = reading_form(sent)
             vetoed = not_a_self_report(read) or ((pi, si) in written and not_a_self_report(reading_form(written[(pi, si)])))
@@ -1618,7 +1761,7 @@ class CorePack:
                            "attached to is a claim like any other")
             out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=message, claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
         # the answer as written, read by the one reader whatever this branch's sentence reading kept (a heading, a line, a table cell)
-        for pno, piece in self_report_spots(report.original_response):
+        for pno, piece in self_report_spots(response):
             key = " ".join(reading_form(piece).split())
             if not key or any(key in k or k in key for k in covered if k):
                 continue
@@ -1647,7 +1790,7 @@ class CorePack:
         pack's reading."""
         r = self._reading(report)
         out: list[FormalCheck] = []
-        for build in (_quant_formal, _chronology_formal, _marks_formal, _figure_formal):
+        for build in (_quant_formal, _chronology_formal, _marks_formal, _figure_formal, _prose_arith_formal):
             if len(out) >= MAX_FORMAL_CHECKS:
                 break  # nothing beyond the limit is built: the check-limit finding names it
             try:
@@ -1747,7 +1890,12 @@ class PsychologyPack:
         return f
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
-        return []  # numeric self-consistency comes from CorePack
+        # numeric self-consistency comes from CorePack; worked equations ('4.5 − 0.6 = 4.9 points', '(3.7 ÷ 2.9 ≈ 1.8)') are decided here as on
+        # the Economics, Business and generic branches (clearance c3: they were named undecided, CORE-QNT-001, and a wrong one crossed)
+        try:
+            return _worked_checks(report, "psychology-worked", set())
+        except Exception:  # noqa: BLE001 - the core pack's undecided reader still names every worked equation
+            return []
 
 
 #: An elasticity named in full or by its abbreviation: 'price elasticity of demand', 'income elasticity of demand', 'PED', 'YED', 'XED', 'PES'.
@@ -1826,8 +1974,8 @@ def _worked_branch(report: SpecialistReport) -> Optional[str]:
     from ..translate.subjects import resolve_profile
     from .registry import BRANCHES
     key = resolve_profile(report.subject).key
-    if key in ("economics", "business_management"):
-        return key
+    if key in ("economics", "business_management", "psychology"):
+        return key  # (clearance c3: the Psychology branch's '4.5 − 0.6 = 4.9 points' was named undecided only)
     if any(key in b.profile_keys for b in BRANCHES if b.key != "generic"):
         return None
     return "generic"

@@ -200,7 +200,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `verify_report_digest` | `epinoic_logic.integrity.contracts` | `verify_report_digest` |
 | `words_as_digits` | `epinoic_logic.integrity.ledger` | `_words_as_digits` |
 
-## `epinoic_logic.api.translate` (38 names)
+## `epinoic_logic.api.translate` (39 names)
 
 | public name | internal module | internal name |
 |---|---|---|
@@ -228,6 +228,7 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `check_assertion` | `epinoic_logic.translate.grounding` | `_check_assertion` |
 | `check_claim_sources` | `epinoic_logic.translate.grounding` | `check_claim_sources` |
 | `check_problem_grounding` | `epinoic_logic.translate.grounding` | `check_problem_grounding` |
+| `claim_display_status` | `epinoic_logic.translate.outcome` | `claim_display_status` |
 | `compose_outcome` | `epinoic_logic.translate.outcome` | `compose_outcome` |
 | `decide_eligibility` | `epinoic_logic.translate.eligibility` | `decide_eligibility` |
 | `display_status_for` | `epinoic_logic.translate.outcome` | `display_status_for` |
@@ -243,15 +244,17 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `subjects` | `epinoic_logic.translate.subjects` | (the module itself) |
 | `truncate` | `epinoic_logic.translate.common` | `truncate` |
 
-## `epinoic_logic.api.adapters` (28 names)
+## `epinoic_logic.api.adapters` (33 names)
 
 | public name | internal module | internal name |
 |---|---|---|
 | `BARE_NOTE_LEAD_RE` | `epinoic_logic.adapters.markdown` | `BARE_NOTE_LEAD_RE` |
 | `MAX_CLAIM_TEXT_CHARS` | `epinoic_logic.adapters.markdown` | `MAX_CLAIM_TEXT_CHARS` |
 | `META_NARRATION_RE` | `epinoic_logic.adapters.english_specialist.parser` | `META_NARRATION_RE` |
+| `OWN_TEXT_RULE` | `epinoic_logic.adapters.own_text` | `OWN_TEXT_RULE` |
 | `PARAGRAPH_SPLIT_RE` | `epinoic_logic.adapters.english_specialist.parser` | `_PARAGRAPH_SPLIT_RE` |
 | `TAIL_CLAIM_ID` | `epinoic_logic.adapters.english_specialist.parser` | `TAIL_CLAIM_ID` |
+| `blank_model_marks` | `epinoic_logic.adapters.self_report` | `blank_model_marks` |
 | `check_excerpt` | `epinoic_logic.adapters.sources` | `check_excerpt` |
 | `claim_is_self_report` | `epinoic_logic.adapters.self_report` | `claim_is_self_report` |
 | `find_json_spans` | `epinoic_logic.adapters.markdown` | `find_json_spans` |
@@ -263,8 +266,11 @@ is a breaking change for the overseer; the overseer's own suite imports every na
 | `label_self_report` | `epinoic_logic.adapters.self_report` | `label_self_report` |
 | `mask_outside_quotations` | `epinoic_logic.adapters.self_report` | `mask_outside_quotations` |
 | `mask_quotations` | `epinoic_logic.adapters.markdown` | `mask_quotations` |
+| `model_mark_ranges` | `epinoic_logic.adapters.self_report` | `model_mark_ranges` |
 | `not_a_self_report` | `epinoic_logic.adapters.self_report` | `not_a_self_report` |
 | `opens_note_paragraph` | `epinoic_logic.adapters.markdown` | `opens_note_paragraph` |
+| `own_model_spans` | `epinoic_logic.adapters.own_text` | `own_model_spans` |
+| `own_text_spans` | `epinoic_logic.adapters.own_text` | `own_text_spans` |
 | `quotation_only` | `epinoic_logic.adapters.self_report` | `quotation_only` |
 | `reading_form` | `epinoic_logic.adapters.self_report` | `reading_form` |
 | `report_field_self_reports` | `epinoic_logic.adapters.self_report` | `report_field_self_reports` |

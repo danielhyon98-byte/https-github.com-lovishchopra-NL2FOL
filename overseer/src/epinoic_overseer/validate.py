@@ -708,11 +708,41 @@ def _false_conflict_gap(ids: dict[str, list[str]], ctx: "_Ctx") -> Optional[str]
             if f.code in ("INT-CONFLICT-001", "INT-CONFLICT-005") and accused & set(f.claim_ids):
                 named.update(c for c in f.claim_ids if c not in synthesized)
     local = sorted(c for c in named if c in texts and (_LOCAL_VALUE_RE.search(texts[c][:4000]) or evaluation_points(texts[c])))
-    if not local:
+    if local:
+        return (f"the named conflict rests on claim(s) {', '.join(local[:6])}, whose text states a check, an evaluation point or a supposition: "
+                "OVS-JOINT-003 reads apart only a value a premise of the claim fixes, so its silence does not show the conflict is the claims' own "
+                f"(rule {FALSE_CONFLICT_GAP_RULE}); human review")
+    # round-10 clearance c3 (the c3 overseer-agent pool: ch-p10c's correct accusations, pooled through a symbol 'x0' that two translations
+    # gloss only as "value of the left-hand side of a stated equation", were refuted by re-running the same pooled encoding): a conflict
+    # whose claims share a symbol one of them glosses by no quantity, or by its own statement, another function or other figures (rule
+    # local-glosses), may exist only through pooling one name for two things; OVS-JOINT-003 reads the second kind apart and names it when
+    # the conflict then disappears, and no check can read the first, so its silence refutes neither
+    shared = _pooled_name_doubts(ctx, sorted(named))
+    if not shared:
         return None
-    return (f"the named conflict rests on claim(s) {', '.join(local[:6])}, whose text states a check, an evaluation point or a supposition: "
-            "OVS-JOINT-003 reads apart only a value a premise of the claim fixes, so its silence does not show the conflict is the claims' own "
-            f"(rule {FALSE_CONFLICT_GAP_RULE}); human review")
+    return (f"the named conflict rests on the symbol(s) {', '.join(shared[:6])}, which its claims share while one of them glosses it by no quantity, "
+            "by its own statement, by another function or by other figures: the conflict may exist only through pooling one name for two "
+            f"quantities, which the silence of OVS-JOINT-003 does not decide (rule {FALSE_CONFLICT_GAP_RULE}); human review")
+
+
+def _pooled_name_doubts(ctx: "_Ctx", claim_ids: list[str]) -> list[str]:
+    """Rule ``false-conflict-gap`` (round-10 clearance c3): the symbol names the journaled formalizations of ``claim_ids`` share while
+    one of them carries no gloss, or rule ``local-glosses`` reads them apart (``checks.joint.local_gloss_names``). Never raises: a pool
+    that cannot be read doubts nothing (the other rules decide)."""
+    try:
+        from .checks.joint import derived_pool, local_gloss_names
+        pool = {p.claim_id: p.problem for p in derived_pool(ctx.view)}
+        probs = [pool[c] for c in claim_ids if c in pool and pool[c] is not None]
+        if len(probs) < 2:
+            return []
+        meanings: dict[str, list[str]] = {}
+        for p in probs:
+            for sym in p.symbols:
+                meanings.setdefault(sym.name, []).append(" ".join((sym.meaning or "").split()))
+        bare = {n for n, ms in meanings.items() if len(ms) >= 2 and any(not m for m in ms)}
+        return sorted(bare | set(local_gloss_names(probs)))
+    except Exception:  # noqa: BLE001
+        return []
 
 
 #: The transformations whose synthesized claim the ledger holds to its one cited source's text (INT-LEDGER-010 names any

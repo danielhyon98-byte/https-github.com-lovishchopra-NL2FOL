@@ -9,9 +9,12 @@ Two questions that only a solver can answer soundly across agents:
 
 Both rely on a SHARED GLOSSARY: symbols with the same name across problems denote
 the same proposition or quantity. The translator is instructed to reuse the request's
-glossary; a symbol declared with different sorts in two problems is reported as a
-glossary conflict (naming both claims) and the joint check is not run; a symbol
-glossed with a different meaning is reported as a warning and the check still runs.
+glossary; a symbol declared with different sorts in two problems is a glossary conflict
+naming both claims: the consistency check reads the two declarations apart and names the
+clash as a translation fault (INT-GLOSSARY-005, warning; round-10 clearance c3), while a
+joint problem that cannot read it apart (a synthesized claim's entailment) is withheld
+(INT-GLOSSARY-001); a symbol glossed with a different meaning, or by its own claim's
+statement (rule local-glosses), is read apart with a warning and the check still runs.
 
 Joint problems never embed raw claim ids in assertion ids. Each pooled problem gets a
 short alias (``c0``, ``c1``, ...) and a :class:`JointMap` records which claim and
@@ -83,7 +86,7 @@ def _norm_meaning(m: Optional[str]) -> str:
 
 #: Words a gloss may add, drop or move without changing the quantity it names: articles, the prepositions that date a
 #: stock at a year ("in 1870", "by 1870", "at 1870"), approximation words and punctuation.
-_GLOSS_STOP = frozenset("the a an of in by at on about around roughly approximately approx c ca circa some nearly almost and or as for its so thus then that which is are was were be been".split())
+_GLOSS_STOP = frozenset("the a an of in by at on about around roughly approximately approx c ca circa some nearly almost and or as for its so thus then that which is are was were be been under with from into within using via".split())
 _GLOSS_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)*|[^\W\d_]+(?:['’-][^\W\d_]+)*")
 #: A part label of a question ("part (a)", "(c)", "(ii)", "part b", "question 2(b)"): content of the gloss, never the
 #: article 'a' or the circa 'c' the stop list sets aside, so 'marks allocated to part (a)' and '... part (c)' differ.
@@ -194,12 +197,76 @@ _GLOSS_SHIFT_WORDS = frozenset({"before", "after", "new", "initial", "final", "p
 #: Proper names a gloss carries ("Calvessa", "Montgomery"): capitalised words not at the gloss's start.
 _PROPER_NAME_RE = re.compile(r"(?<=[\w,;:)’'] )([A-Z][a-z][a-z'’-]+)")
 
+# Round-10 clearance (c3, rule local-glosses): the translator named per-claim quantities with one symbol across claims, and the pool
+# charged the specialist with the collisions at error level. ch-p10c glossed 'x0' 'value of the left-hand side of a stated equation'
+# in seven claims (170.38 in s3.1, 95,000 in s4.2, 44.01 in s4.6, 2 in s6.2); maa-t16 used 'fm3' for f(−3) ('f(-3) from the cubic')
+# in m2.1 and for the antiderivative's F(−3) ('F(-3)') in m5.5, and 'd1' for f′(−1) ("f'(-1) = 3 + 6 - 9") in m3.5 and for f′(1)
+# ('3 - 6 - 9') in m6.3. Three readings now name such symbols apart, as the overseer's rule local-glosses does: a gloss that refers
+# to its own claim's statement (an equation, relation, line or step it calls stated, or "this claim", "this step") names that
+# claim's own quantity, never one another claim shares; the functions a gloss names are compared with their case and primes ('f'
+# against 'F', 'f' against "f'"); and the arithmetic a gloss writes is compared as written ('3 + 6 - 9' against '3 - 6 - 9'), with a
+# minus sign written against a figure read as its sign ('f(-3)' against 'f(3)'). A sort clash between two translations (ec-t16:
+# 'boats19' Real in g11.7 and Int in g11.9) is a translation fault too: the consistency check reads the declarations apart and the
+# clash is a warning (:func:`rename_sort_clashes_apart`), never an error that withholds the check and is charged to the specialist.
+
+#: A gloss that refers to its own claim's statement: an equation, relation, line or step it calls stated, or one it calls "this"
+#: ("value of the left-hand side of a stated equation", "the value in this step"). A definite description ("the x the claim
+#: states", "the left-hand side of the ideal gas equation") names one quantity every holder shares (the overseer's rule
+#: local-glosses reads it alike).
+_CLAIM_LOCAL_GLOSS_RE = re.compile(r"\bstated[ \t]{1,3}(?:equation|relation|line|step)s?\b"
+                                   r"|\bthis[ \t]{1,3}(?:claim|step|line|statement|equation|relation)(?:['’]s)?\b", re.IGNORECASE)
+#: A function a gloss names: one letter, its primes, an opening bracket ("f(-3)", "F(3)", "f'(1)", "g′(x)"); case and primes kept.
+_GLOSS_FUNCTION_RE = re.compile(r"(?<![A-Za-z0-9_'’′])([A-Za-z])([′'’\"]{0,3})\(")
+#: Arithmetic a gloss writes: figures joined by operators ("3 + 6 - 9", "48,000 ÷ 412", "81/4 + 27"), each run read as written
+#: (spaces, brackets and thousands separators aside). Bounded runs and one operator per repetition: linear in the gloss.
+_GLOSS_ARITH_RE = re.compile(r"[−-]?\d{1,15}(?:[.,]\d{1,15}){0,8}(?:[ \t]{0,3}[-−+×*/÷^][ \t]{0,3}\(?[ \t]{0,2}[−-]?\d{1,15}(?:[.,]\d{1,15}){0,8}\)?){1,40}")
+#: A minus sign written against a figure ("f(-3)", "= -12", "−297/4"): the figure's sign, read with it. A minus after a figure,
+#: a letter or a closing bracket is an operator ("3 - 6"), and the figure keeps no sign.
+_SIGNED_FIGURE_RE = re.compile(r"(?<![\w.)\]])[−-](?=\d)")
+#: The longest gloss the readings read (a gloss is a short description; a longer one is read up to this many characters).
+_GLOSS_READ_MAX = 2000
+#: What may follow a unit symbol that stands alone at the end of a gloss or of its bracket (", ms", "(ms)", ", ms (round robin)").
+_UNIT_END_RE = re.compile(r"[ \t]{0,3}(?:$|[)\],;(\[])")
+
+
+def claim_local_gloss(meaning: Optional[str]) -> bool:
+    """Whether a gloss refers to its own claim's statement (rule ``local-glosses``, :data:`_CLAIM_LOCAL_GLOSS_RE`): such a symbol is
+    the claim's own quantity and is read apart from every other claim's symbol of that name before pooling."""
+    return bool(meaning) and _CLAIM_LOCAL_GLOSS_RE.search(meaning[:_GLOSS_READ_MAX]) is not None
+
+
+def _gloss_functions(raw: str) -> frozenset[str]:
+    """The functions a gloss names (:data:`_GLOSS_FUNCTION_RE`), each as its letter (case kept) and its primes ("f", "F", "f'")."""
+    out: set[str] = set()
+    for m in _GLOSS_FUNCTION_RE.finditer(raw):
+        primes = m.group(2)
+        out.add(m.group(1) + "'" * (len(primes) + primes.count('"')))
+    return frozenset(out)
+
+
+def _gloss_arithmetic(raw: str) -> frozenset[str]:
+    """The arithmetic runs a gloss writes (:data:`_GLOSS_ARITH_RE`), each normalised: spaces and brackets removed, '−' read as '-',
+    '×' as '*', '÷' as '/', a thousands separator removed."""
+    out: set[str] = set()
+    for m in _GLOSS_ARITH_RE.finditer(raw):
+        run = re.sub(r"[ \t()]", "", m.group(0)).replace("−", "-").replace("×", "*").replace("÷", "/")
+        run = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", run)
+        for op in ("+", "*"):  # a sum or a product of figures alone is one run in any order ('2,150 × 48,000' is '48,000 × 2,150')
+            parts = run.split(op)
+            if len(parts) > 1 and all(part and not re.search(r"[-+*/^]", part[1:]) for part in parts):
+                run = op.join(sorted(parts))
+                break
+        out.add(run)
+    return frozenset(out)
+
 
 @dataclass(frozen=True)
 class GlossReading:
     """What a gloss names, by kind (rule ``same-gloss``): its content words and figures (:func:`gloss_content` with the
     attribution phrases and proper names set aside), and the figures, labels, units, scales, proper names, role words and
-    negations it states."""
+    negations it states. Round 10 (c3, rule local-glosses): the functions it names (case and primes kept) and the arithmetic it
+    writes; ``negated`` is any negation, ``plain_negated`` a negation word ("not", "no", "without", ...) and ``non_of`` the
+    words a "non-" compound negates ("non-aluminium": "aluminium"), which negate the other gloss only where it states them."""
     content: frozenset[str]
     figures: frozenset[str]
     labels: frozenset[str]
@@ -209,6 +276,10 @@ class GlossReading:
     roles: frozenset[str]
     negated: bool
     shifts: frozenset[str] = frozenset()
+    functions: frozenset[str] = frozenset()
+    arithmetic: frozenset[str] = frozenset()
+    plain_negated: bool = False
+    non_of: frozenset[str] = frozenset()
 
 
 def _role_groups() -> tuple[frozenset[str], ...]:
@@ -270,6 +341,8 @@ def gloss_reading(meaning: Optional[str]) -> GlossReading:
     roles: set[str] = set()
     shifts: set[str] = set()
     negated = False
+    plain_negated = False
+    non_of: set[str] = set()
     content: set[str] = set()
     toks = list(_GLOSS_TOKEN_RE.finditer(text))
     groups = _role_groups()
@@ -277,15 +350,29 @@ def gloss_reading(meaning: Optional[str]) -> GlossReading:
         whole = m.group(0)
         if whole[:1].isdecimal():
             fig = re.sub(r"(?<=\d),(?=\d{3}\b)", "", whole)
+            # round 10 (c3, rule local-glosses): a minus written against the figure is its sign ('f(-3)' is not 'f(3)')
+            if m.start() and _SIGNED_FIGURE_RE.match(text, m.start() - 1):
+                fig = "-" + fig
             figures.add(fig)
             content.add(fig)
             continue
         # round 9 (c2): a hyphenated compound is read as its words ("worst-case", "distilled-water", "non-renewable")
-        for tok in (whole.split("-") if "-" in whole else (whole,)):
+        parts = whole.split("-") if "-" in whole else (whole,)
+        for k, tok in enumerate(parts):
             if not tok:
                 continue
             if tok in _GLOSS_NEGATIONS or tok.endswith(("n't", "n’t")):
                 negated = True
+                if tok == "non":
+                    # round 10 (c3): "non-X" negates X only where the other gloss states X ("non-renewable" against "renewable");
+                    # beside a gloss that never states X it is a modifier ("false positives (non-aluminium flagged)")
+                    nxt = next((x for x in parts[k + 1:] if x), None)
+                    if nxt is None and i + 1 < len(toks) and not toks[i + 1].group(0)[:1].isdecimal():
+                        nxt = next((x for x in toks[i + 1].group(0).split("-") if x), None)
+                    if nxt:
+                        non_of.update(_gloss_stems(nxt))
+                else:
+                    plain_negated = True
                 continue
             if tok in _GLOSS_SCALES:
                 scales.add(tok)
@@ -296,7 +383,10 @@ def gloss_reading(meaning: Optional[str]) -> GlossReading:
                 before = text[max(0, m.start() - 2):m.start()]
                 prev = toks[i - 1].group(0) if i else ""
                 after = text[m.end():m.end() + 1]
-                if before.endswith("/") or after == "/" or prev in ("in", "per") or prev[:1].isdecimal():
+                # round 10 (c3): a unit symbol standing alone after a comma or an opening bracket at the end of the gloss or of
+                # its bracket ("P4 completion time under FCFS, ms", "time (ms)") is in a unit position too
+                trailing = before.rstrip()[-1:] in (",", "(", "[") and _UNIT_END_RE.match(text, m.end()) is not None
+                if before.endswith("/") or after == "/" or prev in ("in", "per") or prev[:1].isdecimal() or trailing:
                     unit = tok
             if unit is not None:
                 units.add(unit)
@@ -311,8 +401,9 @@ def gloss_reading(meaning: Optional[str]) -> GlossReading:
                         break
                 content.add(stem)
     content |= labels
+    head = raw[:_GLOSS_READ_MAX]
     return GlossReading(frozenset(content), frozenset(figures), frozenset(labels), frozenset(units), frozenset(scales), names, frozenset(roles), negated,
-                        frozenset(shifts))
+                        frozenset(shifts), _gloss_functions(head), _gloss_arithmetic(head), plain_negated, frozenset(non_of))
 
 
 def gloss_difference(a: Optional[str], b: Optional[str]) -> Optional[str]:
@@ -321,11 +412,22 @@ def gloss_difference(a: Optional[str], b: Optional[str]) -> Optional[str]:
     names one: a negation, or a shift in time or state (:data:`_GLOSS_SHIFT_WORDS`), on one side; a figure, part label, unit, scale, proper name or role word on each side that the
     other lacks; or content so far apart that what the glosses share is fewer than three words or less than three times
     what either adds."""
-    if _norm_meaning(a) == _norm_meaning(b) or gloss_content(a) == gloss_content(b):
+    if _norm_meaning(a) == _norm_meaning(b):
         return None
     ra, rb = gloss_reading(a), gloss_reading(b)
+    # round 10 (c3, rule local-glosses): another function ('f(-3)' against 'F(-3)'), other arithmetic ("f'(-1) = 3 + 6 - 9" against
+    # '3 - 6 - 9') or a figure of another sign names another quantity, whatever words the glosses share
+    for kind, xa, xb in (("functions", ra.functions, rb.functions), ("arithmetic", ra.arithmetic, rb.arithmetic), ("figures", ra.figures, rb.figures)):
+        if xa - xb and xb - xa:
+            return f"{kind} {sorted(xa - xb)} against {sorted(xb - xa)}"
+    if gloss_content(a) == gloss_content(b):
+        return None
     if ra.negated != rb.negated:
-        return "one gloss negates what the other states"
+        neg, other = (ra, rb) if ra.negated else (rb, ra)
+        # round 10 (c3): a "non-" compound negates only what the other gloss states ("non-renewable resources" against "renewable
+        # resources"); beside a gloss that never states it, it describes ("false positives (non-aluminium flagged)", "false positives")
+        if neg.plain_negated or not neg.non_of or neg.non_of & other.content:
+            return "one gloss negates what the other states"
     if ra.shifts != rb.shifts:
         return f"a shift in time or state ({sorted(ra.shifts ^ rb.shifts)}) only one gloss states"
     for kind, xa, xb in (("figures", ra.figures, rb.figures), ("part labels", ra.labels, rb.labels), ("units", ra.units, rb.units),
@@ -336,7 +438,7 @@ def gloss_difference(a: Optional[str], b: Optional[str]) -> Optional[str]:
         ga, gb = (ra.roles & g) - rb.roles, (rb.roles & g) - ra.roles
         if ga and gb:
             return f"role words {sorted(ga)} against {sorted(gb)}"
-    ca, cb = ra.content, rb.content
+    ca, cb = _fold_abbreviations(ra.content, rb.content, ra.roles | rb.roles)
     if ca <= cb or cb <= ca:
         return None
     shared = ca & cb
@@ -344,6 +446,37 @@ def gloss_difference(a: Optional[str], b: Optional[str]) -> Optional[str]:
     if len(shared) >= 3 and len(shared) >= 3 * extra:
         return None
     return f"content {sorted(ca - cb)} against {sorted(cb - ca)}"
+
+
+#: Abbreviations a gloss may write for a word the other gloss spells out (round 10, c3: bi-t16 'ctrl roots: inter cells' against
+#: 'control roots: interphase cells'), as light stems. A word of three letters or more that begins exactly one word only the other
+#: gloss states is read as that word too ('inter' and 'interphase', 'ext' and 'extract'); see :func:`_fold_abbreviations`.
+_GLOSS_ABBREVIATIONS: dict[str, str] = {"ctrl": "control", "ctl": "control", "cntrl": "control", "temp": "temperatur", "conc": "concentration",
+                                         "vol": "volum", "num": "number", "qty": "quantity", "avg": "averag"}
+#: Beyond this many words only one gloss states, no prefix is looked for (a gloss is a short description: bounded work).
+_ABBREVIATION_SCAN_MAX = 64
+
+
+def _fold_abbreviations(ca: frozenset[str], cb: frozenset[str], roles: frozenset[str] = frozenset()) -> tuple[frozenset[str], frozenset[str]]:
+    """The two contents with each abbreviation one gloss writes for a word only the other states read as that word (rule
+    ``same-gloss``, round 10): a closed table (:data:`_GLOSS_ABBREVIATIONS`: 'ctrl' for 'control') and a word of three letters
+    or more that begins exactly one such word ('inter' for 'interphase'). Role words, figures, labels and units are never folded."""
+    only_a, only_b = ca - cb, cb - ca
+    if not only_a or not only_b or len(only_a) > _ABBREVIATION_SCAN_MAX or len(only_b) > _ABBREVIATION_SCAN_MAX:
+        return ca, cb
+
+    def fold(mine: frozenset[str], mine_only: frozenset[str], other_only: frozenset[str]) -> frozenset[str]:
+        targets = [y for y in other_only if y.isalpha() and y not in roles]
+        out = set(mine - mine_only)
+        for x in mine_only:
+            full = _GLOSS_ABBREVIATIONS.get(x) if x.isalpha() and x not in roles else None
+            if full is not None and full in other_only:
+                out.add(full)
+                continue
+            cands = [y for y in targets if len(y) > len(x) and y.startswith(x)] if len(x) >= 3 and x.isalpha() and x not in roles else []
+            out.add(cands[0] if len(cands) == 1 else x)
+        return frozenset(out)
+    return fold(ca, only_a, only_b), fold(cb, only_b, only_a)
 
 
 #: How INT-GLOSSARY-005 ends: a joint problem that pools the symbol as one quantity (synthesis entailment) or one that
@@ -370,6 +503,8 @@ def _merge_symbols(problems: list[Problem], *, read_apart: bool = False) -> tupl
                 # the same words and figures in another order or with another "in"/"by", or one gloss a qualified form of the
                 # other (rule same-gloss: an attribution, a place name, "per year", "in Diagram 1"), are one meaning
                 why = gloss_difference(prior_sym.meaning, s.meaning) if a and b and a != b else None
+                if why is not None and read_apart and (claim_local_gloss(prior_sym.meaning) or claim_local_gloss(s.meaning)):
+                    why = None  # round 10 (c3, rule local-glosses): each claim's own quantity, read apart; nothing was pooled as one
                 if why is not None:
                     ca, cb = gloss_content(prior_sym.meaning), gloss_content(s.meaning)
                     only_a, only_b = sorted(ca - cb), sorted(cb - ca)
@@ -405,6 +540,8 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
     * a symbol whose glosses name different quantities in two claims (:func:`gloss_difference`, rule same-gloss: 'the target
       is 67' in one claim, 'the target is 20' in another; 'marks allocated to part (a)' and '... part (c)'; never a gloss
       that only qualifies the other, 'amplitude' and 'amplitude of the oscillation');
+    * a symbol whose gloss refers to its own claim's statement (rule local-glosses, round 10: 'value of the left-hand side of a
+      stated equation', :func:`claim_local_gloss`): that claim's own quantity, read apart from every other holder;
     * and, between two claims that so gloss a shared symbol differently, every other shared symbol that either claim
       computes together with it (connected to it through its own assertions: 'low on pass 1' of a search for the target
       67 is not 'low on pass 1' of a search for 20, whatever the glosses say).
@@ -416,6 +553,7 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
     n = len(problems)
     content: list[dict[str, Optional[str]]] = []
     shown: list[dict[str, str]] = []
+    local: list[set[str]] = []
     differs_memo: dict[tuple[str, str], bool] = {}
 
     def differs(x: Optional[str], y: Optional[str]) -> bool:
@@ -426,17 +564,25 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
         if key not in differs_memo:
             differs_memo[key] = gloss_difference(x, y) is not None
         return differs_memo[key]
+
+    def differs_at(i: int, j: int, name: str) -> bool:
+        """Whether claims i and j hold ``name`` as different quantities: a gloss that refers to its own claim's statement (rule
+        local-glosses, :func:`claim_local_gloss`) names that claim's own quantity, or the glosses name different quantities."""
+        return name in local[i] or name in local[j] or differs(content[i][name], content[j][name])
     comps = [_symbol_components(p) for p in problems]
     sorts: dict[str, set[str]] = {}
     holders: dict[str, list[int]] = {}
     for i, p in enumerate(problems):
         content.append({})
         shown.append({})
+        local.append(set())
         for sym in p.symbols:
             sorts.setdefault(sym.name, set()).add(sym.sort)
             holders.setdefault(sym.name, []).append(i)
             content[i][sym.name] = " ".join((sym.meaning or "").split()) if _norm_meaning(sym.meaning) else None
             shown[i][sym.name] = sym.meaning or ""
+            if claim_local_gloss(sym.meaning):
+                local[i].add(sym.name)
     # clash[(i, j)]: the shared symbols claims i and j gloss with different content (same sort; a sort clash withholds the check)
     clash: dict[tuple[int, int], set[str]] = {}
     for name, idxs in holders.items():
@@ -445,14 +591,14 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
         for a in range(len(idxs)):
             for b in range(a + 1, len(idxs)):
                 i, j = idxs[a], idxs[b]
-                if differs(content[i][name], content[j][name]):
+                if differs_at(i, j, name):
                     clash.setdefault((i, j), set()).add(name)
     if not clash:
         return list(problems), {}
 
     def apart(i: int, j: int, name: str) -> bool:
         i, j = min(i, j), max(i, j)
-        if differs(content[i][name], content[j][name]):
+        if differs_at(i, j, name):
             return True
         return any(comps[i].get(name) == comps[i].get(t) or comps[j].get(name) == comps[j].get(t) for t in clash.get((i, j), ()))
 
@@ -490,6 +636,47 @@ def split_by_gloss(problems: list[Problem]) -> tuple[list[Problem], dict[str, li
         table = rename.get(i)
         out.append(_renamed(p, table) if table else p)
     return out, splits
+
+
+def rename_sort_clashes_apart(problems: list[Problem]) -> tuple[list[Problem], list[IntegrityFinding]]:
+    """The problems with every symbol two translations declare with different sorts read apart (round-10 clearance c3, ec-t16:
+    'boats19' and 'boats25', '2019 number of boats', Real in g11.7 and Int in g11.9): the declarations of the sort first seen
+    keep the name, each other sort's declarations are renamed ``<name>_<sort>`` in the claims that make them. A sort is the
+    translator's choice, never the specialist's statement, so the clash is a translation fault: an INT-GLOSSARY-005 warning per
+    renamed sort, naming the first claim of each side, and the consistency check runs on the rest instead of being withheld
+    (INT-GLOSSARY-001, an error that withholds a joint problem, is left to a pool that cannot be renamed apart, the entailment of a
+    synthesized claim). Problems with no clash are returned unchanged, with no finding."""
+    holders: dict[str, list[tuple[int, str]]] = {}
+    for i, p in enumerate(problems):
+        for sym in p.symbols:
+            holders.setdefault(sym.name, []).append((i, sym.sort))
+    clashing = {name: hs for name, hs in holders.items() if len({srt for _i, srt in hs}) > 1}
+    if not clashing:
+        return list(problems), []
+    taken = set(holders)
+    table: dict[int, dict[str, str]] = {}
+    findings: list[IntegrityFinding] = []
+    for name, hs in clashing.items():
+        order = list(dict.fromkeys(srt for _i, srt in hs))
+        first_claim = problems[next(i for i, srt in hs if srt == order[0])].claim_id
+        for srt in order[1:]:
+            k = 1
+            new = f"{name[:56]}_{srt.lower()}"
+            while new in taken:
+                k += 1
+                new = f"{name[:52]}_{srt.lower()}{k}"
+            taken.add(new)
+            idxs = [i for i, x in hs if x == srt]
+            for i in idxs:
+                table.setdefault(i, {})[name] = new
+            other_claim = problems[idxs[0]].claim_id
+            findings.append(IntegrityFinding(
+                code="INT-GLOSSARY-005", severity="warning",
+                message=f"symbol {name!r} is declared as {order[0]} in claim {first_claim!r} and as {srt} in claim {other_claim!r}: the "
+                        "translations disagree on the sort of one name (shared glossary violated), a translation fault, not the "
+                        f"specialist's; the consistency check reads the declarations apart (the {srt} declaration as {new!r}), so no "
+                        "contradiction is charged on this name", claim_ids=sorted({first_claim, other_claim})))
+    return [_renamed(p, table[i]) if i in table else p for i, p in enumerate(problems)], findings
 
 
 def _renamed(problem: Problem, table: dict[str, str]) -> Problem:
@@ -1196,6 +1383,8 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     ``assumed_readings`` names pooled claims whose translation is AMBIGUOUS_TRANSLATION: a self-refutation of one of
     them exists only under the translator's assumed reading and is INT-CONFLICT-005 as a warning, not an error. Returns the result of the joint check
     over every problem; the findings cite the runs that established them."""
+    # round 10 (c3): a sort clash between translations is read apart (a translation fault, warned), never a withheld check
+    problems, clashes = rename_sort_clashes_apart(problems)
     apart, splits = split_by_gloss(problems)
     apart, candidates = rename_candidates_apart(apart)
     apart, points = rename_evaluation_points_apart(apart)
@@ -1203,6 +1392,7 @@ def check_cross_report_consistency(problems: list[Problem], *, request_id: str, 
     if splits:  # the glossary findings are those of the claims as translated, each saying the symbol was read apart
         _syms, glossary = _merge_symbols(problems, read_apart=True)
         findings = [f for f in glossary if f.code == "INT-GLOSSARY-005"] + [f for f in findings if f.code != "INT-GLOSSARY-005"]
+    findings = clashes + findings
     if joint is None:
         return None, findings
     cfg = config.model_copy(update={"produce_unsat_core": True})
@@ -1322,17 +1512,21 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
                                          "candidate); the contradiction is unattributable and no contradiction is charged to the specialists (an "
                                          "encoding that gives a rejected candidate the shared symbol is a translation fault)" + at_precision,
                                  claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]
-    clashing, context = [], []
+    clashing, context, local = [], [], []
     for name, groups in sorted(splits.items()):
         involved = [(ids, gloss) for _new, ids, gloss in groups if set(ids) & set(claims)]
         if len(involved) < 2:
+            continue
+        if any(claim_local_gloss(g) for _ids, g in involved):
+            # round 10 (c3, rule local-glosses): a gloss that refers to its own claim's statement names that claim's own quantity
+            local.append(f"{name!r} (" + "; ".join(f"{gloss!r} in {[c for c in ids if c in claims] or ids}" for ids, gloss in involved[:4]) + ")")
             continue
         contents = {gloss_content(g) for _ids, g in involved if _norm_meaning(g)}
         if len(contents) >= 2:
             clashing.append(f"{name!r} (" + "; ".join(f"{gloss!r} in {[c for c in ids if c in claims] or ids}" for ids, gloss in involved[:4]) + ")")
         else:
             context.append(repr(name))
-    if not clashing:
+    if not clashing and not local:
         clashing = [repr(name) for name in sorted(splits)][:6]
     tail = f", and the quantities each claim computes with them ({', '.join(context[:8])}{' and more' if len(context) > 8 else ''})," if context else ""
     also = ("; claims " + ", ".join(repr(c) for c in sorted(tested)[:4]) + " also test and reject a candidate value of a shared symbol, read as a "
@@ -1340,8 +1534,13 @@ def _glossary_only_contradiction(problems: list[Problem], splits: dict[str, list
     if evaluated:
         also += ("; claims " + ", ".join(repr(c) for c in sorted(evaluated)[:4]) + " also evaluate or check at a value of a shared symbol, read as a "
                  "hypothetical (rule evaluation-point)")
+    named = []
+    if clashing:
+        named.append(f"symbol(s) {', '.join(clashing[:6])}, glossed as different quantities")
+    if local:
+        named.append(f"symbol(s) {', '.join(local[:6])}, each glossed by its own claim's statement (each claim's own quantity, rule local-glosses)")
     return [IntegrityFinding(code="INT-CONFLICT-004", severity="warning",
-                             message=f"the pooled claims {claims} contradict each other only when symbol(s) {', '.join(clashing[:6])}, glossed as different quantities{tail} are read as one quantity{also}; read apart they are consistent, so the contradiction is unattributable and no contradiction is charged to the specialists (one symbol name for two quantities is a translation fault)" + at_precision,
+                             message=f"the pooled claims {claims} contradict each other only when {' and '.join(named)}{tail} are read as one quantity{also}; read apart they are consistent, so the contradiction is unattributable and no contradiction is charged to the specialists (one symbol name for two quantities is a translation fault)" + at_precision,
                              claim_ids=claims, formal_result_id=pooled.result_id, related_result_ids=[apart_result.result_id], deterministic=False)]
 
 

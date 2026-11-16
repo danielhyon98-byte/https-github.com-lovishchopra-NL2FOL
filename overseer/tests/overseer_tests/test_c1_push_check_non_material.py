@@ -628,7 +628,11 @@ def test_units_are_found_in_order_whole_words_only():
     units = [ParserUnit("Note: the dates are not unchecked here.", False), ParserUnit("Not.", True)]
     assert [text[a:b] for a, b in covered_spans(text, units)] == ["Not."]
     unread = unread_non_material_blocks(text, units)
-    assert [(b.text, b.rule) for b in unread] == [("Note: the dates are not unchecked here.", "assurance-words")]  # a double negative
+    # rewritten to the stricter reading (round-10 clearance c3): the one reader now names a double negation of a check a self-report
+    # ("NB The dates are not unchecked.": self_report_expectations), so rule meta-note reads the note as self-certifying before rule
+    # assurance-words reads its double negative; the block is unread either way, and its rule is still pinned exactly
+    assert expected_self_report("NB The dates are not unchecked.")
+    assert [(b.text, b.rule) for b in unread] == [("Note: the dates are not unchecked here.", "meta-note")]
 
 
 def test_a_claim_covers_its_text_only_when_the_journaled_report_holds_it():
@@ -715,9 +719,11 @@ RECORDED_UNREAD = [
     ("bi-p8d", 6, 2, False, "source-list"), ("bi-t14", 6, 2, False, "evaluation-words"), ("bi-t14", 6, 3, False, "source-list"),
     ("bm-p8a", 5, 1, False, "non-material-text"), ("bm-p8a", 10, 1, False, "note-clauses"), ("bm-p8a", 11, 1, False, "source-list"),
     ("bm-t14", 2, 1, False, "non-material-text"), ("bm-t14", 3, 1, False, "non-material-text"), ("bm-t14", 4, 1, False, "non-material-text"),
-    ("bm-t14", 5, 1, False, "non-material-text"), ("bm-t14", 7, 1, False, "source-list"), ("ch-t14", 2, 1, False, "non-material-text"),
+    ("bm-t14", 5, 1, False, "non-material-text"), ("bm-t14", 6, 1, False, "non-material-text"), ("bm-t14", 7, 1, False, "source-list"),
+    ("ch-t14", 2, 1, False, "non-material-text"),
     ("ch-t14", 3, 1, False, "non-material-text"), ("ch-t14", 3, 3, False, "non-material-text"), ("ch-t14", 3, 10, False, "non-material-text"),
     ("ch-t14", 4, 1, False, "non-material-text"), ("ch-t14", 4, 3, False, "non-material-text"), ("ch-t14", 6, 1, False, "non-material-text"),
+    ("ch-t14", 7, 1, False, "non-material-text"),
     ("cs-t14", 31, 1, False, "bare-negator"), ("cs-t14", 32, 1, False, "source-list"), ("ec-p8a", 13, 1, False, "non-material-text"),
     ("ec-p8a", 19, 1, False, "note-clauses"), ("ec-p8a", 20, 1, False, "source-list"), ("ess-t14", 10, 1, False, "non-material-text"),
     ("ess-t14", 10, 1, True, "non-material-text"), ("ess-t14", 11, 1, False, "note-clauses"), ("ess-t14", 12, 1, False, "source-list"),
@@ -749,7 +755,10 @@ def _recorded_reading(task):
 
 def test_every_block_of_the_recorded_round_8_answers_the_rule_leaves_unread_is_pinned():
     """Rewritten to the stricter rule after attack round 4: rule layout refuses a markscheme code, so the list gained maa-t14's
-    sixteen codes written after a claim (no block left the list)."""
+    sixteen codes written after a claim (no block left the list). Rewritten to the stricter rule after round 10 (clearance c3,
+    handoff H10): the parsers read the two practice tasks set after the answer ('Next practice task: ...', bm-t14 paragraph 6 and
+    ch-t14 paragraph 7) as notes, role other, which no closed reader frees, so both are unread and keep their answer off the label
+    (fail closed); no block left the list."""
     got = []
     for task in sorted(RECORDED_TASKS):
         text, units, grounding, question = _recorded_reading(task)

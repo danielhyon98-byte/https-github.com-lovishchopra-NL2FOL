@@ -446,6 +446,20 @@ def _definitional_majority(node: dict, meanings: dict[str, str]) -> bool:
     return bound >= half
 
 
+#: Round 10 (clearance c3): a universal under a negation ("did not settle every battle", "not all", "never ... every"): one instance
+#: establishes it, so it is no hasty generalisation.
+_NEGATED_UNIVERSAL_RE = re.compile(r"\b(?:not|never|no\s+longer)\b[^.;:]{0,40}?\b(?:every|all|each|always|any)\b|\b(?:did|does|do|was|were|is|are|has|have|had|could|can|would|will)n['’]t\b[^.;:]{0,40}?\b(?:every|all|each|always|any)\b", re.IGNORECASE)
+#: A consequent that defines rather than generalises ("is taken as", "is defined as", "means", "is calculated as", "equals").
+_DEFINING_RE = re.compile(r"\b(?:is|are)[ \t]{1,3}(?:taken|defined|calculated|measured|counted|computed)[ \t]{1,3}as\b|\bby[ \t]{1,3}definition\b|\bis[ \t]{1,3}the[ \t]{1,3}same[ \t]{1,3}as\b", re.IGNORECASE)
+#: A general statement about a kind opening an antecedent's meaning ("a common pool resource is rivalrous ...", "any public good is
+#: non-rival"): a definition or a law, never an instance.
+_GENERIC_KIND_RE = re.compile(r"^\W{0,3}(?:a|an|any|every)[ \t]{1,3}(?![\d$£€])[a-z][\w'’-]{0,30}(?:[ \t]{1,3}[\w'’-]{1,30}){0,4}?[ \t]{1,3}(?:is|are|has|have)\b", re.IGNORECASE)
+#: A consequent that withholds a cause ("natural variation cannot be excluded as the cause"): it reads no cause into anything.
+_CAUSE_WITHHELD_RE = re.compile(r"\b(?:cannot|can['’]t|could[ \t]{1,3}not|couldn['’]t|not[ \t]{1,3}be|unable[ \t]{1,3}to)\b[^.;:]{0,40}?"
+                                r"\b(?:excluded|established|ruled[ \t]{1,3}out|determined|attributed|proven|proved|shown|identified|known|isolated|separated)\b",
+                                re.IGNORECASE)
+
+
 def _open_universal(text: Optional[str]) -> Optional[str]:
     """The first open universal cue of ``text``: not closed by a number within the next three tokens ("all three",
     "each of the four"), and an "any" not in the scope of an earlier negation ("cannot find any")."""
@@ -1806,6 +1820,15 @@ class _Diagnosis:
         # the glosses as the meanings write them: self.g cuts and masks for display ('passed' would read as '[...]')
         return _complementary_meanings(gloss(a, self.meanings)[:400], gloss(b, self.meanings)[:400])
 
+    def _hasty_exempt(self, consequent: str, ante_texts: list[str]) -> bool:
+        """Round 10 (clearance c3): a link that is no generalisation from instances, whatever universal word it writes: a negated
+        universal, which one instance establishes ("did not settle every battle" from one defeat, hi-t16 h1.7); a link from a
+        general statement about a kind, a definition ("a common pool resource is rivalrous ...", so "each user's catch reduces what
+        is left for everyone else", ec-t16 g2.3); a consequent that defines ("profit before interest and tax is taken as gross
+        profit less expenses", bm-t16 g1.2)."""
+        return (_NEGATED_UNIVERSAL_RE.search(consequent) is not None or _DEFINING_RE.search(consequent) is not None
+                or any(_GENERIC_KIND_RE.match(t or "") is not None for t in ante_texts))
+
     def hasty_links(self, r: _R0) -> None:
         """ARG-HG-001 i: the writer's link draws an open universal from instance facts (an instance, a dated case, a named
         study or a sample of cases: :func:`_instance`)."""
@@ -1850,6 +1873,8 @@ class _Diagnosis:
                     continue  # "most" read off a share over half of the same whole: the share's definition, no generalisation (round 9, c2)
                 if not sampled and (any(_open_universal(t) for t in ante_texts) or not all(_instance(t) for t in ante_texts)):
                     continue
+                if self._hasty_exempt(consequent, ante_texts):
+                    continue  # round 10 (c3): a negated universal, a link from a definition, or a defining consequent
                 self.emit("ARG-HG-001", f"hasty generalisation: the writer's link {self.named(w)} draws the universal '{cue} ...' "
                                         f"({self.g(node['right'], 160)!r}) from the instance fact(s) {', '.join(atoms[:4])}, which state no such generality",
                           assertion_ids=[w], missing_link=self.link_of([w], node),
@@ -1882,6 +1907,9 @@ class _Diagnosis:
                 cause = _causal(consequent)
                 if cause is None or self.warranting_control(w, node) is not None:
                     continue
+                if _CAUSE_WITHHELD_RE.search(consequent) is not None:
+                    continue  # round 10 (c3, ec-t16 g11.5): a link that concludes a cause cannot be established reads no cause in
+
                 ante = set(_vars(node["left"]))
                 fact_labels = [p.label or "" for p in self.premises if p.id != w and _vars(self.dumps[p.id]) and set(_vars(self.dumps[p.id])) <= ante]
                 ante_texts = [self.meanings.get(n, "") for n in sorted(ante)] + fact_labels

@@ -58,6 +58,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, Optional
 
 from .chem import ELEMENTS, canonical_formula, latex_to_chem, parse_species
+from .constants import CONSTANTS
 from .lexer import COMPLETE_UNSUP, Token
 from .limits import DEFAULT_LIMITS, PROFILES, StemLimits, StemProfile
 from .nodes import (
@@ -73,6 +74,8 @@ __all__ = ["CONNECTIVE_WORDS", "ParseContext", "ParseIssue", "ParsedMath", "STEM
 #: multi-letter names every STEM reading knows (section 4.6)
 STEM_NAMES = frozenset({"KE", "PE", "GPE", "EPE", "EMF", "emf", "pH", "pOH", "pKa", "pKb", "Ka", "Kb", "Kw", "Kc", "Kp", "Mr", "Ar", "NA", "Ek", "Ep",
                         "RMM", "RFM", "NPP", "GPP", "SV", "HR", "BMI", "RQ"})
+#: round-10 clearance (rule subscript-product): the subscripted symbols of the data-booklet constants (k_B, N_A, ε_0, ...)
+_BOOKLET_SUBSCRIPTED = frozenset(sym for c in CONSTANTS for sym in c.symbols if "_" in sym)
 #: words that join two relations inside one math span (``\\text{or}``) or in a chain of statements
 CONNECTIVE_WORDS = frozenset({"or", "and", "so", "hence", "therefore", "thus", "gives", "giving", "where", "with", "for", "if", "since", "because",
                               "then", "i.e.", "ie", "e.g.", "which", "as", "when", "implies", "or equivalently"})
@@ -354,6 +357,8 @@ class _Parser:
                 break
             ops.append(tok.text)
             self.i += 1
+            while self.peek() is not None and self.peek().kind == "AMP":
+                self.i += 1  # round-10 clearance (rule environment-rows): the second alignment mark of eqnarray's '&=&' is dropped too
             operands.append(self.operand(ci, len(operands)))
         rem = self._remainder()
         if rem is not None:
@@ -1448,6 +1453,18 @@ class _Parser:
         self.i += 1
         if word in ("π",):
             return self._count(Sym("π", kind="constant", start=tok.start, end=tok.end))
+        if len(word) == 1 and not tok.delta and not tok.primes and 2 <= len(tok.sub) <= 4 and tok.sub.isascii() and tok.sub.isalpha():
+            # round-10 clearance (rule subscript-product): 'k_BT' (the physics knowledge base's own notation for k_B × T) is the product of
+            # a subscripted symbol and a symbol when both are names in scope (k_B stated, T bound); it had been read as one symbol 'k_BT'
+            # with no value, so the substitution beside it was abandoned (ST-UNDEC-002) and a slip in it crossed unnamed
+            names = self.ctx.names | STEM_NAMES
+            for j in range(len(tok.sub) - 1, 0, -1):
+                head, rest = symbol_name(word, tok.sub[:j], 0, False), tok.sub[j:]
+                if (head in names or head in _BOOKLET_SUBSCRIPTED) and rest in names and len(rest) <= 2:
+                    cut = tok.end - len(rest)
+                    left = self._count(Sym(head, start=tok.start, end=cut))
+                    right = self._count(Sym(rest, start=cut, end=tok.end))
+                    return self._count(BinOp("*", left, right, tok.start, tok.end, implicit=True))
         if len(word) == 1 or tok.delta and len(word) == 1 or not word.isascii():
             return self._count(Sym(symbol_name(word, tok.sub, tok.primes, tok.delta), start=tok.start, end=tok.end))
         names = self.ctx.names | STEM_NAMES

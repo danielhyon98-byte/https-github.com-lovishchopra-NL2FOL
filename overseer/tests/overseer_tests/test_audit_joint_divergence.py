@@ -77,13 +77,43 @@ def test_control_pool_unchanged_gives_no_joint_finding(auditor):
 
 
 # ------------------------------------------------------------------------------------------- JOINT-002
+def _big_problem(i: int) -> Problem:
+    """Claim en-c<i>: 64 Boolean symbols of its own (the per-claim maximum), so 17 such claims pool 1,088 > 1,024 symbols."""
+    V = lambda n: {"op": "var", "name": n}  # noqa: E731
+    return Problem.model_validate({
+        "problem_id": f"p-big-{i}", "request_id": "req-ovs", "claim_id": f"en-c{i}", "query": "entailment",
+        "symbols": [{"name": f"b{i}_{j}", "sort": "Bool", "meaning": f"proposition {j} of point {i}"} for j in range(64)],
+        "premises": [{"id": "P", "expr": V(f"b{i}_0"), "grounding": {"kind": "arithmetic_fact"}}],
+        "conclusion": {"id": "C", "expr": V(f"b{i}_0")},
+    })
+
+
 def test_a_joint_check_that_cannot_be_built_is_joint_002(auditor):
+    """Rewritten to a stricter rule after round 10 (clearance c3; handoff K1): a sort clash between two translations is no longer
+    a joint check that cannot be built. The channel names it as a translation fault (INT-GLOSSARY-005, warning, never the
+    error INT-GLOSSARY-001 that excluded a correct answer) and decides the pool with the declarations read apart, so the
+    auditor's independent joint check decides too: no OVS-JOINT-002 and no OVS-JOINT-001. A joint check that cannot be built,
+    a pool over the joint limits (INT-GLOSSARY-006), is still OVS-JOINT-002, both halves asserted."""
     ch, _rc1, _rq2, rc2 = _two_responses(auditor, int_problem("en-point", "x", 7, op="gt", bound=5), _real_problem("h1.1", "x", "2.5"))
-    assert any(f.code == "INT-GLOSSARY-001" for f in rc2.findings)  # the channel names the sort clash
+    clash = [f for f in rc2.findings if f.code == "INT-GLOSSARY-005" and "declared as" in f.message]
+    assert clash and clash[0].severity == "warning" and sorted(clash[0].claim_ids) == ["en-point", "h1.1"]
+    assert not any(f.code == "INT-GLOSSARY-001" for f in rc2.findings)
     audit = auditor.audit(ch.uid)
-    f = findings(audit, "OVS-JOINT-002")
-    assert f and f[0].severity == "warning" and "INT-GLOSSARY-001" in f[0].message
-    assert not findings(audit, "OVS-JOINT-001")
+    assert not findings(audit, "OVS-JOINT-001") and not findings(audit, "OVS-JOINT-002")
+    # the half the test is named for: 17 pooled claims of 64 symbols each breach the joint limits (1,088 symbols > 1,024)
+    n = 17
+    sents = [f"Point {i} of the reading holds." for i in range(n)]
+    claims = [dict(claim_id=f"en-c{i}", claim_text=sents[i][:-1], claim_role="interpretation", materiality="supporting") for i in range(n)]
+    ch2 = new_channel(auditor)
+    ch2.channel.verify_claim_fn = problems_fn({f"en-c{i}": _big_problem(i) for i in range(n)})
+    m, _r, _q = ch2.request("router", "english-specialist", EN_INPUT, [DOC])
+    _msg, rc = ch2.respond(m.message_id, english_report(text=" ".join(sents), claims=claims))
+    over = [f for f in rc.findings if f.code == "INT-GLOSSARY-006"]
+    assert over and len(over[0].claim_ids) == n and "E300" in over[0].message
+    audit2 = auditor.audit(ch2.uid)
+    f = findings(audit2, "OVS-JOINT-002")
+    assert f and f[0].severity == "warning" and "INT-GLOSSARY-006" in f[0].message and "E300" in f[0].message
+    assert not findings(audit2, "OVS-JOINT-001")
 
 
 # ------------------------------------------------------------------------------------------- B4, T18

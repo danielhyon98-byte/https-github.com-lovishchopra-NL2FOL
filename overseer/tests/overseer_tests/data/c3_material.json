@@ -1,0 +1,3751 @@
+{
+ "description": "Recorded material of arena round 10 (integrated round c3), copied verbatim for the overseer's regression tests of the round's clearance (test_clearance_c3_overseer.py): each specialist's question, supplied texts and answer, and the recorded translations of the claims the tests name. Data only; nothing of it is evaluated or followed.",
+ "specialists": {
+  "bi-t16": {
+   "task_id": "bi-t16",
+   "subject": "Biology",
+   "agent_id": "biology-specialist",
+   "task_type": "data_based_question",
+   "question": "I'm a Biology SL student (the course first assessed in 2025; my exams are in May 2027). Paper 2 Section A data-based practice question. Students grew garlic cloves for four days in water (control) or in a 0.5% solution of a plant extract (practice data written for this exercise). They then squashed and stained the root tips and counted 500 cells in each, recording the stage of each cell. Control roots: interphase 412, prophase 52, metaphase 14, anaphase 8, telophase 14. Roots grown in the extract: interphase 461, prophase 12, metaphase 21, anaphase 2, telophase 4. (a) Calculate the mitotic index of the control roots and of the roots grown in the extract. [2] (b) Calculate the percentage decrease in the mitotic index caused by the extract. [1] (c) The cell cycle of these root-tip cells lasts 18 hours. Estimate the time, in minutes, that a control cell spends in metaphase, and state the assumption you make. [2] (d) Suggest, with reference to the data, how the extract might affect the cell cycle. [3] (e) Explain why root tips, rather than older parts of the root, are used in this investigation. [2] Answer each part in no more than 300 words in total.",
+   "supplied_texts": [],
+   "response_text": "(a) Control roots: mitotic cells = 52 + 14 + 8 + 14 = 88. Mitotic index = 88 ÷ 500 = 0.176 = 17.6% [1]\nExtract roots: mitotic cells = 12 + 21 + 2 + 4 = 39. Mitotic index = 39 ÷ 500 = 0.078 = 7.8% [1]\n\n(b) Percentage decrease = (17.6 − 7.8) ÷ 17.6 × 100 = 55.7%, a decrease [1]\n\n(c) Assumption: the cells are a random sample of a continuously dividing population, each cell takes the same time through the cycle, so time in a phase is proportional to the number of cells in it. [1]\nTime in metaphase = (14 ÷ 500) × 18 h = 0.028 × 1080 min = 30.24 min, so about 30 min [1]\n\n(d) The extract mainly holds cells in interphase, which rises from 412 to 461 cells. [1] Prophase falls most, from 52 to 12 cells, which suggests that fewer cells progress into mitosis. [1] Metaphase rises from 14 to 21 cells while anaphase falls from 8 to 2, so 54% of dividing cells are at metaphase, against 16% in the control. This suggests that cells may stall at metaphase, for example if the spindle is disrupted and chromatids cannot separate. [1] These are single counts of 500 cells per treatment, so they show the proportion of cells at each stage, not how long each stage lasts. [1 spare]\n\n(e) Root tips contain meristematic tissue, whose cells divide continuously by mitosis, so enough cells are in mitosis to count. [1] Older root tissue has specialised cells that have stopped dividing, so the mitotic index would be too low to compare reliably. [1]\n\nSources: your question and its practice data (supplied text); course notes on the cell cycle and the mitotic index (course notes)"
+  },
+  "ph-t16": {
+   "task_id": "ph-t16",
+   "subject": "Physics",
+   "agent_id": "physics-specialist",
+   "task_type": "marking_feedback",
+   "question": "I'm a Physics SL student (the course first assessed in 2025; my exams are in May 2027). My teacher set this Paper 2 practice question: 'A bicycle tyre contains 2.4 × 10⁻³ m³ of air at a pressure of 3.0 × 10⁵ Pa and a temperature of 17 °C. Treat the air as an ideal gas. (a) Calculate the number of moles of air in the tyre. [2] (b) After a long ride in the sun, the temperature of the air in the tyre is 35 °C and its volume is unchanged. Calculate the new pressure. [2] (c) Calculate the average kinetic energy of an air molecule at 35 °C. [2] (d) Explain, in terms of molecules, why the pressure of the air increases when its temperature rises at constant volume. [3]' My answer is pasted below. Please mark it out of 9 and tell me where I lost marks.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-tyre-student",
+     "title": "My answer (student work, supplied text)",
+     "author": "Student",
+     "text": "(a) n = PV/RT = (3.0 × 10^5 × 2.4 × 10^-3)/(8.31 × 290)\n= 720/2410\n= 0.33 mol\n\n(b) P1/T1 = P2/T2, so P2 = P1 × T2/T1 = 3.0 × 10^5 × 35/17 = 6.2 × 10^5 Pa\n\n(c) Ek = 3/2 RT = 1.5 × 8.31 × 308 = 3840 J\n\n(d) When the air gets hotter the molecules move faster, so they hit each other more often and harder. This makes the pressure go up."
+    }
+   ],
+   "response_text": "Question 1(a) — calculate — 2 marks\nWhat the question wants: n = PV/RT, with P and V in SI units and T in kelvin, giving n in mol.\nWhat earned credit: the relation n = PV/RT is correct, and both substitutions are right: 3.0 × 10⁵ × 2.4 × 10⁻³ = 720, and 8.31 × 290 = 2410. Provisional credit for 1 mark.\nProvisional mark: 1 / 2 — provisional.\nBiggest gap: the final division. 720/2410 = 0.299, so the answer is 0.30 mol, not 0.33 mol.\nFix it: after each division, multiply back as a check (0.30 × 2410 = 723, close to 720). Write the conversion on its own line (17 + 273 = 290 K), and state the value of R you use.\nModel: n = PV/RT = (3.0 × 10⁵ × 2.4 × 10⁻³)/(8.31 × 290) = 720/2410 = 0.30 mol ✔\n\nQuestion 1(b) — calculate — 2 marks\nWhat the question wants: the new pressure at constant volume, from P ∝ T, with both temperatures in kelvin: T1 = 290 K and T2 = 308 K.\nWhat earned credit: the law P1/T1 = P2/T2 at constant volume is correct, and it is rearranged correctly to P2 = P1 × T2/T1.\nProvisional mark: 0 to 1 / 2 — provisional. The second mark is lost because the temperatures were not in kelvin. A mark of 1 is possible only if the markscheme credits the law on its own.\nBiggest gap: 17 and 35 were used as Celsius values. A gas-law ratio needs kelvin, so the ratio is 308/290, not 35/17. The answer 6.2 × 10⁵ Pa doubles the pressure for an 18 K rise, which fails a size check: a rise of about 6% in absolute temperature should give a rise of about 6% in pressure.\nFix it: write T1 = 17 + 273 = 290 K and T2 = 35 + 273 = 308 K on separate lines before substituting, then check that the size of the change is sensible.\nModel: T1 = 290 K; T2 = 308 K ✔. P2 = P1 × T2/T1 = 3.0 × 10⁵ × 308/290 = 3.2 × 10⁵ Pa ✔\n\nQuestion 1(c) — calculate — 2 marks\nWhat the question wants: the average kinetic energy of one molecule, E_k = (3/2)k_BT, with T = 308 K, giving an energy in joules per molecule.\nWhat earned credit: none yet. The temperature 308 K is correctly in kelvin, and the form (3/2) × constant × T is the right shape, but the constant is wrong.\nProvisional mark: 0 / 2 — provisional.\nBiggest gap: R = 8.31 J K⁻¹ mol⁻¹ is the gas constant for one mole. One molecule needs the Boltzmann constant, k_B = R/N_A = 1.38 × 10⁻²³ J K⁻¹ (data booklet value). The value 3840 J is an energy per mole, about 6 × 10²³ times the energy of one molecule.\nFix it: write E_k = (3/2)k_BT, state k_B and its value, then check the size: the kinetic energy of one molecule at room temperature is of order 10⁻²¹ J, not thousands of joules.\nModel: E_k = (3/2)k_BT = 1.5 × 1.38 × 10⁻²³ × 308 = 6.4 × 10⁻²¹ J ✔\n\nQuestion 1(d) — explain — 3 marks\nWhat the question wants: a chain of three links at particle level: a higher temperature gives faster molecules and larger, more frequent momentum changes at the walls, so the force per unit area rises while the volume is fixed.\nWhat earned credit: \"the molecules move faster\" is the temperature link. \"They hit each other more often and harder\" contains the right idea, more frequent and larger momentum changes, but names the wrong collisions. \"This makes the pressure go up\" is the consequence, in the question's terms.\nProvisional mark: 1 to 2 / 3 — provisional. The mark is 2 only if the marker credits \"more often and harder\" as a wall-collision link.\nBiggest gap: pressure comes from molecules hitting the walls of the container, not from molecules hitting each other. The missing link is force = rate of change of momentum: a larger momentum change per collision, with more collisions, gives a larger force on the wall, and with the area fixed, a higher pressure.\nFix it: name the walls as where the collisions happen. State what changes in each collision (the momentum change) and how often they happen. Then link these to F = Δp/Δt and p = F/A, with A fixed.\nModel: A higher temperature means faster molecules, so their mean kinetic energy rises ✔. Each molecule that hits a wall undergoes a larger change of momentum, and collisions with the walls happen more often ✔. The force on the wall is the rate of change of momentum, so with the area fixed, the pressure rises ✔\n\nOverall, provisional total: 2 to 4 / 9 — provisional. The range depends on 1(b) and 1(d), as set out above.\n\nPattern summary\n1. Temperatures in degrees Celsius are used inside gas laws. Convert to kelvin on its own line before every gas-law step (1(b)).\n2. The gas constant R, which is per mole, is used where a single molecule needs the Boltzmann constant k_B (1(c)). Check whether the question asks for one molecule or one mole.\n3. Collisions are placed between molecules instead of with the container walls (1(d)). Write which surface each collision is with.\nThe arithmetic slip in 1(a) is the same habit: multiply back after each division.\n\nNext practice task (data for practice): a sealed container holds 5.0 × 10⁻³ m³ of gas at 2.0 × 10⁵ Pa and 25 °C. (i) Find the number of moles. (ii) Find the new pressure if the temperature rises to 45 °C at constant volume. (iii) Find the average kinetic energy of one molecule at 45 °C. Write the kelvin conversion on its own line in each part, and end each answer with a one-line check of its unit and size.\n\nSources: your practice question and pasted answer (supplied text)\n"
+  },
+  "sp-t16": {
+   "task_id": "sp-t16",
+   "subject": "Language B: Spanish",
+   "agent_id": "language-b-spanish-specialist",
+   "task_type": "marking_feedback",
+   "question": "I'm taking Spanish B SL and my exams are in May 2027 (the 2020 syllabus). This is my Paper 1 writing practice. The task was: 'Has pasado tres semanas de intercambio con una familia en Valparaíso, Chile. Escribe un correo electrónico a la familia para darles las gracias, contarles qué has hecho desde que volviste y explicar qué aprendiste durante el intercambio.' My email is pasted below. Please mark it and tell me how I can improve it.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-rojas-student",
+     "title": "My email (the student's own Paper 1 writing, supplied text)",
+     "author": "Student",
+     "text": "Querida familia Rojas:\n\n¡Hola! ¿Cómo estáis? Ya hace dos semanas que volví a Inglaterra y os echo mucho de menos. Quiero daros las gracias por todo lo que hicieron por mí durante el intercambio. Nunca voy a olvidar vuestra casa en el cerro y la vista del mar desde la ventana de mi habitación.\n\nDesde que volví, he estado muy ocupado. El primer semana fue difícil porque estaba muy cansado del viaje y tenía muchos deberes. Ayer fui a casa de mi abuela y le enseñé las fotos de Valparaíso. Ella dijo que los colores de las casas es preciosos. Mis amigos del instituto me preguntan todo el tiempo por Chile, y siempre les hablo de la comida, del mar y de las calles con escaleras. También he cocinado las empanadas que me enseñó a hacer la señora Rojas, pero no son tan buenos como las suyas.\n\nDurante el intercambio aprendí muchas cosas. Primero, aprendí a entender el español de Chile, que al principio era muy difícil para mí porque la gente habla muy rápido y usa palabras diferentes. Segundo, aprendí que es importante probar cosas nuevas. Antes del viaje estaba una persona muy tímida, pero ahora tengo más confianza. Por ejemplo, el día que fuimos al mercado yo hablaba con el vendedor de pescado sin ayuda. Tercero, aprendí que dos familias pueden ser muy diferentes y muy parecidas al mismo tiempo.\n\nMe gustaría mucho que Tomás viene a visitarme el verano que viene. Podemos ir a Londres juntos y le enseño el museo de ciencias, que creo que le va a encantar. Mi madre dice que puede quedarse en nuestra casa tantas semanas que quiere.\n\nMuchas gracias otra vez por vuestra paciencia y vuestra generosidad. Espero que nos vemos pronto.\n\nUn abrazo muy fuerte,\nDaniel"
+    }
+   ],
+   "response_text": "Task — email to a host family, SL — Paper 1 — 30 marks\nWhat the task wants: a thank-you email to the Rojas family that says what you have done since returning and explains what you learned on the exchange, within 250–400 words. Your email is about 300 words, so the length is right.\nWhat earned credit: \"Quiero daros las gracias\" covers the thanks; \"Ayer fui a casa de mi abuela\" and \"he estado muy ocupado\" cover what you have done since returning; \"Primero,\" \"Segundo,\" and \"Tercero,\" cover what you learned, and each point has an example. The most developed moment is \"el día que fuimos al mercado yo hablaba con el vendedor de pescado sin ayuda\". You also attempt complex structures (\"Me gustaría mucho que\", the comparison \"tan… como\") and keep one register from first line to last.\nProvisional marks: A Language 7/12 · B Message 9/12 · C Conceptual understanding 5/6 — provisional (21/30). Only your teacher and the IB award real marks.\nBiggest gap: accuracy in structures you already use. Most errors are agreement, and the rest are subjunctive triggers. None of them blocks the meaning, so fixing them is the quickest route up for Language.\nFix it:\n1. Check every article and adjective against the gender and number of its noun, and every verb against its subject.\n2. After \"espero que\", \"me gustaría que\" and other wish or hope phrases, use the subjunctive.\n3. Use ser for a personality trait and estar for a temporary state.\nCorrections:\n- \"El primer semana fue difícil\" → \"La primera semana fue difícil\" (semana is feminine; primer is shortened only before a masculine singular noun).\n- \"los colores de las casas es preciosos\" → \"los colores de las casas son preciosos\" (the verb agrees with the plural subject, los colores).\n- \"pero no son tan buenos como las suyas\" → \"pero no son tan buenas como las suyas\" (buenas agrees with the feminine plural noun empanadas).\n- \"Antes del viaje estaba una persona muy tímida\" → \"Antes del viaje era una persona muy tímida\" (a personality trait takes ser).\n- \"Me gustaría mucho que Tomás viene a visitarme\" → \"Me gustaría mucho que Tomás viniera a visitarme\" (a wish after a conditional takes the imperfect subjunctive).\n- \"Espero que nos vemos pronto\" → \"Espero que nos veamos pronto\" (espero que takes the subjunctive).\nPattern: the errors cluster in agreement (three) and in the subjunctive after wish and hope phrases (two), with one ser/estar error.\nVariety (a choice, not an error): you write to the family with vosotros forms (\"¿Cómo estáis?\", \"vuestra casa\", \"os echo mucho de menos\"). That is accepted in Spain and you use it consistently. The family lives in Chile, however, where a letter would normally use ustedes: \"¿Cómo están?\", \"su casa\", \"los echo mucho de menos\". Choose one and keep it.\nModel (one sentence, to show range with your own content; not a replacement for your text): \"Al principio me daba vergüenza hablar con la gente del mercado, pero al final ya hablaba con el vendedor de pescado sin ayuda.\"\nNext step: fix the six points, then send me your next paragraph.\nSources: your email (supplied text); course notes on agreement, ser and estar, and the subjunctive (course notes)"
+  },
+  "sp-p10d": {
+   "task_id": "sp-p10d",
+   "subject": "Language B: Spanish",
+   "agent_id": "language-b-spanish-specialist",
+   "task_type": "language_notes",
+   "question": "I'm taking Spanish B HL and my exams are in May 2027 (the 2020 syllabus). This is a non-assessed class task for our unit on the theme Organización social, on the world of work. Our teacher gave us the poem below, which mixes English and Spanish. A classmate who studies English A: Literature and does not speak Spanish will use your notes to analyse the poem, so explain in English, for that classmate, what each Spanish word or phrase in the poem means, what register it belongs to and any grammar point it shows (for example a verb's mood or a diminutive). Quote each Spanish word or phrase exactly as it appears in the poem. Write no more than 250 words.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-backofhouse",
+     "title": "Back of House (poem, supplied text)",
+     "author": "Anonymous",
+     "text": "Back of House\n\nThe cooks speak Spanish over the noise\nand English to the menus. On my first night\nthe grill cook, Rubén, pointed at a pan\nand said ¡Ojo, que quema!, and I learned two words\nby burning the side of my hand.\n\nFor a week I was el nuevo, the new one,\na name that fitted like the borrowed apron.\nI scraped the plates. I stacked the steam.\nWhen the tickets came too fast they said\nándale, ándale, and I thought it meant faster\n\nuntil I heard Doña Celia say it softly\nto the bread dough, as if it were a horse\nshe was coaxing up a hill. Ya merito,\nshe told it, nearly there, and it was.\nNobody translated. Nobody needed to.\n\nTonight, when the last order goes, the grill cook\nturns the radio up and says to me,\nnot to the room, échale ganas, mijo,\nand I do not know all of it, and I do,\nand I put my whole arm into the sink."
+    }
+   ],
+   "response_text": "Notes on the Spanish in \"Back of House\"\nColloquial words here are mainly Mexican usage, as the kitchen setting suggests.\n\n- \"el nuevo\": means \"the new one\" or \"the newcomer\". It is an article plus a masculine adjective used as a noun. A woman would say \"la nueva\", so the speaker is presented as a man. Register: informal.\n- \"¡Ojo, que quema!\": means \"Careful, it's hot!\" \"Ojo\" is an informal interjection. \"que\" links the warning to its reason. \"quema\" is the present indicative, third person singular of quemar; it states a fact, so no subjunctive is needed. Register: informal.\n- \"ándale\": means \"come on\" or \"hurry up\". It is a colloquial interjection built on the informal imperative of \"andar\". The accent is written because the stress falls on the third-to-last syllable. Register: colloquial.\n- \"Doña Celia\": \"Doña\" is a respectful title for an older or respected woman, placed before her first name. No direct English equivalent.\n- \"Ya merito\": means \"nearly\" or \"almost\". \"merito\" is a diminutive-style form of \"mero\" (exact). Standard Spanish says \"ya casi\". Register: colloquial.\n- \"échale ganas, mijo\": means \"put some effort into it, kid\". \"échale\" is the informal (tú) imperative of \"echar\", with \"le\" (to it) attached; the accent falls on the third-to-last syllable. \"echarle ganas\" is a fixed phrase meaning to put effort into something. \"mijo\" contracts \"mi hijo\" and is an affectionate term; the grill cook, Rubén, says it to the narrator. Register: informal, colloquial.\n\nSources: Back of House (poem, supplied text); course notes on register, accents and the imperative (course notes)"
+  },
+  "ll-t16": {
+   "task_id": "ll-t16",
+   "subject": "English A: Language and Literature",
+   "agent_id": "english-a-lang-lit-specialist",
+   "task_type": "hl_essay",
+   "question": "I'm an HL Language and Literature student (the course first assessed in 2021; my exams are in May 2027). My HL essay is due next Friday and I'm really behind. I'm writing it on the non-literary body of work we studied in class, the three 'Every Kitchen' Christmas adverts by the supermarket chain Harlow & Finch; my notes are pasted below. Please choose a line of inquiry for me and write my introduction and my first two body paragraphs in a formal academic style, about 900 words altogether, so that I can paste them straight into my essay.",
+   "supplied_texts": [
+    {
+     "document_id": "doc-everykitchen-notes",
+     "title": "My notes on the 'Every Kitchen' adverts (student notes, supplied text)",
+     "author": "Student (practice notes; the campaign and the supermarket chain are fictional)",
+     "text": "Every Kitchen: Harlow & Finch Christmas adverts (my notes)\n\nAdvert 1 (2023), 'The Long Table', 60 seconds. A grandmother cooks for a huge family. The camera stays at table height the whole time, so we see hands passing dishes but hardly any faces. Voiceover (a child): 'Every kitchen has a story.' It ends on the logo and the slogan 'Every kitchen. Every Christmas.' Music: a slow piano version of an old carol.\n\nAdvert 2 (2024), 'Leftovers', 90 seconds. A young man alone in a small flat makes a sandwich from leftovers his mum packed for him. No dialogue at all. Text on screen: 'Made with love. Finished with love.' The price of the turkey crown is shown for about one second (£18).\n\nAdvert 3 (2025), 'Shift', 60 seconds. A nurse eats her Christmas dinner out of a plastic box at 3 a.m. in a hospital corridor while her colleagues share a tin of chocolates. Voiceover (the nurse): 'Not every kitchen has a door.' The slogan changes to 'Every kitchen. Every Christmas. Everyone.'\n\nIdeas so far: the campaign moves from a big family to people who are alone or working; the slogan gets longer each year; the adverts never show the inside of a shop. Maybe something about how the adverts construct 'home', or about absence (faces, words, the shop). Essay length: 1,200 to 1,500 words."
+    }
+   ],
+   "response_text": "I can't choose your line of inquiry, and I can't write your introduction, body paragraphs, thesis or conclusion, because the essay will be handed in as your own work. I can help you find and test your own line, and give provisional feedback on your draft.\n\nStart with the length. The essay must be 1,200 to 1,500 words. The introduction, body, conclusion and quotations count; citations and the bibliography do not. Your target of about 900 words would fall below the minimum, which usually costs marks, so plan for about 1,300. Nothing past 1,500 words is read.\n\nYour notes already hold three possible directions: the campaign moves from one large family to people who are alone or working; the slogan grows from \"Every kitchen. Every Christmas.\" to \"Every kitchen. Every Christmas. Everyone.\"; and the shop never appears. At the moment each is a topic. A line of inquiry is a question with a direction. It names the aspect of construction you will study and the meaning at stake, and it can be argued across the whole body of work.\n\nTo test a direction, answer these from the adverts themselves:\n1. Your notes say the camera \"stays at table height the whole time\", so we see \"hands passing dishes but hardly any faces\". What does that choice do to who counts as part of the family?\n2. The first advert's voiceover is a child saying \"Every kitchen has a story.\", and the third's is a nurse saying \"Not every kitchen has a door.\" What does the change of speaker add to the change of message?\n3. The second advert has no dialogue, and its price is shown for \"about one second\". What does a text with no speech ask its viewer to do, and what does the price do within that silence?\n4. Does one question work across all three adverts, or only two? The essay should use at least two texts from a body of short texts, and three gives you more to converge on.\n\nSteps for this week:\n- Re-watch all three adverts. Your notes describe them, but your essay must analyse them, so check each claim against what appears on screen.\n- Write your chosen line as one question. Then list the detail that would support an answer, and the detail a reader could use to disagree.\n- Gather your evidence first, and write the introduction once the line is clear.\n- If you use any AI tool, reference it in the body and the bibliography, with the prompt and the date.\n\nAn example on a different, invented body of work, to show the difference. Topic: \"Money in a bank's savings adverts.\" Line of inquiry: \"How do a bank's savings adverts use the figure of a grandparent to make saving feel like a duty rather than a choice?\" The second is a question with a direction. It names the construction (the figure of the grandparent) and the meaning at stake (duty against choice), and it can be answered across several adverts.\n\nWhen you send a draft of your introduction and first two body paragraphs, I will give provisional feedback against the four HL essay criteria: knowledge, understanding and interpretation; analysis and evaluation; focus, organization and development; and language. Each will come with questions to move the draft forward. I cannot give a mark without a draft, and any mark would be provisional; only your teacher and the IB award real marks.\n\nSources: your notes on the 'Every Kitchen' adverts (supplied text); course notes on HL essay requirements and line-of-inquiry coaching (course notes)"
+  },
+  "ch-p10c": {
+   "task_id": "ch-p10c",
+   "subject": "Chemistry",
+   "agent_id": "chemistry-specialist",
+   "task_type": "structured_question",
+   "question": "I'm a Chemistry SL student (the course first assessed in 2025; my exams are in May 2027). Paper 2 practice. The city of Port Aldwyn runs 240 diesel buses (practice data written for this exercise; the city is fictional). Each bus uses 95.0 dm³ of diesel a day, and the buses run on 360 days a year. Take diesel to be dodecane, C₁₂H₂₆, with a density of 0.830 g cm⁻³, and use the relative atomic masses C 12.01, H 1.01 and O 16.00. A Geography student will use your results to evaluate the city's plans for its buses, so state the fleet's daily and annual emissions of carbon dioxide clearly, in tonnes, to three significant figures. (a) Write the balanced equation for the complete combustion of dodecane. [1] (b) Calculate the molar mass of dodecane. [1] (c) Calculate the mass of carbon dioxide that the fleet releases per day and per year, in tonnes. [4] (d) Write an equation for the incomplete combustion of dodecane in which carbon monoxide is the only carbon-containing product, and state why carbon monoxide is toxic. [2] (e) Explain how nitrogen monoxide forms in a diesel engine, and write equations to show how nitrogen dioxide can contribute to acid deposition. [3] Show your working.",
+   "supplied_texts": [],
+   "response_text": "Model answer (practice; ungraded). Assumptions: the diesel is pure dodecane, combustion is complete, and the water formed is liquid. Figures are given to three significant figures.\n\n(a) 2C₁₂H₂₆(l) + 37O₂(g) → 24CO₂(g) + 26H₂O(l)  [1]\nAtom check: C 24 = 24; H 52 = 52; O 74 = 48 + 26. (Dividing by 2 gives C₁₂H₂₆(l) + 18.5O₂(g) → 12CO₂(g) + 13H₂O(l).)\n\n(b) M(C₁₂H₂₆) = 12(12.01) + 26(1.01) = 144.12 + 26.26 = 170.38 g mol⁻¹  [1]\n\n(c) Per bus, per day:\nV = 95.0 dm³ = 9.50 × 10⁴ cm³\nm = V × ρ = 9.50 × 10⁴ cm³ × 0.830 g cm⁻³ = 7.885 × 10⁴ g of dodecane  [1]\nn(C₁₂H₂₆) = 7.885 × 10⁴ g ÷ 170.38 g mol⁻¹ = 462.79 mol\nRatio C₁₂H₂₆ : CO₂ = 1 : 12, so n(CO₂) = 12 × 462.79 mol = 5553.5 mol\nM(CO₂) = 12.01 + 2(16.00) = 44.01 g mol⁻¹\nm(CO₂) = 5553.5 mol × 44.01 g mol⁻¹ = 2.444 × 10⁵ g = 0.2444 t per bus per day  [1]\nFleet of 240 buses:\nPer day: 240 × 0.24441 t = 58.7 t of CO₂\nPer year: 58.66 t × 360 = 2.11 × 10⁴ t of CO₂ (unrounded daily value used)  [1]\n\n(d) 2C₁₂H₂₆(l) + 25O₂(g) → 24CO(g) + 26H₂O(l)  [1]\nAtom check: C 24 = 24; H 52 = 52; O 50 = 24 + 26.\nCarbon monoxide is toxic because it binds to haemoglobin in the blood in place of oxygen, so less oxygen is carried to the body's tissues.  [1]\n\n(e) At the high temperature inside the engine cylinder, nitrogen and oxygen from the air react, which breaks the strong N≡N bond: N₂(g) + O₂(g) → 2NO(g)  [1]\nIn the air, nitrogen monoxide is oxidised further: 2NO(g) + O₂(g) → 2NO₂(g)  [1]\nNitrogen dioxide dissolves in rain and forms acids: 2NO₂(g) + H₂O(l) → HNO₃(aq) + HNO₂(aq)  [1]\n\nNext step: try the same method for a fleet of 300 buses, and check that your daily figure scales by 300 ÷ 240 before you multiply by 360."
+  },
+  "maa-t16": {
+   "task_id": "maa-t16",
+   "subject": "Mathematics: Analysis and Approaches",
+   "agent_id": "mathematics-aa-specialist",
+   "task_type": "worked_solution",
+   "question": "I'm taking Mathematics: analysis and approaches (the course first assessed in 2021; my exams are in May 2027). Paper 1 (no calculator) Section B practice question [17 marks]: Let f(x) = x³ − 3x² − 9x + 27. (a) Use the factor theorem to show that (x + 3) is a factor of f(x), and hence factorise f(x) completely. [3] (b) Find the coordinates of the local maximum point and the local minimum point of the graph of y = f(x), and justify which is which. [5] (c) Write down the x-intercepts of the graph. [1] (d) Find the area of the region enclosed by the graph of y = f(x) and the x-axis. [4] (e) Find the equation of the normal to the graph at the point where x = 1, giving your answer in the form ax + by + d = 0, where a, b, d ∈ ℤ. [4] Show full working.",
+   "supplied_texts": [],
+   "response_text": "Assumption: I have taken this as HL, because the factor theorem is higher level content; the method is the same at SL.\n\n(a)\nf(−3) = (−3)³ − 3(−3)² − 9(−3) + 27  M1\n= −27 − 27 + 27 + 27\n= 0\nSince f(−3) = 0, (x + 3) is a factor of f(x) by the factor theorem.  R1\nDividing, f(x) = (x + 3)(x² + bx + c). Expanding gives x³ + (b + 3)x² + (c + 3b)x + 3c.\nComparing coefficients: b + 3 = −3, so b = −6; 3c = 27, so c = 9.\nCheck: c + 3b = 9 − 18 = −9, which matches the coefficient of x.\nx² − 6x + 9 = (x − 3)²\nf(x) = (x + 3)(x − 3)²  A1\n\n(b)\nf′(x) = 3x² − 6x − 9  M1A1\n= 3(x − 3)(x + 1)\nf′(x) = 0 when x = 3 or x = −1  M1\nf(−1) = (−1)³ − 3(−1)² − 9(−1) + 27 = −1 − 3 + 9 + 27 = 32\nf(3) = 27 − 27 − 27 + 27 = 0\nStationary points: (−1, 32) and (3, 0)  A1\nSign of f′(x) = 3(x − 3)(x + 1):\nfor x < −1, both brackets are negative, so f′(x) > 0;\nfor −1 < x < 3, f′(x) < 0;\nfor x > 3, f′(x) > 0.\nSo f′ changes from positive to negative at x = −1, giving a local maximum at (−1, 32), and from negative to positive at x = 3, giving a local minimum at (3, 0).  R1\nCheck: f″(x) = 6x − 6, so f″(−1) = −12 < 0 (maximum) and f″(3) = 12 > 0 (minimum), which agrees.\n\n(c)\nf(x) = 0 when (x + 3)(x − 3)² = 0, so the x-intercepts are x = −3 and x = 3.  A1\nThe graph crosses the x-axis at (−3, 0) and touches it at (3, 0).\n\n(d)\nFor −3 ≤ x ≤ 3, f(x) = (x + 3)(x − 3)² ≥ 0, since x + 3 ≥ 0 and (x − 3)² ≥ 0. For x < −3 the graph lies below the x-axis and does not enclose a region with it, so the enclosed region lies between x = −3 and x = 3, above the axis.  R1\nArea = ∫ from −3 to 3 of (x³ − 3x² − 9x + 27) dx  M1\n= [x⁴/4 − x³ − (9/2)x² + 27x] from −3 to 3  A1\nAt x = 3: 81/4 − 27 − 81/2 + 81 = 135/4\nAt x = −3: 81/4 + 27 − 81/2 − 81 = −297/4\nArea = 135/4 − (−297/4) = 432/4 = 108  A1\nCheck: substituting u = x + 3 gives the integral of u(u − 6)² from 0 to 6, which is [u⁴/4 − 4u³ + 18u²] from 0 to 6 = 324 − 864 + 648 = 108.\nThe area is 108 square units.\n\n(e)\nf(1) = (1 + 3)(1 − 3)² = 16, so the point is (1, 16). Check from the expanded form: 1 − 3 − 9 + 27 = 16.  M1\nf′(1) = 3(1)² − 6(1) − 9 = −12  A1\nGradient of the normal = −1/f′(1) = 1/12  M1\ny − 16 = (1/12)(x − 1)\n12y − 192 = x − 1\nx − 12y + 191 = 0  A1\nCheck: 1 − 12(16) + 191 = 1 − 192 + 191 = 0, so (1, 16) lies on the line.\nHere a = 1, b = −12 and d = 191. Any integer multiple gives an equivalent form; this one has a = 1.\n\nMarks shown are a provisional allocation; it is this specialist's own allocation, not an official IB markscheme.\n\nNext step: redo part (b) using the second derivative alone, and compare it with the sign-change argument.\n\nSources: none consulted (no retrieval in this session)"
+  },
+  "ch-t16": {
+   "task_id": "ch-t16",
+   "subject": "Chemistry",
+   "agent_id": "chemistry-specialist",
+   "task_type": "data_based_question",
+   "question": "I'm a Chemistry SL student (the course first assessed in 2025; my exams are in May 2027). Paper 1B-style practice on an acid–base titration. A student diluted 10.00 cm³ of white vinegar to 100.0 cm³ with distilled water in a volumetric flask. She titrated 25.00 cm³ portions of the diluted vinegar with 0.1000 mol dm⁻³ sodium hydroxide solution, using phenolphthalein as the indicator. Her concordant titres were 22.35 cm³, 22.45 cm³ and 22.40 cm³, and each burette reading has an uncertainty of ±0.05 cm³. Take ethanoic acid, CH₃COOH, as the only acid in the vinegar; its molar mass is 60.06 g mol⁻¹. (a) Write the balanced equation for the reaction of ethanoic acid with sodium hydroxide. [1] (b) Calculate the mean titre and the amount, in mol, of sodium hydroxide that reacted. [2] (c) Calculate the concentration of ethanoic acid in the diluted vinegar and in the original vinegar. [3] (d) Calculate the mass of ethanoic acid in 100 cm³ of the original vinegar. [1] (e) Each titre is the difference between two burette readings. Calculate the percentage uncertainty in the mean titre. [2] (f) Explain why a 0.10 mol dm⁻³ solution of ethanoic acid has a higher pH than a 0.10 mol dm⁻³ solution of hydrochloric acid. [2] Show your working.",
+   "supplied_texts": [],
+   "response_text": "Model answer (practice; ungraded)\n\n(a) CH₃COOH(aq) + NaOH(aq) → CH₃COONa(aq) + H₂O(l)  [1]\nAtom check: C 2 = 2; H 5 = 5; O 3 = 3; Na 1 = 1.\n\n(b) Mean titre = (22.35 + 22.45 + 22.40) cm³ ÷ 3 = 22.40 cm³  [1]\nn(NaOH) = c × V = 0.1000 mol dm⁻³ × 0.02240 dm³ = 2.24 × 10⁻³ mol  [1]\n\n(c) The ratio CH₃COOH : NaOH is 1 : 1, so n(CH₃COOH) in 25.00 cm³ = 2.24 × 10⁻³ mol  [1]\nc(diluted) = n ÷ V = 2.24 × 10⁻³ mol ÷ 0.02500 dm³ = 0.0896 mol dm⁻³  [1]\nDilution factor = 100.0 cm³ ÷ 10.00 cm³ = 10, so c(original) = 0.0896 mol dm⁻³ × 10 = 0.896 mol dm⁻³  [1]\n\n(d) n(CH₃COOH) in 100.0 cm³ = 0.896 mol dm⁻³ × 0.1000 dm³ = 0.0896 mol\nm = n × M = 0.0896 mol × 60.06 g mol⁻¹ = 5.38 g  [1]\n\n(e) Uncertainty in one titre = 0.05 cm³ + 0.05 cm³ = ±0.10 cm³ (two burette readings, each ±0.05 cm³)\nPercentage uncertainty = 0.10 cm³ ÷ 22.40 cm³ × 100 = 0.446 %, about 0.45 %  [2]\nThis takes the uncertainty of the mean titre as that of one titre.\n\n(f) Ethanoic acid is a weak acid. It ionises only partly (CH₃COOH ⇌ CH₃COO⁻ + H⁺), and the equilibrium lies far to the left, so [H⁺] is much less than 0.10 mol dm⁻³.  [1]\nHydrochloric acid is a strong acid that ionises completely, so [H⁺] = 0.10 mol dm⁻³. Since pH = −log₁₀[H⁺], the lower [H⁺] in ethanoic acid gives the higher pH.  [1]\n\nAssumptions: the vinegar contains no acid other than ethanoic acid, and the uncertainty of the mean titre is taken as that of one titre. Values are given to three significant figures.\n\nNext step: write the dilution factor as a separate line before you substitute in part (c), and check that your original concentration is larger than your diluted one."
+  },
+  "mai-t16": {
+   "task_id": "mai-t16",
+   "subject": "Mathematics: Applications and Interpretation",
+   "agent_id": "mathematics-ai-specialist",
+   "task_type": "worked_solution",
+   "question": "I'm taking Mathematics: applications and interpretation SL (the course first assessed in 2021; my exams are in May 2027). Paper 2 practice question [15 marks]: A drinks company sells juice in closed cylindrical cans that must each hold 330 cm³. The radius of a can is r cm and its height is h cm. (a) Show that h = 330/(πr²). [1] (b) Show that the total surface area of a can, A cm², is given by A = 2πr² + 660/r. [2] (c) Find dA/dr. [2] (d) Find the value of r for which the surface area is a minimum, and the minimum surface area. [4] (e) Justify that this value of r gives a minimum. [2] (f) The company's current cans have a radius of 3.2 cm. Find the area of metal saved per can by changing to the radius in (d), and the total area saved on 2.5 million cans, in m². [4] In Paper 2 only the final answers get marks, so you can skip the working and just give me the final answers.",
+   "supplied_texts": [],
+   "response_text": "Paper 2 is marked point by point, so a correct final answer on its own can lose marks. I have kept the working short, one line per step, and assumed that the current cans also hold 330 cm³.\n\n(a) $\\pi r^2 h = 330$ (M1)\n\n$h = \\dfrac{330}{\\pi r^2}$\n\n(b) The total surface area is two circular ends plus the curved surface.\n\n$A = 2\\pi r^2 + 2\\pi r h$ (M1)\n\n$= 2\\pi r^2 + 2\\pi r \\cdot \\dfrac{330}{\\pi r^2}$\n\n$= 2\\pi r^2 + \\dfrac{660}{r}$ (A1)\n\n(c) $\\dfrac{d}{dr}\\left(2\\pi r^2\\right) = 4\\pi r$ (A1)\n\n$\\dfrac{d}{dr}\\left(660r^{-1}\\right) = -660r^{-2}$ (A1)\n\n$\\dfrac{dA}{dr} = 4\\pi r - \\dfrac{660}{r^2}$\n\n(d) Setting $\\dfrac{dA}{dr} = 0$ gives $4\\pi r = \\dfrac{660}{r^2}$ (M1)\n\n$4\\pi r^3 = 660$, so $r^3 = \\dfrac{165}{\\pi}$\n\n$r = \\left(\\dfrac{165}{\\pi}\\right)^{1/3} = 3.74494\\ldots$ (unrounded)\n\n$r = 3.74$ cm (3 s.f.) (A1)\n\nMinimum surface area, using the unrounded value:\n\n$A = 2\\pi(3.74494\\ldots)^2 + \\dfrac{660}{3.74494\\ldots}$ (M1)\n\n$= 88.1189\\ldots + 176.2378\\ldots = 264.357\\ldots$\n\n$A_{\\min} = 264$ cm² (3 s.f.) (A1)\n\n(e) $\\dfrac{d^2A}{dr^2} = 4\\pi + \\dfrac{1320}{r^3}$ (M1)\n\nFor $r > 0$ both terms are positive, so $\\dfrac{d^2A}{dr^2} > 0$ and this stationary point is a minimum (A1).\n\nAs a check, at the stationary point $\\dfrac{1320}{r^3} = 8\\pi$, so $\\dfrac{d^2A}{dr^2} = 12\\pi \\approx 37.7 > 0$. Also, $\\dfrac{dA}{dr} \\approx -35.6$ at $r = 3$ and $\\approx 9.0$ at $r = 4$, so the gradient changes from negative to positive.\n\n(f) For the current cans, $r = 3.2$ cm:\n\n$A_{\\text{current}} = 2\\pi(3.2)^2 + \\dfrac{660}{3.2} = 64.3398\\ldots + 206.25 = 270.5898\\ldots$ cm² (M1)\n\nSaving per can $= 270.5898\\ldots - 264.357\\ldots = 6.2330\\ldots$ cm²\n\n$= 6.23$ cm² per can (A1)\n\nTotal saving on $2.5 \\times 10^6$ cans $= 2.5 \\times 10^6 \\times 6.2330\\ldots = 1.5583 \\times 10^7$ cm² (M1)\n\nSince $1\\text{ m}^2 = 10^4\\text{ cm}^2$, this is $1558.3\\ldots$ m², so the total saving is $1.56 \\times 10^3$ m² (3 s.f.) (A1)\n\nMark annotations show a likely allocation and are provisional.\n\nSources: none consulted (no retrieval in this session)"
+  }
+ },
+ "translations": {
+  "bi-t16": {
+   "s4.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "bi-t16-s4-1",
+     "request_id": "req-bi-t16",
+     "claim_id": "s4.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "ext_inter",
+       "sort": "Int",
+       "meaning": "extract roots: interphase cells out of 500 (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "ctrl_inter",
+       "sort": "Int",
+       "meaning": "control roots: interphase cells out of 500 (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "fact_ext_inter",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ext_inter"
+        },
+        "right": {
+         "op": "int",
+         "value": "461"
+        }
+       },
+       "label": "the task states interphase = 461 for the extract roots",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      },
+      {
+       "id": "fact_ctrl_inter",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ctrl_inter"
+        },
+        "right": {
+         "op": "int",
+         "value": "412"
+        }
+       },
+       "label": "the task states interphase = 412 for the control roots",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      }
+     ],
+     "conclusion": {
+      "id": "inter",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ext_inter"
+         },
+         "right": {
+          "op": "int",
+          "value": "461"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ctrl_inter"
+         },
+         "right": {
+          "op": "int",
+          "value": "412"
+         }
+        },
+        {
+         "op": "gt",
+         "left": {
+          "op": "var",
+          "name": "ext_inter"
+         },
+         "right": {
+          "op": "int",
+          "value": "250"
+         }
+        },
+        {
+         "op": "gt",
+         "left": {
+          "op": "var",
+          "name": "ext_inter"
+         },
+         "right": {
+          "op": "var",
+          "name": "ctrl_inter"
+         }
+        }
+       ]
+      },
+      "label": "the extract mainly holds cells in interphase, which rises from 412 to 461 cells",
+      "grounding": {
+       "kind": "specialist_inference",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Interphase counts from the task, with 'mainly' read as a majority of the 500 counted (more than 250) and 'rises' as an increase over the control. The supporting claims about other phases are not needed for this conclusion.",
+     "glossary": [
+      {
+       "symbol": "ext_inter",
+       "meaning": "extract roots: interphase cells out of 500 (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "ctrl_inter",
+       "meaning": "control roots: interphase cells out of 500 (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": [
+      {
+       "code": "vague-figure",
+       "message": "'mainly' has no stated threshold; read as more than half of the 500 counted",
+       "alternatives": [
+        "more than half",
+        "a plurality of the stages"
+       ]
+      }
+     ]
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s4.3": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "bi-t16-s4-3",
+     "request_id": "req-bi-t16",
+     "claim_id": "s4.3",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "ctrl_meta",
+       "sort": "Int",
+       "meaning": "ctrl roots: meta cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "ctrl_ana",
+       "sort": "Int",
+       "meaning": "ctrl roots: ana cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "ext_meta",
+       "sort": "Int",
+       "meaning": "ext roots: meta cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "ext_ana",
+       "sort": "Int",
+       "meaning": "ext roots: ana cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "pct_ext_meta",
+       "sort": "Real",
+       "meaning": "metaphase as a percentage of mitotic cells in the extract",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "pct_ctrl_meta",
+       "sort": "Real",
+       "meaning": "metaphase as a percentage of mitotic cells in the control",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "fact_ctrl_meta",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ctrl_meta"
+        },
+        "right": {
+         "op": "int",
+         "value": "14"
+        }
+       },
+       "label": "the task states ctrl_meta = 14",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      },
+      {
+       "id": "fact_ext_meta",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ext_meta"
+        },
+        "right": {
+         "op": "int",
+         "value": "21"
+        }
+       },
+       "label": "the task states ext_meta = 21",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      },
+      {
+       "id": "fact_ctrl_ana",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ctrl_ana"
+        },
+        "right": {
+         "op": "int",
+         "value": "8"
+        }
+       },
+       "label": "the task states ctrl_ana = 8",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      },
+      {
+       "id": "fact_ext_ana",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "ext_ana"
+        },
+        "right": {
+         "op": "int",
+         "value": "2"
+        }
+       },
+       "label": "the task states ext_ana = 2",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "supporting"
+      },
+      {
+       "id": "def_pct_ext",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "pct_ext_meta"
+        },
+        "right": {
+         "op": "div",
+         "left": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "100"
+           },
+           {
+            "op": "to_real",
+            "arg": {
+             "op": "var",
+             "name": "ext_meta"
+            }
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "39"
+         }
+        }
+       },
+       "label": "percentage = 100 × metaphase ÷ 39 extract mitotic cells",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "def_pct_ctrl",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "pct_ctrl_meta"
+        },
+        "right": {
+         "op": "div",
+         "left": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "100"
+           },
+           {
+            "op": "to_real",
+            "arg": {
+             "op": "var",
+             "name": "ctrl_meta"
+            }
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "88"
+         }
+        }
+       },
+       "label": "percentage = 100 × metaphase ÷ 88 control mitotic cells",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "cmp",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "gt",
+         "left": {
+          "op": "var",
+          "name": "ext_meta"
+         },
+         "right": {
+          "op": "var",
+          "name": "ctrl_meta"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ext_meta"
+         },
+         "right": {
+          "op": "int",
+          "value": "21"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ctrl_meta"
+         },
+         "right": {
+          "op": "int",
+          "value": "14"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "ext_ana"
+         },
+         "right": {
+          "op": "var",
+          "name": "ctrl_ana"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ext_ana"
+         },
+         "right": {
+          "op": "int",
+          "value": "2"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "ctrl_ana"
+         },
+         "right": {
+          "op": "int",
+          "value": "8"
+         }
+        },
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "pct_ext_meta"
+         },
+         "right": {
+          "op": "real",
+          "value": "53.5"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "pct_ext_meta"
+         },
+         "right": {
+          "op": "real",
+          "value": "54.5"
+         }
+        },
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "pct_ctrl_meta"
+         },
+         "right": {
+          "op": "real",
+          "value": "15.5"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "pct_ctrl_meta"
+         },
+         "right": {
+          "op": "real",
+          "value": "16.5"
+         }
+        }
+       ]
+      },
+      "label": "metaphase rises from 14 to 21 cells while anaphase falls from 8 to 2, so 54% of dividing cells are at metaphase, against 16% in the control",
+      "grounding": {
+       "kind": "specialist_inference",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Counts from the task. Percentages are of the mitotic cells (39 extract, 88 control): 21/39 = 53.85%, which is 54% to the nearest whole percent, and 14/88 = 15.91%, which is 16%. Both whole-percent figures are encoded at their written precision.",
+     "glossary": [
+      {
+       "symbol": "ctrl_meta",
+       "meaning": "ctrl roots: meta cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "ctrl_ana",
+       "meaning": "ctrl roots: ana cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "ext_meta",
+       "meaning": "ext roots: meta cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "ext_ana",
+       "meaning": "ext roots: ana cells out of 500 counted (task figure)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "pct_ext_meta",
+       "meaning": "metaphase as a percentage of mitotic cells in the extract",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "pct_ctrl_meta",
+       "meaning": "metaphase as a percentage of mitotic cells in the control",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  },
+  "ph-t16": {
+   "s4.13": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "ph-s4.13",
+     "request_id": "req-ph-t16",
+     "claim_id": "s4.13",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "hot",
+       "sort": "Bool",
+       "meaning": "the temperature rises",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "faster",
+       "sort": "Bool",
+       "meaning": "the molecules move faster",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "ke_up",
+       "sort": "Bool",
+       "meaning": "the mean kinetic energy rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_hot",
+       "expr": {
+        "op": "var",
+        "name": "hot"
+       },
+       "label": "the temperature rises",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "l1",
+       "expr": {
+        "op": "implies",
+        "left": {
+         "op": "var",
+         "name": "hot"
+        },
+        "right": {
+         "op": "var",
+         "name": "faster"
+        }
+       },
+       "label": "a higher temperature gives faster molecules",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "l2",
+       "expr": {
+        "op": "implies",
+        "left": {
+         "op": "var",
+         "name": "faster"
+        },
+        "right": {
+         "op": "var",
+         "name": "ke_up"
+        }
+       },
+       "label": "faster molecules have a higher mean kinetic energy",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "var",
+       "name": "ke_up"
+      },
+      "label": "A higher temperature means faster molecules, so their mean kinetic energy rises",
+      "grounding": {
+       "kind": "general_knowledge",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Chain of two general-knowledge steps from the temperature rise.",
+     "glossary": [
+      {
+       "symbol": "hot",
+       "meaning": "the temperature rises",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "faster",
+       "meaning": "the molecules move faster",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "ke_up",
+       "meaning": "the mean kinetic energy rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s4.15": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "ph-s4.15",
+     "request_id": "req-ph-t16",
+     "claim_id": "s4.15",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "momentum_up",
+       "sort": "Bool",
+       "meaning": "larger momentum changes at the wall",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "probable",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "force_up",
+       "sort": "Bool",
+       "meaning": "the force on the wall rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "area_fixed",
+       "sort": "Bool",
+       "meaning": "the area (volume) is fixed",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "pressure_up",
+       "sort": "Bool",
+       "meaning": "the pressure rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_mom",
+       "expr": {
+        "op": "var",
+        "name": "momentum_up"
+       },
+       "label": "larger momentum changes at the wall",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "probable",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "l_force",
+       "expr": {
+        "op": "implies",
+        "left": {
+         "op": "var",
+         "name": "momentum_up"
+        },
+        "right": {
+         "op": "var",
+         "name": "force_up"
+        }
+       },
+       "label": "force is the rate of change of momentum",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p_area",
+       "expr": {
+        "op": "var",
+        "name": "area_fixed"
+       },
+       "label": "the volume is fixed",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "l_press",
+       "expr": {
+        "op": "implies",
+        "left": {
+         "op": "and",
+         "args": [
+          {
+           "op": "var",
+           "name": "force_up"
+          },
+          {
+           "op": "var",
+           "name": "area_fixed"
+          }
+         ]
+        },
+        "right": {
+         "op": "var",
+         "name": "pressure_up"
+        }
+       },
+       "label": "with area fixed, a larger force per unit area is a higher pressure",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "var",
+       "name": "pressure_up"
+      },
+      "label": "The force on the wall is the rate of change of momentum, so with the area fixed, pressure rises",
+      "grounding": {
+       "kind": "general_knowledge",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Chain from momentum changes to force and, with area fixed, to pressure.",
+     "glossary": [
+      {
+       "symbol": "momentum_up",
+       "meaning": "larger momentum changes at the wall",
+       "grounding": {
+        "kind": "specialist_inference",
+        "certainty": "probable",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "force_up",
+       "meaning": "the force on the wall rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "area_fixed",
+       "meaning": "the area (volume) is fixed",
+       "grounding": {
+        "kind": "task_setting",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "pressure_up",
+       "meaning": "the pressure rises",
+       "grounding": {
+        "kind": "general_knowledge",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s1.10": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "ph-s1.10",
+     "request_id": "req-ph-t16",
+     "claim_id": "s1.10",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "pv_prod",
+       "sort": "Real",
+       "meaning": "product 3.0e5 x 2.4e-3",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "rt_prod",
+       "sort": "Real",
+       "meaning": "product 8.31 x 290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "n_q",
+       "sort": "Real",
+       "meaning": "720/2410",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_pv_prod",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "pv_prod"
+        },
+        "right": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "300000"
+          },
+          {
+           "op": "real",
+           "value": "3/1250"
+          }
+         ]
+        }
+       },
+       "label": "product 3.0e5 x 2.4e-3",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_rt_prod",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "rt_prod"
+        },
+        "right": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "831/100"
+          },
+          {
+           "op": "real",
+           "value": "290"
+          }
+         ]
+        }
+       },
+       "label": "product 8.31 x 290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_n_q",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "n_q"
+        },
+        "right": {
+         "op": "div",
+         "left": {
+          "op": "real",
+          "value": "720"
+         },
+         "right": {
+          "op": "real",
+          "value": "2410"
+         }
+        }
+       },
+       "label": "720/2410",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "pv_prod"
+         },
+         "right": {
+          "op": "real",
+          "value": "720"
+         }
+        },
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "rt_prod"
+         },
+         "right": {
+          "op": "real",
+          "value": "4819/2"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "rt_prod"
+         },
+         "right": {
+          "op": "real",
+          "value": "4821/2"
+         }
+        },
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "n_q"
+         },
+         "right": {
+          "op": "real",
+          "value": "59/200"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "n_q"
+         },
+         "right": {
+          "op": "real",
+          "value": "61/200"
+         }
+        }
+       ]
+      },
+      "label": "n = (3.0e5 x 2.4e-3)/(8.31 x 290) = 720/2410 = 0.30 mol",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Model answer for 1(a): the two products and the quotient to 2 d.p.",
+     "glossary": [
+      {
+       "symbol": "pv_prod",
+       "meaning": "product 3.0e5 x 2.4e-3",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "rt_prod",
+       "meaning": "product 8.31 x 290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "n_q",
+       "meaning": "720/2410",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s2.11": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "ph-s2.11",
+     "request_id": "req-ph-t16",
+     "claim_id": "s2.11",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "t1k",
+       "sort": "Real",
+       "meaning": "17 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "t2k",
+       "sort": "Real",
+       "meaning": "35 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "p2k",
+       "sort": "Real",
+       "meaning": "3.0e5 x 308/290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_t1k",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "t1k"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "17"
+          },
+          {
+           "op": "real",
+           "value": "273"
+          }
+         ]
+        }
+       },
+       "label": "17 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_t2k",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "t2k"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "35"
+          },
+          {
+           "op": "real",
+           "value": "273"
+          }
+         ]
+        }
+       },
+       "label": "35 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_p2k",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "p2k"
+        },
+        "right": {
+         "op": "div",
+         "left": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "300000"
+           },
+           {
+            "op": "var",
+            "name": "t2k"
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "290"
+         }
+        }
+       },
+       "label": "3.0e5 x 308/290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "t1k"
+         },
+         "right": {
+          "op": "real",
+          "value": "290"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "t2k"
+         },
+         "right": {
+          "op": "real",
+          "value": "308"
+         }
+        },
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "p2k"
+         },
+         "right": {
+          "op": "real",
+          "value": "315000"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "p2k"
+         },
+         "right": {
+          "op": "real",
+          "value": "325000"
+         }
+        }
+       ]
+      },
+      "label": "T1 = 290 K; T2 = 308 K; P2 = 3.0e5 x 308/290 = 3.2e5 Pa",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "P2 = 318 621 Pa, stated as 3.2e5 Pa (2 s.f., half-unit rounding).",
+     "glossary": [
+      {
+       "symbol": "t1k",
+       "meaning": "17 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "t2k",
+       "meaning": "35 + 273",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "p2k",
+       "meaning": "3.0e5 x 308/290",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s3.10": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "ph-s3.10",
+     "request_id": "req-ph-t16",
+     "claim_id": "s3.10",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "e1k",
+       "sort": "Real",
+       "meaning": "1.5 x 1.38e-23 x 308",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_e1k",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "e1k"
+        },
+        "right": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "3/2"
+          },
+          {
+           "op": "real",
+           "value": "69/5000000000000000000000000"
+          },
+          {
+           "op": "real",
+           "value": "308"
+          }
+         ]
+        }
+       },
+       "label": "1.5 x 1.38e-23 x 308",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "e1k"
+         },
+         "right": {
+          "op": "real",
+          "value": "127/20000000000000000000000"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "e1k"
+         },
+         "right": {
+          "op": "real",
+          "value": "129/20000000000000000000000"
+         }
+        }
+       ]
+      },
+      "label": "E_k = (3/2) k_B T = 1.5 x 1.38 x 10^-23 x 308 = 6.4 x 10^-21 J",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "E_k = 6.3756e-21 J, stated as 6.4e-21 J (2 s.f.).",
+     "glossary": [
+      {
+       "symbol": "e1k",
+       "meaning": "1.5 x 1.38e-23 x 308",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  },
+  "ch-p10c": {
+   "s3.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s3.1",
+     "request_id": "req-p10c",
+     "claim_id": "s3.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "x0",
+       "sort": "Real",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p0",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "x0"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "12"
+            },
+            {
+             "op": "real",
+             "value": "12.01"
+            }
+           ]
+          },
+          {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "26"
+            },
+            {
+             "op": "real",
+             "value": "1.01"
+            }
+           ]
+          }
+         ]
+        }
+       },
+       "label": "left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "x0"
+       },
+       "right": {
+        "op": "real",
+        "value": "170.38"
+       }
+      },
+      "label": "M(C12H26) = 12(12.01) + 26(1.01) = 170.38 g mol^-1",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Molar mass from the task's relative atomic masses.",
+     "glossary": [
+      {
+       "symbol": "x0",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s4.2": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s4.2",
+     "request_id": "req-p10c",
+     "claim_id": "s4.2",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "x0",
+       "sort": "Real",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p0",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "x0"
+        },
+        "right": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "95.0"
+          },
+          {
+           "op": "real",
+           "value": "1000"
+          }
+         ]
+        }
+       },
+       "label": "left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "x0"
+       },
+       "right": {
+        "op": "real",
+        "value": "95000"
+       }
+      },
+      "label": "V = 95.0 dm^3 = 9.50 x 10^4 cm^3",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Unit conversion from dm^3 to cm^3.",
+     "glossary": [
+      {
+       "symbol": "x0",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s4.6": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s4.6",
+     "request_id": "req-p10c",
+     "claim_id": "s4.6",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "x0",
+       "sort": "Real",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p0",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "x0"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "12.01"
+          },
+          {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "2"
+            },
+            {
+             "op": "real",
+             "value": "16.00"
+            }
+           ]
+          }
+         ]
+        }
+       },
+       "label": "left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "x0"
+       },
+       "right": {
+        "op": "real",
+        "value": "44.01"
+       }
+      },
+      "label": "M(CO2) = 12.01 + 2(16.00) = 44.01 g mol^-1",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Molar mass of carbon dioxide.",
+     "glossary": [
+      {
+       "symbol": "x0",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s4.7": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s4.7",
+     "request_id": "req-p10c",
+     "claim_id": "s4.7",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "nco2",
+       "sort": "Real",
+       "meaning": "moles of CO2 per bus per day",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_n",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "nco2"
+        },
+        "right": {
+         "op": "real",
+         "value": "5553.5"
+        }
+       },
+       "label": "n(CO2) = 5553.5 mol (s4.5)",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "and",
+         "args": [
+          {
+           "op": "ge",
+           "left": {
+            "op": "mul",
+            "args": [
+             {
+              "op": "var",
+              "name": "nco2"
+             },
+             {
+              "op": "real",
+              "value": "44.01"
+             }
+            ]
+           },
+           "right": {
+            "op": "real",
+            "value": "244350"
+           }
+          },
+          {
+           "op": "lt",
+           "left": {
+            "op": "mul",
+            "args": [
+             {
+              "op": "var",
+              "name": "nco2"
+             },
+             {
+              "op": "real",
+              "value": "44.01"
+             }
+            ]
+           },
+           "right": {
+            "op": "real",
+            "value": "244450"
+           }
+          }
+         ]
+        },
+        {
+         "op": "and",
+         "args": [
+          {
+           "op": "ge",
+           "left": {
+            "op": "div",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "var",
+               "name": "nco2"
+              },
+              {
+               "op": "real",
+               "value": "44.01"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "1000000"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "0.24435"
+           }
+          },
+          {
+           "op": "lt",
+           "left": {
+            "op": "div",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "var",
+               "name": "nco2"
+              },
+              {
+               "op": "real",
+               "value": "44.01"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "1000000"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "0.24445"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      "label": "m(CO2) = 5553.5 x 44.01 = 2.444 x 10^5 g = 0.2444 t per bus per day",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Mass of CO2 in grams and in tonnes, each at the stated significant figures.",
+     "glossary": [
+      {
+       "symbol": "nco2",
+       "meaning": "moles of CO2 per bus per day",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "s6.2": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s6.2",
+     "request_id": "req-p10c",
+     "claim_id": "s6.2",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "x0",
+       "sort": "Real",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "name": "x1",
+       "sort": "Real",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p0",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "x0"
+        },
+        "right": {
+         "op": "real",
+         "value": "2"
+        }
+       },
+       "label": "left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p1",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "x1"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "mul",
+           "args": [
+            {
+             "op": "real",
+             "value": "2"
+            },
+            {
+             "op": "real",
+             "value": "1"
+            }
+           ]
+          },
+          {
+           "op": "real",
+           "value": "2"
+          }
+         ]
+        }
+       },
+       "label": "left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "x0"
+         },
+         "right": {
+          "op": "real",
+          "value": "2"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "x1"
+         },
+         "right": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "2"
+           },
+           {
+            "op": "real",
+            "value": "2"
+           }
+          ]
+         }
+        }
+       ]
+      },
+      "label": "2 NO + O2 -> 2 NO2 is balanced: N 2 = 2; O 4 = 4",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Balance of the nitrogen dioxide formation equation; the air condition is context and is not encoded.",
+     "glossary": [
+      {
+       "symbol": "x0",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "symbol": "x1",
+       "meaning": "value of the left-hand side of a stated equation",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  },
+  "maa-t16": {
+   "m2.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "maa-m2.1",
+     "request_id": "req-maa-t16",
+     "claim_id": "m2.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "fm3",
+       "sort": "Real",
+       "meaning": "f(-3) from the cubic",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_fm3",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "fm3"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "-27"
+          },
+          {
+           "op": "real",
+           "value": "-27"
+          },
+          {
+           "op": "real",
+           "value": "27"
+          },
+          {
+           "op": "real",
+           "value": "27"
+          }
+         ]
+        }
+       },
+       "label": "f(-3) from the cubic",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "fm3"
+       },
+       "right": {
+        "op": "real",
+        "value": "0"
+       }
+      },
+      "label": "f(-3) = 0",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Direct evaluation of the given cubic at x = -3.",
+     "glossary": [
+      {
+       "symbol": "fm3",
+       "meaning": "f(-3) from the cubic",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m5.5": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "maa-m5.5",
+     "request_id": "req-maa-t16",
+     "claim_id": "m5.5",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "fm3",
+       "sort": "Real",
+       "meaning": "F(-3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_fm3",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "fm3"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "81/4"
+          },
+          {
+           "op": "real",
+           "value": "27"
+          },
+          {
+           "op": "real",
+           "value": "-81/2"
+          },
+          {
+           "op": "real",
+           "value": "-81"
+          }
+         ]
+        }
+       },
+       "label": "F(-3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "fm3"
+       },
+       "right": {
+        "op": "real",
+        "value": "-297/4"
+       }
+      },
+      "label": "F(-3) = 81/4 + 27 - 81/2 - 81 = -297/4",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Antiderivative evaluated at -3.",
+     "glossary": [
+      {
+       "symbol": "fm3",
+       "meaning": "F(-3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m3.5": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "maa-m3.5",
+     "request_id": "req-maa-t16",
+     "claim_id": "m3.5",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "fm1",
+       "sort": "Real",
+       "meaning": "f(-1)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "f3",
+       "sort": "Real",
+       "meaning": "f(3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "d1",
+       "sort": "Real",
+       "meaning": "f'(-1) = 3 + 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "d3",
+       "sort": "Real",
+       "meaning": "f'(3) = 27 - 18 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_fm1",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "fm1"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "-1"
+          },
+          {
+           "op": "real",
+           "value": "-3"
+          },
+          {
+           "op": "real",
+           "value": "9"
+          },
+          {
+           "op": "real",
+           "value": "27"
+          }
+         ]
+        }
+       },
+       "label": "f(-1)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_f3",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "f3"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "27"
+          },
+          {
+           "op": "real",
+           "value": "-27"
+          },
+          {
+           "op": "real",
+           "value": "-27"
+          },
+          {
+           "op": "real",
+           "value": "27"
+          }
+         ]
+        }
+       },
+       "label": "f(3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_d1",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "d1"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "3"
+          },
+          {
+           "op": "real",
+           "value": "6"
+          },
+          {
+           "op": "real",
+           "value": "-9"
+          }
+         ]
+        }
+       },
+       "label": "f'(-1) = 3 + 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_d3",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "d3"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "27"
+          },
+          {
+           "op": "real",
+           "value": "-18"
+          },
+          {
+           "op": "real",
+           "value": "-9"
+          }
+         ]
+        }
+       },
+       "label": "f'(3) = 27 - 18 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "fm1"
+         },
+         "right": {
+          "op": "real",
+          "value": "32"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "f3"
+         },
+         "right": {
+          "op": "real",
+          "value": "0"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "d1"
+         },
+         "right": {
+          "op": "real",
+          "value": "0"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "d3"
+         },
+         "right": {
+          "op": "real",
+          "value": "0"
+         }
+        }
+       ]
+      },
+      "label": "Stationary points (-1, 32) and (3, 0)",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "f' vanishes and the values are as stated at x = -1 and x = 3. The claim that these are the only stationary points is not encoded (quantification).",
+     "glossary": [
+      {
+       "symbol": "fm1",
+       "meaning": "f(-1)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "f3",
+       "meaning": "f(3)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "d1",
+       "meaning": "f'(-1) = 3 + 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "d3",
+       "meaning": "f'(3) = 27 - 18 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m6.3": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "maa-m6.3",
+     "request_id": "req-maa-t16",
+     "claim_id": "m6.3",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "d1",
+       "sort": "Real",
+       "meaning": "3 - 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_d1",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "d1"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "3"
+          },
+          {
+           "op": "real",
+           "value": "-6"
+          },
+          {
+           "op": "real",
+           "value": "-9"
+          }
+         ]
+        }
+       },
+       "label": "3 - 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "eq",
+       "left": {
+        "op": "var",
+        "name": "d1"
+       },
+       "right": {
+        "op": "real",
+        "value": "-12"
+       }
+      },
+      "label": "f'(1) = -12",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Derivative at x = 1.",
+     "glossary": [
+      {
+       "symbol": "d1",
+       "meaning": "3 - 6 - 9",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m5.7": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "maa-m5.7",
+     "request_id": "req-maa-t16",
+     "claim_id": "m5.7",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "q1",
+       "sort": "Real",
+       "meaning": "6^4/4",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "name": "u6",
+       "sort": "Real",
+       "meaning": "324 - 864 + 648",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "d_q1",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "q1"
+        },
+        "right": {
+         "op": "div",
+         "left": {
+          "op": "real",
+          "value": "1296"
+         },
+         "right": {
+          "op": "real",
+          "value": "4"
+         }
+        }
+       },
+       "label": "6^4/4",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "d_u6",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "u6"
+        },
+        "right": {
+         "op": "add",
+         "args": [
+          {
+           "op": "real",
+           "value": "324"
+          },
+          {
+           "op": "real",
+           "value": "-864"
+          },
+          {
+           "op": "real",
+           "value": "648"
+          }
+         ]
+        }
+       },
+       "label": "324 - 864 + 648",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "c",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "q1"
+         },
+         "right": {
+          "op": "real",
+          "value": "324"
+         }
+        },
+        {
+         "op": "eq",
+         "left": {
+          "op": "var",
+          "name": "u6"
+         },
+         "right": {
+          "op": "real",
+          "value": "108"
+         }
+        }
+       ]
+      },
+      "label": "[u^4/4 - 4u^3 + 18u^2] from 0 to 6 = 324 - 864 + 648 = 108",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "certainty": "established",
+       "source_refs": []
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Substitution check at u = 6.",
+     "glossary": [
+      {
+       "symbol": "q1",
+       "meaning": "6^4/4",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      },
+      {
+       "symbol": "u6",
+       "meaning": "324 - 864 + 648",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "certainty": "established",
+        "source_refs": []
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  },
+  "ch-t16": {
+   "s4.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-s4.1",
+     "request_id": "req-ch-t16",
+     "claim_id": "s4.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "mean",
+       "sort": "Real",
+       "meaning": "mean titre in cm^3",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "name": "n_naoh",
+       "sort": "Real",
+       "meaning": "moles of NaOH",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "name": "n_acid25",
+       "sort": "Real",
+       "meaning": "moles of ethanoic acid in 25.00 cm^3 of diluted vinegar",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_mean",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "mean"
+        },
+        "right": {
+         "op": "real",
+         "value": "22.40"
+        }
+       },
+       "label": "mean titre is 22.40 cm^3 (s3.1)",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p_naoh",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "n_naoh"
+        },
+        "right": {
+         "op": "mul",
+         "args": [
+          {
+           "op": "real",
+           "value": "0.1000"
+          },
+          {
+           "op": "div",
+           "left": {
+            "op": "var",
+            "name": "mean"
+           },
+           "right": {
+            "op": "real",
+            "value": "1000"
+           }
+          }
+         ]
+        }
+       },
+       "label": "n(NaOH) = c x V",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p_ratio",
+       "expr": {
+        "op": "eq",
+        "left": {
+         "op": "var",
+         "name": "n_acid25"
+        },
+        "right": {
+         "op": "var",
+         "name": "n_naoh"
+        }
+       },
+       "label": "the 1:1 ratio from the balanced equation",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "ge",
+         "left": {
+          "op": "var",
+          "name": "n_acid25"
+         },
+         "right": {
+          "op": "real",
+          "value": "0.002235"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "var",
+          "name": "n_acid25"
+         },
+         "right": {
+          "op": "real",
+          "value": "0.002245"
+         }
+        }
+       ]
+      },
+      "label": "n(CH3COOH) in 25.00 cm^3 = 2.24 x 10^-3 mol",
+      "grounding": {
+       "kind": "specialist_inference",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "The 1:1 ratio is a premise from the balanced equation, and the so-clause (ratio plus n(NaOH)) gives the acid amount.",
+     "glossary": [
+      {
+       "symbol": "mean",
+       "meaning": "mean titre in cm^3",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "symbol": "n_naoh",
+       "meaning": "moles of NaOH",
+       "grounding": {
+        "kind": "arithmetic_fact",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "symbol": "n_acid25",
+       "meaning": "moles of ethanoic acid in 25.00 cm^3 of diluted vinegar",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  },
+  "mai-t16": {
+   "m26.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-m26.1",
+     "request_id": "req-mai-t16",
+     "claim_id": "m26.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "saving",
+       "sort": "Real",
+       "meaning": "area of metal saved per can in cm^2",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "name": "total",
+       "sort": "Real",
+       "meaning": "total area saved in cm^2",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_saving",
+       "expr": {
+        "op": "and",
+        "args": [
+         {
+          "op": "ge",
+          "left": {
+           "op": "var",
+           "name": "saving"
+          },
+          "right": {
+           "op": "real",
+           "value": "6.23300"
+          }
+         },
+         {
+          "op": "lt",
+          "left": {
+           "op": "var",
+           "name": "saving"
+          },
+          "right": {
+           "op": "real",
+           "value": "6.23310"
+          }
+         }
+        ]
+       },
+       "label": "per-can saving 6.2330... cm^2 carried from m24.1",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "ge",
+         "left": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "2500000"
+           },
+           {
+            "op": "var",
+            "name": "saving"
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "15582500"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "mul",
+          "args": [
+           {
+            "op": "real",
+            "value": "2500000"
+           },
+           {
+            "op": "var",
+            "name": "saving"
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "15583500"
+         }
+        }
+       ]
+      },
+      "label": "total saving = 2.5 x 10^6 x 6.2330... = 1.5583 x 10^7 cm^2",
+      "grounding": {
+       "kind": "specialist_inference",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "The per-can saving is taken as the specialist's stated value (its nonlinear derivation in m24.1 is not encoded), and the total is checked against 1.5583 x 10^7.",
+     "glossary": [
+      {
+       "symbol": "saving",
+       "meaning": "area of metal saved per can in cm^2",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      },
+      {
+       "symbol": "total",
+       "meaning": "total area saved in cm^2",
+       "grounding": {
+        "kind": "specialist_inference",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m21.2": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-m21.2",
+     "request_id": "req-mai-t16",
+     "claim_id": "m21.2",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "pi",
+       "sort": "Real",
+       "meaning": "the constant pi",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_pi_lo",
+       "expr": {
+        "op": "ge",
+        "left": {
+         "op": "var",
+         "name": "pi"
+        },
+        "right": {
+         "op": "real",
+         "value": "3.1415926"
+        }
+       },
+       "label": "pi >= 3.1415926 (known constant)",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p_pi_hi",
+       "expr": {
+        "op": "lt",
+        "left": {
+         "op": "var",
+         "name": "pi"
+        },
+        "right": {
+         "op": "real",
+         "value": "3.1415927"
+        }
+       },
+       "label": "pi < 3.1415927 (known constant)",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "and",
+         "args": [
+          {
+           "op": "ge",
+           "left": {
+            "op": "sub",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "real",
+               "value": "12"
+              },
+              {
+               "op": "var",
+               "name": "pi"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "220/3"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "-35.65"
+           }
+          },
+          {
+           "op": "lt",
+           "left": {
+            "op": "sub",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "real",
+               "value": "12"
+              },
+              {
+               "op": "var",
+               "name": "pi"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "220/3"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "-35.55"
+           }
+          }
+         ]
+        },
+        {
+         "op": "and",
+         "args": [
+          {
+           "op": "ge",
+           "left": {
+            "op": "sub",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "real",
+               "value": "16"
+              },
+              {
+               "op": "var",
+               "name": "pi"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "41.25"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "8.95"
+           }
+          },
+          {
+           "op": "lt",
+           "left": {
+            "op": "sub",
+            "left": {
+             "op": "mul",
+             "args": [
+              {
+               "op": "real",
+               "value": "16"
+              },
+              {
+               "op": "var",
+               "name": "pi"
+              }
+             ]
+            },
+            "right": {
+             "op": "real",
+             "value": "41.25"
+            }
+           },
+           "right": {
+            "op": "real",
+            "value": "9.05"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      "label": "dA/dr at r = 3 is about -35.6 and at r = 4 about 9.0 (3 and 2 significant figures)",
+      "grounding": {
+       "kind": "specialist_inference",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "Evaluates the stated derivative at r = 3 and r = 4 with pi bounded to seven decimals. The derivative formula itself (calculus) is not encoded; only its evaluation is.",
+     "glossary": [
+      {
+       "symbol": "pi",
+       "meaning": "the constant pi",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   },
+   "m23.1": {
+    "problem": {
+     "ir_version": "1.0",
+     "problem_id": "p-m23.1",
+     "request_id": "req-mai-t16",
+     "claim_id": "m23.1",
+     "query": "entailment",
+     "symbols": [
+      {
+       "name": "pi",
+       "sort": "Real",
+       "meaning": "the constant pi",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "premises": [
+      {
+       "id": "p_pi_lo",
+       "expr": {
+        "op": "ge",
+        "left": {
+         "op": "var",
+         "name": "pi"
+        },
+        "right": {
+         "op": "real",
+         "value": "3.1415926"
+        }
+       },
+       "label": "pi >= 3.1415926 (known constant)",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      },
+      {
+       "id": "p_pi_hi",
+       "expr": {
+        "op": "lt",
+        "left": {
+         "op": "var",
+         "name": "pi"
+        },
+        "right": {
+         "op": "real",
+         "value": "3.1415927"
+        }
+       },
+       "label": "pi < 3.1415927 (known constant)",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       },
+       "materiality": "material"
+      }
+     ],
+     "conclusion": {
+      "id": "claim",
+      "expr": {
+       "op": "and",
+       "args": [
+        {
+         "op": "ge",
+         "left": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "real",
+              "value": "20.48"
+             },
+             {
+              "op": "var",
+              "name": "pi"
+             }
+            ]
+           },
+           {
+            "op": "real",
+            "value": "206.25"
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "270.58975"
+         }
+        },
+        {
+         "op": "lt",
+         "left": {
+          "op": "add",
+          "args": [
+           {
+            "op": "mul",
+            "args": [
+             {
+              "op": "real",
+              "value": "20.48"
+             },
+             {
+              "op": "var",
+              "name": "pi"
+             }
+            ]
+           },
+           {
+            "op": "real",
+            "value": "206.25"
+           }
+          ]
+         },
+         "right": {
+          "op": "real",
+          "value": "270.58985"
+         }
+        }
+       ]
+      },
+      "label": "A_current = 2 pi (3.2)^2 + 660 / 3.2 = 270.5898 cm^2 (4 decimal places)",
+      "grounding": {
+       "kind": "arithmetic_fact",
+       "source_refs": [],
+       "certainty": "established"
+      },
+      "materiality": "material"
+     }
+    },
+    "interpretation": {
+     "reading": "2 pi (3.2)^2 = 20.48 pi and 660/3.2 = 206.25; pi bounded to seven decimals.",
+     "glossary": [
+      {
+       "symbol": "pi",
+       "meaning": "the constant pi",
+       "grounding": {
+        "kind": "general_knowledge",
+        "source_refs": [],
+        "certainty": "established"
+       }
+      }
+     ],
+     "ambiguity_flags": []
+    },
+    "ambiguous": false,
+    "unsupported_reason": null
+   }
+  }
+ }
+}

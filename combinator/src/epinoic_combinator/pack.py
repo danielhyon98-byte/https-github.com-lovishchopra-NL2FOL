@@ -4,9 +4,11 @@ The pack is two files (``pack/`` of this package):
 
 * ``INSTRUCTIONS.md``: what the agent is told (its role and input; the closed transformation words; certainty never
   stronger than the weakest source; every figure, unit, mark, date and quotation kept exactly; no note,
-  self-certification, word count or question carried back as a claim; a decline or a deferral of the work the student
-  asked for carried for the student, word for word, as a claim of its own (rule 7, since pack 1.3); every dropped claim
-  listed with its reason; no contradiction merged or hidden; the exact output format and nothing else);
+  self-certification, word count or question that asks the student or the router something back carried back as a
+  claim, while a question the answer sets the student (a practice, test or guiding question) is content, kept with every
+  question or item a kept sentence announces (rule 6, split since pack 1.4); a decline or a deferral of the work the
+  student asked for carried for the student, word for word, as a claim of its own (rule 7, since pack 1.3); every
+  dropped claim listed with its reason; no contradiction merged or hidden; the exact output format and nothing else);
 * ``output-format.json``: the same format as data (keys, closed values with what each records, the rules), which the
   translator's arena tooling prints for its combinator agents (``scripts/arena/list_claims.py --json``).
 
@@ -28,7 +30,7 @@ from .jsonio import sha256_bytes, sha256_json
 __all__ = ["PACK_NAME", "PACK_VERSION", "PACK_FILES", "TIER", "PackUnavailable", "Pack", "pack_sha256", "load_pack"]
 
 PACK_NAME = "combinator-instructions"
-PACK_VERSION = "1.3"
+PACK_VERSION = "1.4"
 PACK_FILES: tuple[str, ...] = ("INSTRUCTIONS.md", "output-format.json")
 #: The only tier the combinator runs on.
 TIER = "cheapest"

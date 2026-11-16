@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_arena import ADJUDICATIONS_FILE, VERDICT_SPELLINGS, fixture_sha256  # noqa: E402
+from run_arena import ADJUDICATIONS_FILE, VERDICT_SPELLINGS, fixture_sha256, load_items  # noqa: E402
 
 
 def _file_stem(j: dict, task_files: dict[str, list[str]]) -> str | None:
@@ -38,8 +38,11 @@ def bind(round_dir: Path, judgments: list[dict], adjudicator: str | None = None)
     """The adjudications file's content for ``judgments`` on ``round_dir`` (nothing is written)."""
     translations = {p.stem: json.loads(p.read_text()) for p in sorted((round_dir / "translations").glob("*.json"))}
     task_files: dict[str, list[str]] = {}
-    for p in sorted((round_dir / "specialists").glob("*.json")):
-        task_files.setdefault(json.loads(p.read_text()).get("task_id"), []).append(p.stem)
+    # the specialist files as run_arena.py reads them: a file that is not one JSON object of the round format is named and left
+    # out (its judgments by task id stay unbound), never an AttributeError (round c3: a specialist file written as a list)
+    unreadable: list[dict] = []
+    for it in sorted(load_items(round_dir / "specialists", refused=unreadable) if (round_dir / "specialists").is_dir() else [], key=lambda it: it["_path"].name):
+        task_files.setdefault(it["task_id"], []).append(it["_path"].stem)
     out: list[dict] = []
     unbound: list[str] = []
     for j in judgments:
@@ -59,7 +62,10 @@ def bind(round_dir: Path, judgments: list[dict], adjudicator: str | None = None)
         else:
             unbound.append(f"{name} {j.get('claim_id')}")
         out.append({k: v for k, v in entry.items() if v is not None})
-    return {"adjudicator": adjudicator, "judgments": out, "bound_to_a_recorded_fixture": len(out) - len(unbound), "without_a_recorded_fixture": unbound}
+    result = {"adjudicator": adjudicator, "judgments": out, "bound_to_a_recorded_fixture": len(out) - len(unbound), "without_a_recorded_fixture": unbound}
+    if unreadable:
+        result["specialist_files_unreadable"] = [f"specialists/{b['file']}: the file {b['reason']}" for b in unreadable]
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -79,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     target.write_text(json.dumps(content, indent=2, ensure_ascii=False))
     print(f"{len(content['judgments'])} judgments written to {target}: {content['bound_to_a_recorded_fixture']} bound to the recorded fixture they judged, "
           f"{len(content['without_a_recorded_fixture'])} without a recorded fixture")
+    for line in content.get("specialist_files_unreadable", []):
+        print(f"{line} (no specialist file of the round format: a judgment naming its task by task id is not bound)")
     return 0
 
 

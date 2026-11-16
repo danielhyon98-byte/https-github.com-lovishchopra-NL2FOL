@@ -25,7 +25,12 @@
      per claim). When that reading is CONSISTENT the conflict exists only through pooling one name for two things (maa-t14:
      "x = −5 is rejected because it does not satisfy x > 4" pooled with the domain x > 4 of another claim), so it is
      JOINT-003 too; when it cannot be built or decided, JOINT-002 (warning), so an agent's false_conflict accusation of it
-     is left unresolved, never refuted by a re-run that could not see the pooling;
+     is left unresolved, never refuted by a re-run that could not see the pooling. Rule ``local-glosses`` (round-10
+     clearance c3, the c3 communication-fidelity and adversarial lenses: four false INT-CONFLICT-001 on ch-p10c and maa-t16,
+     and exchange x15): the auditor also reads apart, per claim, a shared symbol whose gloss refers to the claim's own
+     statement ("value of the left-hand side of a stated equation"), whose glosses name different functions, compared
+     case-sensitively ("f(-3) from the cubic" and "F(-3)"), or whose glosses carry different figures, the figures of the
+     claim's own value of the symbol set aside ("f'(-1) = 3 + 6 - 9" and "3 - 6 - 9"): one name for two quantities;
   5. a joint check that is undecided, cannot be built, or breaches ``JOINT_LIMITS`` is JOINT-002 (warning).
 """
 from __future__ import annotations
@@ -60,8 +65,20 @@ EVALUATION_POINT_RULE = "evaluation-point"
 _EVAL_POINT_RE = re.compile(r"\b(?:at|when|for|with|if|where)[ \t]{1,3}([A-Za-z][A-Za-z0-9_]{0,15})[ \t]{0,3}=[ \t]{0,3}([−-]?)[ \t]{0,2}(\d{1,12}(?:\.\d{1,12})?)(?![\d.])",
                             re.IGNORECASE)
 _IR_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+#: Rule ``local-glosses`` (round-10 clearance c3; module docstring, step 4): a gloss that refers to the claim's own statement, the
+#: functions a gloss names (a letter, primes allowed, before an opening bracket: case kept), and the signed figures it writes. A gloss
+#: refers to the claim's own statement only through an equation, relation, line or step it calls stated ("value of the left-hand side
+#: of a stated equation") or one it calls "this" ("the value in this step"): a definite description ("the x the claim states", "the
+#: left-hand side of the ideal gas equation", "the stated value of the mass") names one quantity every holder shares.
+LOCAL_GLOSSES_RULE = "local-glosses"
+_CLAIM_LOCAL_GLOSS_RE = re.compile(r"\bstated[ \t]{1,3}(?:equation|relation|line|step)s?\b"
+                                   r"|\bthis[ \t]{1,3}(?:claim|step|line|statement|equation|relation)(?:['’]s)?\b", re.IGNORECASE)
+_GLOSS_FUNCTION_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z])[′'’\"]{0,3}[ \t]{0,2}\(")
+_GLOSS_FIGURE_RE = re.compile(r"(?<![\w.])([−-]?)[ \t]?(\d{1,12}(?:\.\d{1,12})?)(?![\d.])")
+_GLOSS_READ_MAX = 400
 
-__all__ = ["check_pool", "check_live_pool", "independent_joint", "JointOutcome", "derived_pool", "PooledClaim"]
+__all__ = ["check_pool", "check_live_pool", "independent_joint", "JointOutcome", "derived_pool", "PooledClaim", "LOCAL_GLOSSES_RULE",
+           "local_gloss_names", "rename_local_apart"]
 
 
 def _entries(pool) -> dict[str, tuple[str, bool]]:
@@ -451,6 +468,122 @@ def rename_points_apart(probs: list, texts: list[Optional[str]]) -> tuple[list, 
     return out, renamed, sorted(set(unread))
 
 
+def _gloss_identity(meaning: Optional[str], own_values: set) -> tuple[bool, frozenset, frozenset]:
+    """Rule ``local-glosses``: ``(claim-local, functions, figures)`` of a symbol's gloss: whether it refers to the claim's own statement,
+    the functions it names (case kept, primes kept), and the signed figures it writes other than ``own_values`` (the values the claim's
+    own assertions give the symbol). Bounded reads."""
+    g = (meaning or "")[:_GLOSS_READ_MAX]
+    if not g.strip():
+        return False, frozenset(), frozenset()
+    funcs = frozenset(m.group(0).rstrip("( \t") for m in _GLOSS_FUNCTION_RE.finditer(g))
+    figs: set = set()
+    for m in _GLOSS_FIGURE_RE.finditer(g):
+        try:
+            v = Fraction(m.group(2))
+        except (ValueError, ZeroDivisionError):
+            continue
+        v = -v if m.group(1) else v
+        if v not in own_values and -v not in own_values:
+            figs.add(v)
+    return bool(_CLAIM_LOCAL_GLOSS_RE.search(g)), funcs, frozenset(figs)
+
+
+def _own_values(data: dict, name: str) -> set:
+    """The literal values the assertions of a problem (JSON) equate the symbol ``name`` with (``name = 4``, ``4 = name``)."""
+    out: set = set()
+    for a in list(data.get("premises") or []) + ([data["conclusion"]] if data.get("conclusion") else []):
+        stack = [a.get("expr")]
+        while stack:
+            e = stack.pop()
+            if isinstance(e, dict):
+                if e.get("op") == "eq":
+                    for var, lit in ((e.get("left"), e.get("right")), (e.get("right"), e.get("left"))):
+                        v = _literal_value(lit)
+                        if isinstance(var, dict) and var.get("op") == "var" and var.get("name") == name and v is not None:
+                            out.add(v)
+                stack.extend(v for k, v in e.items() if k != "value")
+            elif isinstance(e, list):
+                stack.extend(e)
+    return out
+
+
+def local_gloss_names(probs: list) -> dict[str, list[int]]:
+    """Rule ``local-glosses``: for each symbol name two or more of ``probs`` share, the indexes of the problems that must read it apart
+    from the first holder's group: a holder whose gloss refers to its own claim's statement is a group of its own; others group by
+    the functions and the figures their glosses name, a gloss naming none of either joining the first group. Empty when nothing is
+    read apart."""
+    holders: dict[str, list[int]] = {}
+    data = []
+    for i, p in enumerate(probs):
+        d = json.loads(p.model_dump_json(exclude_none=True))
+        data.append(d)
+        for sym in d.get("symbols") or []:
+            holders.setdefault(str(sym.get("name")), []).append(i)
+    out: dict[str, list[int]] = {}
+    for name, idxs in holders.items():
+        if len(idxs) < 2:
+            continue
+        keys = []
+        for i in idxs:
+            meaning = next((sym.get("meaning") for sym in data[i].get("symbols") or [] if sym.get("name") == name), None)
+            local, funcs, figs = _gloss_identity(meaning, _own_values(data[i], name))
+            keys.append(("local", i) if local else ((funcs, figs) if (funcs or figs) else None))
+        first = next((k for k in keys if k is not None and k[0] != "local"), None)
+        groups: list = []
+        apart: list[int] = []
+        for i, k in zip(idxs, keys):
+            k = first if k is None else k
+            if k is None or not groups or k == groups[0]:
+                if not groups:
+                    groups.append(k)
+                continue
+            if k[0] != "local" and groups[0] is not None and groups[0][0] != "local":
+                f0, g0 = groups[0]
+                f1, g1 = k
+                # one gloss naming functions or figures the other does not name at all is no evidence of two quantities
+                if not ((f0 and f1 and f0 != f1) or (g0 and g1 and g0 != g1)):
+                    continue
+            apart.append(i)
+        if apart:
+            out[name] = apart
+    return out
+
+
+def rename_local_apart(probs: list) -> tuple[list, dict[str, list[str]]]:
+    """Rule ``local-glosses``: ``(problems, renamed)`` with each symbol :func:`local_gloss_names` reads apart renamed in the problems
+    that read it apart (``<name>_l<k>``); ``renamed`` maps a claim id to the names renamed in it. Data only: each problem is copied
+    as JSON, renamed and validated again as an IR problem; a problem that cannot be read is pooled as it is."""
+    from epinoic_logic.api.ir import Problem
+    names = local_gloss_names(probs)
+    if not names:
+        return list(probs), {}
+    taken = {str(sym.name) for p in probs for sym in p.symbols}
+    out, renamed = [], {}
+    for k, prob in enumerate(probs):
+        mine = [n for n, idxs in names.items() if k in idxs]
+        if not mine:
+            out.append(prob)
+            continue
+        try:
+            data = json.loads(prob.model_dump_json(exclude_none=True))
+            for n in mine:
+                new = f"{n}_l{k}"[:60]
+                i = 0
+                while new in taken or not _IR_NAME_RE.match(new):
+                    i += 1
+                    new = f"l{k}_{i}"
+                taken.add(new)
+                data = _renamed_symbol(data, n, new)
+                for sym in data.get("symbols") or []:
+                    if sym.get("name") == n:
+                        sym["name"] = new
+            out.append(Problem.model_validate(data))
+            renamed[str(prob.claim_id)] = mine
+        except Exception:  # noqa: BLE001 - a problem that cannot be read apart is pooled as it is
+            out.append(prob)
+    return out, renamed
+
+
 def _claim_texts(ctx: CheckContext, claim_ids, upto_seq: int) -> dict[str, str]:
     """The text of each claim id as the latest delivered report holding it, up to ``upto_seq``, states it."""
     wanted = set(claim_ids)
@@ -479,6 +612,7 @@ def _apart_recheck(ctx: CheckContext, probs: list, *, request_id: str, cfg, seq:
             apart, candidates = _rename_candidates_apart(apart)
         texts = _claim_texts(ctx, [p.claim_id for p in apart], seq)
         apart, points, unread = rename_points_apart(apart, [texts.get(p.claim_id) for p in apart])
+        apart, local = rename_local_apart(apart)  # rule local-glosses (round-10 clearance c3)
     except Exception as exc:  # noqa: BLE001 - a reading that fails cannot clear a conflict: undecided
         return None, None, f"the symbols (the reading failed: {type(exc).__name__})"
     parts = []
@@ -490,6 +624,9 @@ def _apart_recheck(ctx: CheckContext, probs: list, *, request_id: str, cfg, seq:
     if points:
         parts.append("the value(s) of " + ", ".join(sorted({n for v in points.values() for n in v})[:6]) + " that claim(s) "
                      + ", ".join(sorted(points)[:6]) + f" evaluate or check at (rule {EVALUATION_POINT_RULE})")
+    if local:
+        parts.append("the symbol(s) " + ", ".join(sorted({n for v in local.values() for n in v})[:6]) + " that claim(s) " + ", ".join(sorted(local)[:6])
+                     + f" gloss by their own statement, by another function or by other figures (rule {LOCAL_GLOSSES_RULE})")
     if unread and not parts:
         # a claim says it evaluates at a value no premise of its own fixes: whether the conflict exists only through pooling is undecided
         return None, None, f"the evaluation point(s) of claim(s) {', '.join(unread[:6])} (no premise fixes them; rule {EVALUATION_POINT_RULE})"

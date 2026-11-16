@@ -140,8 +140,12 @@ class TruthTable:
     code: str = ""
 
 
-def is_boolean_context(tokens: "tuple[Token, ...] | list[Token]", computer_science: bool) -> bool:
+def is_boolean_context(tokens: "tuple[Token, ...] | list[Token]", computer_science: bool, numeric_names: frozenset = frozenset()) -> bool:
+    """A span read by the closed Boolean grammar (Computer Science only). Round-10 clearance (rule abbreviation): a span whose capital names
+    include one the answer binds to a number ('true positives (TP) 132': '(TP + TN)') is arithmetic, never a Boolean expression."""
     if not computer_science or not tokens:
+        return False
+    if numeric_names and any(t.kind == "IDENT" and t.text in numeric_names for t in tokens):
         return False
     if any(t.kind == "BOOL" for t in tokens):
         return True

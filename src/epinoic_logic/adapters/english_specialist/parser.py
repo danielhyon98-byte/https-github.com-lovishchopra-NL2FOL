@@ -175,12 +175,13 @@ from ...translate.common import utc_now_rfc3339
 from ...translate.contracts import ClaimRecord, ClaimRole, SpecialistReport, SuppliedText, sha256_text
 from ...translate.grounding import locate_long_elision
 from ..base import AdapterError
+from ..markdown import _DECLINE_RE, _INVENTED_EXAMPLE_RE, is_question_back
 from ..markdown import (
-    NOTE_WORD_LEAD_RE, find_json_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
+    NOTE_WORD_LEAD_RE, find_json_spans, find_quotation_spans, in_quotation_task, is_json_block, is_json_shaped, is_label_quotation, is_note_sentence, is_peer_attribution,
     is_sources_block, is_self_certification, mask_json_spans, meta_note_form, note_word_paragraph, parser_quotation_spans, split_note_clauses, undelimited_quote_span,
     undelimited_quote_spans,
 )
-from ..sources import attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
+from ..sources import OWN_EXAMPLE_NOTE, attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
 __all__ = [
     "AGENT_ID", "DEFAULT_SUBJECT", "ParagraphKind", "Quotation", "Sentence", "Paragraph",
@@ -260,7 +261,10 @@ _BULLET_RE = re.compile(r"^\s*(?:[-*•–]|\d+[.)])\s+")
 _HEADING_RE = re.compile(r"^\*\*[^*\n]+\*\*\s*$|^#{1,6}\s")
 #: Generic ways a sentence names the one literary text supplied (never a relayed peer report), read over the whole sentence by
 #: :func:`documents_named` (which the generic, History and STEM parsers share).
-_TEXT_CUE_RE = re.compile(r"\bthe (?:poem|sonnet|extract|passage|novel|play|story|source text|supplied text)\b", re.IGNORECASE)
+_TEXT_CUE_RE = re.compile(r"\bthe (?:poem|sonnet|extract|passage|novel|play|story|source text|supplied text)\b"
+                          # the student's own supplied work named as the student's ("Your notes say ...", clearance c3 ll-t16)
+                          r"|\b(?:your|the\s+student['’]s)\s+(?:own\s+)?(?:notes|email|e-mail|letter|essay|draft|paragraph|plan|outline|story|speech|article|script"
+                          r"|writing|commentary)\b", re.IGNORECASE)
 #: The cue the clause-aware credit reader of the structural checks reads (``structural._governing_document``): a non-literary text under
 #: analysis named by its kind names it too (Language and Literature: "the text gives "RRP £240"", "the advertisement", "the
 #: infographic"), so a quotation its own clause credits to the text is not credited to a colleague named in a later clause (c1). It is
@@ -307,6 +311,7 @@ class Sentence:
     role: ClaimRole                 #: proposed role
     quotations: tuple[Quotation, ...]
     notes: tuple[str, ...] = ()     #: the method's own labels carried inline (from-memory, task note), kept out of the role
+    own_example: bool = False       #: its quoted words belong to an invented example the paragraph announces (clearance c3)
 
 
 @dataclass(frozen=True)
@@ -596,6 +601,9 @@ def is_note_only(sentence: str) -> bool:
     return not core
 
 
+#: A block of advice for the student's next draft: "Next step: ...", "Next steps: ...", "Next practice task: ...", "For next time: ...".
+_NEXT_STEP_BLOCK_RE = re.compile(r"^[\s*_>#-]*(?:next\s+steps?|next\s+practice(?:\s+(?:task|step|question|problem))?(?:\s*\([^()\n]{0,60}\))?|for\s+next\s+time)\s*:",
+                                 re.IGNORECASE)
 #: A block opened by a bare note lead is a note as a whole ("Note on ...:" introduces a discussion and is not one).
 _BARE_NOTE_BLOCK_RE = re.compile(r"^[\s*_>#-]*(?:(?:(?:please\s+)?note|notes|nb|next\s+steps?|confidence)\s*:|n\.\s?b\.)", re.IGNORECASE)
 #: The content of a marking-feedback layout besides its point: the judgement ("Biggest gap: ...") and the fixes ("Fix it: 1.
@@ -604,6 +612,21 @@ FEEDBACK_JUDGEMENT_RE = re.compile(r"^\W*(?:(?:biggest|main|key)\s+gaps?|fix\s+i
 _NUMBERED_ITEM_RE = re.compile(r"^\W*\(?\d{1,2}[.)]\s+\S")
 _FIXES_LEAD_RE = re.compile(r"^\W*(?:fix\s+it|fixes|how\s+to\s+improve|to\s+improve|improvements?)\s*:", re.IGNORECASE)
 _LABEL_LINE_RE = re.compile(r"^\W*[A-Z][\w’' ]{0,30}:\s")
+#: A lead that tells the student to answer the questions after it: "To test a direction, answer these from the adverts themselves:",
+#: "Ask yourself these questions:", "Work through the following:" (closing on a colon).
+_ANSWER_THESE_LEAD_RE = re.compile(r"\b(?:answer|ask\s+yourself|consider|work\s+through|think\s+about|respond\s+to|try|use)\s+(?:these|the\s+following|each\s+of\s+these)"
+                                   r"(?:\s+(?:questions?|prompts?))?\b[^:]{0,80}:\s*$", re.IGNORECASE)
+#: A line that opens a numbered item ("1. ", "2) "): a body block is split there, so an item is never read with the lead before it.
+_NUMBERED_LINE_SPLIT_RE = re.compile(r"\n(?=[ \t]*\(?\d{1,2}[.)][ \t]+\S)")
+
+
+def _prose_sentences(block: str) -> list[str]:
+    """The sentences of a prose block: each numbered line ("1. Your notes say ...") opens a sentence of its own (clearance c3, ll-t16:
+    "To test a direction, answer these from the adverts themselves: 1. Your notes say ..." was one sentence, so the lead and the first
+    item shared one role and the item's quotation was credited to no text)."""
+    if "\n" not in block:
+        return split_sentences(block)
+    return [x for piece in _NUMBERED_LINE_SPLIT_RE.split(block) for x in split_sentences(piece)]
 #: The furniture of a marking-feedback layout: the task heading ("Task — Paper 1, SL — How does ...?"), the restated task
 #: ("What the task wants: ..."), the provisional marks line ("Provisional marks: A 3/5 · B 2/5 ...") and a bare label
 #: closing on a colon ("Why these marks:"). A self-rating ("Confidence: lowered.") is a note on every branch
@@ -641,10 +664,27 @@ def is_note_block(block: str) -> bool:
     s = block.strip()
     if not s or len(s) > 4000 or is_json_block(s):
         return False
+    if _NEXT_STEP_BLOCK_RE.match(strip_quotations(s[:400])) is not None and _block_quotations(s):
+        # "Next step: draft a second paragraph on "The queen is somewhere in the dark" ..." (clearance c3, lit-t16 and x10): advice for the
+        # student's next draft that quotes the text is a note, never a body paragraph (ES-STR-001) or a material point; its quotations are
+        # still recorded and checked. (A quotation-free one stays the meta-text block it was, ES-META-001, which the Overseer's rule
+        # meta-note frees: the recorded en-t14's paragraph 5.)
+        return True
     if NOTE_WORD_LEAD_RE.match(strip_quotations(s[:400])) is not None:
         return note_word_paragraph(s) and not _block_quotations(s)
     sentences = split_sentences(s)
+    if sentences and _DECLINE_RE.match(_decline_head(sentences[0])) and all(is_note_only(x) for x in sentences) and not _block_quotations(s):
+        # a decline of the deliverable and the help offered instead ("I can't write your introduction or your body paragraphs,
+        # because the essay will be handed in as your own work. I can help you find and test your own line ..."; clearance c3, x05b):
+        # a note the student must be given, delivered as claims of role other, never meta-text (ES-META-001) and never dropped
+        return True
     return bool(sentences) and meta_note_form(sentences[0]) is not None and all(is_note_only(x) for x in sentences)
+
+
+def _decline_head(sentence: str) -> str:
+    """The clause of ``sentence`` a decline is read from: quotations masked, its terminal mark and anything after a semicolon dropped."""
+    masked = strip_quotations(sentence).strip().rstrip(".!?").strip()
+    return masked.partition(";")[0].strip()
 
 
 def is_meta_block(block: str) -> bool:
@@ -766,14 +806,19 @@ def segment(text: str) -> tuple[Paragraph, ...]:
     for i, (kind, block) in enumerate(units, start=1):
         if kind == "body":
             kind = next(prose_kinds)
-        raw_sentences = _list_sentences(block) if kind == "list" else [" ".join(block.split())] if kind == "sources" else split_sentences(block)
+        raw_sentences = _list_sentences(block) if kind == "list" else [" ".join(block.split())] if kind == "sources" else _prose_sentences(block)
         if kind == "note":
             paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(
                 Sentence(index=j, text=s, role="other", quotations=find_quotations(s)) for j, s in enumerate(raw_sentences, start=1))))
             continue
         sentences: list[Sentence] = []
+        # an invented example announced in the block ("An example on a different, invented body of work, to show the difference.
+        # Topic: "..." Line of inquiry: "..."", clearance c3 ll-t16): every quoted span from the announcement on is the writer's own
+        # example, never a quotation of a supplied text (``markdown.own_form_flags`` reads the same frame on a whole text)
+        invented_seen = False
         argued = 0  # sentences that are neither meta nor a note: the first of them is the point
         in_fixes = False  # a list of fixes is open ("Fix it: 1. ...", "2. ...") until another labelled line
+        in_questions = False  # questions the student is told to answer are open ("To test a direction, answer these ...:" and its numbered items)
         # a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so ..."): what
         # follows the lead explains the note, so every sentence is a note; the block is not meta-text (no ES-META-001)
         note_led = kind in ("thesis", "body", "conclusion") and bool(_BARE_NOTE_BLOCK_RE.match(block.strip())) and not _block_quotations(block)
@@ -785,6 +830,10 @@ def segment(text: str) -> tuple[Paragraph, ...]:
                 role = "other"
             elif kind in ("thesis", "body", "conclusion") and (is_note_only(s) or is_feedback_label(s)):
                 role = "other"  # a label about the text is never the point, wherever it stands
+            elif kind in ("body", "conclusion") and len(raw_sentences) == 1 and not in_questions and is_question_back(s):
+                # a question that asks the student or the router something back, alone in its block (round-10 clearance, combinator
+                # handoff H2): a note, as on every other branch, never a material point
+                role = "other"
             elif kind == "body" and is_peer_attribution(split_note_clauses(s)[0] or s):
                 notes = tuple(split_note_clauses(s)[1])
                 role = "perspective"  # a colleague's reported view, not the writer's own: never the point, never the link
@@ -795,13 +844,21 @@ def segment(text: str) -> tuple[Paragraph, ...]:
                 role = _role_for(argued, s, kind)
                 if kind == "body" and role != "point" and feedback_item(s, in_fixes):
                     role = "judgement"  # a marking-feedback judgement or fix: material content of the feedback
+                if kind == "body" and role != "point" and in_questions and strip_quotations(s).rstrip().endswith("?"):
+                    # a question the answer tells the student to answer (clearance c3, ll-t16: the guiding questions under "answer these
+                    # from the adverts themselves:" were supporting, so a synthesis dropped all four with no finding): material
+                    role = "judgement"
                 if kind == "body":
                     plain = strip_quotations(s)
                     if _FIXES_LEAD_RE.match(plain):
                         in_fixes = True
                     elif _LABEL_LINE_RE.match(plain):
                         in_fixes = False  # another labelled line ("Model: ...") closes the list of fixes
-            sentences.append(Sentence(index=j, text=s, role=role, quotations=find_quotations(s), notes=notes))
+                    if _ANSWER_THESE_LEAD_RE.search(plain):
+                        in_questions = True
+            invented_seen = invented_seen or _INVENTED_EXAMPLE_RE.search(s) is not None
+            sentences.append(Sentence(index=j, text=s, role=role, quotations=() if invented_seen else find_quotations(s), notes=notes,
+                                      own_example=invented_seen and bool(find_quotation_spans(s))))
         if kind == "body" and single_prose:
             sentences = _closing_link(sentences)
         paragraphs.append(Paragraph(index=i, kind=kind, text=block, sentences=tuple(sentences)))
@@ -997,7 +1054,7 @@ def _claim_text(text: str) -> str:
 def _note_assumptions(sentence: Sentence) -> list[str]:
     """The inline labels of ``sentence`` as claim assumptions (one per distinct label)."""
     return [f"the sentence carries the method's own label inline ('{n[:200]}'); the label is kept out of the claim's role and is not part of the argument"
-            for n in sentence.notes]
+            for n in sentence.notes] + ([OWN_EXAMPLE_NOTE] if sentence.own_example else [])
 
 
 #: Which claims are folded first when an answer exceeds the report's claim limit: a claim with a

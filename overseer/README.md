@@ -676,6 +676,25 @@ negative unit exponent opens no square reading (a planted 0.60 is named OVS-TRN-
 answer with no assessed verdict is noted NOT reviewed; and the intake never shows a blind dossier a context built for an informed
 review. Tests: `tests/overseer_tests/test_clearance_c2b_overseer.py`.
 
+**The round-10 clearance** (integrated round c3; design section 57, decisions 162 to 171): a premise the translator's own
+task-record check validates (the task record whose digest the translation records), each figure of which the task states bare after a
+list label the premise names, is undecided data as the receipt presents it (rule `task-record`: bi-t16 s4.1 and s4.3, OVS-TRN-011 at most,
+never OVS-TRN-006); OVS-TRN-005 reads the factor between two units the answer writes, a power of a stated figure under a written power and
+the upper end of a cut decimal (rules `unit-factors`, `stated-powers`, `cut-decimal`); RES-009, TRN-007 and the delivery policy ask the
+outcome composer itself for a claim's display (rule `composed-display`: a self-report withheld NOT_ELIGIBLE is no forged result, a
+receipt showing it ENTAILED still is); the writer's own words in quotation marks (a correction after an arrow, a labelled model, topic or
+line of inquiry, a gloss, a dictionary or recommended form, an invented example) quote no text (rule `own-text`, OVS-FID-004); the gate
+names an answer-scope claim of a check, a review, a proof or a tool's result beside the translator's one reader (rule `answer-status`);
+the pooled-only re-run reads apart one symbol name a claim glosses by its own statement, another function or other figures (rule
+`local-glosses`, OVS-JOINT-003) and a false-conflict accusation resting on such a name is never refuted; feedback holds back a quotation
+flaw on the writer's own words, "appears unanswered" for a part its own label answers, and a structural flaw on a closing note or source
+list; an auditor OVS-FID-004 is scored gold only when a reviewed reference adjudicates it (rule `adjudicated-quotations`); and the
+same-quantity occurrence reader is linear (rule `linear-context`: an index built once per text; a sentence over 2,000 characters or 32
+figures is read as no statement, fail closed). Tests: `tests/overseer_tests/test_clearance_c3_overseer.py`. Seven self-reports the fixed
+expectations (`tests/overseer_tests/self_report_expectations.py`) pinned False, which the translator's one reader now names (a second
+reader's review, two double negations of a check, four check labels after content), are pinned True, a stricter rule, and the two tests
+that read them are rewritten to the stricter reading and say so.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and

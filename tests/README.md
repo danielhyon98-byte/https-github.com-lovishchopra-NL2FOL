@@ -1346,6 +1346,110 @@ critical class stays open, so the push stays held.
 **No supersession.** The hold is in force, so neither held check can be superseded. The bef76adb check's first open
 critical item (the self-certification class) is unresolved at fe2e639.
 
+## Arena round 10 (integrated round c3): the harness fixer's pass
+
+Measured results only; not committed. The harness changes and their reasons are in `docs/ARENA_RESULTS.md` ("Round 10
+clearance: the harness's own fixes") and `scripts/arena/README.md` ("The round's plan", "Mutated claims").
+
+- **The round's plan.** A task of tasks.json with no specialist file is now a genuine reply not delivered, its relay a
+  peer relay not run, and its group's synthesis fails naming it. c3's four planned peer exchanges (mai-p10a, ec-p10b,
+  ge-p10c, en-p10d) never took place; the round's headline had read "genuine traffic delivered and decided: 40 of 40".
+- **A specialist file that is not one JSON object** is refused by name and shape, recorded as a failure of its task, and
+  the rest of the round runs (before: a bare TypeError and no results).
+- **Mutated claims.** `list_claims.py --mutations` lists the claims each mutation changes for the translation agents, and
+  the harness serves translations recorded for the mutated texts and names every changed claim none reached.
+- **Tests.** Four new tests in `scripts/arena/test_arena_rules.py` (run by path; the default suite does not collect it).
+  No test was weakened or deleted, and none was rewritten.
+
+**Measured** (copies of the rounds, the working tree with the other owners' fixes in progress, against the harness
+before this pass run at the same time on the same tree):
+
+| Round | Transport before | After | What moved |
+| --- | --- | --- | --- |
+| c1 | 203 of 203 | 203 of 203 | nothing: no record differs |
+| c2 | 188 of 188 | 188 of 188 | nothing (engine result ids aside) |
+| c3 | 168 of 168 | 164 of 176 | the four planned tasks never answered and their four relays are failed records, and the four p10 syntheses fail naming them (genuine replies 20 of 24, peer relays 0 of 4, syntheses 16 of 20); no other record differs |
+
+Mutated claims the pipeline translates: c1 0 of 38 translated, c2 0 of 42, c3 0 of 30 (no round recorded a translation
+of a mutated text; each claim is named). On copies of c1 and c3, `list_claims.py --mutations` printed for all 155 and 128
+variants exactly the claims the round delivered. `scripts/arena/test_arena_rules.py`: 112 passed (the 4 new tests
+included). Full suite, run once on the working tree: 38,396 passed, 112 failed, 23 skipped, 1 xfailed in 1 h 52 min. No
+failure is in the harness owner's files: 108 were `tests/integration/test_combinator_subproject.py` and 1 the raw
+bidirectional-control guard, both while the combinator owner was mid-edit (both pass on a re-run afterwards), and 3 are
+overseer tests (`test_audit_joint_divergence.py`, `test_c1_push_check_non_material.py`, `test_clearance_c3_overseer.py`)
+that still fail on a re-run and touch no harness code.
+
+## Arena round 10 (integrated round c3): the handoff pass
+
+Measured results only; not committed. This pass applied the items the round's other fixers (combinator, core, harness,
+integration, overseer, parsers, STEM) handed over and that still reproduced on the shared tree. What changed and why is in
+`src/epinoic_logic/channel/README.md`, `adapters/README.md`, `branches/README.md`, `translate/README.md` and
+`integrity/README.md` (their round-10 sections), `scripts/arena/README.md` and `overseer/docs/OVERSEER_DESIGN.md` (decisions
+172 to 175).
+
+- **Word bounds.** ess-t16, a correct answer of 433 words of prose under "no more than 450 words in total, plus working", drew
+  an error-level INT-REQ-005 at 457 words, so its receipt excluded it from every delivery. A paragraph a meta lead opens
+  ("Assumption: ...", "One correction for your planning: ...") is meta-text when it says nothing of the subject, a note about
+  the answer inside a paragraph of content leaves out its own words, part labels and mark annotations are no words of any
+  branch's answer, and with "plus working" a calculated part's result line ("Answer: 3,660 t ...") is working.
+- **Self-reports.** The tick after a marking point of a model line is a mark (rule model-marks: ph-t16 lost three
+  CORE-SELF-001 warnings and two withheld ENTAILED displays); a subject's technical term ("Cross-validation gives a better
+  estimate of accuracy.") and a modal decline ("... so any number I gave would be unverified ...", bm-t16 g16.2) are no
+  self-reports; an internal checker's decision ("The hub has already decided every relation above: all hold.") is one. The
+  composer's display rule is one exported function (`claim_display_status`) the transfer auditor calls, and a withheld
+  self-report is summarised as one.
+- **The auditor's reader of the writer's own quoted words** moved into the translator (`adapters/own_text.py`, exported) and the
+  auditor imports it instead of its copy. The channel still reads own forms with its own reader (`markdown.own_form_flags`);
+  on the recorded c1 and c3 answers the two agree except one named interjection in sp-p10d ('"Ojo"', which the supplied text
+  holds, so neither reading names anything).
+- **Requests.** "f(x) = (x + 3)(x − 3)²" is no part label (maa-t16 part (c) is addressed); a 'justify' item is answered by a
+  point that gives its reason (mai-t16); the quotation feedback asks a writer to say when the words are its own.
+- **Ledger.** A carried sentence whose announced questions or items the synthesis all left out is INT-LEDGER-019; a quotation
+  whose every quoting claim was left out is INT-LEDGER-017 (rule orphaned-quotation), read by the port's own reader; the
+  arena composes the student-facing text with the citations and sources, as the port does.
+- **Roles and sources.** A question back to the student is a note on the English branches; the core pack reads a from-memory
+  label as the ledger does (ge-t16's decline labels nothing); a coaching answer that declines the essay is held to no strands
+  rule (ll-t16, ES-STR-001).
+- **Tests.** New: `tests/channel/test_c3_handoff_channel.py`, `tests/integrity/test_c3_handoff_ledger.py`,
+  `tests/branches/test_c3_handoff_self_reports.py`, `tests/branches/test_c3_handoff_roles_sources.py`,
+  `tests/e2e/test_c3_planned_round.py` (the harness's round-c3 rules in the default suite),
+  `overseer/tests/overseer_tests/test_c3_handoff_overseer.py`, and one test in `scripts/arena/test_arena_rules.py`; each new
+  reader has a sweep over the standard hostile inputs. Rewritten, each to a stricter form that says so: the core fixer's K1
+  and K1b (`test_audit_joint_divergence.py`, `test_clearance_c3_overseer.py`), the parsers fixer's H10
+  (`test_c1_push_check_non_material.py`, two more pinned blocks), the ess-t13 and ps-t14 word counts
+  (`tests/channel/test_round7_fixes.py`, `test_c1_handoff_bounds.py`: the words left out are exactly the labels and marks)
+  and the STEM word-count view (`tests/stem/test_clearance_c3_stem.py`: the two result lines are named). The strict xfail of
+  `combinator/tests/test_questions_the_answer_sets.py` is removed because the test now passes. No test was weakened or deleted.
+
+**Measured** (copies of the rounds; before is the integration fixer's final harness run on the same tree):
+
+| Round | Functional before | After | What moved |
+| --- | --- | --- | --- |
+| c1 | 203 of 203 | 203 of 203 | nothing: no record differs |
+| c2 | 188 of 188 | 188 of 188 | nothing: no record differs |
+| c3 | 164 of 176 | 164 of 176 | 52 records' findings, none functional: ess-t16 no INT-REQ-005 (9 variants; the answer is no longer excluded for an error), ph-t16 no CORE-SELF-001, two model-line claims shown ENTAILED instead of withheld, and its marks-label lines s1.1 to s4.1 NOT_ELIGIBLE instead of UNSUPPORTED (9), maa-t16 no INT-REQ-004 (8), mai-t16 no INT-REQ-008 (8), ll-t16 no ES-STR-001 (7), bm-t16 no CORE-SELF-001 on the decline and its synthesis ACCEPTED (7), ge-t16 CORE-SRC-003 without the false label reason and one CORE-SRC-002 info (3), lit-t16's synthesis INT-LEDGER-017 orphaned-quotation (1) |
+
+The c1 and c2 records are identical to the baseline; on c3 no functional flag and no delivery mode moved (all 24 tasks stay
+withheld: the harness configures no overseer model, so the fallback establishes no accuracy), and ess-t16 is no longer excluded for
+an error-level finding. The harness gave the same records on the final tree as on the tree before this pass's last two corrections
+(below), on every round. c2-hold and c2-hold2 do not exist as recorded rounds and were skipped.
+
+Two corrections came out of the full suite run itself: the meta-lead fallback now reads such a paragraph as any paragraph is (a
+note sentence under an "Assumption:" lead stays a note when it is the whole response:
+`tests/branches/test_c2_clearance_parsers.py`), and the from-memory veto is read in the wording's own clause (the general reading's
+reference corpus, `tests/branches/test_quant_si_reading.py`, holds a relayed label with an unrelated "never" in another clause).
+`overseer/tests/overseer_tests/test_c3_handoff_overseer.py` reads its recorded answers from its own `data/` (the sub-project's
+layout rule).
+
+**Full suite** (`python -I -m pytest -q -p no:cacheprovider`, the default selection, stress deselected), run once on the final tree
+in five parallel parts beside the harness, 1 h 4 min: 39,101 passed, 6 failed, 23 skipped, 45 deselected, 1 xfailed. Five failures
+are wall-clock timing tests of code this pass did not change, failing only under contention (8 processes on 4 cores: wall 6.9 s
+against 1.5 s of CPU for a 4 s bound; a hub crossing 33.8 s wall, 9.1 s CPU, against 20 s); re-run with the machine less loaded, all
+eight cases of those tests pass (1.4 s; 7.7 s). The sixth was this pass's own overseer test reading the translator's test data from
+above the sub-project; it now reads a verbatim copy in `overseer/tests/overseer_tests/data/` and passes with the layout test.
+`scripts/arena/test_arena_rules.py` (run by path): 113 passed.
+
+
 ## What runs next
 
 The plan this section gave before the STEM merge has been overtaken. That plan was the English and History arena loop,
@@ -2470,3 +2574,53 @@ Work in progress after it is labelled as such.
   round 9's 40 are fixed, 11 are still open. Communication fidelity: 24 bugs (18 major, 6 minor); 7 of round 9's 19 are
   fixed. Live adversarial input: 20 bugs (16 major, 4 minor); 10 of round 9's 25 are fixed. All 20 delivery decisions
   were withheld, as the policy gives. STEM integration and translation fidelity are still checking the round.
+
+## Arena round 10 (integrated round c3)
+
+Measured results only. Specialists are built from the agent-training API connector with the v4 master prompts and
+knowledge bases; the connector commit is recorded in the round report.
+
+### Harness
+- The recorded round directory cannot be run as it stands. `run_arena.py` on the c3 round directory stops in
+  `load_items` (line 655) with `TypeError: list indices must be integers or slices, not str`. No `results.json` or
+  `summary.md` is written for c3.
+- Peer relay: 0 delivered, 4 dependencies.
+
+### Review lenses
+| Lens | Rate | Verdict | Round 9 bugs fixed | Bugs | Serious |
+|---|---|---|---|---|---|
+| Results audit | 0.1905 | fail | 29 | 32 | 15 |
+| Communication fidelity | 0.8852 | fail | 7 | 24 | 18 |
+| Adversarial live input | 0.6749 | fail | 10 | 20 | 16 |
+| STEM integration | 0.1647 | fail | 32 | 25 | 15 |
+| Translation fidelity | 0.8517 | fail | 9 | 20 | 7 |
+
+Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
+
+### Push check: HOLD
+- The carried critical class is still open: an answer whose own text says it was checked is delivered. The four
+  readers (`is_self_report`, `is_self_certification`, `self_certifying_sentence`, `self_report_reading`) still use an
+  open phrase list. Of 45 fresh, unlisted self-certifications, 6 are missed by all four, for example "This passed the
+  hub's checks." and "All the numbers above reconcile exactly." Each of the six is delivered NOT CHECKED on 15 of 15
+  subjects, and the router allows it on History and Economics. An obfuscated VERIFIED label (negative-squared letters)
+  is also delivered NOT CHECKED 15/15, and the expectation table still pins that form as False.
+- Required fix still not met: gate any claim in the answer's own scope about checking, verification, review, QA, an
+  engine result or proof, not a phrase list.
+- Progress: every phrasing named in the carried records is now read as a self-certification by all four readers
+  (58 of 58), and 39 of the 45 fresh phrasings are caught. The former False pins are now True and labelled
+  "stricter (round-10 clearance c3, was False)".
+- Other c3 critical majors checked hold: the c3 STEM clearance regression file (`tests/stem/test_clearance_c3_stem.py`,
+  including the show-that-target rule) gave 282 passed; the round-8 non-material pin test passes. The full suite was
+  not re-run by the check; the commit reports 39129 passed, 0 failed, in three shards.
+- Not infected: no eval/exec of data, no new network or secret access, no deleted or renamed files, no signing or
+  publishing change; `integration/MANIFEST.sha256` verifies (359 entries). Removed asserts sampled were equivalent or
+  stricter rewrites.
+- No supersession: with hold true, the held commits `bef76adb`, `be91e89` and `fe2e639` stay held.
+
+### Progress, 08:00 UTC (16 November)
+- Arena round 10 is complete. Verification of the full tree before its commit: 39,129 tests passed, 1 xfailed,
+  1 skipped, 0 failed; the harness replays rounds 1 to 9 exactly as recorded and round 10 at 164 of 176 (the four
+  planned peer tasks without a specialist answer are now counted instead of skipped). The commit "Fix the c3
+  clearance findings" is held by its push check: a self-certification worded outside the readers' lists is still
+  delivered (6 of 45 fresh phrasings in the check's probe). Rounds 9 and 10 are therefore not uploaded; the uploaded
+  code is still the round-8 commit.
