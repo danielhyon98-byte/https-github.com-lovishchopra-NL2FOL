@@ -12,7 +12,7 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
   Remedy for Daniel: a repo admin allows tag creation or creates prototype-round8-arch at 1c2fb5cd0b64dafdea25ce9471d533afbbbde08b.
 - Reading stated to Daniel: self-cert fixed at its root by meaning (no status line, no documented limitation); keep going
   past 85% weekly with a checkpoint at 85%.
-- Workflow wf_681da8f2-f04 (task wzy3ys7h7), script S/wf-scripts/resolve-c3b.js (sha256 f8663f30618ec23d; built from
+- Workflow wf_681da8f2-f04 (task wzy3ys7h7; resumed 20:17 after a container restart as task w57iej2z1; stopped and resumed 20:3x with the Option A edit as task wm2jczh9w), script S/wf-scripts/resolve-c3b.js (sha256 2d1f95529f523a82, was f8663f30618ec23d; built from
   resolve-c3b-body.js + lines copied from phase2-c2c3.js by an asserting generator). Phases: Design (selfcert design xhigh +
   dev sets; held-out set in S/wf/phase2/c3b/heldout/ never read by fixers; d9d10 design; leftovers triage of the 87 round 10
   left-undone items in S/wf/phase2/c3b/c3-left-undone.json) -> Build (fix:selfcert incl. POLICY_VERSION || fix:d9d10, then
