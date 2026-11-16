@@ -2616,3 +2616,11 @@ Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
   publishing change; `integration/MANIFEST.sha256` verifies (359 entries). Removed asserts sampled were equivalent or
   stricter rewrites.
 - No supersession: with hold true, the held commits `bef76adb`, `be91e89` and `fe2e639` stay held.
+
+### Progress, 08:00 UTC (16 November)
+- Arena round 10 is complete. Verification of the full tree before its commit: 39,129 tests passed, 1 xfailed,
+  1 skipped, 0 failed; the harness replays rounds 1 to 9 exactly as recorded and round 10 at 164 of 176 (the four
+  planned peer tasks without a specialist answer are now counted instead of skipped). The commit "Fix the c3
+  clearance findings" is held by its push check: a self-certification worded outside the readers' lists is still
+  delivered (6 of 45 fresh phrasings in the check's probe). Rounds 9 and 10 are therefore not uploaded; the uploaded
+  code is still the round-8 commit.
