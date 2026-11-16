@@ -2574,3 +2574,45 @@ Work in progress after it is labelled as such.
   round 9's 40 are fixed, 11 are still open. Communication fidelity: 24 bugs (18 major, 6 minor); 7 of round 9's 19 are
   fixed. Live adversarial input: 20 bugs (16 major, 4 minor); 10 of round 9's 25 are fixed. All 20 delivery decisions
   were withheld, as the policy gives. STEM integration and translation fidelity are still checking the round.
+
+## Arena round 10 (integrated round c3)
+
+Measured results only. Specialists are built from the agent-training API connector with the v4 master prompts and
+knowledge bases; the connector commit is recorded in the round report.
+
+### Harness
+- The recorded round directory cannot be run as it stands. `run_arena.py` on the c3 round directory stops in
+  `load_items` (line 655) with `TypeError: list indices must be integers or slices, not str`. No `results.json` or
+  `summary.md` is written for c3.
+- Peer relay: 0 delivered, 4 dependencies.
+
+### Review lenses
+| Lens | Rate | Verdict | Round 9 bugs fixed | Bugs | Serious |
+|---|---|---|---|---|---|
+| Results audit | 0.1905 | fail | 29 | 32 | 15 |
+| Communication fidelity | 0.8852 | fail | 7 | 24 | 18 |
+| Adversarial live input | 0.6749 | fail | 10 | 20 | 16 |
+| STEM integration | 0.1647 | fail | 32 | 25 | 15 |
+| Translation fidelity | 0.8517 | fail | 9 | 20 | 7 |
+
+Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
+
+### Push check: HOLD
+- The carried critical class is still open: an answer whose own text says it was checked is delivered. The four
+  readers (`is_self_report`, `is_self_certification`, `self_certifying_sentence`, `self_report_reading`) still use an
+  open phrase list. Of 45 fresh, unlisted self-certifications, 6 are missed by all four, for example "This passed the
+  hub's checks." and "All the numbers above reconcile exactly." Each of the six is delivered NOT CHECKED on 15 of 15
+  subjects, and the router allows it on History and Economics. An obfuscated VERIFIED label (negative-squared letters)
+  is also delivered NOT CHECKED 15/15, and the expectation table still pins that form as False.
+- Required fix still not met: gate any claim in the answer's own scope about checking, verification, review, QA, an
+  engine result or proof, not a phrase list.
+- Progress: every phrasing named in the carried records is now read as a self-certification by all four readers
+  (58 of 58), and 39 of the 45 fresh phrasings are caught. The former False pins are now True and labelled
+  "stricter (round-10 clearance c3, was False)".
+- Other c3 critical majors checked hold: the c3 STEM clearance regression file (`tests/stem/test_clearance_c3_stem.py`,
+  including the show-that-target rule) gave 282 passed; the round-8 non-material pin test passes. The full suite was
+  not re-run by the check; the commit reports 39129 passed, 0 failed, in three shards.
+- Not infected: no eval/exec of data, no new network or secret access, no deleted or renamed files, no signing or
+  publishing change; `integration/MANIFEST.sha256` verifies (359 entries). Removed asserts sampled were equivalent or
+  stricter rewrites.
+- No supersession: with hold true, the held commits `bef76adb`, `be91e89` and `fe2e639` stay held.
