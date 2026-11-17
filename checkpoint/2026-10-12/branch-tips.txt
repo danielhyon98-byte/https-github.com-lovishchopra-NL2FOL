@@ -1,6 +1,6 @@
-refs/checkpoint/2026-10-12/c1-metanote-staged b23e3ffaec81bed5119e0b9066cc649731253606
-refs/checkpoint/2026-10-12/main-staged 5ca5764f192b5ab473dac3dd08156cf6d95e8d82
-refs/checkpoint/2026-10-12/probe-staged bf325c66e002ce954a56ad63925ff155ce73fe6e
+refs/checkpoint/2026-10-12/c1-metanote-staged ae96ca310678423784212c822f79b978c116def2
+refs/checkpoint/2026-10-12/main-staged 6b39ba7cec9cb394922a3232af8496980f4db60d
+refs/checkpoint/2026-10-12/probe-staged 29957887fe0517bf30f4fbf117c7e16ed074ba73
 refs/heads/argdiag-a 72173b92749880801cad4a709b402695af6fc7f4
 refs/heads/argdiag-accfix-before 4267cb3c6b99f833ec7fa0ac84c6351a563e0d8c
 refs/heads/argdiag-b b3c66f399fa6b4905820a04d1b050aeb00c1633d
