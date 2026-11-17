@@ -1,4 +1,4 @@
-# Resume notes (16 Nov 19:28 UTC: RESOLVE-C3B RUNNING (wf_681da8f2-f04) on Daniel's "resolve everything"; rounds 9-10 still HELD (be91e89, bef76ad, fe2e639, 03a3021) until its push check). Older sections below are history.
+# Resume notes (17 Nov 18:0x UTC: WEEKLY LIMIT REACHED (99-100%); resolve-c3b (wf_681da8f2-f04) paused in ATTACK round 3; resume after the reset Fri 20 Nov 16:00 UTC). Older sections below are history.
 
 S = /tmp/claude-0/-home-user/a7c3c8b5-0245-5e75-80f1-83ca77b220e6/scratchpad (absolute paths below use S/ as shorthand only in
 prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL, dev branch = claude/z3-verification-engine-plan-nk3luq
@@ -6,6 +6,24 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 "epinoic"; the old Bruno-ios URL redirects; uploads ONLY through the S publishers). Fact-checked 2 Nov 15:0x by an independent agent
 (20 issues found and corrected here).
 
+
+
+## 17 Nov 18:0x UTC: WEEKLY LIMIT; HOW TO RESUME AFTER FRI 20 NOV 16:00 UTC
+- State: resolve-c3b has done Design, Build (selfcert, d9d10, leftovers), Stabilize (4 rounds: 1998 -> 2 suite failures;
+  harness = last verified line), Attack rounds 1-2 with fixes, Attack round 3 lenses (paths:3, correct-work:3 done;
+  branches:3 running at 17:58). Remaining: fix:attack:3, attack round 4, verify (suite via suite_shards.sh, <=2 repairs),
+  commit "Fix the c3 clearance findings", push check over be91e89/bef76ad/fe2e639/03a3021, results commit + upload or
+  README hold note; then the handoff refresh (push_handoff.sh).
+- Agents killed by the limit return null in the journal; a resume re-runs from the first call without a good result:
+  1) uptime/who -b; check R is intact (git status: the c3b work in progress is uncommitted, ~214 paths); 2) read the
+  journal (python snippet in 01-STATE notes) to see the last good step; 3) Workflow({scriptPath: S/wf-scripts/
+  resolve-c3b.js, resumeFromRunId: "wf_681da8f2-f04"}). If the run "completed" early with "not verified" because
+  agents returned null, resume anyway (same call): the failed calls re-run.
+- Measured so far: held-out (no longer unseen) misses 5/286, FPs ~5/262; FRESH phrasings misses 31/113 (27%), FPs 2/26.
+  Expect the push check to hold unless the remaining rounds close the fresh gap.
+- Pending with Daniel (asked 16:00 and 17:00): how to close the fresh-phrasing gap. Recommended: a block-only meaning
+  check in the translation call (the model labels self-certifying sentences; a label can only withhold). Also the
+  release tag (403). Do not start the meaning check without his answer.
 
 ## 16 Nov 19:28 UTC: RESOLVE-C3B LAUNCHED (Daniel 17:2x: "no status limit, retry release tag and do the D9 and D10 resolve everything")
 - Release tag retried 17:31 with release_round8_arch.sh: refused again (HTTP 403, tags only). Not retried another way.
