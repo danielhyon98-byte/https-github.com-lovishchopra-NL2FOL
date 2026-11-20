@@ -8,6 +8,8 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 
 
 
+## 20 Nov 20:1x UTC: ATTACK EXTENDED TO 8 ROUNDS (task wm38st1q0; script sha256 b2ce6b18454339c9, backups *.before-atk8; rounds 1-4 prompts byte-identical, so cached). Round 4 reproduced 59 (phrasings 27, paths 10, correct-work 7, branches 15 incl. 1 stall and 5 regressions); fix:attack:4 running. Resume: same scriptPath + resumeFromRunId wf_681da8f2-f04.
+
 ## 20 Nov 17:0x UTC: RESUMED after the weekly reset (task w2knprs89). Earlier: 17 Nov 18:0x WEEKLY LIMIT; HOW TO RESUME AFTER FRI 20 NOV 16:00 UTC
 - State: resolve-c3b has done Design, Build (selfcert, d9d10, leftovers), Stabilize (4 rounds: 1998 -> 2 suite failures;
   harness = last verified line), Attack rounds 1-2 with fixes, Attack round 3 lenses (paths:3, correct-work:3 done;
