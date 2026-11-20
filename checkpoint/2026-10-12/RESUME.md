@@ -8,7 +8,7 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 
 
 
-## 17 Nov 18:0x UTC: WEEKLY LIMIT; HOW TO RESUME AFTER FRI 20 NOV 16:00 UTC
+## 20 Nov 17:0x UTC: RESUMED after the weekly reset (task w2knprs89). Earlier: 17 Nov 18:0x WEEKLY LIMIT; HOW TO RESUME AFTER FRI 20 NOV 16:00 UTC
 - State: resolve-c3b has done Design, Build (selfcert, d9d10, leftovers), Stabilize (4 rounds: 1998 -> 2 suite failures;
   harness = last verified line), Attack rounds 1-2 with fixes, Attack round 3 lenses (paths:3, correct-work:3 done;
   branches:3 running at 17:58). Remaining: fix:attack:3, attack round 4, verify (suite via suite_shards.sh, <=2 repairs),
