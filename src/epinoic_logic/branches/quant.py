@@ -2101,7 +2101,10 @@ _STRICT_UPPER = frozenset({"less than", "under"})
 _OF_THE_LEAD_RE = re.compile(r"^\s*(?:(?:and|but|so|yet|thus)\s+)?(?:of|out\s+of)\s+(?:(?:the|this|that|its|their)\s+)?(?:(?:total|sum)\s+of\s+)?"
                              r"(?P<lead>[^,;:]{1,80}?)\s*,\s*", re.IGNORECASE)
 #: Where the parts after a leading total end: a comparison or a change states no part ('more than in 1881', 'up from', 'against').
-_PARTS_STOP_RE = re.compile(r"\b(?:than|against|compared|from|since)\b", re.IGNORECASE)
+#: (also a consequence or a worked rate after the parts, ", so the pass rate was 26 / 40 = 65%", ", giving ...", "which is ...": the
+#: figures after it restate a part or the total, never a further part; check round 9 of c3c)
+_PARTS_STOP_RE = re.compile(r"\b(?:than|against|compared|from|since)\b|(?<=\S),?\s++(?:so|thus|hence|therefore|giving|which|i\.e\.)\b|"
+                            r"[=÷/]|\b(?:out\s+of|per\s+cent\s+of|percent\s+of)\b", re.IGNORECASE)
 #: A stated total with its figure ('a total of about 9 billion dollars', 'totalling $5.9 billion', 'in total 790,000', 'a combined $5.9
 #: billion'). When no check reads it, it is undecided if its parts are meant but not stated as figures in its clause.
 _TOTAL_PHRASE_RE = re.compile(rf"\b(?:a\s+(?:combined\s+)?total\s+of|totall?ing|in\s+total|a\s+combined)\s+(?:(?:about|around|roughly|some|nearly|almost|"
@@ -2231,6 +2234,9 @@ _RESULT_START_RE = re.compile(r"^[ \t]?\$?[ \t]?[-+\u2212]?[ \t]?(?:[A-Z]{1,3}\$
 #: A line that continues the equation of the line before it ('= 20 ÷ 10').
 _CONTINUATION_LINE_RE = re.compile(r"^\s*(?:\$\s*)?[=≈]")
 #: The reason a worked equation is reported undecided (``CORE-QNT-001``): written arithmetic in '=' form has no reader on this branch.
+#: A formula written in symbols: a summation sign, or a one-letter variable (with an exponent) on either side of an operator
+#: ("Σd²", "n³ − n", "(6 × Σd²)"); a worked equation of figures and units ("10.8 m² × 1.5 m s⁻¹") has none.
+_SYMBOLIC_FORMULA_RE = re.compile(r"[Σ∑]|(?<![^\W\d_])[a-zA-Z][²³]?\s*[−\-+×÷*/]\s*[a-zA-Z](?![^\W\d_])")
 WORKED_EQUATION_REASON = "it is written arithmetic in '=' form (a worked equation), which this branch's prose arithmetic reader does not decide"
 
 
@@ -2303,8 +2309,12 @@ def worked_equations(text: str) -> list[WorkedEquation]:
                 if first is None and _OPERATOR_BETWEEN_RE.search(links[k - 1]):
                     first = k - 1
                 # a result is a figure with no further arithmetic in its link ('3,000 loaves per month', '−4 A1'); '6 − 6t' or
-                # '4000(1 + 0.036)^5' is an expression, not a stated result
-                if not (_RESULT_START_RE.match(links[k]) and not _OPERATOR_BETWEEN_RE.search(links[k])):
+                # '4000(1 + 0.036)^5' is an expression, not a stated result. Working that opens in brackets after the result ('16.2 m³ s⁻¹
+                # (10.8 × 1.5 = 17.2)') is no part of it: the result ends at the bracket, and the bracket's working is read after it
+                # (attack round 8)
+                stop = _RESULT_END_RE.search(links[k])
+                bracket_after = stop is not None and stop.group(0).endswith("(") and _OPERATOR_BETWEEN_RE.search(links[k], stop.end()) is not None
+                if not (_RESULT_START_RE.match(links[k]) and not _OPERATOR_BETWEEN_RE.search(links[k], 0, stop.start() if bracket_after else len(links[k]))):
                     continue
                 if first is None:
                     continue
@@ -2315,10 +2325,11 @@ def worked_equations(text: str) -> list[WorkedEquation]:
                 opened = _OPEN_WORKING_RE.search(segment, p_start, bounds[first + 1])
                 if opened is not None and _OPERATOR_BETWEEN_RE.search(segment, opened.end(), bounds[first + 1]):
                     p_start = opened.end()
-                stop = _RESULT_END_RE.search(links[k])
                 p_end = bounds[k] + 1 + (stop.start() if stop else len(links[k]))
                 out.append(WorkedEquation(start, end, shown_line, statement, segment[p_start:p_end].strip().rstrip(" .,;:")))
-                break
+                if not bracket_after:
+                    break
+                first = k  # the working in brackets after this result is an equation of its own, read from its bracket
     return out
 
 
@@ -3871,6 +3882,8 @@ def _analyse(text: str, tolerance: Fraction, reading: QuantReading = GENERAL) ->
             undecided.extend(part_undecided)
             # a worked equation ('$6,000 ÷ $2.00 = 3,000 loaves') is written arithmetic this reader does not decide: named, never silent
             for eq in (worked_equations(sent) if not si_mode else ()):  # the SI reading: the STEM pack decides the maths
+                if _SYMBOLIC_FORMULA_RE.search(eq.phrase):
+                    continue  # a formula in symbols ("rs = 1 − (6 × Σd²) ÷ (n³ − n)"): no figures to decide (check round 9 of c3c)
                 undecided.append(QuantUndecided(pi, si + 1, sent.strip(), eq.phrase[:160], WORKED_EQUATION_REASON))
             for clause in clauses:
                 try:

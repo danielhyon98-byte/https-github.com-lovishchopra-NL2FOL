@@ -37,7 +37,10 @@ EXPECTED = {
     "c3/sp-t16": ("ACCEPTED_WITH_FINDINGS", ["INT-REQ-010"], [], [("i1", True), ("i2", True)],
                   [(f"core-marks-{k}", _E) for k in range(1, 5)] + [("language-b-word-count-1", _E), ("language-b-word-range-claim-1", _E),
                                                                      ("language-b-address-form-1", _E), ("language-b-address-form-2", _E),
-                                                                     ("language-b-listed-count-1", _E)]),
+                                                                     ("language-b-listed-count-1", _E)]
+                  # attack round 8 (c3c, a stricter pin): the answer's counts of its own corrections by category ("agreement (three)",
+                  # "the subjunctive ... (two)", "one ser/estar error") are now decided too, each ENTAILED against the correction lines
+                  + [(f"language-b-listed-count-{k}", _E) for k in range(2, 5)]),
 }
 #: New for hold remedy c3b: the claims each recorded answer's self-certification findings (CORE-SELF-001, INT-HANDOFF-006) name, pinned
 #: for the records whose receipt the c3b gate changed. c2/sp-t15: the word-count note g11.1 only; the concession "Es cierto, pero el

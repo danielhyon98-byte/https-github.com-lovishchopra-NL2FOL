@@ -2584,7 +2584,10 @@ _FRAME_GAP = " \t*_`"
 
 
 #: A correction frame right before a span that needs nothing else: an arrow, or an explicit correction label.
-_CORRECTION_BEFORE_RE = re.compile(r"(?:→|⟶|⇒|->|=>|\bcorrect(?:ed)?\s+(?:form|version|sentence)\s*:|\bcorrection\s*:)$", re.IGNORECASE)
+#: (check round 9 of c3c: a long arrow "-->", "—>", a bare ">", and a "Right:" or "Correct:" label, '- Wrong: "x". Right: "y"', are
+#: correction frames too)
+_CORRECTION_BEFORE_RE = re.compile(r"(?:→|⟶|⇒|-{1,2}>|—>|=>|(?<![<>=\-—])>|\bcorrect(?:ed)?\s+(?:form|version|sentence)\s*:|\bcorrection\s*:|"
+                                   r"\b(?:right|correct)\s*:)$", re.IGNORECASE)
 
 
 #: Feedback frames that present the span after them as the corrected or model form, with no original span before it
@@ -2760,7 +2763,7 @@ _QUOTATION_SUBJECT_RE = re.compile(r"(?:\b(?:the|your|his|her|their|this|that|ea
 _PRESCRIBED_REPORT_RE = re.compile(r"\b(?:should|would|could|must|ought\s+to|needs?\s+to|has\s+to)\s+(?:then\s+)?(?:read|say|state)\s*[,:]?$", re.IGNORECASE)
 
 
-_ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|->|=>)")
+_ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|-{1,2}>|—>|=>|>(?!=)|[.;,]?\s*(?:right|correct(?:ed)?(?:\s+(?:form|version|sentence))?)\s*:)", re.IGNORECASE)
 
 
 _QUOTE_STRIP = "\"'“”‘’«»„‟ *_`.,;:!?"

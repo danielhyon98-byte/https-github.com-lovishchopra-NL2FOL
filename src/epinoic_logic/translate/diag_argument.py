@@ -513,6 +513,17 @@ def bare_yes_no(text: Optional[str]) -> bool:
     return len(t) <= 12 and _YES_NO_RE.fullmatch(t.strip()) is not None
 
 
+_NAMED_RELATION_RE = re.compile(r"\b(?:consistent|in\s+line|in\s+keeping|agrees?|agreement|matches|accordance|according|follows?)\b[^.;]{0,40}?"
+                                r"\b(?:with|to|from)\b[^.;]{0,60}?\b(?:law|equation|formula|relation(?:ship)?|rule|principle|model|theory|"
+                                r"ecuaci[oó]n|f[oó]rmula|ley|modelo)\b[^.;]{0,60}?[A-Za-zα-ωΑ-Ω]\s*=\s*\S", re.IGNORECASE)
+
+
+def names_a_relation(text: str) -> bool:
+    """Whether a claim states its agreement with a named subject-matter relation and writes the relation out ("consistent with the
+    continuity equation Q = A × v"): the relation it names is its reason."""
+    return bool(text) and _NAMED_RELATION_RE.search(text[:2000]) is not None
+
+
 def bare_assertion(rctx) -> list[NamedDiagnostic]:
     """ARG-BARE-001 (module docstring). A claim that only re-evaluates the judgement (:func:`_empty_evaluation`) neither
     supports it nor is supported by it: the links to and from it are set aside.
@@ -550,6 +561,9 @@ def bare_assertion(rctx) -> list[NamedDiagnostic]:
             continue
         if offers_cause(c.claim_text):
             continue  # it names its cause in its own sentence (accuracy round 1, DIFF3-01): a reason, though no reason connective
+        if names_a_relation(c.claim_text):
+            continue  # agreement with a named relation it states ("consistent with the continuity equation Q = A × v"; check round 9 of
+            # c3c): the relation is its reason, a material claim checked as any other (boundary (b))
         if bare_yes_no(c.claim_text):
             continue  # a lone "Yes." or "No." answers a question (a trace's test: "Is 38 = 67? No."): it asserts no judgement of its own
         if _quotes_a_supplied_text(c, rctx.report):

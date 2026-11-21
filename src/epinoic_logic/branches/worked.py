@@ -860,9 +860,22 @@ _PRODUCT_RE = re.compile(
 #: ('34 GJ (820 PJ ÷ 21.4 million people)'), a percentage of a figure ('251 PJ (22% of 1,050 PJ)'), a year between the figure and its
 #: bracket ('123 PJ in 2005 (0.15 × 820)'). The bracket holds figures, operators, brackets, "of" after a percentage and unit or scale
 #: words of at most ten letters; at most 120 characters. Each run is bounded.
-_EXPR_WORD = r"(?:[ \t]{1,3}(?:[A-Za-z][A-Za-z²³⁻¹/·]{0,14}|(?:1[89]\d{2}|20\d{2})(?![\d,.])))"
+#: A label noun before a small figure ("Storm 1", "Site 4", "Sites 1 and 2", "Question 3"): the figure names something, it states no
+#: amount (attack round 8: '7.5 hours sooner ... than Storm 1 did (12 − 4.5)' was read against 1).
+_LABEL_NOUN = (r"(?i:storms?|sites?|stations?|zones?|areas?|figures?|fig\.|tables?|years?|weeks?|days?|papers?|questions?|parts?|sections?|levels?|"
+               r"grades?|groups?|samples?|quadrats?|transects?|points?|plots?|phases?|stages?|rounds?|trials?|cases?|options?|units?|chapters?|"
+               r"lines?|steps?|criteri(?:on|a)|regions?|districts?|routes?|wards?|blocks?|rooms?|events?|wells?|boreholes?|"
+               r"tormentas?|sitios?|zonas?|preguntas?|partes?|ejercicios?|criterios?|pasos?|l[ií]neas?|p[aá]rrafos?)")
+_LABEL_FIG = rf"{_LABEL_NOUN}[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d)(?:[ \t]{{1,3}}(?:and|&|to|or|y|a)[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d))?"
+#: A figure that is the denominator of a rate or the maximum of a score ("per 10 minutes", "every 100 m", "out of 30", "/30"): it states no
+#: result of the bracket after it (attack round 8).
+_DENOMINATOR_FIG = r"(?:per|every|out[ \t]of|de[ \t]un[ \t]total[ \t]de|sobre)[ \t]{1,3}\d[\d,]{0,8}"
+#: Text right before a stated figure that makes it a label or a denominator, never the bracket's result.
+_NOT_A_RESULT_BEFORE_RE = re.compile(rf"(?:\b{_LABEL_NOUN}[ \t]{{1,3}}(?:\d{{1,3}}[ \t]{{1,3}}(?:and|&|to|or|y|a)[ \t]{{1,3}})?|"
+                                     r"\b(?:per|every|out[ \t]of|de[ \t]un[ \t]total[ \t]de|sobre)[ \t]{1,3}|/[ \t]?)$", re.IGNORECASE)
+_EXPR_WORD = (r"(?:[ \t]{1,3}(?:" + _LABEL_FIG + "|" + _DENOMINATOR_FIG + r"|[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ²³⁻¹/·]{0,14}|(?:1[89]\d{2}|20\d{2})(?![\d,.])))")
 _EXPR_RE = re.compile(
-    rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>{_EXPR_WORD}{{0,7}}?)[ \t]{{1,3}}"
+    rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>{_EXPR_WORD}{{0,10}}?)[ \t]{{1,3}}"
     r"\((?P<parts>\s{0,3}\(?\s{0,3}(?:US\$|[$£€¥])?\d[^\n]{1,118}?)\)(?=[\s.,;:!?]|$)")
 _EXPR_PARTS_OK = re.compile(r"[\d\s.,+−\-×÷*/()%$£€¥A-Za-z²³⁻¹·]+")
 _EXPR_PART_WORD = re.compile(r"[A-Za-z][A-Za-z²³⁻¹/·]*")
@@ -921,13 +934,18 @@ def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
     line (the scale rule included: '$1,237.50 million ... ($712.50 + $525)' is read in millions). Years in brackets ('(2019 + 2020)') are
     no parts."""
     out: list[tuple[str, str, _Read]] = []
-    found = sorted(list(_BREAKDOWN_RE.finditer(text[:_BREAKDOWN_MAX_CHARS])) + list(_PRODUCT_RE.finditer(text[:_BREAKDOWN_MAX_CHARS])),
-                   key=lambda x: x.start())
+
+    def labelled(m) -> bool:
+        # a figure that names something or is a denominator ("than Storm 1 did (12 − 4.5)", "per 10 minutes (214 + 186)", "out of 30
+        # (7 + 9 + 5)") states no result of the bracket: the stated figure is the one before it, read with it as words (attack round 8)
+        return _NOT_A_RESULT_BEFORE_RE.search(text, max(0, m.start("stated") - 48), m.start("stated")) is not None
+    found = sorted([m for m in list(_BREAKDOWN_RE.finditer(text[:_BREAKDOWN_MAX_CHARS])) + list(_PRODUCT_RE.finditer(text[:_BREAKDOWN_MAX_CHARS]))
+                    if not labelled(m)], key=lambda x: x.start())
     # (a year read as the stated figure, "123 PJ in 2005 (0.15 × 820)", is no reading of the bracket: the general reader tries it)
     seen_brackets = {m.end() for m in found if not (_YEAR_ONLY_RE.match(m.group("stated")) and not m.group("words").strip())}
     for m0 in _EXPR_RE.finditer(text[:_BREAKDOWN_MAX_CHARS]):
         m = _balanced(m0, text)
-        if m is None or m.end() in seen_brackets or _YEAR_ONLY_RE.match(m.group("stated")):
+        if m is None or m.end() in seen_brackets or _YEAR_ONLY_RE.match(m.group("stated")) or labelled(m0):
             continue  # (an unbalanced bracket; read by the sum or the product reader already; a year is a date, never a result:
             # "2025 profit before interest and tax ($380,000 ÷ $336,000 × 100)")
         parts = m.group("parts")
@@ -958,6 +976,13 @@ def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
         if m.re in (_PRODUCT_RE, _EXPR_RE) and re.sub(r"[^\d.]", "", m.group("stated")) in {re.sub(r"[^\d.]", "", f) for f in top}:
             continue  # "Christchurch's 185 deaths (300,000 ÷ 185)": the figure is an operand cited, the bracket works out another one
         stated_text = m.group("stated") + (re.sub(r"\s(?:1[89]\d{2}|20\d{2})\b.*$", "", m.group("words")) if m.re is _EXPR_RE else m.group("words"))
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        line_end = text.find("\n", m.end())
+        statement = text[line_start: line_end if line_end >= 0 else len(text)].strip()
+        # in a Spanish statement a point separates thousands, in the bracket as in the stated figure ("perdió 1.038 habitantes entre
+        # 1960 y 2015 (1.250 − 212)": 1250 − 212 = 1038; attack round 8), as the worked-line reader reads it
+        from ..stem.lexer import _spanish_text
+        token = _POINT_GROUPS.set(_spanish_text(statement, 0, len(statement)))
         try:
             toks = _tokens(parts)
             tree = _Parser(toks).parse()
@@ -966,13 +991,12 @@ def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
             continue
         except Exception:  # noqa: BLE001 - never an exception on agent text: the figure is not read
             continue
+        finally:
+            _POINT_GROUPS.reset(token)
         figs = _figures(tree) + [result]
         if len({f.cur for f in figs if f.cur}) > 1 or (len({k for f in figs for w in f.units for k in [_unit_key(w)] if k}) > 1 and
                                                        len({_compound_key(f) for f in figs if _compound_key(f)}) != 1):
             continue
-        line_start = text.rfind("\n", 0, m.start()) + 1
-        line_end = text.find("\n", m.end())
-        statement = text[line_start: line_end if line_end >= 0 else len(text)].strip()
         phrase = " ".join(m.group(0).split())
         shown = " ".join(parts.split())
         out.append((phrase, statement, _Read(phrase, statement, (tree,), (shown,), result, approx_word_in(m.group("words")))))

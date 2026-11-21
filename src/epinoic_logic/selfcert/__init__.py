@@ -8,7 +8,9 @@ label an answer, and a non-success status is never shown as success (repository 
 The reading is by MEANING, not by a phrase list: the text is normalised (:mod:`.normalise`, rules N1 to N9), segmented into
 pieces, sentences, clauses, labels and quotations (:mod:`.pieces`), and every assessment trigger is read for its theme and scope,
 its evaluator, its polarity and its mood or frame (:mod:`.reader`) against closed classes of words (:mod:`.lexicon`,
-``lexicon.json``). Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
+``lexicon.json``). An encoded check label (reversed, shifted, Base64, hexadecimal, binary, Morse) and a word spelled out letter by
+letter with any separators are decoded and read as a status value (:mod:`.encoded`, rule N10), and a sentence split by a blank
+line is read as one as well. Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
 script with no vocabulary) is never delivered silently: :meth:`Reading.refuses` names it (receipt code CORE-SELF-002).
 
 What is NOT a self-certification and is never gated: a negated, questioned or uncertain assessment; an instruction ("verify by
@@ -29,6 +31,7 @@ import pathlib
 import re
 from typing import Any, Optional
 
+from .encoded import morse_text
 from .reader import Context, Hit, Reading, Unread, read_text
 
 __all__ = ["Context", "Hit", "Unread", "Reading", "Spot", "SELFCERT_RULES", "rules_digest", "read", "is_self_certification",
@@ -129,8 +132,8 @@ def read(text: str, ctx: Context = Context()) -> Reading:
 
 
 def _read_plain(text: str, ctx: Context) -> Reading:
-    if _ASCII_MARKS_ONLY_RE.fullmatch(text):
-        return Reading((), ())  # blanks and ASCII punctuation only: no word, symbol or hidden run to read
+    if _ASCII_MARKS_ONLY_RE.fullmatch(text) and not morse_text(text):
+        return Reading((), ())  # blanks and ASCII punctuation only: no word, symbol or hidden run to read (Morse is read, rule N10)
     if not isinstance(ctx, Context):
         ctx = Context()
     if len(text) <= _CACHE_MAX:
@@ -225,6 +228,18 @@ def wholly_self_certification(text: str, ctx: Context = Context()) -> bool:
     return True
 
 
+_SCORE_VALUE_WORDS = frozenset("band bands level levels mark marks grade grades top distinction score scores markband nota banda nivel "
+                               "sobresaliente matricula".split())
+
+
+def _score_value(rest: str) -> bool:
+    """Whether a label's value is a score said in words ("Graded: top of the band.", "Marked: level 7 territory"): no clause of its
+    own and a score word; the label and its value are one verdict, not content (check round 9 of c3c)."""
+    from .reader import _has_clause, _merge, _tokens
+    toks = _merge(_tokens(rest, 0, len(rest)))
+    return any(t.w in _SCORE_VALUE_WORDS for t in toks) and not _has_clause(toks) and not any(c in rest for c in "=<>")
+
+
 def _content_beside_label(piece: str, ctx: Context) -> bool:
     """Whether a piece is content with a label on it ("The treaty was signed in 1919 (verified).", "Verified: The constitution was
     adopted in 1919."): the content stays a claim to check."""
@@ -233,7 +248,7 @@ def _content_beside_label(piece: str, ctx: Context) -> bool:
         k = piece.find(":")
         if k > 0:
             rest = piece[k + 1:].strip()
-            if len(rest.split()) >= 3 and not read(rest, ctx).self_certifies():
+            if len(rest.split()) >= 3 and not read(rest, ctx).self_certifies() and not _score_value(rest):
                 return True
     if "(" in piece:
         outside = re.sub(r"\([^()]*\)", " ", piece)

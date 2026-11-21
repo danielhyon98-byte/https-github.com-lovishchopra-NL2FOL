@@ -3099,9 +3099,16 @@ class TranslatorChannel:
         sentence credits it by kind to the text under analysis ("The narrator also insists that '...'", "the poem says").
         A quotation credited to another source ("One critic writes that ...", "A textbook says '...'", "'...', according to
         one report") stays unverifiable; one whose sentence credits it to no source at all (three words or more, not a
-        mention of words a text lacks) is refuted as invented."""
+        mention of words a text lacks) is refuted as invented. The wording one of the answer's own corrections replaces ('"x"
+        -> "y"', which the one reader of the writer's own words names: ``own_text.correction_pairs``) and which the parser
+        recorded as the writer's own (no supplied text holds it, altered or not) is refuted only as an altered quotation of
+        the request: it is the answer's own text, or the student's draft the request holds. A quotation of the answer's own
+        earlier wording (four words or more its own text holds word for word outside quotation marks, not presented as the
+        reader's or the task's words: ``own_text.quotes_own_wording``) is neither an altered quotation of the request nor an
+        invented one."""
         from ..adapters.markdown import find_quotation_spans
-        from ..adapters.sources import is_peer_text, nearest_text, quotation_credit, uncredited_excerpt
+        from ..adapters.own_text import correction_originals, quotes_own_wording, unquoted_text
+        from ..adapters.sources import OWN_MODEL_NOTE, holds_half_in_a_run, is_peer_text, nearest_text, quotation_credit, uncredited_excerpt
         from ..branches.packs import _absent_mentions
         if not supplied and not request_text:
             return []
@@ -3133,16 +3140,50 @@ class TranslatorChannel:
                 holders_of[key] = sorted((text for text, folded in folded_claims if key in folded), key=len, reverse=True)
             return holders_of[key]
 
+        def own_replaced(c) -> list[str]:
+            # the wording one of the answer's own corrections replaces ('"x" -> "y"'), which the parser recorded as the writer's own
+            # (``sources.own_model_words``, OWN_MODEL_NOTE: no supplied text holds it, altered or not) is still checked against the
+            # request, which may hold the student's draft it quotes (push check of 2ff70224, R10-OWN-TEXT-ONE-READER)
+            if not request_text or OWN_MODEL_NOTE not in c.assumptions:
+                return []
+            out_: list[str] = []
+            for sentence in list(dict.fromkeys([*claims_holding(norm(c.claim_text)), c.claim_text]))[:2]:
+                spans_ = find_quotation_spans(sentence)
+                for (_a, _b, inner), replaced in zip(spans_, correction_originals(sentence, spans_)):
+                    q = inner.strip()
+                    if replaced and q and norm(q) in norm(c.claim_text) and q not in out_:
+                        out_.append(q)
+            return out_
+
+        own_voice: list[str] = []  # the answer's own words, its quotations blanked (``own_text.unquoted_text``), read once
+
+        def own_wording(sentence: str, span_start: int, ex: str) -> bool:
+            # the answer quoting its OWN earlier wording ('The article opens with "Cada verano, nuestra ciudad ..."' of the answer's own
+            # model article; round-8 attack, Language B): never an altered quotation of the request nor an invented one
+            if not own_voice:
+                own_voice.append(unquoted_text(report.original_response or ""))
+            return quotes_own_wording(own_voice[0], sentence, span_start, ex)
+
+        def quotes_own(holders_: list[str], ex: str) -> bool:
+            # the sentence that QUOTES the words (the longest claim holding them may be the answer's own paragraph that holds them
+            # unquoted, its model article's first sentence)
+            for h in holders_[:8]:
+                at_ = next((a_ for a_, _b, inner in find_quotation_spans(h) if norm(inner) == norm(ex)), None)
+                if at_ is not None:
+                    return own_wording(h, at_, ex)
+            return False
+
         for c in report.claims:
-            for a in c.assumptions:
-                ex = uncredited_excerpt(a)
-                if not ex or _MEMORY_LABEL_RE.search(c.claim_text):
+            pending = [(ex, False) for a in c.assumptions for ex in [uncredited_excerpt(a)] if ex] + [(q, True) for q in own_replaced(c)]
+            for ex, request_only in pending:
+                if _MEMORY_LABEL_RE.search(c.claim_text):
                     continue
                 if any(_located(ex, t.text, t.document_id) for t in supplied) or (request_text and _located(ex, request_text)):
                     continue
                 words = len(ex.split())
                 near, missing, altered = None, [], False
-                for d, t in candidates.items():  # the text this quotation alters: all its words but one or two (a short one: a near form)
+                for d, t in ({"the request": candidates["the request"]} if request_only else candidates).items():
+                    # the text this quotation alters: all its words but one or two (a short one: a near form)
                     _n, miss = nearest_text(ex, {d: t})
                     # a short one (one or two words) needs a near form of its missing word in the text, or, for two words, the
                     # word it holds next to a near form of the other (rule short-near-miss: «crecen amigos» for «crecen amistades»)
@@ -3150,7 +3191,9 @@ class TranslatorChannel:
                     # of four letters or more (or figures), as the aligned reading requires (``adapters.sources``): "wind of change"
                     # holds only "of" of a request and alters nothing
                     if 0 < len(miss) <= 2 and len(miss) < words and ((words >= 3 and _holds_long_words(ex, miss)) or (words < 3 and (all(near_form(w, t.text) for w in miss) or (words == 2 and displaced_word(ex, t.text))))) \
-                            and (not altered or len(miss) < len(missing)):
+                            and (not altered or len(miss) < len(missing)) and (not request_only or holds_half_in_a_run(ex, t.text)):
+                        # (an own correction's replaced wording alters the request only when the request holds half of it in a run, as
+                        # ``sources.own_model_words`` reads a supplied text: not when its words are scattered over the request)
                         near, missing, altered = d, miss, True
                 # The sentence that carries the quotation (a parser may deliver the quotation as its own evidence claim and
                 # the sentence that credits it as another claim): the longest claim text holding it, else the response.
@@ -3169,6 +3212,13 @@ class TranslatorChannel:
                 mentioned = {norm(q) for q in _absent_mentions(sentence, all_spans)} if credit is None else set()
                 uncredited = (credit is None and bool(own) and bool(spans) and words >= 3 and norm(ex) not in mentioned
                               and not _credits_another_source(sentence, spans[0][0], spans[0][1]))
+                if request_only:  # the answer's own correction: refuted only as an altered quotation of the request
+                    by_kind = uncredited = False
+                if (uncredited or (altered and near == "the request")) and not by_kind and quotes_own(holders or [c.claim_text], ex):
+                    # the answer quotes its own earlier wording word for word: no altered quotation of the request and no invented
+                    # one. An altered quotation of a supplied text, or one credited by kind to the text under analysis, stays
+                    # charged (INV-Q1)
+                    continue
                 if not (altered or by_kind or uncredited):
                     continue
                 why = (f"{'the request' if near == 'the request' else 'the supplied text ' + near} holds all of its words but {', '.join(missing)} (an altered quotation)" if altered

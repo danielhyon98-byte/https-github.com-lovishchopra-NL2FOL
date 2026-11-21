@@ -396,7 +396,7 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   "the gap"', 'a process called "osmosis"', 'define S as', 'denoted by', 'stands for'), so maa-t15's event labels draw no CORE-SRC-003;
   words another speaker gave stay a quotation ('One minister called it "a parliament that could only say no"').
 - **The writer's own model sentence**: a quotation under a "Model:" or "Rewrite:" label (or another FRAME of the one own-text reader,
-  `own_text.own_text_kinds`: a topic, a 'Better:' rewrite, an arrow's correction) that no supplied text holds, is no altered
+  `own_text.own_text_kinds`: a topic, a 'Better:' rewrite, an arrow's correction, and the wording an own correction replaces: `own_text.correction_pairs`) that no supplied text holds, is no altered
   quotation of one (no text holds all its words but one or two) and shares no four words in a row with one, is the writer's own words
   (`sources.own_model_words`: no source reference, nothing to verify). A model label over words taken from a text, altered or not,
   leaves them a quotation (repair round 4, INV-Q1).
@@ -678,6 +678,25 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
     classic "Model:" label, stays an altered quotation and is checked: INV-Q1); `own_text_spans` is every FORM and FRAME. A suggested
     topic, a 'Better:' rewrite and an arrow's correction are no longer charged INT-REQ-003 or ES-SRC-001
     (`tests/channel/test_c3b_own_text_one_reader.py`).
+  - The wording an own correction replaces (push check of 2ff70224: R10-OWN-TEXT-ONE-READER was still partial, since in '"x" -> "y"'
+    the reader named "y" the writer's FRAME and left "x" a quotation, which the English parser credited to the text under analysis, so
+    the channel charged it INT-REQ-003 and the English pack ES-SRC-001 at error level). `own_text.correction_pairs` names each own
+    correction as `(replaced, correction)`: the span right before an arrow, "should be" or "becomes" whose following span is the
+    correction, or the span offered after the writer's own form by "rather than", "instead of" or ", not". A span the sentence credits
+    to a text ('your email says "x" -> "y"', 'the poem reads') is never part of one; an imperative "Write" credits nothing. The
+    replaced span keeps its kind None in `own_text_kinds` and stays out of `own_text_spans` (the transfer auditor's control: the
+    original of a correction stays a quotation there). The channel decides both spans of a pair with the supplied texts in view, as it
+    decides a FRAME (`sources.own_model_words`, at any length for a pair: a supplied text that holds its words in a run of half the
+    span, or one word of a short span, keeps it a quotation, checked as any other: INV-Q1), and still reads the replaced wording
+    against the request with the same run rule (`sources.holds_half_in_a_run`, `bus._uncredited_quotations`): the student's own words
+    altered there are INT-REQ-003 at error level.
+  - The answer quoting its own earlier wording (round-8 attack, Language B: 'The article opens with "Cada verano, nuestra ciudad se
+    llena de turistas".' quotes the answer's own model article word for word and was charged INT-REQ-003 as an altered quotation of the
+    task): `own_text.quotes_own_wording` reads a quotation of four words or more that the answer's own voice (`own_text.unquoted_text`:
+    its text with every quotation blanked) holds exactly, and that its sentence does not present as the reader's or the task's words
+    ('your draft says', 'you wrote', 'the task asks'). The channel's uncredited-quotation check reads it as neither an altered
+    quotation of the request nor an invented one; an altered quotation of a supplied text, or one credited by kind to the text under
+    analysis, stays charged whatever the answer's own voice holds (`tests/channel/test_c3c_own_correction.py` pins both directions).
   - A question back to the student or the router ("Would you like me to say more about the reparations?", "Which edition are you
     using?", `markdown.is_question_back`) in a body or conclusion block of its own is a note (role other) on the English branches, as on
     every other branch (combinator handoff H2); the questions an answer sets the student under an "answer these ...:" lead stay

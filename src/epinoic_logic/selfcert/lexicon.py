@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import pathlib
 import unicodedata
 from dataclasses import dataclass, field
 
-__all__ = ["Lexicon", "lexicon", "known_word", "tags", "fold_word", "PREFIXES"]
+__all__ = ["Lexicon", "lexicon", "known_word", "tags", "fold_word", "PREFIXES", "build", "fuzzy_targets", "fuzzy_candidates", "fuzzy_target"]
 
 _HERE = pathlib.Path(__file__).resolve().parent
 
@@ -161,7 +162,12 @@ def _check_entry(text: str, where: str, closed: set[str], family_words: set[str]
 
 
 def _load() -> Lexicon:
-    raw = json.loads((_HERE / "lexicon.json").read_text(encoding="utf-8"))
+    return build(json.loads((_HERE / "lexicon.json").read_text(encoding="utf-8")))
+
+
+def build(raw: dict) -> Lexicon:
+    """The lexicon of the parsed ``lexicon.json`` data ``raw`` (the builder of the fuzzy exclusions passes the data with an empty
+    exclusion list; no file is written or patched)."""
     lex = Lexicon(rules=raw["rules"])
     classes: dict = raw["classes"]
     closed: set[str] = set(_PREPOSITIONS)
@@ -250,24 +256,68 @@ def _load() -> Lexicon:
         for key in ("positive", "defect", "negators", "function", "weak", "scope"):
             for v in spec.get(key, []):
                 _check_entry(v, f"net {lang} {key}", closed | set(fold_word(v).split()), family_words)
-    # rule N9: one deletion or one adjacent transposition of the long closed-lexicon words (the excluded variants are the ones
-    # found as real words in the repository's own texts, reviewed in lexicon.json)
+    # rule N9: one deletion or one adjacent transposition of the long closed-lexicon words. The excluded variants are REAL WORDS:
+    # each is a word of the committed, cited word source scripts/selfcert/real_words.txt, and the list in lexicon.json is rebuilt
+    # from that source and this lexicon alone by scripts/selfcert/build_fuzzy_exclusions.py (a misspelling such as "psased" or
+    # "reviewe" is never exempt: it reads as the word it misspells, c3c)
     excluded = {fold_word(x) for x in raw.get("fuzzy_excluded", [])}
     lex.counts["fuzzy_excluded"] = len(excluded)
-    targets: set[str] = set()
-    for w, tg in lex.words.items():
-        if not w.isalpha() or "lang:es" in tg:
-            continue
-        family = any(t.startswith("F:") for t in tg) and not tg & {"prod", "C:light_verbs"}
-        if (len(w) >= 6 and (family or "C:part" in tg)) or w in ("every", "nothing", "nobody"):
-            targets.add(w)
-    for w in sorted(targets):
+    for w in sorted(fuzzy_targets(lex)):
         for v in _variants(w):
+            if v in lex.words or v in excluded or v in lex.fuzzy:
+                continue
+            lex.fuzzy[v] = w
+    for w in sorted(fuzzy_targets_es(lex)):
+        for v in _variants_es(w):
             if v in lex.words or v in excluded or v in lex.fuzzy:
                 continue
             lex.fuzzy[v] = w
     lex.counts["fuzzy"] = len(lex.fuzzy)
     return lex
+
+
+def fuzzy_targets(lex: "Lexicon") -> set[str]:
+    """The words rule N9 reads misspelt: the family words (a light verb's family forms too: "passed", "signed", "checks") and the
+    part words of six letters or more, and "every", "nothing", "nobody". A production verb ("calculated") is not a target."""
+    targets: set[str] = set()
+    for w, tg in lex.words.items():
+        if not w.isalpha() or "lang:es" in tg:
+            continue
+        family = any(t.startswith("F:") for t in tg) and "prod" not in tg
+        # (the answer's own genre nouns too, "answer", "response", "solution": a misspelt subject, "This anwser was thoroughly
+        # cheked.", names the answer as the word it misspells; check round 9 of c3c)
+        if (len(w) >= 6 and (family or "C:part" in tg or "C:genre_strong" in tg)) or w in ("every", "nothing", "nobody"):
+            targets.add(w)
+    return targets
+
+
+#: The Spanish check verbs whose participles rule N9 reads misspelt ("Aprobdo por el revisor."; check round 9 of c3c).
+_ES_CHECK_STEMS = ("aprob", "comprob", "verific", "revis", "valid", "confirm", "certific", "cheque", "audit", "corrobor", "cotej")
+
+
+def fuzzy_targets_es(lex: "Lexicon") -> set[str]:
+    """The Spanish participles of the check verbs (:data:`_ES_CHECK_STEMS`), read misspelt with :func:`_variants_es`."""
+    return {w for w, tg in lex.words.items() if "lang:es" in tg and w.isalpha() and len(w) >= 8 and w.startswith(_ES_CHECK_STEMS)
+            and w.endswith(("ado", "ada", "ados", "adas", "ido", "ida", "idos", "idas")) and any(t.startswith("F:") for t in tg)}
+
+
+def fuzzy_candidates(lex: "Lexicon") -> set[str]:
+    """Every one-edit variant of :func:`fuzzy_targets` and :func:`fuzzy_targets_es` that is not itself a lexicon word (before any
+    exclusion)."""
+    return {v for w in fuzzy_targets(lex) for v in _variants(w) if v not in lex.words} | \
+        {v for w in fuzzy_targets_es(lex) for v in _variants_es(w) if v not in lex.words}
+
+
+def _variants_es(w: str):
+    """One deletion or adjacent transposition inside a Spanish participle, never after the vowel of its ending ("-ado", "-idas"):
+    the vosotros imperatives "revisad", "revisaos" are words, while "aprobdo" (the ending's vowel dropped) is a misspelling."""
+    e = next(len(x) for x in ("ados", "adas", "idos", "idas", "ado", "ada", "ido", "ida") if w.endswith(x))
+    last = len(w) - e  # the ending's vowel
+    for i in range(1, last + 1):
+        yield w[:i] + w[i + 1:]
+    for i in range(1, last):
+        if w[i] != w[i + 1]:
+            yield w[:i] + w[i + 1] + w[i] + w[i + 2:]
 
 
 def _variants(w: str):
@@ -297,6 +347,12 @@ def tags(word: str) -> frozenset[str]:
     got = lex.words.get(w)
     if got is not None:
         return frozenset(got)
+    if "-" in w and w.count("-") <= 4:
+        # an idiom spelt with hyphens ("thumbs-up", "all-clear", "sign-off-on"): read as the idiom (c3c)
+        parts = tuple(x for x in w.split("-") if x)
+        for toks, tg in lex.idioms.get(parts[0], ()) if len(parts) >= 2 else ():
+            if toks == parts:
+                return frozenset(tg)
     if "-" in w:
         head, _, last = w.rpartition("-")
         if head.isdigit():
@@ -339,10 +395,32 @@ def tags(word: str) -> frozenset[str]:
             t = lex.words.get(w[:-len(suf)] + end)
             if t is not None and any(x.startswith("F:") for x in t):
                 return frozenset(t)
-    fz = lex.fuzzy.get(w)
+    fz = fuzzy_target(w)
     if fz is not None:
         return frozenset(tags(fz) | {"fuzzy"})
     return frozenset()
+
+
+_TRIPLED_RE = re.compile(r"([a-z])\1{2,}")
+
+
+def fuzzy_target(word: str) -> "str | None":
+    """The lexicon word a misspelling stands for (rule N9): a one-edit variant, or a word with a letter written three or more times
+    ("veriiified", "correeeect": no English or Spanish word has a tripled letter) that is a family word once the run is one or two
+    letters. None otherwise."""
+    lex = lexicon()
+    fz = lex.fuzzy.get(word)
+    if fz is not None:
+        return fz
+    if _TRIPLED_RE.search(word):
+        for repl in (r"\1", r"\1\1"):
+            c = _TRIPLED_RE.sub(repl, word)
+            t = lex.words.get(c)
+            if t is not None and any(x.startswith("F:") for x in t):
+                return c
+            if c in lex.fuzzy:
+                return lex.fuzzy[c]
+    return None
 
 
 def known_word(word: str) -> bool:

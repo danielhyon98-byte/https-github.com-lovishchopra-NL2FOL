@@ -32,10 +32,6 @@ from typing import Optional
 
 __all__ = ["review"]
 
-import os as _os
-
-_DEBUG = bool(_os.environ.get("EPINOIC_SELFCERT_MEANING_DEBUG"))
-
 #: Families whose trigger, with positive polarity, assesses.
 _POS = frozenset({"CHECK", "OUTCOME", "AGREE", "QUALITY", "CONFIDENCE", "SCORE", "STATUS", "APPROVE", "ASSURE", "COMPLY", "FIDELITY"})
 #: Reading tokens (rule N7).
@@ -443,7 +439,11 @@ _DEF_DET = frozenset(("the", "these", "those", "your", "his", "her", "their", "l
 
 
 def _production_note(seg: list, k: int) -> bool:
-    """A production verb with its manner and no check signal of its own ("calculated everything by hand", "worked out on paper")."""
+    """A production verb with no check signal of its own ("calculated everything by hand", "worked out on paper", "These values were
+    calculated from the data.", "a calculated value"): how a value was produced, never a check of it (c3c: before, only a verb with
+    its manner was a note, so "calculated from the data" was read as a check while "computed from the census data" was not). A
+    redo ("recalculated"), a check signal ("twice", "independently") or a production credited to the pipeline or a tool ("computed
+    by Z3") is no note."""
     from .reader import _manner_of_production, _SIGNAL, _SIGNAL_IDIOMS
     t = seg[k]
     window = seg[k + 1:k + 9]
@@ -451,7 +451,18 @@ def _production_note(seg: list, k: int) -> bool:
         return False
     if any(x.w in _SIGNAL or x.w in _SIGNAL_IDIOMS for x in window):
         return False
-    return _manner_of_production(window)
+    # ("worked" + "out" is read as two words: the phrasal verb is a production verb too; check round 9 of c3c, "These values were
+    # worked out from the data in Table 1.")
+    phrasal = t.w in ("worked", "work", "works", "working") and bool(window) and window[0].w == "out"
+    if any(x.has("C:eval_int", "C:tool", "C:eval_int_agentive", "C:eval_asr", "C:m_eval") for x in window) or \
+            not (t.w.startswith(_COMPUTE_STEMS) or phrasal):
+        return _manner_of_production(window)  # (a light verb, "ran each figure past a second reader", is read for its frame)
+    return True
+
+
+#: The stems of the production verbs of computing a value (a production note without its manner, c3c).
+_COMPUTE_STEMS = ("calculat", "comput", "deriv", "obtain", "estimat", "determin", "worked out", "work out", "works out", "calcul",
+                  "obtuv", "obten", "deriv", "comput")
 
 
 def _polarity(seg: list) -> tuple[int, bool, bool, bool]:
@@ -1012,8 +1023,18 @@ def _mention_quote(toks: list, k: int) -> bool:
                                                                              "por ejemplo", "phrase", "word", "words")
            for k, t in enumerate(before)):
         return True
-    if before and (before[-1].w in _FORM_NOUNS or before[-1].w in _GRAMMAR_NOUNS) and len(before) >= 2 and before[-2].has("C:det"):
-        return True  # "the passive 'is tested'", "la pasiva «es probado»", "the verb 'verified'" (attack round 5): a form mentioned
+    if before and (before[-1].w in _FORM_NOUNS or before[-1].w in _GRAMMAR_NOUNS) and len(before) >= 2 and (
+            before[-2].has("C:det") or (len(before) >= 3 and before[-3].has("C:det") and not before[-2].has(*_OWN_SCOPE_TAGS) and
+                                        not before[-2].fam())):
+        # "the passive 'is tested'", "la pasiva «es probado»", "the verb 'verified'" (attack round 5): a form mentioned; one modifier
+        # may stand between ("the sample sentence '...'", "la oración modelo", c3c): a grammar example, language under discussion
+        return True
+    cop = next((m for m in range(len(before) - 1, max(-1, len(before) - 3), -1) if before[m].has("C:copula")), None)
+    if cop is not None and cop >= 1 and before[-1].w in ("is", "are", "es", "son", "also", "too", "tambien", "simply", "just") and any(
+            x.w in (_FORM_NOUNS | _GRAMMAR_NOUNS) - {"sentence", "sentences", "word", "words", "frase", "frases", "oracion"}
+            for x in before[:cop]) and not any(x.has("C:anchor", "C:anchor_idioms", "C:demonstrative", "C:pron1", "C:poss1")
+                                               for x in before[:cop]):
+        return True  # "its past tense is also 'proofread'", "the plural is 'mice'" (check round 9 of c3c): a form given, mentioned
     inner_q = [t for t in toks[start + 1:k] if not t.punct]
     if toks[k].w in _QMARKS and before and before[-1].w in ("reads", "read", "says", "said", "states", "stated", "dice", "pone", "reza",
                                                              "decia") and any(
@@ -1085,6 +1106,183 @@ def _round7_frames(toks: list) -> list:
                     out.append(lambda f, a=x.a, b=x.b: f.family == "DEFECT" and (f.a <= a < max(f.b, f.a + 1) or a <= f.a < b))
                     break
     return out
+
+
+#: Verbs of making a defect ("the defendant made no mistakes", "committed no errors").
+_MAKE_VERBS = frozenset("made make makes making committed commit commits hizo hace cometio comete cometieron".split())
+#: Precision terms after "correct to" / "accurate to" ("correct to 2 s.f.", "to three decimal places", "to the nearest 10").
+_PRECISION_WORDS = frozenset("s.f s.f. sf sig significant d.p d.p. dp decimal places place figures figure nearest cifras decimales "
+                             "significativas".split())
+_PRECISION_ADJ = frozenset("correct accurate exact precise rounded correcto correcta exacto exacta redondeado".split())
+#: Anaphors that take up a noun phrase before them ("it", "all of them", "190 of them").
+_ANAPHOR_SUBJECTS = frozenset("it they both all each most some none".split())
+#: Arithmetic shown in words or symbols (a worked check's computation).
+_ARITH_WORDS = frozenset("plus minus times divided menos mas por entre dan da son gives give equals es igual x".split())
+_OUTCOME_ACTS = frozenset("passed pass passes held holds hold survived survives succeeded succeeds aprobo aprobaron supero superaron".split())
+
+
+def _answer_object(toks: list, k: int) -> bool:
+    """Whether the words after the check verb at ``k`` (its object, eight tokens at most) name this answer itself: "this response",
+    "in this answer", "the reply above", "everything here" (an anchor of the answer's own scope, or a demonstrative or first-person
+    possessive with an answer noun)."""
+    obj = [x for x in toks[k + 1:k + 9] if not x.punct]
+    for m, x in enumerate(obj):
+        if x.w in (".", ";"):
+            break
+        if x.has("C:anchor", "C:anchor_idioms"):
+            return True
+        if x.w in ("answer", "response", "reply", "solution", "essay", "respuesta", "solucion") and m > 0 and \
+                obj[m - 1].w in ("this", "my", "our", "esta", "este", "mi", "nuestra"):
+            return True
+    return False
+
+
+def _c3c_frames(toks: list, ctx) -> list:
+    """Boundary (b) frames of the c3c follow-up (attack round 8 of c3b, the correct-work and phrasings lenses), each a pair (a
+    predicate over the hits it clears, a span whose meaning-layer readings it clears too, or None). Word classes, linear:
+
+    * a check noun in a subject-matter compound that is the subject of a verb of the subject ("Checks and balances limit the power
+      of the president."): the compound names a thing of the subject, no check;
+    * a precision statement after a value ("42 (correct to 2 s.f.)", "3.14, accurate to three decimal places"): a rounding, no
+      verdict;
+    * agreement of the answer's figures with a named outside reference ("Every figure here matches the ONS release."): a material
+      claim checked like any other (X7), even with the answer's own scope word, when the theme is the answer's figures and not the
+      answer as a whole;
+    * a defect made by a third party ("Zero mistakes were made by the defendant, the court found.", "The court found that the
+      defendant made no mistakes."): a finding about a subject-matter person;
+    * an outcome whose subject is a pronoun taking up a subject-matter noun earlier in the sentence ("all of them passed",
+      "it held", "190 of them passed quality control"), unless what was passed is a bare check of the pipeline ("every check");
+    * a label whose key is an agreement of accounts and whose value shows the computation ("Las cuentas cuadran: 250 menos 180
+      dan 70."): a worked check, material for the engine.
+    None applies when the sentence names the answer, its parts as the answer's own ("my", "this answer"), the writer, the pipeline
+    or a tool as the agent."""
+    from .reader import _finite
+    out: list = []
+    words = [t for t in toks if not t.punct]
+    if not words:
+        return out
+    # ("US" in capitals is the country, never the pronoun "us")
+    own_text = any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:genre_strong") and t.raw != "US" for t in words) or \
+        any(t.w.startswith("zz") for t in words)
+    pipeline = any(t.has("C:eval_int", "C:tool", "C:eval_int_agentive", "C:m_eval") for t in words)
+
+    def content(t) -> bool:
+        return _content(t, ctx) and not t.has("C:part", "C:genre", "C:genre_strong", "C:anchor", "C:anchor_idioms")
+
+    # (1) a check noun in a subject-matter compound, subject of a verb of the subject
+    if not own_text and not pipeline:
+        v = 0
+        while v < len(words) and (words[v].fam() and words[v].has("noun", "C:check_noun") or words[v].w in ("and", "&", "y") or
+                                  words[v].has("C:m_pos") and not words[v].fam()):
+            v += 1
+        if 2 <= v < len(words) - 1 and words[v].w.isalpha() and not words[v].fam() and not words[v].has(
+                "C:det", "C:prep", "C:copula", "C:aux", "C:meta") and words[v + 1].has("C:det", "C:prep") or (
+                2 <= v < len(words) and _finite(words, v, subject_seen=True) and not words[v].fam()):
+            subj, obj = words[:v], words[v + 1:]
+            fam_nouns = [x for x in subj if x.fam() and x.has("noun", "C:check_noun")]
+            if fam_nouns and any(x.w in ("and", "&", "y") for x in subj) and not any(x.fam() for x in obj) and \
+                    any(content(x) for x in obj) and not any(x.has("C:meta", "C:m_pos", "C:m_check") and not x.has("C:prep")
+                                                              for x in obj):
+                lo, hi = subj[0].a, subj[-1].b
+                out.append((lambda f, lo=lo, hi=hi: lo <= f.a < hi, (lo, hi)))
+    for k, t in enumerate(words):
+        prev = words[k - 1] if k > 0 else None
+        # (2) a precision statement after a value
+        if t.w in _PRECISION_ADJ and k + 1 < len(words) and words[k + 1].w in ("to", "a", "hasta") and any(
+                x.w.strip(".") in _PRECISION_WORDS or x.w in _PRECISION_WORDS for x in words[k + 2:k + 6]):
+            j = k - 1
+            while j >= 0 and (words[j].w in ("is", "are", "was", "es", "and", "y") or words[j].has("C:unit")):
+                j -= 1
+            before = [x for x in toks if x.b <= t.a][-3:]
+            if j >= 0 and (words[j].num or any(c.isdigit() for c in words[j].w)) and (any(x.w in ("(", ",", "[") for x in before) or
+                                                                                    words[j].b <= t.a):
+                end = next((x.b for x in words[k + 2:k + 6] if x.w.strip(".") in _PRECISION_WORDS or x.w in _PRECISION_WORDS), t.b)
+                out.append((lambda f, lo=t.a, hi=end: lo <= f.a < hi, (t.a, end)))
+        # (3) the answer's figures agree with a named outside reference
+        if (t.fam() & {"AGREE"} or t.w in ("matches", "match", "matched", "agrees", "agree", "coincide", "coinciden")) and \
+                not pipeline and not any(x.has("C:genre_strong", "C:pron1", "C:poss1") for x in words):
+            theme = words[max(0, k - 5):k]
+            comp = words[k + 1:k + 8]
+            named = [x for x in comp if ((x.cap and not x.init) or (x.raw.isupper() and len(x.raw) >= 2)) and
+                     not x.has("C:eval_int", "C:tool", "C:assess_instrument", "C:eval_asr")]
+            if any(x.has("C:part") for x in theme) and named and not any(x.has("C:assess_instrument", "C:eval_int", "C:tool", "C:eval_asr",
+                                                                               "C:m_eval") for x in comp):
+                lo, hi = theme[0].a, (comp[-1].b if comp else t.b)
+                out.append((lambda f, lo=lo, hi=hi: f.family in ("AGREE", "FIDELITY", "CHECK") and lo <= f.a < hi, (lo, hi)))
+        # (4) a defect made by a third party
+        if _defect(t) and not own_text and not pipeline:
+            agent = None
+            for m in range(k + 1, min(len(words), k + 5)):
+                if words[m].w in ("by", "por"):
+                    agent = [x for x in words[m + 1:m + 5] if not x.has("C:det")][:2]
+                    break
+            if agent is None:
+                mv = next((m for m in range(k - 1, max(-1, k - 5), -1) if words[m].w in _MAKE_VERBS), None)
+                if mv is not None and mv > 0:
+                    lo = mv - 1
+                    while lo > 0 and mv - lo < 4 and not words[lo - 1].w in ("that", "que", ",", "and"):
+                        lo -= 1
+                    agent = [x for x in words[lo:mv] if not x.has("C:det")]
+            if agent and any(content(x) or x.has("C:eval_out") for x in agent) and not any(
+                    x.has("C:eval_int", "C:tool", "C:pron1", "C:poss1", "C:eval_asr", "C:genre", "C:part") for x in agent):
+                out.append((lambda f, lo=t.a, hi=t.b: f.family == "DEFECT" and (f.a <= lo < max(f.b, f.a + 1) or lo <= f.a < hi), (t.a, t.b)))
+        # (5) an outcome of a pronoun that takes up a subject-matter noun earlier in the sentence
+        if t.w in _OUTCOME_ACTS and k > 0 and not own_text and not pipeline:
+            m = k - 1
+            subj = []
+            while m >= 0 and k - m <= 4 and (words[m].w in _ANAPHOR_SUBJECTS or words[m].w in ("of", "them", "these", "those") or
+                                             words[m].num or words[m].w in ("two", "three", "four", "five", "many", "several", "both")):
+                subj.insert(0, words[m])
+                m -= 1
+            ante = words[:m + 1]
+            if subj and any(x.w in ("it", "them", "they") for x in subj) and any(
+                    content(x) or (x.has("C:part") and q > 0 and ante[q - 1].num) for q, x in enumerate(ante)):
+                obj = words[k + 1:k + 5]
+                bare_check = any(x.has("C:dist", "C:dist_idioms") or x.w in ("every", "all", "each", "cada", "todas", "todos")
+                                 for x in obj[:2]) and any(x.has("C:check_noun") for x in obj[:3])
+                pipe_poss = any((x.has("poss") or x.w.endswith("'s")) and x.has("C:eval_int", "C:tool") for x in obj)
+                if not bare_check and not pipe_poss:
+                    hi = obj[-1].b if obj else t.b
+                    out.append((lambda f, lo=subj[0].a, hi=hi: lo <= f.a < hi and f.family in ("OUTCOME", "CHECK", "STATUS"), (subj[0].a, hi)))
+    # (7) what an assessor in general looks for ("An examiner would look for a clear thesis.", "Markers reward a balanced
+    # conclusion."): a generic assessor, a verb of looking for or rewarding, and an indefinite object; no anaphor, no score
+    # (a genre noun after an indefinite article, "a clear thesis", is a kind of work, not this answer)
+    own7 = any(x.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1") or x.w.startswith("zz") or (
+        x.has("C:genre_strong") and m > 0 and words[m - 1].w not in ("a", "an", "un", "una") and not words[m - 1].has("adj"))
+        for m, x in enumerate(words))
+    if not own7 and (words[0].w in ("a", "an", "any", "un", "una") or words[0].has("C:eval_asr") and words[0].w.endswith("s")):
+        ev = next((m for m, x in enumerate(words[:3]) if x.has("C:eval_asr", "C:assessor_extra")), None)
+        if ev is not None and not any(x.has("C:anaph", "C:demonstrative") or x.fam() & {"SCORE"} for x in words):
+            m = ev + 1
+            while m < len(words) and (words[m].has("C:would_modal", "C:future_modal", "C:ability_modal", "C:deontic") or
+                                      words[m].w in ("would", "will", "should", "might", "may", "can", "could", "usually", "often")):
+                m += 1
+            if m < len(words) and words[m].w in ("look", "looks", "reward", "rewards", "expect", "expects", "want", "wants", "credit",
+                                                 "credits", "value", "values", "seek", "seeks", "busca", "buscan", "premia", "premian"):
+                rest = [x for x in words[m + 1:m + 4] if x.w not in ("for", "to", "see", "por")]
+                if rest and rest[0].w in ("a", "an", "un", "una") or (rest and rest[0].w.endswith("s") and not rest[0].has("C:det")):
+                    out.append((lambda f: f.rule in ("G1", "G2", "G3", "G5"), (toks[0].a, toks[-1].b)))
+    # (8) the scope statement restated: the pipeline checks ONLY something ("The engine checks only the encoding."): what the engine
+    # establishes, no result on this answer
+    if not own_text:
+        for k, t in enumerate(words[:6]):
+            if t.fam() & {"CHECK"} and t.has("v:3sg", "v:base") and k > 0 and any(x.has("C:eval_int", "C:tool") for x in words[:k]) and \
+                    any(x.w in ("only", "just", "solo", "solamente", "merely") for x in words[k + 1:k + 3]) and \
+                    not any(_positive(x) and x is not t for x in words[k + 1:]):
+                out.append((lambda f, lo=t.a, hi=t.b: lo <= f.a < hi, (t.a, t.b)))
+    # (6) an agreement of accounts as a label over a computation shown
+    colon = next((m for m, t in enumerate(toks[:10]) if t.w == ":"), None)
+    if colon is not None and colon > 0:
+        key = [t for t in toks[:colon] if not t.punct]
+        value = [t for t in toks[colon + 1:] if not t.punct]
+        if key and any(x.fam() & {"AGREE", "OUTCOME"} and (x.idiom or any(tg.startswith("v:") for tg in x.t)) for x in key) and \
+                not any(x.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:genre_strong", "C:eval_int", "C:tool") for x in key) and \
+                sum(1 for x in value if x.num) >= 2 and (any(x.w in ("=", "+", "-", "−", "×", "*", "/", "÷", "x") for x in toks[colon + 1:]) or
+                                                         any(x.w in _ARITH_WORDS for x in value)):
+            cb = toks[colon].b
+            out.append((lambda f, cb=cb: f.a < cb, (toks[0].a, cb)))
+    return out
+
 
 
 def _raw_mentions(s: str, a: int, b: int) -> list[tuple[int, int]]:
@@ -1596,11 +1794,7 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
     # ---- frames that clear a hit (boundary (b)), each on the hits it explains
     def clear(pred) -> None:
         nonlocal kept
-        before_n = len(kept)
         kept = [f for f in kept if not pred(f)]
-        if _DEBUG and len(kept) != before_n:
-            import traceback
-            print("meaning: cleared at line", traceback.extract_stack(limit=2)[0].lineno)
 
     # a quotation mentioned or analysed: the hits inside it and on it
     for k in _quote_spans(toks):
@@ -1733,8 +1927,10 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         if t.fam() & {"CHECK"} and t.has("v:3sg", "v:past") and k > 0 and content and not toks[k - 1].punct:
             subj = [x for x in toks[max(0, k - 5):k] if not x.punct]
             if subj and not any(x.has("C:copula", "C:aux") or x.num for x in subj) and not any(x.has("C:pron1", "C:poss1", "C:eval_int", "C:tool", "C:eval_int_agentive", "C:m_eval", "C:eval_asr",
-                                      "C:anaph", "C:genre", "C:part", "C:check_noun") for x in subj) and _content(subj[-1], ctx):
-                own = True  # "The Bennets' dialogue tests this logic": a subject-matter agent's act (X3)
+                                      "C:anaph", "C:genre", "C:part", "C:check_noun") for x in subj) and _content(subj[-1], ctx) and \
+                    not _answer_object(toks, k):
+                own = True  # "The Bennets' dialogue tests this logic": a subject-matter agent's act (X3); a check of THIS answer by a
+                # named outside party ("Wikipedia confirms every figure in this response.") is no act of the subject (c3c)
         if t.w in ("exactly", "verbatim", "exactamente") and nxt is not None and nxt.w in ("as", "como") and any(
                 x.has("C:report_verb", "C:descr") or x.w in ("gives", "give", "gave", "states", "stated", "writes", "wrote", "reports",
                                                             "reported", "lists", "listed", "da", "dice")
@@ -1770,6 +1966,10 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
                 clear(lambda f, lo=lo, hi=hi: lo <= f.a < hi)
     frame_spans: list = []
     _subject_frames(toks, words, segs, ctx, s, a, b, clear, frame_spans)
+    for f_pred, span in _c3c_frames(toks, ctx):
+        clear(f_pred)
+        if span is not None:
+            frame_spans.append(span)
     # a check by a stated mathematical method with the computation shown (X1/X4: "verified by substitution: 2(4) + 3 = 11")
     if any(t.w in ("=", "≈") for t in toks) and sum(1 for t in toks if t.num) >= 2:
         for k, t in enumerate(toks):
@@ -1862,7 +2062,9 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
                 and any(_content(t, ctx) for t in words[:5]):
             generic = True
         if generic:
-            clear(lambda f: f.rule in ("G1", "G2", "G3", "G5") and f.family not in ("ASSURE",))
+            # (a source evaluation the reader kept is a pronoun taking up the sentence's own statement, "Schemas shape what people
+            # recall; this is fully reliable.": the writer's confidence in its generic claim stays its own; check round 9 of c3c)
+            clear(lambda f: f.rule in ("G1", "G2", "G3", "G5") and f.family not in ("ASSURE", "SRCEVAL"))
     # the respondents of a study ("Respondents answer by ticking (✓) one box per item."): third parties' act
     # ---- polarity and mood over the whole sentence (content-free sentences)
     readings = []
@@ -1925,9 +2127,6 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
     readings = [r for r in readings if not _narrative_past(r[5]) and not _system_generic(r[5]) and not _subject_constraints(r[5])
                 and not _ambiguous_agent(r[5])]
     asserted_pos = [r for r in readings if r[0] > 0 and (r[1] or (r[2] and r[3])) and r[4] in ("declarative", "strong")]
-    if _DEBUG:
-        print("meaning: content", [t.w for t in content], "content_free", content_free, "readings",
-              [(r[0], r[1], r[2], r[3], r[4], [t.w for t in r[5]]) for r in readings], "kept", kept)
     others = [r for r in readings if r not in asserted_pos]
     # protasis readings that precede a positive apodosis belong to it (the counterfactual), handled by cf
     if content_free:
@@ -1953,7 +2152,11 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         if kept and readings and not asserted_pos and all(r[0] < 0 or r[4] in ("weak", "question", "imperative", "protasis")
                                                           for r in readings) and any(r[3] or r[4] == "weak" for r in readings) and \
                 not _internal_result(words):
-            clear(lambda f: f.rule in ("G1", "G2", "G3", "G5", "G9") and f.form not in ("quoted", "relayed"))
+            # (a source evaluation the reader kept takes up the sentence's own statement in a clause of its own: a purpose or a
+            # question in the statement, "A firm can use surveys to test demand; this is fully reliable.", leaves the writer's
+            # confidence in it asserted; check round 9 of c3c)
+            clear(lambda f: f.rule in ("G1", "G2", "G3", "G5", "G9") and f.form not in ("quoted", "relayed") and
+                  not (f.family == "SRCEVAL" and _srceval_clause_asserted(toks, f)))
     if not kept and not added:
         trig = _rhetorical_verdict(toks, words, segs, question)
         if trig is not None:
@@ -1964,7 +2167,79 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         lab = _label_on_content(toks)
         if lab is not None:
             added.append(found_cls("G6", "STATUS", "label_before", lab.a, lab.b))
+    if kept and _outside_evidence_check(words):
+        # a value confirmed BY outside evidence in a sentence that credits a named source ("The IPCC's report states that ... about
+        # 1.1 °C ..., a figure confirmed by several independent datasets."; check round 9 of c3c): evidence about the subject
+        # matter (boundary (b)), not a check of this answer
+        kept = [f for f in kept if not (f.family == "CHECK" and f.rule in ("G1", "G2", "G3", "G5"))]
+    if (kept or added) and _marking_criterion(words):
+        # what marking rewards or what a good answer does in general ("Marks are awarded for a clear argument.", "A good answer would
+        # compare the two sources."; check round 9 of c3c): a criterion, said of no answer in particular
+        kept = [f for f in kept if not (f.rule in ("G1", "G2", "G3", "G5") and f.family in ("QUALITY", "OUTCOME", "CHECK", "SCORE"))]
+        added = [f for f in added if not (f.rule in ("G1", "G2", "G3", "G5") and f.family in ("QUALITY", "OUTCOME", "CHECK", "SCORE"))]
     return kept, added
+
+
+_EVIDENCE_AGENTS = frozenset("data dataset datasets studies study measurements observations records surveys survey experiments "
+                              "experiment trials analyses research estimates satellite satellites stations".split())
+
+
+def _outside_evidence_check(words: list) -> bool:
+    """A check credited, by "by", to outside evidence (datasets, studies, measurements) in a sentence that names its source with a
+    report verb, and with no anchor, first person, tool or internal evaluator: the source's figure, confirmed by evidence."""
+    if any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:eval_int", "C:tool", "C:genre_strong", "C:eval_asr")
+           for t in words):
+        return False
+    if not any(t.has("C:report_verb") or t.w in ("states", "stated", "reports", "reported", "estimates", "estimated", "finds",
+                                                   "found", "shows", "showed") for t in words):
+        return False
+    for m, t in enumerate(words):
+        if t.fam() & {"CHECK"} and m + 1 < len(words) and words[m + 1].w in ("by", "por"):
+            np = words[m + 2:m + 6]
+            if any(x.w in _EVIDENCE_AGENTS for x in np):
+                return True
+    return False
+
+
+_CRITERION_NOUNS = frozenset("answer answers response responses essay essays argument arguments candidate candidates student students "
+                             "conclusion conclusions respuesta respuestas ensayo ensayos".split())
+_CRITERION_MODALS = frozenset("would should will must might could can tends tend needs need usually often typically debe deben "
+                              "deberia deberian suele suelen".split())
+_AWARD_SUBJECTS = frozenset("marks mark points credit puntos".split())
+_AWARD_VERBS = frozenset("awarded given gained earned lost deducted available otorgan otorgados dan".split())
+
+
+def _srceval_clause_asserted(toks: list, f) -> bool:
+    """Whether the clause holding the source-evaluation hit ``f`` (after the last ";", ",", ":" or dash before it) is a plain
+    declarative with no negation, modal or question of its own."""
+    lo = 0
+    for k, t in enumerate(toks):
+        if t.a >= f.a:
+            break
+        if t.punct and t.w in (";", ",", ":", "—", "–"):
+            lo = k + 1
+    clause = [t for t in toks[lo:] if t.a < f.b and not t.punct]
+    return bool(clause) and not any(_neg_word(t) or t.has("C:weak", "C:weak_idioms", "C:deontic") or t.w in (
+        "might", "may", "could", "would", "should", "if", "whether", "si", "?") for t in clause)
+
+
+def _marking_criterion(words: list) -> bool:
+    """A general statement of what marking rewards or what a good answer does: "Marks are awarded for ...", "Credit is given
+    for ...", "A good answer would/should ...", "Strong responses compare ...". An anchor, the first person, a demonstrative or a
+    possessive keeps the sentence about this answer."""
+    if not words or any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:demonstrative", "C:eval_int", "C:tool")
+                        or (t.w.split() or [""])[0] in ("this", "these", "here", "your", "my", "our", "esta", "este", "above",
+                                                         "below") for t in words):
+        return False
+    ws = [t.w for t in words]
+    if ws[0] in _AWARD_SUBJECTS and len(ws) > 2 and ws[1] in ("are", "is", "were", "can", "may", "will", "se") and \
+            any(w in _AWARD_VERBS for w in ws[1:4]) and ("for" in ws[2:6] or "para" in ws[2:6] or "por" in ws[2:6]):
+        return True
+    if ws[0] in ("a", "an", "un", "una") or (ws[0].endswith("s") and words[0].raw[:1].isupper()):
+        head = next((m for m in range(min(len(ws), 5)) if ws[m] in _CRITERION_NOUNS), None)
+        if head is not None and head + 1 < len(ws) and ws[head + 1] in _CRITERION_MODALS:
+            return True
+    return False
 
 
 _RHET_WH = frozenset(("who", "what", "quien", "que", "how", "como"))
