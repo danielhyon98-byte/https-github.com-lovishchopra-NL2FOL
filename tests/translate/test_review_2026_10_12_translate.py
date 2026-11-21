@@ -531,7 +531,11 @@ def test_a_trusted_kind_stays_unchecked_until_a_record_validates_it():
     faithful = SemanticReviewer(FixtureReviewProvider({"c": {"verdict": "faithful", "issues": []}}))
     outcome, _ = run(claim, report, output(p), reviewer=faithful)
     unvalidated = {c.target_id for c in outcome.translation.grounding_checks if c.method == "numeric_in_task" and c.verified is None}
-    assert unvalidated == {"L", "W"} and outcome.display_status is S.ENTAILED
+    # Rewritten to the stricter rule for hold remedy c3b (decision D7, design 3.13 and 4.3): "The paragraph runs to 320 words, under the
+    # 350-word limit." is the writer's own word-count claim, a self-report; its content keeps its check (the engine result is still
+    # ENTAILED and the dependencies below are unchanged) but its display never shows success: NOT_ELIGIBLE. It pinned display ENTAILED.
+    assert unvalidated == {"L", "W"} and outcome.display_status is S.NOT_ELIGIBLE  # stricter (selfcert-1 c3b, was ENTAILED)
+    assert outcome.verification.status is S.ENTAILED
     # integration of the review fixes: the signed engine result lists exactly what the translation layer left unvalidated
     assert outcome.verification.unverified_dependencies == ["W", "L"] and outcome.verification.ungrounded_dependencies == []
     assert not outcome.release.permitted and any("task authority unvalidated" in u and "L, W" in u for u in outcome.release.unresolved)

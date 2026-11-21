@@ -496,6 +496,9 @@ ASSURANCE_TAILS = [" Every quotation above holds.", " Nothing in it needs fixing
                    " The figures come from Table 1 to the decimal place.", " Use it as your model."]
 _BLOCKING_RULES = {META_NOTE_RULE, ASSURANCE_RULE, EVALUATION_RULE, NOTE_CLAUSES_RULE, ANSWER_EVALUATION_RULE, BARE_NEGATOR_RULE, NOTE_FORM_RULE}
 _ALLOWLIST_RULES = (NOTE_CLAUSES_RULE, ANSWER_EVALUATION_RULE, BARE_NEGATOR_RULE, NOTE_FORM_RULE)
+#: The detail with which rule meta-note refuses a paragraph holding a sentence the one shared self-certification reader names
+#: (hold remedy c3b, design 1.3 item 14: the shared reader is the precondition the allowlist sits behind).
+_SHARED_READER_DETAIL = "a sentence a shared self-report reader names"
 
 
 # ============================================================================================ the real path
@@ -929,8 +932,15 @@ def test_an_evaluation_in_words_no_list_names_is_refused_by_the_allowlist(text):
     predicate, or a negator, whose subject is the answer or a part of it, is none of the three constructions)."""
     masked = mask_quotations(text)
     assert assurance_words(masked) == [] and evaluation_words(masked) == []
+    # Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 1.3 item 14): the allowlist ALONE still refuses each
+    # (pinned on the allowlist reader itself, as before); the paragraph reader now consults the one shared self-certification
+    # reader first, so it refuses either by that precondition (rule meta-note, the shared reader names a sentence) or, where the
+    # shared reader names nothing, by the allowlist. Both are refusals; neither ever makes the paragraph a note.
+    allowlist = note_reading(masked)
+    assert not allowlist.note and allowlist.rule in _ALLOWLIST_RULES, allowlist
     reading = read_meta_paragraph(text)
-    assert not reading.note and reading.rule in _ALLOWLIST_RULES, reading
+    assert not reading.note, reading
+    assert reading.rule in _ALLOWLIST_RULES or (reading.rule == META_NOTE_RULE and reading.detail.startswith(_SHARED_READER_DETAIL)), reading
 
 
 @pytest.mark.parametrize("text", APPRAISAL_AS_OBJECT)
@@ -951,13 +961,27 @@ def test_as_well_is_no_evaluation_but_well_is():
 
 
 def test_the_rule_names_an_evaluation_of_the_answer_and_a_bare_negator():
-    assert read_meta_paragraph("Note: the quotations are tickety-boo.").rule == ANSWER_EVALUATION_RULE
-    assert read_meta_paragraph("Note: everything here is copacetic.").rule == ANSWER_EVALUATION_RULE
-    assert read_meta_paragraph("Note: the figures come from Table 1 to the decimal place.").rule == ANSWER_EVALUATION_RULE
-    assert read_meta_paragraph("Note: no quotation is out of place.").rule == BARE_NEGATOR_RULE
+    """Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 1.3 item 14 and 6.1): the allowlist's rule for each
+    sentence is pinned on the allowlist reader itself (unchanged); the paragraph reader now refuses the four sentences the one shared
+    reader gates (a quality word said of the answer: "tickety-boo", "copacetic"; blanket fidelity "to the decimal place"; "all
+    figures are sound", each True in ``self_report_expectations``) first, by rule meta-note (the shared reader names the sentence),
+    instead of by the allowlist's later rule. The three the shared reader does not gate keep the allowlist's rule."""
+    def shared(text):
+        r = read_meta_paragraph(text)
+        return not r.note and r.rule == META_NOTE_RULE and r.detail.startswith(_SHARED_READER_DETAIL)
+
+    assert note_reading(mask_quotations("Note: the quotations are tickety-boo.")).rule == ANSWER_EVALUATION_RULE
+    assert shared("Note: the quotations are tickety-boo.")  # stricter (selfcert-1 c3b, was the allowlist's answer-evaluation)
+    assert note_reading(mask_quotations("Note: everything here is copacetic.")).rule == ANSWER_EVALUATION_RULE
+    assert shared("Note: everything here is copacetic.")  # stricter (selfcert-1 c3b, was the allowlist's answer-evaluation)
+    assert note_reading(mask_quotations("Note: the figures come from Table 1 to the decimal place.")).rule == ANSWER_EVALUATION_RULE
+    assert shared("Note: the figures come from Table 1 to the decimal place.")  # stricter (selfcert-1 c3b, was answer-evaluation)
+    assert shared("Note: no quotation is out of place.")  # stricter (attack round 2 of c3b: "no ... out of place" denies a defect of
+    # every quotation, a blanket fidelity claim the shared reader now gates; was the allowlist's bare-negator)
     assert read_meta_paragraph("Note: the quotations are not quoted from memory.").rule == BARE_NEGATOR_RULE
     assert read_meta_paragraph("Note: I could not find a conflicting source.").rule == BARE_NEGATOR_RULE
-    assert read_meta_paragraph("Note: all figures are sound and not in doubt.").rule == EVALUATION_RULE
+    assert shared("Note: all figures are sound and not in doubt.")  # stricter (selfcert-1 c3b, was evaluation-words)
+    assert "sound" in evaluation_words(mask_quotations("Note: all figures are sound and not in doubt."))  # the vocabulary still names it
     assert evaluation_words("Note: there is nothing to fix in this answer, not a single slip.") == ["fix", "slip"]
 
 

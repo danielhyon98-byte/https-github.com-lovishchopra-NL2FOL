@@ -328,7 +328,11 @@ def test_a_quotation_is_credited_by_its_own_clause_not_by_a_colleague_named_in_a
 SELF_CERTS = [
     "All calculations above were checked by the verification engine and are confirmed correct.",
     "All working above is verified correct.",
-    "Todas las cifras han sido comprobadas por el Instituto Regional de Estadística.",
+    # rewritten to the stricter rule of hold remedy c3b (THE BOUNDARY, design 3.4 X2 and 3.5): the row was "Todas las cifras han sido
+    # comprobadas por el Instituto Regional de Estadística.", a named outside source's check reported as evidence about the subject
+    # matter (boundary (b), never gated, as 'the ONS confirmed the figures'); it moves to the free controls below. The row now credits
+    # the same body with a check of THIS answer's figures (an explicit answer reference, 'esta respuesta'), which is gated (G1)
+    "Todas las cifras de esta respuesta han sido comprobadas por el Instituto Regional de Estadística.",
     "VERIFICADO: todas las respuestas han sido comprobadas y confirmadas.",
 ]
 BRANCH_AGENTS = [("Physics", "physics-specialist"), ("Economics", "economics-specialist"), ("History", "history-specialist"),
@@ -347,11 +351,21 @@ def test_a_self_certification_is_named_on_every_branch_and_is_never_material(sub
     "Las cifras fueron comprobadas por el instituto en 2015.",          # the text's history, credited to another
     "Las cifras no han sido comprobadas.",                               # a negation
     "El texto dice que todas las cifras deben ser comprobadas.",         # a modal
-    "La respuesta es correcta: el pueblo tenía catorce alumnos.",        # the answer to a question of the text
     "The results of the experiment were checked by Smith in 1990.",
+    "Todas las cifras han sido comprobadas por el Instituto Regional de Estadística.",  # a named outside source's check (boundary (b))
 ])
 def test_controls_spanish_and_english_content_about_checking_is_no_self_certification(sentence):
     assert not md.is_self_certification(sentence)
+
+
+def test_the_answer_is_correct_in_spanish_is_a_self_assessment_outside_a_marking_task():
+    """Rewritten to the stricter rule of hold remedy c3b (design 6.3; boundary (a), decision D10): "La respuesta es correcta: ..."
+    was pinned above as content. "La respuesta" with no possessive is this answer in the default context, so the sentence is a
+    self-assessment; in a marking task (the router's plan) it is the student's answer and stays content."""
+    from epinoic_logic import selfcert
+    sentence = "La respuesta es correcta: el pueblo tenía catorce alumnos."
+    assert md.is_self_certification(sentence)  # stricter (selfcert-1 c3b, was False)
+    assert not selfcert.is_self_certification(sentence, selfcert.Context(marking=True))
 
 
 # ------------------------------------------------------------------ notes read by what they say; Sources lines

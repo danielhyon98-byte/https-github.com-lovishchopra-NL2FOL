@@ -158,6 +158,9 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^rule self-certification-gate could not read the deliverable answer \(\w+\)$", "not_deliverable"),
     (r"^the deliverable answer certifies its own checking, read on the answer as written \(.*\): a delivered answer never contains a claim "
      r"that it was checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    # rule unread-text (round-10 hold remedy c3b): text the self-certification reader cannot read is never delivered unread
+    (r"^the deliverable answer carries text the self-certification reader cannot read \(rule unread-text\)$", "not_deliverable"),
+    (r"^rule unread-text could not read the deliverable answer \(\w+\)$", "not_deliverable"),
     # policy.release_decision
     (r"^no task audit$", "final_audit_not_passed"),
     (r"^a \w+-scope audit is not a task audit$", "final_audit_not_passed"),

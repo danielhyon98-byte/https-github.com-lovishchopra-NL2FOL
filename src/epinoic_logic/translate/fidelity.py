@@ -714,16 +714,68 @@ def reason_not_encoded(problem: Problem, claim: ClaimRecord) -> Optional[Ambigui
                  ["the claim's reason and step encoded", "the encoding as given (the arithmetic of the figures alone)"])
 
 
+#: A symbol's gloss that calls it a free or general variable ("the free real variable of the functions g and h", "any real x", "an
+#: arbitrary input"): the report's quantity for every value, never one point.
+_FREE_GLOSS_RE = re.compile(r"\b(?:free|arbitrary|general|generic|unspecified|any|every)\b[^.;\n]{0,40}?\b(?:variable|value|input|argument|real|number|point)\b"
+                            r"|\bfor\s+all\b", re.IGNORECASE)
+#: A value the claim supposes for one symbol ("at x = 0", "when x = 2", "if t = 1.5", "for x = −1", "taking x = 0", "putting x = 3").
+_SUPPOSED_VALUE_RE = re.compile(r"\b(?:at|when|if|for|with|taking|putting|setting|substituting)\s{1,3}([A-Za-z])\s{0,2}=\s{0,2}([−-]?\d{1,9}(?:\.\d{1,9})?)(?![\d.])", re.IGNORECASE)
+
+
+def supposition_as_fact(problem: Problem, claim: ClaimRecord) -> Optional[AmbiguityFlag]:
+    """The ``supposition_as_fact`` flag, or None (round-10 leftover R10-CORE-MAA-T15-M5.3, c2 maa-t15 m5.3: "at x = 0, g(0) = 3 and h(3) =
+    1 = 0 + 1" encoded with the premise 'x = 0' on the report-wide x, glossed "the free real variable of the functions g and h"): the
+    claim supposes a value for a symbol ("at x = 0") and the encoding states that value as a premise of the writer's own on a symbol its
+    gloss calls free or general. The encoding then asserts, as a fact of the report, a value the claim only supposes: the verdict
+    holds of the supposition, and pooled with the report's other claims the premise fixes their free variable too. Encode the
+    supposition as the antecedent of the conclusion ('x = 0 implies ...') or on a symbol of the claim's own. Deterministic, bounded."""
+    if problem.query != "entailment" or problem.conclusion is None or not problem.premises:
+        return None
+    supposed: set[tuple[str, Fraction]] = set()
+    for m in _SUPPOSED_VALUE_RE.finditer((claim.claim_text or "")[:MAX_CLAIM_CHARS]):
+        try:
+            supposed.add((m.group(1).lower(), Fraction(m.group(2).replace("−", "-"))))
+        except (ValueError, ZeroDivisionError):
+            continue
+    if not supposed:
+        return None
+    free = {s.name for s in problem.symbols if _FREE_GLOSS_RE.search((s.meaning or "")[:300])}
+    if not free:
+        return None
+    for pr in problem.premises:
+        kind = pr.grounding.kind if pr.grounding is not None else None
+        e = _dump(pr.expr)
+        if kind not in _WRITER_KINDS or e.get("op") != "eq":
+            continue
+        for var, lit in ((e.get("left") or {}, e.get("right") or {}), (e.get("right") or {}, e.get("left") or {})):
+            if var.get("op") != "var" or var.get("name") not in free or lit.get("op") not in ("int", "real"):
+                continue
+            try:
+                value = Fraction(str(lit.get("value")))
+            except (ValueError, ZeroDivisionError):
+                continue
+            name = str(var["name"])
+            if (name.lower()[:1], value) in supposed and len(name) <= 3:
+                return _flag("supposition_as_fact",
+                             f"(deterministic) the claim supposes {name} = {lit.get('value')} ('{truncate(claim.claim_text, 100)}'), and the encoding "
+                             f"states it as a premise of its own ({pr.id}) on {name}, which its gloss calls a free or general variable: the "
+                             "premise asserts as a fact of the report a value the claim only supposes; encode the supposition as the antecedent "
+                             "of the conclusion, or on a symbol of the claim's own",
+                             ["the supposition as the conclusion's antecedent", "the encoding as given (a fact fixing the free variable)"])
+    return None
+
+
 def fidelity_flags(problem: Problem, claim: ClaimRecord, supporting: Sequence[ClaimRecord], report: Optional[SpecialistReport],
                    task: Optional[TaskRecord] = None) -> list[AmbiguityFlag]:
     """Every flag of :func:`neighbour_content`, :func:`dropped_qualifier`, :func:`reason_unconnected`,
     :func:`reported_conclusion`, :func:`stated_values_not_encoded` and, since round 10 (clearance c3),
-    :func:`consequence_unchecked`, :func:`conjunct_asserted` and :func:`reason_not_encoded` that fires on the encoding (the pipeline
+    :func:`consequence_unchecked`, :func:`conjunct_asserted` and :func:`reason_not_encoded`, and since the round-10 hold remedy c3b
+    :func:`supposition_as_fact`, that fires on the encoding (the pipeline
     adds :func:`unencoded_support` itself, since it asks the engine for the verdict first)."""
     out: list[AmbiguityFlag] = []
     for flag in (neighbour_content(problem, claim, supporting, report, task), dropped_qualifier(problem, claim), reason_unconnected(problem, claim),
                  reported_conclusion(problem, claim), stated_values_not_encoded(problem, claim), consequence_unchecked(problem, claim),
-                 conjunct_asserted(problem, claim, supporting), reason_not_encoded(problem, claim)):
+                 conjunct_asserted(problem, claim, supporting), reason_not_encoded(problem, claim), supposition_as_fact(problem, claim)):
         if flag is not None:
             out.append(flag)
     return out

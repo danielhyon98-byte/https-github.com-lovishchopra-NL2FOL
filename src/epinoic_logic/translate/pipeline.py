@@ -89,7 +89,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from pydantic import ValidationError
 
@@ -222,6 +222,11 @@ def _is_code_numeral(f, text: str) -> bool:
     return bool(after) and "\u2080" <= after <= "\u2089"
 
 
+#: An option the answer numbers ("Option 1 is market development.", "option (2)"): a label, never a figure of the claim (round-10 leftover
+#: R10-STEM-H1-ROLES, c3 bm-t16 g6.1). Read only by this note; eligibility's named items are unchanged.
+_OPTION_LABEL_RE = re.compile(r"\b(?:option|alternative|choice)\s{1,3}\(?(?:\d{1,2}|[a-h])\)?(?![\w.]\d)", re.IGNORECASE)
+
+
 def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
     """The figures the claim states in digits that no literal of the problem encodes, in any typed form ("20%" as 0.2),
     and no interval of the problem holds (years, which date a quantity rather than state one, and code numerals apart).
@@ -234,7 +239,7 @@ def unencoded_claim_figures(problem: Problem, claim: ClaimRecord) -> list[str]:
     text = claim.claim_text
     # a named item ("Paper 1", "Table 1", "question 3") or a mark annotation ("[2]") names no figure of the claim, as eligibility
     # reads it (round 9, c2 translation-fidelity: lit-t15 p2-point's "Paper 1" was named an unencoded figure '1')
-    labels = [(m.start(), m.end()) for rx in (_NAMED_ITEM_RE, _MARK_ANNOTATION_RE) for m in rx.finditer(text[:4000])]
+    labels = [(m.start(), m.end()) for rx in (_NAMED_ITEM_RE, _MARK_ANNOTATION_RE, _OPTION_LABEL_RE) for m in rx.finditer(text[:4000])]
     missing: list[str] = []
     for f in figures_in(SourceText("claim", claim.claim_id, text)):
         if f.word or is_year_like(f) or _is_code_numeral(f, text) or any(a <= f.start < b for a, b in labels):
@@ -275,19 +280,51 @@ def introduced_figures(problem: Problem, sources: Sequence[SourceText]) -> list[
         if kind not in _STATED_FIGURE_KINDS:
             continue
         e = pr.expr
-        if getattr(e, "op", None) != "eq":
-            continue
-        sides = (e.left, e.right)
+        sides = (e.left, e.right) if getattr(e, "op", None) == "eq" else ()
         lit = next((x for x in sides if getattr(x, "op", None) in ("int", "real")), None)
         var = next((x for x in sides if getattr(x, "op", None) == "var"), None)
-        if lit is None or var is None:
+        if lit is not None and var is not None:
+            value = _fraction(lit.value)
+            if value is None or abs(value) in TRIVIAL_VALUES:
+                continue
+            if literal_matches(value, stated, conversions=True)[0]:
+                continue
+            out.append(f"{pr.id} ({var.name} = {lit.value})")
             continue
-        value = _fraction(lit.value)
-        if value is None or abs(value) in TRIVIAL_VALUES:
+        # round-10 leftover R10-CORE-INTRODUCED-FIGURES: a figure inside a premise's expression ("y = 0.4244 × m", a constant or a
+        # decimal the translation computed) that no source states is introduced too, as the auditor's OVS-TRN-005 names it
+        for value_text in _expr_literals(e):
+            value = _fraction(value_text)
+            if value is None or abs(value) in TRIVIAL_VALUES or literal_matches(value, stated, conversions=True)[0]:
+                continue
+            out.append(f"{pr.id} ({value_text}{_IN_EXPRESSION}")
+            break
+    return out
+
+
+#: The suffix of an :func:`introduced_figures` entry for a figure inside a premise's expression (not an assignment's).
+_IN_EXPRESSION = " in its expression)"
+
+
+def _expr_literals(expr: Any, limit: int = 64) -> list[str]:
+    """The numeric literals of an expression, in order, at most ``limit`` (a bounded walk of the IR)."""
+    out: list[str] = []
+    stack, seen = [expr], 0
+    while stack and seen < 4000 and len(out) < limit:
+        e = stack.pop()
+        seen += 1
+        op = getattr(e, "op", None)
+        if op in ("int", "real"):
+            out.append(str(e.value))
             continue
-        if literal_matches(value, stated, conversions=True)[0]:
-            continue
-        out.append(f"{pr.id} ({var.name} = {lit.value})")
+        for k in ("args",):
+            v = getattr(e, k, None)
+            if isinstance(v, (list, tuple)):
+                stack.extend(reversed(v))
+        for k in ("right", "left", "arg", "cond", "then", "else_"):
+            v = getattr(e, k, None)
+            if v is not None and getattr(v, "op", None) is not None:
+                stack.append(v)
     return out
 
 
@@ -1231,7 +1268,14 @@ class Translator:
                 "claim's written calculation (encode the written operands and let the engine compute)", 2000))
             interpretation = interpretation.model_copy(update={"ambiguity_flags": [*interpretation.ambiguity_flags, flag]})
             notes.append(truncate(f"introduced figure: {flag.message}", _MAX_DIAGNOSTIC_CHARS * 2))
-        introduced = introduced_figures(grounded, report_sources)
+        introduced_all = introduced_figures(grounded, report_sources)
+        # a figure inside a premise's expression is named, never a flag: a constant the translation writes for a symbol the claim
+        # names ('π', 'g') is no figure of the claim's to decide by (round-10 leftover R10-CORE-INTRODUCED-FIGURES)
+        in_expression = [x for x in introduced_all if x.endswith(_IN_EXPRESSION)]
+        introduced = [x for x in introduced_all if not x.endswith(_IN_EXPRESSION)]
+        if in_expression:
+            notes.append(truncate("introduced figure in a premise's expression (named, it decides nothing here): the translation writes figure(s) "
+                                  "no source states inside a premise (" + "; ".join(in_expression[:6]) + ")", _MAX_DIAGNOSTIC_CHARS * 2))
         if introduced:
             if self._figures_decide_entailment(grounded, [x.split(" ", 1)[0] for x in introduced]):
                 flag = AmbiguityFlag(code="introduced_figure", message=truncate(

@@ -37,7 +37,11 @@ DESIGN_CODES = {
     "T2c.scope": ["OVS-RCPT-007"], "T2d": ["OVS-RCPT-006"], "T3": ["OVS-RES-004"], "T3b": ["OVS-RES-005"], "T3c": ["OVS-RES-010"],
     "T3c.nodigest": ["OVS-RES-005"], "T4": ["OVS-RES-003", "OVS-RES-009"], "T4b": ["OVS-RES-003"], "T4c": ["OVS-RES-001"], "T5": ["OVS-RCPT-001"],
     "T5b": ["OVS-FORM-001", "OVS-FORM-002"], "T5c": ["OVS-FORM-003"], "T5d": ["OVS-FORM-004"], "T6": [], "T6b": ["OVS-SYN-002"], "T6c": ["OVS-CUST-001"],
-    "T7": [], "T7b": ["OVS-PEER-002"], "T7c": ["OVS-PEER-002"], "T8": ["OVS-FID-009"], "T8b": ["OVS-FID-005"], "T8c": [], "T9": ["OVS-FID-002"],
+    # T8 rewritten to the stricter rule for hold remedy c3b (selfcert-design 1.3 item 16: the auditor's structural detector is the
+    # one reader, so it never disagrees with the branch's): a self-certification delivered as content is now OVS-FID-005 (error),
+    # whatever its phrasing; no phrasing is left that only the auditor's detector names (was OVS-FID-009, warning). Paired with
+    # overseer/scripts/tamper.py's T8 expected codes (its owner's change).
+    "T7": [], "T7b": ["OVS-PEER-002"], "T7c": ["OVS-PEER-002"], "T8": ["OVS-FID-005"], "T8b": ["OVS-FID-005"], "T8c": [], "T9": ["OVS-FID-002"],
     "T9b": ["OVS-FID-004"], "T10": ["OVS-JOINT-001", "OVS-SYN-003"], "T10b.disclosed": [], "T10b.named": [], "T10c": ["OVS-JOINT-003"],
     # round-8 clearance c1 (rule pooled-only-conflict): a conflict that exists only through pooling a rejected candidate (maa-t14)
     "T10d": ["OVS-JOINT-003"],

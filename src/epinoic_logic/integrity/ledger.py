@@ -205,7 +205,7 @@ _SMALL_VALUES = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 
 _ES_SMALL = {"una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11}
 _ES_WORDS = {"doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciséis": 16, "dieciseis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19,
              "veinte": 20, "veintiuno": 21, "veintiuna": 21, "veintidós": 22, "veintidos": 22, "veintitrés": 23, "veintitres": 23, "veinticuatro": 24,
-             "veinticinco": 25, "veintiséis": 26, "veintiseis": 26, "veintisiete": 27, "veintiocho": 28, "veintinueve": 29, "treinta": 30, "cuarenta": 40,
+             "veinticinco": 25, "veintiséis": 26, "veintiseis": 26, "veintisiete": 27, "veintiocho": 28, "veintinueve": 29, "veintiún": 21, "veintiun": 21, "treinta": 30, "cuarenta": 40,
              "cincuenta": 50, "sesenta": 60, "setenta": 70, "ochenta": 80, "noventa": 90, "cien": 100, "ciento": 100, "doscientos": 200, "doscientas": 200,
              "trescientos": 300, "trescientas": 300, "cuatrocientos": 400, "cuatrocientas": 400, "quinientos": 500, "quinientas": 500, "seiscientos": 600,
              "seiscientas": 600, "setecientos": 700, "setecientas": 700, "ochocientos": 800, "ochocientas": 800, "novecientos": 900, "novecientas": 900,
@@ -4997,42 +4997,30 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
     return f
 
 
-# --- self-reports carried in the ledger's own fields (INT-LEDGER-029; integration gate 4) ----------------------------
-#: This system's checks named as the subject or agent of a verdict, in the combinator's own words about its choices (a
-#: ledger entry's reason, a conflict record's description and basis): the Overseer, Z3, the logic, verification or Z3
-#: engine, "the engine" (never "the steam engine": "the" stands right before it), the solver, the verifier, the checker,
-#: the hub, the router, the translator, formal checks, signed results. A combinator cannot know a verdict of any of them,
-#: and a ledger field is no place a check result could come from, so the words are a self-report.
-_LEDGER_CHECK_NAME = (r"(?:(?:the|this|its|our)\s++(?:(?:logic|verification|formal|reasoning|z3|smt)\s++)?engine"
-                      r"|(?:logic|verification|formal|reasoning|z3|smt)\s++engine|z3(?:\s++solver)?|smt\s++solver"
-                      r"|(?:the|this|its|our)\s++(?:solver|verifier|checker|hub|router|translator|overseer(?:\s++agents?)?|auditor)"
-                      r"|overseers?|(?:the\s++)?formal\s++(?:checks?|verification)|(?:the\s++)?signed\s++(?:engine\s++)?results?)")
-_LEDGER_VERDICT = (r"(?:confirm(?:s|ed)?|prove[sdn]?|proven|verif(?:y|ies|ied)|validate[sd]?|check(?:s|ed)?|show(?:s|ed|n)?|finds?|found|establish(?:es|ed)?"
-                   r"|decide[sd]?|approve[sd]?|clear(?:s|ed)?|certif(?:y|ies|ied)|accept(?:s|ed)?|reject(?:s|ed)?|refute[sd]?|pass(?:es|ed)?|entail(?:s|ed)?"
-                   r"|rule[sd]?)")
-_LEDGER_VERDICT_PAST = (r"(?:confirmed|proved|proven|verified|validated|checked|shown|found|established|decided|approved|cleared|certified|accepted"
-                        r"|rejected|refuted|passed|entailed|ruled)")
-_LEDGER_CHECK_CLAIM_RE = re.compile(
-    rf"\b{_LEDGER_CHECK_NAME}(?:['’]s\s++(?:results?|verdicts?|checks?|audits?|proofs?|runs?|outputs?|decisions?))?\s++"
-    rf"(?:(?:has|have|had|was|were|is|are|now|already|also|formally|clearly|independently|itself)\s++){{0,2}}{_LEDGER_VERDICT}\b"
-    rf"|\b{_LEDGER_VERDICT_PAST}\s++by\s++{_LEDGER_CHECK_NAME}\b|\baccording\s++to\s++{_LEDGER_CHECK_NAME}\b"
-    r"|\bformally\s++(?:verified|proved|proven|confirmed|checked|established)\b", re.IGNORECASE)
+def _selfcert_reads(sentence: str) -> bool:
+    """Whether the one reader names ``sentence`` of a ledger field (the combinator writes the ledger); fails closed."""
+    try:
+        from .. import selfcert
+        return selfcert.read(sentence, selfcert.Context(writer="combinator")).refuses()
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
 
 
 def ledger_field_self_reports(text: Optional[str]) -> list[str]:
     """The sentences of a ledger field (a ledger entry's reason, a conflict record's description or basis) that state a
     check result (integration gate 4): the synthesis readers' self-reports and verification labels
     (:func:`_self_report_sentences`: "Checked by the logic engine: both are verified and agree.") and this system's checks
-    named as the subject or agent of a verdict (:data:`_LEDGER_CHECK_CLAIM_RE`: "The overseer confirmed the March 1802
-    date, ...", "The Z3 engine proved that March 1802 is correct.", "verified by Z3", "according to the overseer"). A
-    negated or modal statement ("The overseer has not confirmed ...") states no result. Each sentence is read once, on its
-    first :data:`_SELF_REPORT_SENTENCE_CHARS` characters."""
+    named as the subject or agent of a verdict ("The overseer confirmed the March 1802 date, ...", "The Z3 engine proved that
+    March 1802 is correct.", "verified by Z3"), read by the one self-certification reader with the combinator as the writer
+    (``selfcert``, rules ``selfcert-1``, hold remedy c3b; the ledger's own check-claim pattern is deleted). A negated or modal
+    statement ("The overseer has not confirmed ...") states no result. Each sentence is read once, on its first
+    :data:`_SELF_REPORT_SENTENCE_CHARS` characters."""
     if not text:
         return []
     out = list(_self_report_sentences(text))
     for sentence in _SELF_REPORT_SENTENCE_RE.split(text):
         s = sentence.strip()
-        if s and s[:200] not in out and _LEDGER_CHECK_CLAIM_RE.search(s[:_SELF_REPORT_SENTENCE_CHARS]):
+        if s and s[:200] not in out and _selfcert_reads(s[:_SELF_REPORT_SENTENCE_CHARS]):
             out.append(s[:200])
     return list(dict.fromkeys(out))
 

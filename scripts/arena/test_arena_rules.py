@@ -1808,7 +1808,9 @@ def test_bind_translations_records_each_fixtures_claim_text_digest_and_the_repla
     assert (binding["served_with_recorded_digest"], binding["served_by_claim_id_only"]) == (2, 0)
     assert "2 served translations bound to a recorded claim-text digest, 0 by claim id only" in _replay_line(rd)
     slip = next(r for r in out["records"] if r["variant"] == "stem_arithmetic_slip")
-    assert slip["stale_fixtures_refused"] == ["s1.2"], "the changed claim is refused the fixture recorded for the genuine text"
+    # rewritten to a stricter rule (round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING; was ["s1.2"]): the changed claim is refused the
+    # fixture recorded for the genuine text, and so is s1.3 ("So the net force is 6.0 N."), whose supporting claim s1.2 changed
+    assert slip["stale_fixtures_refused"] == ["s1.2", "s1.3"], "the changed claim and the claim resting on it are refused their genuine fixtures"
     # a second run changes nothing
     assert bt.main([str(rd), "--listings", str(listings)]) == 0 and json.loads(tr_path.read_text()) == written
     # a recorded digest that differs from the listing's: nothing written without --force
@@ -2569,3 +2571,38 @@ def test_mutated_claims_are_listed_for_translation_served_their_recorded_transla
     assert next(r for r in unbound["records"] if r["variant"] == "stem_arithmetic_slip")["mutated_claims"]["not_translated"] == ["s1.2"]
     # transport is the same in every configuration: translating a mutated claim never moves the count by itself here
     assert out["functional"] == served["functional"] == stale["functional"] == unbound["functional"] == out["transmissions"]
+
+
+def test_a_fixture_is_bound_to_its_supporting_claims_and_refused_as_stale_when_one_changes():
+    """Round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING (c2 ll-t15 altered_quotation, p1-point): a recorded translation was bound
+    to its own claim's text only, so a mutation of the quotation a point rests on was served the point's genuine translation. A
+    translation is made with its claim's supporting claims in view, so the genuine pass records their digest beside the fixture
+    and any other pass refuses the fixture as stale (the harness's stale-fixture mark) when one of them changed; a pass with the
+    same supporting texts, a claim with none, and a recorded translation of a mutated claim are served as before."""
+    from epinoic_logic.translate.contracts import ClaimRecord, SpecialistReport
+
+    def report(quote: str) -> SpecialistReport:
+        ids = dict(request_id="r", task_id="t", report_id="rep", agent_id="english-specialist", subject="English A: Literature",
+                   task_type="analytical_paragraph")
+        claims = [ClaimRecord(**ids, claim_id="p1-point", claim_text="The image makes the city calm.", claim_role="judgement",
+                              supporting_claim_ids=["p1-q01", "p1-point"]),
+                  ClaimRecord(**ids, claim_id="p1-q01", claim_text=f'The poem says "{quote}".', claim_role="evidence"),
+                  ClaimRecord(**ids, claim_id="p2-point", claim_text="The sonnet ends in praise.", claim_role="judgement")]
+        return SpecialistReport(report_id="rep", request_id="r", task_id="t", agent_id="english-specialist", subject="English A: Literature",
+                                task_type="analytical_paragraph", original_response="x", response_sha256=ra.sha256_text("x"),
+                                created_at="2026-11-17T00:00:00Z", claims=claims)
+    genuine, altered = report("smokeless air"), report("smokeless airly")
+    point = genuine.claims[0]
+    supports: dict = {}
+    assert ra.stale_support_reason("p1-point", point, genuine, supports, genuine=True) is None
+    assert ra.stale_support_reason("p2-point", genuine.claims[2], genuine, supports, genuine=True) is None
+    assert set(supports) == {"p1-point", "p2-point"} and supports["p1-point"] != supports["p2-point"]
+    # a mutation pass: the point's own text is unchanged but its quotation changed
+    why = ra.stale_support_reason("p1-point", altered.claims[0], altered, supports, genuine=False)
+    assert why is not None and ra.STALE_FIXTURE_MARK in why and "supporting" in why
+    # the same supporting texts, a claim citing none, and a recorded translation of the mutated claim are served
+    assert ra.stale_support_reason("p1-point", point, genuine, supports, genuine=False) is None
+    assert ra.stale_support_reason("p2-point", altered.claims[2], altered, supports, genuine=False) is None
+    assert ra.stale_support_reason("p1-point", altered.claims[0], altered, supports, genuine=False, mutated=frozenset({"p1-point"})) is None
+    # a claim never cites itself: its own text is bound by claim_text_sha256, not here
+    assert ra.support_sha256(point, genuine) == ra.support_sha256(point.model_copy(update={"supporting_claim_ids": ["p1-q01"]}), genuine)

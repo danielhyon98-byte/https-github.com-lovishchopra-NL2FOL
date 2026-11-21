@@ -96,7 +96,16 @@ def policy_manifest() -> dict[str, Any]:
         },
         "argument_rules": ARG_RULES_VERSION,
         "named_codes": named_codes_digest(),
+        # eligibility rule 0 reads the one self-certification reader (POLICY_VERSION 2026.11-v5): its rules version and the digest of
+        # its lexicon and fold table are part of the policy, so a change to them without a version bump still makes every result of
+        # another build stale (decision D6 of the round-10 hold remedy c3b)
+        "eligibility_self_certification": _selfcert_binding(),
     }
+
+
+def _selfcert_binding() -> dict[str, str]:
+    from ..selfcert import SELFCERT_RULES, rules_digest
+    return {"rules": SELFCERT_RULES, "digest": rules_digest()}
 
 
 @lru_cache(maxsize=1)

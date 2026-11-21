@@ -1,7 +1,7 @@
 """Texts of the round-9 push-check hold on the c2 clearance commit (results-audit bug 13 with adversarial-live bug 10): a
 self-certifying sentence added to a short answer on every subject branch, the controls that must stay unflagged, and one short
-answer per subject (each routed to its branch: History and Global Politics to history, Geography, Language B and an unlisted
-subject to generic). The overseer's gate tests keep their own copy of the phrasings
+answer per subject (each routed to its branch: History and Global Politics to history, Geography to geography and Language B to
+language_b since D9/D10 (decision D35), an unlisted subject to generic). The overseer's gate tests keep their own copy of the phrasings
 (``overseer/tests/overseer_tests/test_c2_hold_self_certification_gate.py``)."""
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ SUBJECTS = [
 BRANCH_OF = {"History": "history", "Global Politics": "history", "Economics": "economics", "Business Management": "business_management",
              "Psychology": "psychology", "English A: Literature": "english", "English A: Language and Literature": "english", "Chemistry": "sciences",
              "Physics": "sciences", "Biology": "sciences", "Mathematics: Analysis and Approaches": "mathematics", "Computer Science": "computer_science",
-             "Geography": "generic", "Spanish B": "generic", "Philosophy": "generic"}
+             "Geography": "geography", "Spanish B": "language_b", "Philosophy": "generic"}
 
 # ============================================================================================ hold-fix round 2
 #: The phrasings the round-1 lenses reproduced as misses on the working tree after hold-fix round 1 (every subject branch, the

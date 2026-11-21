@@ -302,8 +302,10 @@ def claim_display_status(claim: ClaimRecord, translation: TranslationResult, ver
 def _self_report_claim(text: str) -> bool:
     """Whether the claim text is a self-report by the one reader; fails closed (a text it cannot read shows no success)."""
     try:
-        from ..adapters.self_report import claims_a_check
-        return bool(claims_a_check(text or ""))
+        from ..selfcert import read  # the one reader, rules selfcert-1
+        # (a hit, or a run the reader cannot read, CORE-SELF-002: hidden or reordered characters, an unread script; the fallback
+        # and the port refuse the same text, so no path shows it a success status)
+        return bool(read(text or "").refuses())
     except Exception:  # noqa: BLE001 - fail closed
         return True
 

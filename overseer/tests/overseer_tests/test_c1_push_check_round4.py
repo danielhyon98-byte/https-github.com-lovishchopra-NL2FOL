@@ -494,8 +494,16 @@ def test_physics_text_inputs_glued_into_the_verified_claim_are_refused_for_real(
     Rewritten after attack round 5 from a strict xfail into a real test of the refusal (and renamed from
     ``..._are_open_for_round_9``): a claim carries the outcome of what was encoded, never of what is glued to it, so rule
     ``unverified-claims`` names a claim whose text holds a note lead after a clause mark ("; note: ...") or a character outside
-    the claim alphabet (" 👍"). Words glued with neither stay the fidelity review's (``test_c1_push_check_round5.py``)."""
-    _report, decision = _physics_text(_physics_text_answer(row))
+    the claim alphabet (" 👍"). Words glued with neither stay the fidelity review's (``test_c1_push_check_round5.py``).
+
+    Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 6.1): both glued inputs ("; note: all figures are sound
+    and not in doubt.", " 👍") are now self-certifications the one reader names (``self_report_expectations`` pins each True), so
+    the answer is refused earlier, by rule self-report-disclosed or by the exclusion of the answer whose receipt names the
+    self-report at error level, instead of by rule unverified-claims; never FORMALLY CHECKED either way."""
+    report, decision = _physics_text(_physics_text_answer(row))
+    if now_a_self_report(row["added"]):
+        assert_self_report_refusal(decision, report, row["added"].strip())  # stricter (selfcert-1 c3b, was the unverified-claims reason)
+        return
     reasons = decision.receipt.formal.reasons
     assert decision.mode != "formally_checked", reasons
     assert any(r.startswith(UNVERIFIED_REASON) and ("s1.1 (quantitative: a note lead inside the claim)" in r
@@ -731,9 +739,13 @@ def test_the_skeleton_reads_every_round_4_look_alike_as_its_latin_letters():
     assert skeleton("Notes\u0131") == "Notesi"  # a dotless i is an i: "Notesı:" is no lead (the claim channel, pinned open)
     assert skeleton("N0te") == "N0te"  # digits are never mapped: a lead is words
     assert skeleton("plain ASCII.") == "plain ASCII." and reader_text("N\u043ete") == "N\u043ete"  # the readers' own text keeps its letters
+    # Rewritten for hold remedy c3b (design 2.3 / 1.3 item 14): _CONFUSABLES is now the one merged fold table, which also folds a
+    # letter-like number form (the small roman numeral one U+2170, category Nl) to its Latin letter; every entry is still one
+    # character that is not ASCII mapped to one ASCII letter, and every entry is a letter or a letter number (a letter-like form)
+    assert skeleton("\u2170") == "i"
     for ch, latin in _CONFUSABLES.items():
         assert latin.isascii() and latin.isalpha() and len(latin) == 1 and not ch.isascii(), ch
-        assert unicodedata.category(ch)[0] == "L", ch
+        assert unicodedata.category(ch)[0] == "L" or unicodedata.category(ch) == "Nl", ch
 
 
 @pytest.mark.parametrize("note", [n for _t, _p, n, _k in RECORDED_NOTES] + list(FURTHER_GENUINE))

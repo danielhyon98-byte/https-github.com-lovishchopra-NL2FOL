@@ -22,6 +22,8 @@ adversarial-live reports):
 The texts are the genuine round-6 specialist answers and the recorded p5 syntheses (tests/adapters/data/r6_specialists.json)."""
 from __future__ import annotations
 
+import re
+
 import json
 from pathlib import Path
 
@@ -403,7 +405,10 @@ def test_a_self_certification_after_the_question_demotes_only_itself():
     assert question.claim_role == "interpretation" and question.advisory_verification_status is None
     _ch, _reply, receipt = through_hub(EN_T12, text)
     sc_id = claim(rep, sc).claim_id
-    where = {f.message.split(" contains")[0] for f in receipt.structural_findings if f.code == "CORE-SELF-001"}
+    # rewritten for hold remedy c3b (older message form): CORE-SELF-001 now words a statement that the answer was checked as
+    # "<place> states that the answer or its items were checked ..." (design 4.1, the message chosen by the hit's form) instead of
+    # "<place> contains verification-status language"; the place is read as the prefix before either verb, and pinned unchanged
+    where = {re.split(r" (?:contains|states|carries|holds) ", f.message, maxsplit=1)[0] for f in receipt.structural_findings if f.code == "CORE-SELF-001"}
     meta = [f for f in receipt.structural_findings if f.code == "ES-META-001" and sc_id in f.claim_ids]
     assert meta and where == {"paragraph 3, sentence 3"} and meta[0].message.startswith("paragraph 3, sentence 3 ")
 

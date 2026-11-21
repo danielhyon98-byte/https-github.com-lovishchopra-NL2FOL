@@ -23,7 +23,9 @@ the premise roles), never from its label:
 * ``EVD-SRC-004`` (unchecked_source, info): the provider wrote its own ``verified: true`` on a grounding, which was
   discarded (every translation, whatever its status);
 * ``EVD-LACK-001`` (lack_of_evidence): a needed fact premise that claims no source (general knowledge, the specialist's
-  inference, an assumption, no grounding) and that no check verified;
+  inference, an assumption, no grounding) and that no check verified; a premise that restates one of the claim's own supporting
+  points (an argued claim of the answer, roled point or judgement, whose evidence is read on that claim) is not named (round-10
+  leftover R10-CORE-BUG1-EVIDENCE), and the message says what was searched (R10-STEM-H4);
 * ``EVD-FIG-001`` (invented_figure): a needed assignment whose figure occurs in no supplied text and not in the task
   record, is no result of a written calculation, and carries no from-memory label;
 * ``EVD-AUTH-001`` (uncheckable_authority): a needed premise that no check verified and that leans on an unattributed
@@ -767,6 +769,10 @@ def evd_lack_001(ctx: Any) -> Iterable[NamedDiagnostic]:
     # 'only' inside the located quotation "It's only the A that's gone") is a reading of the quoted language, not a fact about
     # the world that needs a source
     hit = [(p, r) for p, r in hit if not (r.kind == _KNOWLEDGE_KIND and _quoted_word_convention(ctx, p, symbols))]
+    # round-10 leftover R10-CORE-BUG1-EVIDENCE (c3 en-t16 p1-s01): a premise that restates one of the claim's own supporting claims
+    # ("supporting point p2: the auctioneer's language turns possessions into goods ...") rests on the answer's own claim, whose evidence
+    # is read on that claim: the point carried by its own supporting claims lacks no evidence of its own
+    hit = [(p, r) for p, r in hit if not _restates_supporting(ctx, p, symbols)]
     if not hit:
         return ()
     invited: list[tuple[Any, Any]] = []
@@ -783,7 +789,9 @@ def evd_lack_001(ctx: Any) -> Iterable[NamedDiagnostic]:
             "EVD-LACK-001", layer="claim", claim_ids=[ctx.claim.claim_id], assertion_ids=ids, derivation="grounding_record",
             evidence=[_premise_span(p, symbols) for p, _r in hit][:4] + _claim_spans(ctx),
             message=(f"the point rests on {_names(ids)} ({'; '.join(_cut(p.label or p.id, 90) for p, _r in hit[:3])}), which cites no source, and no "
-                     "check verified it in this process: nothing in the supplied texts or the task supports it")))
+                     "check verified it in this process: nothing it cites supports it" + (
+                         "" if any(_has_literal(p.expr) for p, _r in hit) else
+                         " (its words were not looked for in the supplied texts or the task)"))))
     if invited:
         ids = [p.id for p, _r in invited]
         d = named_diagnostic(
@@ -793,6 +801,46 @@ def evd_lack_001(ctx: Any) -> Iterable[NamedDiagnostic]:
                      "knowledge, which the request invites; no check verified it in this process"))
         out.extend(cap([d], "info", "not_source_bound"))
     return tuple(out)
+
+
+#: A translator's lead naming the claim a premise restates ("supporting point p2: ...", "claim g4.2 states ...").
+_SUPPORT_LEAD_RE = re.compile(r"^\s*(?:supporting\s+(?:point|claim)|claim|point)\s+[\w.@-]{1,40}\s*[:,-]\s*", re.IGNORECASE)
+
+
+def _restates_supporting(ctx: Any, p: Any, symbols: dict[str, Any]) -> bool:
+    """Whether premise ``p`` restates one of the claim's supporting POINTS (``ctx.supporting``, the report's claims the claim cites,
+    roled ``point`` or ``judgement``: an argued claim of the answer, whose own evidence is read on it): at least three content stems of its
+    label (a translator's "supporting point p2:" lead set aside) and four in five of them stand in that claim's text. A supporting fact
+    the writer states with no source ("Household borrowing fell sharply during 2023.", role evidence) is no argued point: a premise
+    restating it still lacks evidence (e01). Bounded: a label of at most 300 characters, at most 32 supporting claims."""
+    label = _SUPPORT_LEAD_RE.sub("", (p.label or _gloss(p, symbols) or "")[:300])
+    mine = _stems(_masked(label))
+    if len(mine) < 3:
+        return False
+    for c in list(ctx.supporting or ())[:32]:
+        if getattr(c, "claim_role", None) not in ("point", "judgement"):
+            continue
+        theirs = _stems(c.claim_text)
+        if len(mine & theirs) * 5 >= len(mine) * 4:
+            return True
+    return False
+
+
+def _has_literal(expr: Any) -> bool:
+    """Whether an expression holds a numeric literal (a figure the premise states). Bounded walk."""
+    stack, seen = [expr], 0
+    while stack and seen < 2000:
+        e = stack.pop()
+        seen += 1
+        if getattr(e, "op", None) in ("int", "real"):
+            return True
+        for k in ("left", "right", "arg", "args", "cond", "then", "else_"):
+            v = getattr(e, k, None)
+            if isinstance(v, (list, tuple)):
+                stack.extend(v)
+            elif v is not None and hasattr(v, "op"):
+                stack.append(v)
+    return False
 
 
 #: A label that states what a word conventionally means or does ("conventionally, 'only' limits a claim to one item", "the word

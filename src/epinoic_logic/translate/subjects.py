@@ -167,7 +167,7 @@ for _k, _n, _al in (
     ))
 for _k, _n, _al in (
     ("history", "History", ("history",)),
-    ("geography", "Geography", ("geography",)),
+    ("geography", "Geography", ("geography", "geografia")),
     ("psychology", "Psychology", ("psychology",)),
     ("global_politics", "Global Politics", ("global politics",)),
 ):
@@ -264,6 +264,9 @@ UNKNOWN = SubjectProfile(
 
 
 def _norm(s: str) -> str:
+    import unicodedata
+    # accents folded first ("Geografía", "Español B"), so a label in Spanish keeps its letters
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
     return re.sub(r" +", " ", re.sub(r"[^a-z0-9: ]+", " ", s.lower())).strip()
 
 
@@ -288,6 +291,37 @@ def _alias_patterns() -> list[tuple[int, "re.Pattern[str]", SubjectProfile]]:
 _ALIASES = _alias_patterns()
 
 
+#: A Language B or ab initio course named in any language ("English B HL", "Arabic B", "Español B", "Lengua B: Español",
+#: "Language acquisition: Spanish", "French ab initio"): the language_b profile, never the Language A branch of the same language.
+_LANGUAGES = ("english|french|spanish|german|mandarin|chinese|cantonese|arabic|japanese|hindi|italian|portuguese|russian|korean|dutch|"
+              "swedish|danish|norwegian|finnish|polish|turkish|indonesian|malay|swahili|hebrew|greek|thai|vietnamese|urdu|"
+              "espanol|español|frances|francés|ingles|inglés|aleman|alemán|italiano|portugues|portugués|chino|japones|japonés|arabe|árabe")
+_LANGUAGE_B_RE = re.compile(r"(?<![\w])(?:(?:language|lengua|langue)\s+b(?![\w])|(?:" + _LANGUAGES + r")\s+b(?![\w])|ab\s+initio"
+                            r"|language\s+acquisition|adquisici[oó]n\s+de\s+lenguas)")
+
+
+#: The profiles of language courses: a label naming a Language B course beside one of these ("English B", "English B: Literature")
+#: is the Language B course.
+_LANGUAGE_PROFILE_KEYS = frozenset({"english", "english_a_literature", "english_a_language_literature", "literature_performance",
+                                    "language_a_other", "language_b"})
+
+
+def _language_b_course(label: str, at: int) -> bool:
+    """Whether the label's subject is the Language B or ab initio course it names at ``at`` (attack round 3): a label that names
+    another subject first ("Chemistry: ab initio methods", "Psychology: language acquisition", "Extended essay in Spanish B",
+    "TOK essay on language acquisition") keeps that subject, as it did before the Language B branch existed."""
+    m0 = _LANGUAGE_B_RE.match(label, at)
+    if m0 is not None and re.match(r"language acquisition|adquisici", m0.group(0)) and label[:at].strip() not in ("", "ib", "ib dp", "group 2"):
+        return False  # "language acquisition" is the course only as the label's head ("Language acquisition: Spanish"), not a topic
+    for _n, rx, p in _ALIASES:
+        if p.key in _LANGUAGE_PROFILE_KEYS:
+            continue
+        m = rx.search(label)
+        if m is not None and m.start() < at:
+            return False
+    return True
+
+
 def resolve_profile(subject: str | None) -> SubjectProfile:
     """Match a free-text subject label (e.g. 'English A: Language and Literature HL')
     to a profile by the longest alias the label contains on word boundaries (an alias
@@ -302,6 +336,9 @@ def resolve_profile(subject: str | None) -> SubjectProfile:
     if not subject:
         return UNKNOWN
     label = _norm(subject)
+    lb = _LANGUAGE_B_RE.search(label)
+    if lb is not None and _language_b_course(label, lb.start()):
+        return PROFILES["language_b"]  # every Language B and ab initio course, whatever its language (decision D35)
     if "english" not in label and _OTHER_LANGUAGE_A_RE.search(label):
         return PROFILES["language_a_other"]
     best: tuple[int, SubjectProfile] | None = None

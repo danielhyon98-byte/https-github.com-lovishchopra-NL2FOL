@@ -343,7 +343,14 @@ def test_a_quoted_claim_of_accuracy_is_analysis_not_a_self_certification():
     # is_self_certification(sentence)", unlabelled): the one reader reads a quoted claim of checking as written, and only a caller
     # that decides a quotation is analysis masks it (FID-005 masks quotations outside the answer's own scope). Second remedy: the
     # same words about the writer's own answer, bare, quoted or relayed, are a self-report whoever they are attributed to.
-    assert is_self_certification(sentence) and not is_self_certification(mask_quotations(sentence))
+    # Rewritten for hold remedy c3b to the boundary decided once (boundary (b): "a quotation inside an analysed source whose
+    # content does not refer to this answer" is never gated; design 3.6): the one reader now reads attribution itself, so the
+    # brochure's own claim about the brochure, quoted and analysed, is no self-certification, masked or not (it was pinned True
+    # unmasked only because the earlier reader left masking to callers). The same quotation said of THIS answer stays gated
+    # (pinned True just below), so no self-certification passes.
+    assert is_self_certification(sentence) is False and is_self_certification(mask_quotations(sentence)) is False
+    assert is_self_certification('The brochure builds trust through an appeal to authority: "Every figure in this answer has been '
+                                 'independently verified."') is True
     assert is_self_certification("Every figure in this answer has been independently verified.")
     for relayed in ('As the examiner wrote, "every figure in this answer has been independently verified."',
                     'The checker reported: "Every figure in this answer has been independently verified."',

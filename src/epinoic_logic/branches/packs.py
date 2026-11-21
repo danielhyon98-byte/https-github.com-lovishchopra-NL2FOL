@@ -25,7 +25,7 @@ from ..adapters.history_specialist.sentences import split_sentences as _split_se
 from ..adapters.markdown import (ABSENT_BEFORE_RE, ABSENT_JOIN_RE, MEMORY_LABEL_RE as _MEMORY_LABEL_RE, absent_mentions, dangling_quote_offset,
                                  find_quotation_spans, is_memory_label, is_self_certification, parser_quotation_spans, self_cert_vocabulary,
                                  strip_emphasis, unbalanced_double_quotes, verification_label)
-from ..adapters.self_report import blank_model_marks, is_worked_check, not_a_self_report, reading_form, report_field_self_reports, self_report_spots
+from ..adapters.self_report import blank_model_marks, report_field_self_reports
 from ..adapters.sources import OWN_EXAMPLE_NOTE, OWN_MODEL_NOTE, check_excerpt, own_model_words, specialist_names, strip_trailing_punctuation, uncredited_excerpt
 from ..stem.si_reading import QuantReading, si_prose_view, si_quant_view, si_quote_view, si_statements
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
@@ -1699,70 +1699,97 @@ class CorePack:
 
     @staticmethod
     def _self_certification(report: SpecialistReport, reading: QuantReading = GENERAL) -> list[StructuralFinding]:
-        """CORE-SELF-001: verification-status vocabulary in the response body, or a verification label on a sentence
-        (``markdown.verification_label``: "Verified: ...", "... (verified).", "..., as formally verified.", "Checked."), or a
-        sentence the shared self-report reader names (``markdown.is_self_certification`` on the sentence with its quotations
-        masked: "All calculations have been verified by the system and are confirmed.", "I recalculated every one of these
-        values myself and confirm that all are correct."; round-9 push-check hold on the c2 clearance commit: the History and
-        Economics branches named such a sentence only by the parser's advisory status, which no gate read). Every branch
-        carries this pack, so every branch names the same sentences. An agent's statement about its own checking is advisory
-        and ignored; status comes only from signed engine results. A label attached to content leaves the content a claim like
-        any other (the parsers keep its role), so its message says so. The message never repeats the certifying words.
-
-        Hold-fix round 2: the sentence is read by the one reader (``adapters.self_report``: normalised as the student sees it, a
-        quotation masked only where attributed or analysed, read by vocabulary class), the vocabulary and the label are held to its
-        vetoes (a named outside party's check, a worked check that shows its computation, a question), and the answer as written is
-        read once more, paragraph by paragraph, line by line and cell by cell (``self_report.self_report_spots``), so a heading, a
-        line or a cell no sentence of the branch's reading holds ("## All figures verified" in the STEM reading) is named too."""
+        """CORE-SELF-001 and CORE-SELF-002 on the one self-certification reader (``epinoic_logic.selfcert``, rules ``selfcert-1``;
+        round-10 hold remedy c3b): one CORE-SELF-001 per sentence of the branch's reading that holds a self-certification (the
+        message chosen by the hit's form: status vocabulary, a statement of a check or of the answer's correctness, a label alone, a
+        label on content), one per line, heading, table cell or bracket of the answer as written that no sentence covered, one per
+        field of the specialist's own beside the response, and one CORE-SELF-002 per run the reader cannot read (letter-like symbols,
+        hidden characters, a script with no vocabulary), which is never delivered unread. The context: marking only when the channel
+        set the router's plan task type as a marking task (``markdown.feedback_task``), the supplied texts as known sources. Every
+        branch carries this pack, so every branch names the same sentences; an agent's statement about its own checking is advisory
+        and ignored, and status comes only from signed engine results. The message never repeats the certifying words."""
+        from .. import selfcert
+        from ..adapters.markdown import feedback_task
+        try:
+            sources = tuple(str(getattr(st, n, "") or "") for st in list(getattr(report, "supplied_texts", None) or [])[:64]
+                            for n in ("title", "author") if getattr(st, n, None))
+        except Exception:  # noqa: BLE001
+            sources = ()
+        ctx = selfcert.Context(marking=bool(feedback_task()), known_sources=sources)
+        rule_source = "architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"
         out: list[StructuralFinding] = []
         seen: set[str] = set()
-        covered: list[str] = []  # the reading forms of the sentences named, so the answer-wide pass never names one twice
-        # rule model-marks (round-10 clearance c3, ph-t16): the tick after each marking point of a model line is a mark annotation, read
-        # as one in every reading below (the answer with those ticks blanked keeps its length, so every offset and sentence stays)
+        covered: list[str] = []
         response = blank_model_marks(report.original_response)
-        # the SI reading reads a view with maths and quantities masked; a worked check ("Check: 2(4) + 3 = 11 ✓") shows its
-        # computation only in the statement as written, so the vetoes also read that
         written = ({(p, n): response[a:b] for p, n, a, b in si_statements(response, reading.profile)}
                    if reading.si else {})
+        # the paragraphs as written: a sentence of the branch's reading is a self-certification only when its paragraph, read as
+        # written, holds one too (attack round 6: the reading joins a heading to the line under it, "Verification Substitute x = 2:
+        # ...", and cuts a quotation from the source the sentence before names, "It claims: '... published here ...'"; read where
+        # they stand, both are subject matter)
+        raw_paras = [" ".join(p.split()) for p in re.split(r"\n\s*\n", response)[:4096]]
+        para_hits: dict[int, bool] = {}
         for pi, si, sent, _para in _sentences_for(response, reading):
-            # an outside party's check, a worked check, a question: never a self-report
-            read = reading_form(sent)
-            vetoed = not_a_self_report(read) or ((pi, si) in written and not_a_self_report(reading_form(written[(pi, si)])))
-            # the vocabulary and the label read the sentence as the one reader does, a quotation attributed to a source or analysed
-            # masked (hold-fix round 3: "Source A ... insists that \"every figure in this report has been checked and verified by the
-            # Ministry\", which a historian should treat with caution" was named by the vocabulary inside the source's own words)
-            vocabulary = self_cert_vocabulary(read) is not None and not vetoed  # the receipt and engine vocabulary, its content-word forms only in a frame
-            label = None if (vocabulary or vetoed) else verification_label(read)
-            # quotations masked only where attributed; a worked check the branch's reading masked is read as written
-            semantic = not vocabulary and label is None and is_self_certification(sent) and not ((pi, si) in written and is_worked_check(written[(pi, si)]))
-            if not vocabulary and label is None and not semantic:
+            hits = selfcert.read(sent, ctx).hits
+            if not hits:
                 continue
+            head = " ".join(sent.split())[:40]
+            k_para = next((k for k, p in enumerate(raw_paras) if head and head in p), None)
+            if k_para is not None:
+                if k_para not in para_hits:
+                    para_hits[k_para] = bool(selfcert.read(re.split(r"\n\s*\n", response)[k_para], ctx).hits)
+                if not para_hits[k_para]:
+                    continue
+            if (pi, si) in written:
+                as_written = selfcert.read(written[(pi, si)], ctx).hits
+                if not as_written:
+                    continue  # the SI view masks quantities: the statement as written (a worked check) decides
+                hits = as_written  # and its reading chooses the message (a label after "15 m/s" is a label on content)
             key = " ".join(sent.split())
             if key in seen:
                 continue
             seen.add(key)
-            covered.append(" ".join(reading_form(sent).split()))
-            if (pi, si) in written:  # the statement as written (the SI view masks its quantities)
-                covered.append(" ".join(reading_form(written[(pi, si)]).split()))
-            if vocabulary:
+            covered.append(" ".join(selfcert.reading_form(sent).split()))
+            if (pi, si) in written:
+                covered.append(" ".join(selfcert.reading_form(written[(pi, si)]).split()))
+            h = hits[0]
+            if h.family == "STATUS" and h.form in ("sentence", "fragment"):
                 message = (f"paragraph {pi}, sentence {si} contains verification-status language (an agent certifying its own output or imitating a channel "
                            "receipt); agent self-reports are advisory and ignored, and no claim in that sentence counts as material")
-            elif semantic:
-                message = (f"paragraph {pi}, sentence {si} states that the answer or its items were checked, verified or confirmed (an agent certifying "
-                           "its own output); agent self-reports are advisory and ignored, and the sentence is no claim of the answer and no evidence "
-                           "that anything was checked")
-            elif label.position == "whole":
+            elif h.form in ("whole",) or (h.form in ("fragment", "symbol") and len(sent.split()) <= 3):
                 message = (f"paragraph {pi}, sentence {si} is nothing but a verification-status label (an agent certifying its own output); agent "
                            "self-reports are advisory and ignored, and the label is no claim of the answer and no evidence of a check")
-            else:
-                where = {"before": "in front of", "after": "after"}.get(label.position, "inside")
+            elif h.form in ("label_before", "label_after", "label_inside", "symbol"):
+                where = {"label_before": "in front of", "label_after": "after"}.get(h.form, "inside")
                 message = (f"paragraph {pi}, sentence {si} carries a verification-status label {where} its content (an agent certifying its own output); "
                            "agent self-reports are advisory and ignored: the label is no evidence that anything was checked, and the content it is "
                            "attached to is a claim like any other")
-            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=message, claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+            else:
+                message = (f"paragraph {pi}, sentence {si} states that the answer or its items were checked, verified or confirmed (an agent certifying "
+                           "its own output); agent self-reports are advisory and ignored, and the sentence is no claim of the answer and no evidence "
+                           "that anything was checked")
+            out.append(StructuralFinding(code="CORE-SELF-001", severity="warning", message=message, claim_ids=(_claims_for_si_statement(report, sent, reading, pi, si) if reading.si else _claims_mentioning(report, sent))[:8], rule_source=rule_source))
         # the answer as written, read by the one reader whatever this branch's sentence reading kept (a heading, a line, a table cell)
-        for pno, piece in self_report_spots(response):
-            key = " ".join(reading_form(piece).split())
+        unread_paragraphs: set[int] = set()
+        # one decision per distinct piece: the reader yields a spot per hit, and many hits can share one piece (a 20,000-character line
+        # of "Word count: about 513" repeated holds hundreds), so the piece's reading form and its coverage are computed once (linear)
+        pieces_done: set[str] = set()
+        for pno, piece, item in selfcert.text_spots(response, ctx):
+            if isinstance(item, selfcert.Unread):
+                if pno not in unread_paragraphs:
+                    unread_paragraphs.add(pno)
+                    kind = {"letter-like": "a run of letter-like symbols", "hidden": "hidden characters", "script": "a script with no vocabulary",
+                            "art": "letters drawn with marks"}.get(item.kind, "text")
+                    out.append(StructuralFinding(
+                        code="CORE-SELF-002", severity="warning",
+                        message=(f"paragraph {pno} of the answer holds text the self-certification reader cannot read ({kind}); it is never "
+                                 "delivered unread"),
+                        claim_ids=[], rule_source=rule_source))
+                continue
+            if piece in pieces_done:
+                continue
+            pieces_done.add(piece)
+            key = " ".join(selfcert.reading_form(piece).split())
             if not key or any(key in k or k in key for k in covered if k):
                 continue
             covered.append(key)
@@ -1771,16 +1798,15 @@ class CorePack:
                 message=(f"paragraph {pno} of the answer as written holds a line, heading or table cell stating that the answer or its items were "
                          "checked, verified or confirmed (an agent certifying its own output); agent self-reports are advisory and ignored, and it "
                          "is no claim of the answer and no evidence that anything was checked"),
-                claim_ids=_claims_mentioning(report, piece)[:8], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
-        # the specialist's own fields beside the response (second remedy of the round-9 hold): a self-certification written only in
-        # the report's or a claim's assumptions, unresolved issues or assessment criteria is named as well
-        for where, cid in report_field_self_reports(report):
+                claim_ids=_claims_mentioning(report, piece)[:8], rule_source=rule_source))
+        # the specialist's own fields beside the response
+        for where, cid in report_field_self_reports(report, ctx):
             out.append(StructuralFinding(
                 code="CORE-SELF-001", severity="warning",
                 message=(f"{where}{' ' + cid if cid else ''} states that the answer or its items were checked, verified or confirmed (an agent "
                          "certifying its own output in a field beside the response); agent self-reports are advisory and ignored, and it is no "
                          "evidence that anything was checked"),
-                claim_ids=[cid] if cid else [], rule_source="architecture: agent self-reports are advisory; the Overseer trusts only signed engine results"))
+                claim_ids=[cid] if cid else [], rule_source=rule_source))
         return out
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
@@ -1969,13 +1995,17 @@ def margin_equations(text: str) -> list[tuple[str, Fraction, Fraction, Fraction,
 
 
 def _worked_branch(report: SpecialistReport) -> Optional[str]:
-    """The prose branch whose pack decides the report's worked equations (:mod:`.worked`): ``economics``, ``business_management`` or
-    ``generic`` (a subject no other default branch serves: Geography, a language B, ...); None for every other branch."""
+    """The prose branch whose pack decides the report's worked equations (:mod:`.worked`): ``economics``, ``business_management``,
+    ``psychology``, ``geography``, ``language_b`` or ``generic`` (a subject no other default branch serves: Philosophy, the arts, TOK,
+    ...); None for every other branch. Geography and Language B have their own branches since D9/D10 (decision D35); their packs
+    decide every worked equation as the generic branch did."""
     from ..translate.subjects import resolve_profile
     from .registry import BRANCHES
     key = resolve_profile(report.subject).key
     if key in ("economics", "business_management", "psychology"):
         return key  # (clearance c3: the Psychology branch's '4.5 − 0.6 = 4.9 points' was named undecided only)
+    if key in ("geography", "language_b"):
+        return key  # D9/D10 (D35): the worked equations of these branches are decided by their packs
     if any(key in b.profile_keys for b in BRANCHES if b.key != "generic"):
         return None
     return "generic"
@@ -1983,8 +2013,9 @@ def _worked_branch(report: SpecialistReport) -> Optional[str]:
 
 def pack_decided_equations(report: SpecialistReport) -> set[str]:
     """The worked equations of ``report`` its subject pack decides (an elasticity on the Economics branch, a margin on the Business
-    branch, and on those two branches and the generic branch every worked equation the worked-arithmetic reader reads,
-    :mod:`.worked`), so the core pack does not also name them undecided: the undecided report and a verdict never both name a line."""
+    branch, and on those branches, the Psychology, Geography and Language B branches and the generic branch every worked equation the
+    worked-arithmetic reader reads, :mod:`.worked`; on the Geography branch also the statements its readers decided, such as a density
+    or a rate per 1,000), so the core pack does not also name them undecided: the undecided report and a verdict never both name a line."""
     from .worked import decided_worked_chains
     branch = _worked_branch(report)
     text = report.original_response
@@ -1995,6 +2026,10 @@ def pack_decided_equations(report: SpecialistReport) -> set[str]:
         decided |= {chain for chain, *_rest in elasticity_equations(text)}
     elif branch == "business_management":
         decided |= {chain for chain, *_rest in margin_equations(text)}
+    elif branch == "geography":
+        from .geography import decided_statements
+        # a decided statement that also writes an equation leaves that equation to the worked reader (decided above, or named undecided)
+        decided |= {s for s in decided_statements(report) if "=" not in s}
     return decided
 
 
@@ -2055,7 +2090,19 @@ def _quantity_first(sentence: str, p1: "re.Match[str]", p2: "re.Match[str]") -> 
     def nearest(pos: int) -> Optional[str]:
         cands = [(x, "q") for x in nums if x < pos] + [(x, "p") for x in dens if x < pos]
         return max(cands)[1] if cands else None
+
+    def following(m: "re.Match[str]", limit: int) -> Optional[str]:
+        # the change named right after its figure ('a 10% rise in price', 'a 5% fall in quantity demanded'): the first of the words
+        # within a few words after the figure, before the next figure
+        cands = [(x, "q") for x in nums if m.end() <= x < limit] + [(x, "p") for x in dens if m.end() <= x < limit]
+        return min(cands)[1] if cands else None
+    f1 = following(p1, min(p2.start(), p1.end() + 24))
+    f2 = following(p2, p2.end() + 24)
+    if f1 and f2 and f1 != f2:
+        return f1 == "q"
     k1, k2 = nearest(p1.start()), nearest(p2.start())
+    if f1 and not f2 and k2 and k2 != f1:
+        return f1 == "q"  # 'a 10% price rise reduces quantity demanded by 5%': the first named after, the second before
     if any(p1.end() <= x < p2.start() for x in nums + dens) and k1 and k2 and k1 != k2:
         return k1 == "q"
     last_q = max((x for x in nums if x < p1.start()), default=None)
@@ -2178,17 +2225,23 @@ class BusinessPack:
         return out
 
 
+def unknown_supports(report: SpecialistReport) -> list[StructuralFinding]:
+    """GEN-STR-001 (error): a claim citing supporting claims the report does not hold. The generic branch's structural check, shared
+    by the Geography and Language B packs (D9/D10, decision D35)."""
+    f: list[StructuralFinding] = []
+    ids = {c.claim_id for c in report.claims}
+    for c in report.claims:
+        missing = [s for s in c.supporting_claim_ids if s not in ids]
+        if missing:
+            f.append(StructuralFinding(code="GEN-STR-001", severity="error", message=f"claim cites unknown supporting claims {missing}", claim_ids=[c.claim_id]))
+    return f
+
+
 class GenericPack:
     name = "generic"
 
     def checks(self, report: SpecialistReport, request_text: Optional[str] = None) -> list[StructuralFinding]:
-        f: list[StructuralFinding] = []
-        ids = {c.claim_id for c in report.claims}
-        for c in report.claims:
-            missing = [s for s in c.supporting_claim_ids if s not in ids]
-            if missing:
-                f.append(StructuralFinding(code="GEN-STR-001", severity="error", message=f"claim cites unknown supporting claims {missing}", claim_ids=[c.claim_id]))
-        return f
+        return unknown_supports(report)
 
     def formal_checks(self, report: SpecialistReport) -> list[FormalCheck]:
         """The report's worked equations as engine problems (:mod:`.worked`: 'Dependency ratio = 31 ÷ 69 × 100 = 44.9')."""

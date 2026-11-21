@@ -113,10 +113,6 @@ UNLABELLED = [
     BARE + " (not source-checked).",
     BARE + " (accuracy not confirmed).",
     "✗ " + FACT,
-    BARE + " (verified by the History specialist).",
-    BARE + " (checked against the sources by the History specialist).",
-    BARE + " (checked against the Registrar General's returns).",
-    BARE + ", checked.",
     "Keynes was proven correct by events.",
     "The figures were checked against the reports of the statistical office.",
     "It was found to be correct that the treaty was signed.",
@@ -139,6 +135,25 @@ def test_a_disclaimer_a_check_credited_to_a_source_or_a_historical_check_is_no_l
     assert verification_label(sentence) is None, sentence
 
 
+#: Rewritten to the stricter rule of hold remedy c3b (rules ``selfcert-1``): each was in UNLABELLED, pinned no label. A check of the
+#: content credited to an agent of the system ("by the History specialist") is a self-certification whoever is credited (THE CLASS);
+#: a check the writer made against a record it names is the writer's own check of its content, a label on it (rule G6); a bare
+#: participle after a comma is a trailing fragment (design S3: ", verified." is a label after content).
+STRICTER_LABELS = [  # stricter (selfcert-1 c3b, was None)
+    BARE + " (verified by the History specialist).",
+    BARE + " (checked against the sources by the History specialist).",
+    BARE + " (checked against the Registrar General's returns).",
+    BARE + ", checked.",
+]
+
+
+@pytest.mark.parametrize("sentence", STRICTER_LABELS)
+def test_a_check_credited_to_an_agent_or_the_writers_own_check_on_content_is_a_label(sentence):
+    label = verification_label(sentence)
+    assert label is not None and label.position == "after", (sentence, label)
+    assert is_self_certification(sentence)
+
+
 @pytest.mark.parametrize("sentence", [s for s, p in LABELLED if p == "whole"])
 def test_a_sentence_that_is_nothing_but_a_label_is_a_self_certification_and_a_note(sentence):
     assert is_self_certification(sentence) and is_note_sentence(sentence)
@@ -147,8 +162,10 @@ def test_a_sentence_that_is_nothing_but_a_label_is_a_self_certification_and_a_no
 @pytest.mark.parametrize("sentence", ["Verified: " + FACT, "[verified] " + FACT, "Checked: " + FACT, BARE + ", as formally verified.",
                                       BARE + " (verified).", "The figure (verified) is 6 million."])
 def test_a_label_attached_to_content_leaves_the_content_a_claim(sentence):
-    # the sentence is no self-certification as a whole, so no parser demotes its content for the label
-    assert not is_self_certification(sentence) and not is_note_sentence(sentence)
+    # Rewritten to the stricter rule of hold remedy c3b (rules ``selfcert-1``, rule G6): the label on content IS a self-certification
+    # (before, the sentence was pinned as none); the content stays a claim and the sentence is no note, so no parser drops the content
+    assert is_self_certification(sentence)  # stricter (selfcert-1 c3b, was False)
+    assert not is_note_sentence(sentence)
     core, _notes = split_note_clauses(sentence)
     assert core and ("Weimar" in core or "6 million" in core)
 
@@ -164,11 +181,12 @@ def test_a_long_run_of_check_marks_is_read_in_linear_time():
     """A check mark is a label of its own and no part of the punctuation around one, and a run of marks is one possessive
     unit, so an answer made of marks cannot make the reading quadratic (round 2: 20,000 marks took minutes before)."""
     import time
-    from epinoic_logic.adapters import markdown
+    # (hold remedy c3b deleted markdown's own readers; the same inputs are read by the thin names over the one reader, uncached
+    # for texts over 16 KiB, so the bound holds on the reading itself)
     for text in ("✓" * 20000 + " x", "✓ " * 10000 + "x", "✓️" * 10000 + " x", "(✓" * 10000 + " x"):
         start = time.perf_counter()
-        markdown._verification_label.__wrapped__(text)
-        markdown._self_certification.__wrapped__(text)
+        verification_label(text)
+        is_self_certification(text)
         assert time.perf_counter() - start < 2.0, text[:20]
 
 
@@ -181,12 +199,14 @@ def test_a_new_label_form_standing_alone_is_a_self_certification_and_a_note(sent
 @pytest.mark.parametrize("label", ["(source-checked)", "(accuracy confirmed)", "(checked against the sources)"])
 def test_a_bracketed_label_on_content_is_set_apart_and_the_content_stays_a_claim(label):
     sentence = BARE + " " + label + "."
-    assert not is_self_certification(sentence) and not is_note_sentence(sentence)
+    # stricter (selfcert-1 c3b, was False): the bracketed label on content is a self-certification (G6); the content stays a claim
+    assert is_self_certification(sentence) and not is_note_sentence(sentence)
     core, notes = split_note_clauses(sentence)
     assert core == FACT and notes == [label.strip("()")]
 
 
 @pytest.mark.parametrize("sentence", [BARE + " ✓", "✔ " + FACT, BARE + " ✓ verified."])
 def test_a_check_mark_on_content_leaves_the_content_a_claim(sentence):
-    assert not is_self_certification(sentence) and not is_note_sentence(sentence)
+    # stricter (selfcert-1 c3b, was False): a check mark on content is a self-certification (N7, G6); the content stays a claim
+    assert is_self_certification(sentence) and not is_note_sentence(sentence)
     assert "Weimar" in split_note_clauses(sentence)[0]

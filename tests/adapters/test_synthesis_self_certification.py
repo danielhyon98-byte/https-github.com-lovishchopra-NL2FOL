@@ -46,12 +46,10 @@ NOT_SELF_REPORTS = [
     "The synthesis has not been verified.",
     "This synthesis should be checked against the sources.",
     "The synthesis may not be accurate.",
-    "The synthesis was checked by the History specialist.",
     "The synthesis was confirmed by NMR spectroscopy.",
     "The synthesis of ammonia was confirmed in 1909.",
     "The synthesis of ammonia is exothermic.",
     "The synthesis reports the History specialist's view that the treaty was harsh.",
-    'The poster read "this synthesis is correct".',
     "The combined answer gives two dates for the treaty.",
     "Protein synthesis is accurate because ribosomes proofread.",
 ]
@@ -65,6 +63,22 @@ def test_the_combined_answer_certifying_its_own_checking_is_a_self_report_in_a_s
 @pytest.mark.parametrize("sentence", NOT_SELF_REPORTS)
 def test_negation_a_modal_another_agent_a_quotation_or_another_synthesis_is_no_self_report(sentence):
     assert not is_synthesis_self_certification(sentence), sentence
+
+
+#: Rewritten to the stricter rule of hold remedy c3b (rules ``selfcert-1``, design 6.3): both were in NOT_SELF_REPORTS. With the
+#: combinator as writer, a check of the synthesis credited to an agent of the system is a self-certification whoever is credited, and
+#: a quotation whose words refer explicitly to this synthesis is read as the synthesis's own (3.6 (i)). On a specialist's branch
+#: (default context) both stay content: "the synthesis" there is the subject matter's.
+STRICTER_IN_A_SYNTHESIS = [
+    "The synthesis was checked by the History specialist.",
+    'The poster read "this synthesis is correct".',
+]
+
+
+@pytest.mark.parametrize("sentence", STRICTER_IN_A_SYNTHESIS)
+def test_a_check_credited_to_an_agent_or_a_quotation_of_this_synthesis_is_a_self_report_in_a_synthesis(sentence):
+    assert is_synthesis_self_certification(sentence), sentence  # stricter (selfcert-1 c3b, was False)
+    assert not is_self_certification(sentence), sentence  # unchanged on a specialist's branch
 
 
 @pytest.mark.parametrize("sentence", ["The synthesis has been verified.", "This synthesis is correct.", "The synthesis was confirmed.",

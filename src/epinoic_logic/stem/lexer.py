@@ -532,6 +532,8 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
     toks: list[Token] = []
     space = False
     bracket_depth = 0
+    # a Spanish text writes thousands with a point ("50.000 habitantes"): groups of three after a point are thousands there
+    point_groups = mode == "plain" and _spanish_text(s, start, n)
     #: integration gate 1: the bracket depths of open probability brackets 'P(' (outside Computer Science), inside which ∪ and ∩ are operators
     prob_depths: list[int] = []
     cap = max_tokens
@@ -827,7 +829,8 @@ def lex(s: str, start: int = 0, end: Optional[int] = None, *, mode: LexMode = "p
                 pass  # a hex letter that is no based numeral: read as a letter below
             else:
                 scan = scan_number(s, i, limits=limits, orig=orig, decimal_comma=bracket_depth == 0 and mode == "plain",
-                                   thousands_comma=bracket_depth == 0 or _thousands_operand(s, i, n), build=values)
+                                   thousands_comma=(bracket_depth == 0 or _thousands_operand(s, i, n)) and not point_groups,
+                                   build=values, thousands_point=point_groups)
                 if scan is not None:
                     if scan.number is None and (values or scan.error):
                         emit("NUMERR", s[i:scan.end], i, scan.end, value=(scan.code or "ST-LIM-001", scan.error))
@@ -1189,6 +1192,22 @@ def _primes_at(s: str, i: int, n: int) -> tuple[int, int]:
     return count, k
 
 
+#: Function words of Spanish and of English, for the language of a text's numerals (a point between thousands in Spanish).
+_ES_FUNCTION_WORDS = frozenset("el la los las del que y es son por para con una un hay tiene tienen esta este así asi cada sobre "
+                               "habitantes entre desde hasta como pero más mas".split())
+_EN_FUNCTION_WORDS = frozenset("the of and is are to in for with that this was were by from as on at".split())
+
+
+def _spanish_text(s: str, start: int, n: int) -> bool:
+    """Whether the text around ``s[start:n]`` reads as Spanish: three or more Spanish function words, more than twice the English
+    ones (read within 600 characters of the span, at most 4,000: bounded)."""
+    a = max(0, start - 600)  # the span's own sentence and its neighbours: a formula span alone holds no function word
+    words = s[a:min(len(s), max(n, start) + 600, a + 4000)].lower().split()
+    es = sum(1 for w in words if w.strip(".,;:()¿?¡!") in _ES_FUNCTION_WORDS)
+    en = sum(1 for w in words if w.strip(".,;:()¿?¡!") in _EN_FUNCTION_WORDS)
+    return es >= 3 and es > 2 * en
+
+
 def _log_base(s: str, k: int, n: int, mode: LexMode) -> tuple[int, Optional[int]]:
     """``log₂``, ``log_2``, ``log_{10}``, ``log₁₀``: returns ``(end, base)``."""
     if k < n and s[k] in SUBSCRIPT_DIGITS:
@@ -1212,6 +1231,14 @@ def _log_base(s: str, k: int, n: int, mode: LexMode) -> tuple[int, Optional[int]
             e += 1
         if e > j:
             return e, int(s[j:e])
+    if mode != "latex" and k < n and is_ascii_digit(s[k]) and s[k] != "0":
+        # "log2(1024)", "log10(100)": the base written straight after "log" (the common plain-text notation of computer science),
+        # never "log" times 2: one or two digits, then the argument's bracket
+        e = k
+        while e < n and is_ascii_digit(s[e]) and e - k < 2:
+            e += 1
+        if e < n and s[e] == "(":
+            return e, int(s[k:e])
     return k, None
 
 

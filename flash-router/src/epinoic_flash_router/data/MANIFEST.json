@@ -1,8 +1,8 @@
 {
   "about": "The flash router's versioned data files. Each digest is the SHA-256 of the canonical JSON of the file's document (keys sorted, no whitespace, non-ASCII raw), the digest the router's identity reports. A released file never changes: a re-tuned rule or new cost data is a new file, named with its next version, made current here with a new release of the sub-project.",
   "current": {
-    "cost_data": "cost-data-4.json",
-    "rules": "rules-4.json"
+    "cost_data": "cost-data-5.json",
+    "rules": "rules-5.json"
   },
   "files": {
     "cost-data-1.json": {
@@ -29,6 +29,12 @@
       "sha256": "bc66e9e945a831456517f06c25955d7ddfdbdd476d0f13229a81600115a69600",
       "version": 4
     },
+    "cost-data-5.json": {
+      "kind": "cost_data",
+      "release": "0.5.0",
+      "sha256": "54a4d682e39eddf4993a22726215d584f63a2f70f5cf8adca62d7e09f49e97cd",
+      "version": 5
+    },
     "rules-1.json": {
       "kind": "rules",
       "release": "0.1.0",
@@ -52,6 +58,12 @@
       "release": "0.4.0",
       "sha256": "59b955429d7695de7081eca646f2e637069736f5d731b8e44e0846e01841d3ba",
       "version": 4
+    },
+    "rules-5.json": {
+      "kind": "rules",
+      "release": "0.5.0",
+      "sha256": "0afaa2be6ac296da1188774d7b7c45d47f3eebdb7601de3f6e6da44b9ab02ce0",
+      "version": 5
     }
   },
   "format": "epinoic-flash-router/data-manifest"

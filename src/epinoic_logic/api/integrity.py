@@ -32,6 +32,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'check_report_against_plan': ('epinoic_logic.integrity.handoff', 'check_report_against_plan'),
     'check_synthesis_ledger': ('epinoic_logic.integrity.ledger', 'check_synthesis_ledger'),
     'figure_spellings': ('epinoic_logic.integrity.ledger', 'figure_spellings'),
+    'gloss_difference': ('epinoic_logic.integrity.cross_check', 'gloss_difference'),
     'joint_problem': ('epinoic_logic.integrity.cross_check', 'joint_problem'),
     'parse_rfc3339': ('epinoic_logic.integrity.contracts', 'parse_rfc3339'),
     'payload_hash': ('epinoic_logic.integrity.contracts', 'payload_hash'),

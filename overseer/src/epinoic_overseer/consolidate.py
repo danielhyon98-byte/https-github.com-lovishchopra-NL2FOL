@@ -399,13 +399,24 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
         receipt = json.loads(event.receipt_json) if event.receipt_json else {}
         codes = sorted({f.get("code") for k in ("findings", "structural_findings") for f in receipt.get(k) or []
                         if isinstance(f, dict) and f.get("code") in SELF_REPORT_RECEIPT_CODES})
+        if codes == ["CORE-SELF-002"]:
+            return "the deliverable answer carries text the self-certification reader cannot read (rule unread-text)"
         if codes:
             return (f"the deliverable answer carries a self-report named on its receipt ({', '.join(codes)}): a delivered answer never contains a "
                     "claim that it was checked or verified (rule self-certification-gate)")
         payload = json.loads(event.envelope_json)["payload"] if event.envelope_json else None
     except Exception as exc:  # noqa: BLE001 - fail closed
         return f"rule self-certification-gate could not read the deliverable answer ({type(exc).__name__})"
-    named = payload_self_reports(payload)
+    # the reading context from the ROUTER's journaled request (round-10 hold remedy c3b): marking only by the router's plan
+    ctx = None
+    try:
+        from .delivery_policy import _reading_context
+        view = hub._require_auditor().view(resp.channel_uid)
+        t = view.by_message.get(target)
+        ctx = _reading_context(view, t) if t is not None else None
+    except Exception:  # noqa: BLE001 - the strict default context
+        ctx = None
+    named = payload_self_reports(payload, ctx)
     if named:
         return (f"the deliverable answer certifies its own checking, read on the answer as written ({'; '.join(named[:8])}): a delivered answer "
                 "never contains a claim that it was checked or verified (rule self-certification-gate)")

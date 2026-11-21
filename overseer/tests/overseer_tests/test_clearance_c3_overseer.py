@@ -48,7 +48,7 @@ from epinoic_overseer.checks.translation import (
     OWN_KIND, TASK_RECORD_RULE, UNDECIDED, derived_numbers, labelled_figure, premise_standing, task_record_validated, untraced_content,
 )
 from epinoic_overseer.feedback import FEEDBACK_HOLD_RULE, held_back
-from epinoic_overseer.meta_notes import ANSWER_STATUS_RULE, answer_paragraphs, answer_status_claim, self_report_reading
+from epinoic_overseer.meta_notes import answer_paragraphs, self_certifying_sentence, self_certifying_sentences, self_report_reading
 
 from .conftest import CFG, KEY, int_problem, make_auditor, problems_fn
 from .delivery_support import PHYSICS, QUESTION, RecordedVerifier, Verifier, physics_report
@@ -398,28 +398,37 @@ NOT_STATUS = [
 ]
 
 
+#: Paragraphs of the recorded c3 answers the one reader names (round-10 hold remedy c3b), fixed here after review: each is a genuine
+#: self-certification of the answer, never a genuine note (empty: none).
+C3_GENUINE_GATED: dict[str, list[str]] = {}
+
 @pytest.mark.parametrize("text", STATUS_WORDINGS)
 def test_the_gate_names_every_answer_scope_claim_of_a_check_a_review_a_proof_or_a_tool_result(text):
     """Bug 15 (critical; c2 bug 11): wordings no self-report reader named on any of the 16 answers. The gate's own reading (rule
-    answer-status) names each, alone and as the gate reads a paragraph, so the fallback, the formal path and the port refuse them."""
-    assert answer_status_claim(text), text
+    answer-status) named each; since the round-10 hold remedy c3b rule answer-status is one class of the one reader (it was merged into
+    ``epinoic_logic.selfcert``), so the gate's one reading names each, alone and as the gate reads a paragraph (rewritten to the one reader,
+    same expectation)."""
+    assert self_certifying_sentence(text), text
     assert self_report_reading(text) is not None, text
 
 
 @pytest.mark.parametrize("text", NOT_STATUS)
 def test_the_gate_s_own_reading_leaves_content_and_notes_alone(text):
     """The controls: subject content (a proof's QED, a network hub, an engine, a census office's check), a study suggestion and an
-    honest decline's caveat are no claim of a check by rule answer-status (the shared reader decides them on its own)."""
-    assert not answer_status_claim(text), text
+    honest decline's caveat are no claim of a check: since c3b the gate's one reading (the shared reader) leaves each alone (rewritten to
+    the one reader: stricter, the whole gate is asserted, not one of its rules)."""
+    assert not self_certifying_sentence(text), text
 
 
 def test_the_gate_s_own_reading_names_no_sentence_of_the_recorded_genuine_answers():
     """No genuine answer of the round is refused by the new reading: every paragraph, sentence, line and cell of the recorded c3
-    answers carried here reads as no answer-status claim."""
-    from epinoic_overseer.meta_notes import _gate_pieces
+    answers carried here reads as no answer-status claim (since c3b: the gate's one reading, over every piece of every paragraph)."""
+    from epinoic_logic.api.adapters import selfcert_context_for
     for task_id, it in C3["specialists"].items():
-        for _s, _e, para in answer_paragraphs(it["response_text"]):
-            assert not [p for p in [para, *_gate_pieces(para)] if answer_status_claim(p)], task_id
+        # the reading context of the ROUTER's plan for the recorded task (its task type; marking feedback reads marks as the student's)
+        named = self_certifying_sentences(it["response_text"], selfcert_context_for({"task_type": it.get("task_type")}))
+        expected = C3_GENUINE_GATED.get(task_id, [])
+        assert named == expected, (task_id, named)
 
 
 def test_the_answer_status_reader_is_linear_on_hostile_inputs():
@@ -427,23 +436,21 @@ def test_the_answer_status_reader_is_linear_on_hostile_inputs():
     well under a second each."""
     for piece in (" " * 20_000 + "x", "." * 20_000 + "x", "every claim " * 2_000 + "x", "status: " * 2_500 + "x", "I went through " * 1_400 + "x",
                   "the hub " * 2_500 + "x", "q.e.d. for " * 2_000 + "x"):
+        self_certifying_sentence("warm up")
         start = time.perf_counter()
-        answer_status_claim(piece)
+        self_certifying_sentence(piece)
         assert time.perf_counter() - start < 2.0
 
 
 def test_the_gate_fails_closed_when_its_own_reading_raises(monkeypatch):
     """Uncertainty never resolves toward delivery: a sentence rule answer-status cannot read raises, and the gate reads it as a
     self-report (as it does when the shared reader raises), never as a sentence that claims nothing."""
-    import epinoic_overseer.meta_notes as mn
-    from epinoic_overseer.meta_notes import self_certifying_sentence
+    import epinoic_logic.api.adapters as api_adapters
 
-    def boom(_text):
+    def boom(*_a, **_k):
         raise RuntimeError("reader fault")
     assert not self_certifying_sentence("The treaty was signed in 1919.")  # the control: correct content passes the gate
-    monkeypatch.setattr(mn, "reader_text", boom)
-    with pytest.raises(RuntimeError):
-        answer_status_claim("The treaty was signed in 1919.")
+    monkeypatch.setattr(api_adapters, "selfcert_read", boom, raising=False)
     assert self_certifying_sentence("The treaty was signed in 1919.")
 
 
@@ -541,6 +548,45 @@ def test_a_false_conflict_accusation_of_one_name_pooled_for_two_quantities_is_ne
         assert x.outcome == outcome, (x.outcome, x.reasons)
         if outcome == "unresolved":
             assert any(FALSE_CONFLICT_GAP_RULE in r and "x" in r for r in x.reasons), x.reasons
+    finally:
+        auditor.close()
+
+
+@pytest.mark.parametrize("gloss_a, gloss_b, apart", [
+    ("2019 number of boats", "2019 number of boats (Table 1)", False),
+    ("number of boats", "number of boats (Table 1)", False),
+    ("2019 number of boats", "2020 number of boats", True),
+    ("f(2) value", "g(2) value", True),
+    ("f(2) value", "f(2) value read from g(2)", False),
+], ids=["label number on one side", "label number, no other figure", "another year on each side", "another function on each side",
+        "a function only one gloss names"])
+def test_local_glosses_read_a_quantity_apart_only_by_a_figure_or_function_on_each_side(gloss_a, gloss_b, apart):
+    """Round 10 leftover R10-K2-LOCAL-GLOSS: ``local_gloss_names`` read '2019 number of boats' and '2019 number of boats (Table 1)'
+    apart (figure sets {2019} and {2019, 1}), so the auditor's pooled-only re-run lost a real contradiction and an agent's accusation
+    that it was a false conflict was CONFIRMED. A figure (or a function) only one gloss states is no second quantity, as the channel's
+    rule same-gloss decides (``cross_check.gloss_difference``); a figure or function on each side that the other lacks still is."""
+    from epinoic_overseer.checks.joint import local_gloss_names
+    from epinoic_logic.api.integrity import gloss_difference
+    probs = [_glossed("en-point", 7, "gt", 5, gloss_a), _glossed("h1.1", 2, "lt", 3, gloss_b)]
+    assert (local_gloss_names(probs) == {"x": [1]}) is apart
+    assert (gloss_difference(gloss_a, gloss_b) is not None) is apart
+
+
+def test_a_false_conflict_accusation_of_one_quantity_glossed_with_a_table_reference_is_refuted():
+    """Round 10 leftover R10-K2-LOCAL-GLOSS end to end: 'x = 7 entails x > 5' glossed '2019 number of boats' and 'x = 2 entails x < 3'
+    glossed '2019 number of boats (Table 1)' contradict on one quantity. The channel names INT-CONFLICT-001; the audit raises no
+    OVS-JOINT-003 and an agent's accusation that the conflict is false is refuted (was: confirmed)."""
+    from .conftest import findings, run_task
+    from .test_clearance_c1_overseer import _accuse_false_conflict
+    auditor = make_auditor()
+    try:
+        task = run_task(auditor, en_problems={"en-point": _glossed("en-point", 7, "gt", 5, "2019 number of boats")},
+                        hi_problems={"h1.1": _glossed("h1.1", 2, "lt", 3, "2019 number of boats (Table 1)")})
+        assert any(f.code == "INT-CONFLICT-001" for f in task.receipts["rep_hi"].findings)
+        audit = task.audit()
+        assert findings(audit, "OVS-JOINT-003") == []
+        x = _accuse_false_conflict(auditor, task)
+        assert x.outcome == "refuted", (x.outcome, x.reasons)
     finally:
         auditor.close()
 
@@ -715,7 +761,7 @@ def test_the_fidelity_joint_feedback_and_gate_readers_are_linear_on_hostile_inpu
 
     text = HOSTILE[name]
     for fn in (own_text_quotations, own_model_quotations, strip_mark_annotations, figure_text, response_list_numbers, evaluation_points,
-               lambda t: _gloss_identity(t, set()), answer_status_claim,
+               lambda t: _gloss_identity(t, set()), self_certifying_sentence,
                lambda t: _answered_label(SimpleNamespace(params=(("item", "(c) " + t[:300]),)), "(c)\n" + t),
                own_words, lambda t: _in_lead_blocks(*flaw(t, "ES-STR-001", "structure"))):
         _timed(fn, text)

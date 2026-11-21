@@ -180,6 +180,25 @@ def test_working_and_sourced_equations_are_no_circle():
     assert "ARG-CIRC-002" not in codes(run(sourced))
 
 
+def SUB(a: dict, b: dict) -> dict:
+    return {"op": "sub", "left": a, "right": b}
+
+
+@pytest.mark.parametrize("label", ["2x + 2 = x - 3 (from 7.2)", "2x + 2 = x - 3 from the difference of the two equations",
+                                   "2x + 2 = x - 3 from line 4"])
+def test_an_equation_derived_from_an_earlier_line_is_working_not_a_circle(label):
+    """Round-10 leftover R10-ARG-CIRC-002-EARLIER-LINE (parsers H6.2; c2 maa-t15 m7.3 '2x + 2 = x − 3 (from 7.2)', c1 maa-t14 m3.4 '5d = 20
+    from the difference of the two equations'): an equation in another form that the premise derives from an earlier line of the
+    answer is a step of working; ARG-CIRC-002 named it 'the point assumed in other words'. Controls: the same equation with no such
+    citation is still a circle, and a restatement of the point's own figures stays one whatever its label says."""
+    x = {"x": ("Int", "the x of question 7")}
+    eq = CMP("eq", ADD(MUL(I(2), V("x")), I(2)), SUB(V("x"), I(3)))
+    point = CMP("eq", V("x"), I(-5))
+    assert "ARG-CIRC-002" not in codes(run(problem([P("q7-eq2", eq, label)], point, x)))
+    assert "ARG-CIRC-002" in codes(run(problem([P("q7-eq2", eq, "2x + 2 = x - 3")], point, x)))
+    assert {"ARG-CIRC-001", "ARG-CIRC-002"} & set(codes(run(problem([P("w", CMP("eq", I(41), V("dt")), "41 = dt (from 7.2)")], POINT, DT))))
+
+
 # ----------------------------------------------------------------------------------------------- affirming the consequent
 
 def _chain(link_expr: dict, conclusion: dict):

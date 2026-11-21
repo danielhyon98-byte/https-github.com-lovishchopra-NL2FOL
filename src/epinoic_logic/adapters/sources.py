@@ -953,7 +953,8 @@ _OWN_MODEL_SHARED_RUN = 4
 #: different, invented body of work, ..."; clearance c3, ll-t16): the writer's own example, never a quotation of a supplied text.
 OWN_EXAMPLE_NOTE = ("the writer's own invented example, announced in its paragraph: its quoted words are the writer's example, not a quotation of a "
                     "supplied text, and are not checked as one")
-OWN_MODEL_NOTE = ("the writer's own model sentence, under a 'Model:' or 'Rewrite:' label: its words occur in none of the supplied texts, no "
+OWN_MODEL_NOTE = ("the writer's own model sentence, under a 'Model:' or 'Rewrite:' label (or another frame of the writer's own wording: a topic, "
+                  "a 'Better:' rewrite, a correction after an arrow): its words occur in none of the supplied texts, no "
                   "supplied text holds all of its words but one or two, and none holds four of its words in a row, so it is not a quotation "
                   "of a supplied text and is not checked as one")
 
@@ -979,8 +980,15 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
     key = strip_trailing_punctuation(excerpt).casefold()
     if not key or len(sentence) > 4000:
         return False
-    span = next((sp for sp in find_quotation_spans(sentence) if strip_trailing_punctuation(sp[2]).casefold() == key), None)
-    if span is None or _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, span[0]) is None:
+    from .own_text import own_text_kinds
+    spans = find_quotation_spans(sentence)
+    at = next((k for k, sp in enumerate(spans) if strip_trailing_punctuation(sp[2]).casefold() == key), None)
+    if at is None:
+        return False
+    # round-10 leftover R10-OWN-TEXT-ONE-READER: the one reader of the writer's own quoted words decides whether the sentence presents
+    # the span as the writer's own (a labelled model, rewrite or topic, a 'Better:' rewrite, a correction after an arrow); the
+    # supplied texts below decide whether it is still an altered quotation of one of them (INV-Q1)
+    if _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, spans[at][0]) is None and own_text_kinds(sentence, spans)[at] is None:
         return False
     words = _WORD_RE.findall(excerpt)
     if len(words) < _OWN_MODEL_MIN_WORDS:
@@ -990,11 +998,16 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
         return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
     folded = [fold(w) for w in words]
     runs = {tuple(folded[i:i + _OWN_MODEL_SHARED_RUN]): i for i in range(len(folded) - _OWN_MODEL_SHARED_RUN + 1)}
+    classic = _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, spans[at][0]) is not None
     for doc_id, doc in docs.items():
         _near, missing = nearest_text(excerpt, {doc_id: doc})
-        if len(missing) <= 2:
-            return False  # all its words but one or two: an altered quotation of this text
         text_words = [fold(w) for w in _WORD_RE.findall(doc.text)]
+        if len(missing) <= 2 and (classic or _longest_shared_run(folded, text_words) * 2 >= len(folded)):
+            # all its words but one or two: an altered quotation of this text. Under the other frames of the one reader (a topic, a
+            # 'Better:' rewrite, a correction after an arrow) the words must also stand in the text in a run of half the span at
+            # least: a suggested topic built from the student's own vocabulary, scattered over the notes ('Money in savings adverts
+            # and the family table'; round-10 leftover R10-OWN-TEXT-ONE-READER, ll-t16), is the writer's own wording
+            return False
         shared = [False] * len(folded)  # the model's words that stand in a run of four or more the text also holds
         for i in range(len(text_words) - _OWN_MODEL_SHARED_RUN + 1):
             at = runs.get(tuple(text_words[i:i + _OWN_MODEL_SHARED_RUN]))
@@ -1007,6 +1020,26 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
         if sum(shared) * 2 >= len(folded) and any(shared):
             return False
     return True
+
+
+def _longest_shared_run(words: Sequence[str], text_words: Sequence[str]) -> int:
+    """The longest run of consecutive ``words`` that ``text_words`` also holds in a row (both folded). Linear in the text for a
+    span of bounded length: the span's runs are indexed once, then the text is read with one pointer per span position."""
+    if not words or not text_words:
+        return 0
+    first: dict[str, list[int]] = {}
+    for j, w in enumerate(words):
+        first.setdefault(w, []).append(j)
+    best = 0
+    prev: dict[int, int] = {}  # span position j -> length of the run ending at (text i - 1, span j)
+    for w in text_words:
+        cur: dict[int, int] = {}
+        for j in first.get(w, ()):
+            cur[j] = prev.get(j - 1, 0) + 1
+            if cur[j] > best:
+                best = cur[j]
+        prev = cur
+    return best
 
 
 #: A from-memory label in a quotation's sentence ("as I recall it", "quoted from memory"): an unverifiable quotation.

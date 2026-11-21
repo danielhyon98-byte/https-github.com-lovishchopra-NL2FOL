@@ -379,7 +379,11 @@ def test_a_self_certification_written_beside_a_claims_content_is_caught_and_a_ch
     def credited(a):
         a["claims"][i].update(text=a["claims"][i]["text"][:-1] + " (verified by the History specialist).", transformation="paraphrased")
     receipt = _through_combinator(ch, inp, _edited(inp, credited), "syn-x")
-    assert "INT-LEDGER-029" not in {f.code for f in receipt.findings}, [(f.code, f.message[:120]) for f in receipt.findings]
+    # Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 3.5 and 6.3): in the combinator's synthesis a check of the
+    # synthesis credited to an agent ("(verified by the History specialist)") is the answer's own check claimed, whoever is credited,
+    # so it is named like the appended one: a label on the claim's content, the content still accounted for. It pinned no finding.
+    [g] = [f for f in receipt.findings if f.code == "INT-LEDGER-029"]  # stricter (selfcert-1 c3b, was none)
+    assert f"s{i}" in g.claim_ids and "carries a verification-status label on its content" in g.message and "still accounted for" in g.message, g.message
 
 
 QUALIFIED_HISTORY = ("Only a minority of voters supported the Nazi party in 1928. "

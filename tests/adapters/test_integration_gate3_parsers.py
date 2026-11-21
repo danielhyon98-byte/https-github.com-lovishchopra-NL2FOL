@@ -247,9 +247,7 @@ SYNTHESIS_CLEAN = [
     FACT + ", as confirmed by the treaty's own text.",
     FACT + ", as later confirmed in the Reichstag.",
     "The Treaty of Versailles was, in 1919, checked by no one in Germany.",
-    FACT + " (verified by the History specialist).",
     FACT + " (not verified).",
-    "The synthesis was checked by the History specialist.",
     "The synthesis of ammonia was confirmed in 1909.",
     "The planters introduced new punishments, which the overseer approved.",
     "The overseer approved every flogging.",
@@ -265,10 +263,8 @@ SYNTHESIS_CLEAN = [
     "This is correct only if the treaty was ratified.",
     "The word vérifié means checked.",
     "The engine proved reliable.",
-    "The engine passed.",
     "The overseer approved it.",
     "The engine did not confirm it.",
-    "The checks cleared.",
     "The safety checks passed.",
     "The checks passed the inspection.",
     "The overseer confirmed the flogging.",
@@ -289,16 +285,36 @@ def test_the_parenthetical_forms_named_before_are_still_named(sentence):
     assert _synthesis_reads_a_self_report(sentence), sentence
 
 
+#: Rewritten to the stricter rule of hold remedy c3b (rules ``selfcert-1``; each was in SYNTHESIS_CLEAN, pinned no self-report on a
+#: synthesis): a check of the synthesis or of its claim credited to an agent of the system is a self-certification whoever is credited
+#: (THE CLASS; design 6.3 names "The synthesis was checked by the History specialist."), and an engine or check status with no other
+#: subject than the pipeline ("The engine passed.", "The checks cleared.") is an engine or system result in the synthesis's own scope.
+STRICTER_ON_A_SYNTHESIS = [  # stricter (selfcert-1 c3b, was False)
+    FACT + " (verified by the History specialist).",
+    "The synthesis was checked by the History specialist.",
+    "The engine passed.",
+    "The checks cleared.",
+]
+
+
+@pytest.mark.parametrize("sentence", STRICTER_ON_A_SYNTHESIS)
+def test_a_check_credited_to_an_agent_or_a_bare_pipeline_status_is_a_self_report_on_a_synthesis(sentence):
+    assert _synthesis_reads_a_self_report(sentence), sentence
+
+
 @pytest.mark.parametrize("sentence", SYNTHESIS_CLEAN)
 def test_a_disclaimer_a_credit_or_content_is_no_self_report_on_a_synthesis(sentence):
     assert not _synthesis_reads_a_self_report(sentence), (sentence, md.synthesis_label(sentence))
 
 
 @pytest.mark.parametrize("form", ["definitely correct", "as the overseer approved"])
-def test_the_synthesis_forms_are_not_read_on_a_specialists_branch(form):
-    """On a specialist's branch the same words may be content (a history of the overseers, a plain judgement): unchanged there."""
+def test_a_bare_verdict_fragment_is_a_self_certification_on_every_branch(form):
+    """Rewritten to the stricter rule of hold remedy c3b (rules ``selfcert-1``, design 6.3; was
+    ``test_the_synthesis_forms_are_not_read_on_a_specialists_branch``, which pinned both forms as content on a specialist's branch):
+    a bare verdict fragment on the claim ("..., definitely correct.", G5) and an approval credited to an evaluator that is unknown in
+    a fragment about the implicit answer ("..., as the overseer approved.", G2) are self-certifications on every branch."""
     sentence = SYNTHESIS_FORMS[form]
-    assert not md.is_self_certification(sentence) and md.verification_label(sentence) is None, sentence
+    assert md.is_self_certification(sentence), sentence  # stricter (selfcert-1 c3b, was False)
 
 
 @pytest.mark.parametrize("form", ["All checks passed", "a signed engine result", "QA: pass", "(vérifié)"])
@@ -341,9 +357,20 @@ def test_the_hub_names_each_form_on_the_synthesized_claim_and_its_source(form):
     assert f.severity == "warning" and f.claim_ids == ["y1", "h1.1"] and "self-report" in f.message, (form, f.message)
 
 
-@pytest.mark.parametrize("sentence", SYNTHESIS_CLEAN[:8])
+#: The first eight entries of SYNTHESIS_CLEAN as they stood before hold remedy c3b, less the two moved to STRICTER_ON_A_SYNTHESIS
+#: (named on the hub since c3b: see the test after this one).
+_HUB_CLEAN = SYNTHESIS_CLEAN[:6]
+
+
+@pytest.mark.parametrize("sentence", _HUB_CLEAN)
 def test_the_hub_names_no_disclaimer_or_credit(sentence):
     assert _ledger_029(sentence) == []
+
+
+@pytest.mark.parametrize("sentence", STRICTER_ON_A_SYNTHESIS[:2])
+def test_the_hub_names_a_check_of_the_synthesis_credited_to_an_agent(sentence):
+    """Stricter rewrite (hold remedy c3b): these two were in the hub's clean list; INT-LEDGER-029 now names them."""
+    assert [f.code for f in _ledger_029(sentence)] == ["INT-LEDGER-029"]  # stricter (selfcert-1 c3b, was [])
 
 
 # --------------------------------------------------------------------------- linear time: the new patterns on long runs
@@ -412,25 +439,15 @@ import re
 
 from epinoic_logic.adapters.english_specialist import structural as es
 
-#: The patterns before the fix, as they stood at the gate's base.
-OLD_LABEL_MARK_BRACKETED = r"(?:\[\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\]|\(\s*(?:ok|okay|pass|passed)\s*[.!]?\s*\))"
-OLD_LABEL_BRACKETED = rf"(?:\[\s*{md._LABEL}\s*[.!]?\s*\]|\(\s*{md._LABEL}\s*[.!]?\s*\)|{OLD_LABEL_MARK_BRACKETED})"
-OLD_LABEL_WHOLE_RE = re.compile(rf"^{md._LABEL_NON_WORD}*(?:{md._LABEL}{md._LABEL_PLACE}|{OLD_LABEL_MARK_BRACKETED}){md._LABEL_NON_WORD}*$", re.IGNORECASE)
-OLD_LABEL_BEFORE_RE = re.compile(
-    rf"^{md._LABEL_NON_WORD}*?(?:{OLD_LABEL_BRACKETED}|{md._CHECK_RUN}(?:\s*{md._LABEL_TEXT})?[*_`]*\s*(?::|[—–]|\s-\s)?"
-    rf"|(?=(?-i:[A-Z])){md._LABEL}[*_`]*\s*(?::|[—–]|\s-\s))[\s*_`]*(?=\S)", re.IGNORECASE)
-OLD_LABEL_AFTER_RE = re.compile(
-    rf"(?:{OLD_LABEL_BRACKETED}|,\s*as\s+{md._LABEL}{md._LABEL_PLACE}|,\s*{md._LABEL_STRONG}{md._LABEL_PLACE}|(?:;|:|[—–]|\s-)\s*(?:as\s+)?{md._LABEL}{md._LABEL_PLACE}"
-    rf"|{md._CHECK_RUN}(?:\s*{md._LABEL_TEXT})?{md._LABEL_PLACE}){md._LABEL_NON_WORD}*$", re.IGNORECASE)
-OLD_LABEL_INSIDE_RE = re.compile(rf"{OLD_LABEL_BRACKETED}|{md._CHECK_MARK}", re.IGNORECASE)
-OLD_VERDICT_TERM_TAIL = (r"|overseer(?:['’]s)?\s+(?:verdict|status|audit)?\s*:?\s*(?:pass|passed|approved|ok|okay|clean)"
-                         r"|audit(?:ed)?\s*:?\s*(?:passed|clean|ok))")
-NEW_VERDICT_TERM_TAIL = (r"|overseer(?:['’]s)?\s++(?:(?:verdict|status|audit)\s*+)?(?::\s*+)?(?:pass|passed|approved|ok|okay|clean)"
-                         r"|audit(?:ed)?\s*+(?::\s*+)?(?:passed|clean|ok))")
-OLD_SYNTH_VERDICT_TERM = md._SYNTH_VERDICT_TERM.replace(NEW_VERDICT_TERM_TAIL, OLD_VERDICT_TERM_TAIL)
-OLD_SYNTH_VERDICT_LABEL_RE = re.compile(rf"[\[(]\s*{OLD_SYNTH_VERDICT_TERM}\s*+[.!]?\s*+[\])]", re.IGNORECASE)
-OLD_SYNTH_SELF_ASSESS_RE = re.compile(md._SYNTH_SELF_ASSESS_RE.pattern.replace(r"\s*+[.!]?\s*+$", r"\s*[.!]?\s*$"), re.IGNORECASE)
+#: The English citation pattern before the fix, as it stood at the gate's base (still compared: the pattern is the English
+#: parser's own and is unchanged by hold remedy c3b).
 OLD_ACT_RE = re.compile(r"\bAct\s+(?:[IVXL]+|\d+)\s*[.,]?\s*(?:[Ss]cene\s+)?(?:[IVXLivxl]+|\d+)(?:\s*[.,]\s*" + es._RANGE + r")?")
+#: The bracketed status labels, the check mark and the Overseer and audit verdict labels the deleted label patterns found
+#: (``markdown._LABEL_*`` and ``_SYNTH_VERDICT_LABEL_RE`` at the gate's base, deleted by hold remedy c3b), as one literal pattern
+#: over this test's alphabet: every text in which it finds a label is a self-certification of the one reader.
+OLD_LABEL_FORMS_RE = re.compile(
+    r"[\[(]\s*(?:ok|pass|passed|verified|checked|approved|overseer(?:'s)?\s+(?:verdict|status|audit)?\s*:?\s*(?:pass|passed|approved|ok|clean)"
+    r"|audit(?:ed)?\s*:?\s*(?:passed|clean|ok))\s*[.!]?\s*[\])]|✓", re.IGNORECASE)
 
 
 def _random_texts(alphabet, seed: int, n: int, longest: int = 16):
@@ -440,18 +457,27 @@ def _random_texts(alphabet, seed: int, n: int, longest: int = 16):
 
 
 def test_the_rewritten_patterns_read_what_the_old_ones_read():
-    assert OLD_SYNTH_VERDICT_TERM != md._SYNTH_VERDICT_TERM and OLD_SYNTH_SELF_ASSESS_RE.pattern != md._SYNTH_SELF_ASSESS_RE.pattern
+    """Rewritten for hold remedy c3b (stricter; the citation half unchanged). Before c3b this test compared the rewritten label
+    patterns (``markdown._LABEL_WHOLE_RE``, ``_LABEL_BEFORE_RE``, ``_LABEL_AFTER_RE``, ``_LABEL_INSIDE_RE``,
+    ``_SYNTH_VERDICT_LABEL_RE``, ``_SYNTH_SELF_ASSESS_RE``) with the patterns at the gate's base, match for match. c3b deletes those
+    patterns (design section 1.3), so the comparison has no subject left; over the same random texts every text in which the old
+    label forms find a label (:data:`OLD_LABEL_FORMS_RE`) is now a self-certification of the one reader (``selfcert``), and the
+    English citation pattern still reads what the old one read."""
+    from epinoic_logic import selfcert
+
     alphabet = [" ", "  ", "\t", ".", "!", ",", ";", ":", "—", "(", ")", "[", "]", "ok", "pass", "passed", "verified", "checked", "Verified",
                 "by Z3", "against the sources", "above", "overseer", "overseer's", "verdict", "status", "audit", "audited", "approved", "clean",
                 "this", "is", "correct", "definitely", "true", "fully", "reliable", "Act", "I", "IV", "2", "Scene", "scene", "ii", "45", "x", "✓"]
-    pairs = [(md._LABEL_WHOLE_RE, OLD_LABEL_WHOLE_RE, "match"), (md._LABEL_BEFORE_RE, OLD_LABEL_BEFORE_RE, "match"),
-             (md._LABEL_AFTER_RE, OLD_LABEL_AFTER_RE, "search"), (md._LABEL_INSIDE_RE, OLD_LABEL_INSIDE_RE, "search"),
-             (md._SYNTH_VERDICT_LABEL_RE, OLD_SYNTH_VERDICT_LABEL_RE, "search"), (md._SYNTH_SELF_ASSESS_RE, OLD_SYNTH_SELF_ASSESS_RE, "search"),
-             (es._CITATION_PATTERNS[1], OLD_ACT_RE, "search")]
+    labels = 0
     for text in _random_texts(alphabet, 33, 40000):
-        for new, old, how in pairs:
-            a, b = getattr(new, how)(text), getattr(old, how)(text)
-            assert (a and a.span()) == (b and b.span()), (new.pattern[:60], repr(text))
+        a, b = es._CITATION_PATTERNS[1].search(text), OLD_ACT_RE.search(text)
+        assert (a and a.span()) == (b and b.span()), repr(text)
+        m = OLD_LABEL_FORMS_RE.search(text)
+        # a label glued to a word on either side ("[auditedpassed]", "xok)") is no label of the old patterns' word classes
+        if m and not (m.start() > 0 and text[m.start() - 1].isalnum()) and not re.search(r"[a-z]{2}(?:passed|ok|clean)\b", m.group(0), re.I):
+            labels += 1
+            assert selfcert.read(text).refuses(), repr(text)
+    assert labels > 2000
 
 
 @pytest.mark.parametrize("make", [

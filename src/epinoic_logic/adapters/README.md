@@ -349,7 +349,12 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   rule and no new role: notes and self-certifications `other` (the shared
   `is_note_sentence` / `is_self_certification`; a statement that carries maths is never a note for
   having no words), "Given:"/"Working:" headings `structural`, Given lines and bindings or laws the
-  answer presents as given `evidence`, steps `quantitative`
+  answer presents as given `evidence`, a part's section title over the table it heads ("(a) Confusion matrix (rows show ...)")
+  and a label line of working closing on a colon over the lines it introduces ("Sign of f′(x) = 3(x − 3)(x + 1):", "(b) For the
+  current cans, r = 3.2 cm:"; never a line citing its method, "Using a = (v − u)/t:", stating a relation, "Acceleration is the
+  derivative of velocity:", or relating two written values, "With x = 2.0 cm = 2.0 × 10⁻² m:", a conversion the engine checks:
+  `generic_parser.stem_colon_label`) headings, role `other` (round-10 leftover R10-STEM-H1-ROLES),
+  steps `quantitative`
   (supporting), the last chain-bearing statement of each part and a prose value after a result cue
   `quantitative` and material, code blocks material `point`s, and in an explanation paragraph the
   point, `link`s and `analysis`; assumptions ("neglecting air resistance") are copied to the
@@ -390,7 +395,8 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
   label or a definition the writer introduces (`LABEL_BEFORE_RE`: 'Let E be "at least one blue" and F be "both blue"', 'we call it
   "the gap"', 'a process called "osmosis"', 'define S as', 'denoted by', 'stands for'), so maa-t15's event labels draw no CORE-SRC-003;
   words another speaker gave stay a quotation ('One minister called it "a parliament that could only say no"').
-- **The writer's own model sentence**: a quotation under a "Model:" or "Rewrite:" label that no supplied text holds, is no altered
+- **The writer's own model sentence**: a quotation under a "Model:" or "Rewrite:" label (or another FRAME of the one own-text reader,
+  `own_text.own_text_kinds`: a topic, a 'Better:' rewrite, an arrow's correction) that no supplied text holds, is no altered
   quotation of one (no text holds all its words but one or two) and shares no four words in a row with one, is the writer's own words
   (`sources.own_model_words`: no source reference, nothing to verify). A model label over words taken from a text, altered or not,
   leaves them a quotation (repair round 4, INV-Q1).
@@ -662,9 +668,16 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
     g16.2's decline "..., so any number I gave would be unverified and should not go into your answer." is no self-report).
   - One reader of the writer's own words in quotation marks (`adapters/own_text.py`: `own_text_spans`, `own_model_spans`,
     `OWN_TEXT_RULE`, `OWN_MODEL_RULE`, exported through `epinoic_logic.api.adapters`; overseer handoff 1(b)): the transfer auditor's
-    own-text and own-model rules moved here verbatim, and the auditor imports them instead of its copy. The channel still reads own
-    forms with `markdown.own_form_flags` and the feedback roles; on the recorded c1 and c3 answers the two readers agree except
-    sp-p10d's named interjection '"Ojo"' (the parser's own form, the auditor's quotation; the supplied text holds it).
+    own-text and own-model rules moved here verbatim, and the auditor imports them instead of its copy. Since the round-10 hold
+    remedy c3b (leftover R10-OWN-TEXT-ONE-READER) the channel reads the same reader: `own_text.own_text_kinds` names each quoted span
+    the writer's FORM (a gloss, a base or standard form, a form a text would use, a named phrase, a class of trigger forms, a list
+    continuing one, a span after an invented example: never a quotation, in any task), its FRAME (a correction after an arrow, a
+    labelled model, rewrite, topic or line of inquiry, a 'Better:' rewrite, a span offered "instead of" or "rather than" another) or
+    neither. `markdown.own_form_flags` is a thin call reading the FORMs; `sources.own_model_words` reads the FRAMEs with the supplied
+    texts in view (a frame over words a supplied text holds all but one or two of, in a run of half the span at least, or under a
+    classic "Model:" label, stays an altered quotation and is checked: INV-Q1); `own_text_spans` is every FORM and FRAME. A suggested
+    topic, a 'Better:' rewrite and an arrow's correction are no longer charged INT-REQ-003 or ES-SRC-001
+    (`tests/channel/test_c3b_own_text_one_reader.py`).
   - A question back to the student or the router ("Would you like me to say more about the reparations?", "Which edition are you
     using?", `markdown.is_question_back`) in a body or conclusion block of its own is a note (role other) on the English branches, as on
     every other branch (combinator handoff H2); the questions an answer sets the student under an "answer these ...:" lead stay

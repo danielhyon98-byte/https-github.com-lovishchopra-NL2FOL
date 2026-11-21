@@ -178,8 +178,14 @@ def test_structural_arith_is_entailed(report):
     assert claim.claim_role == "structural" and claim.claim_id == fx.STRUCTURAL_CLAIM_ID
     outcome, _ = run("STRUCTURAL_ARITH", rep, claim)
     assert outcome.translation.eligibility.eligibility_class.value == "ARITHMETIC_CONSTRAINT"
-    assert outcome.display_status is S.ENTAILED
+    # Rewritten to the stricter rule for hold remedy c3b (decision D7, design 3.13 and 4.3): "The paragraph develops two strands of
+    # analysis within 400 words." is the writer's own word-count claim, a self-report; its content keeps its check (the engine
+    # still proves the encoding ENTAILED, pinned below), but the outcome never shows a success status: the display is
+    # NOT_ELIGIBLE with the withheld-self-report meaning. It pinned the display ENTAILED.
+    assert outcome.display_status is S.NOT_ELIGIBLE  # stricter (selfcert-1 c3b, was ENTAILED)
+    assert "Status meaning: withheld: the claim's own words claim a check" in outcome.summary and outcome.summary.endswith(SCOPE_STATEMENT)
     v = outcome.verification
+    assert v.status is S.ENTAILED
     assert sorted(v.premises_relied_on) == ["STRANDS", "WORDS"] and v.ungrounded_dependencies == ["STRANDS"]
     assert fx.BODY_1_WORDS == 341 and fx.BODY_1_WORDS <= 400
     # a count over the limit is a COUNTEREXAMPLE, not a failure of the machinery
@@ -240,4 +246,9 @@ def test_every_fixture_matches_its_declared_expected_status(report):
             outcome, _ = run(name, fx.example1_report(fx.EXAMPLE1_BODY_1_HALLUCINATED, report_id="rep-ex1-h2"))
         else:
             outcome, _ = run(name, report)
+        if name == "STRUCTURAL_ARITH":
+            # rewritten for hold remedy c3b (decision D7): the fixture's declared status is the engine's result for its encoding,
+            # which stays ENTAILED; the claim is the writer's own word-count self-report, so its display is NOT_ELIGIBLE (never success)
+            assert outcome.verification.status is expected and outcome.display_status is S.NOT_ELIGIBLE, name  # stricter (was display ENTAILED)
+            continue
         assert outcome.display_status is expected, name

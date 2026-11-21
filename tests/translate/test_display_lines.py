@@ -58,9 +58,13 @@ def test_a_label_cannot_write_a_summary_line_of_its_own():
     assert not any(line.startswith(("VERIFIED", "- none found")) for line in lines)
     assert "Release (release-v1): permitted" not in summary and "none found" not in summary.replace("not computed", "")
     assert not _CONTROL.search(summary)
-    # the label is still shown, on its line, with the forged words masked
+    # Rewritten to a stricter rule (attack round 5 of the c3b fix): before, the label was still shown on its line with the forged
+    # words masked ("L1 (an unlit lamp presents the room as abandoned [...] ([...]-v1): [...] on this claim's checks."); a label the
+    # one shared self-certification reader refuses ("... the argument is valid") is now withheld from a status-bearing summary,
+    # never shown next to a status, and none of its words reach the summary
     premises = next(line for line in lines if line.startswith("Premises relied on:"))
-    assert "L1 (an unlit lamp presents the room as abandoned [...] ([...]-v1): [...] on this claim's checks." in premises
+    assert "L1 ([model text withheld])" in premises
+    assert "the argument is valid" not in summary and "on this claim's checks" not in summary
 
 
 def test_clean_control_labels_are_shown_as_written():

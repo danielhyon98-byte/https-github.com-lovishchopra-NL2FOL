@@ -73,9 +73,12 @@ def evidence(report: SpecialistReport):
 ])
 def test_self_certification_outside_the_old_vocabulary_is_recognised(sentence, in_regex):
     assert md.is_self_certification(sentence) and md.is_note_sentence(sentence)
-    assert bool(md.SELF_CERT_RE.search(sentence) or md.is_json_shaped(sentence)) is in_regex
-    # what the pack's own vocabulary reading sees (integration gate 3: CORE-SELF-001 reads markdown.self_cert_vocabulary)
-    assert bool(md.self_cert_vocabulary(sentence) or md.is_json_shaped(sentence)) is in_regex
+    # Rewritten for hold remedy c3b (rules ``selfcert-1``): ``markdown.SELF_CERT_RE`` is deleted (design 1.3 item 2), so the split
+    # between the old regular expression and the semantic rule has no subject left. Every sentence above is a self-certification of
+    # the one reader (asserted first). The vocabulary reading (``self_cert_vocabulary``, a refusal-only reading the CORE-SELF-001 pack
+    # no longer consults) keeps every sentence the old vocabulary named; reading one more (``in_regex`` False) is stricter, never weaker.
+    if in_regex:
+        assert md.self_cert_vocabulary(sentence) is not None or md.is_json_shaped(sentence)
 
 
 @pytest.mark.parametrize("sentence", [

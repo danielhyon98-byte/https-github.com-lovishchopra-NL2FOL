@@ -26,7 +26,12 @@ translator's internal modules (architecture review after arena round 8: ``Source
 ``ProviderInfo`` and ``StructuralFinding`` in ``translate``; ``ConstraintResult``, ``CoverageRecord``, ``answer_parts``
 and ``count_answer_words`` in ``channel``; ``BranchRegistry``, ``FormalCheck``, ``SubjectBranch`` and ``EnglishPack`` in
 ``branches``; ``truncate_claim_text`` in ``adapters``; ``clear_document_cache`` in ``stem``; ``DEFINITIVE`` in ``engine``),
-removing or changing none.
+removing or changing none; 1.2 adds the one self-certification reader (round-10 hold remedy c3b, rules ``selfcert-1``:
+``selfcert_read``, ``SelfCertContext``, ``SelfCertReading``, ``self_certification_spots``, ``report_self_certification_spots``,
+``payload_self_certification_spots``, ``unread_text_runs``, ``wholly_self_certification``, ``selfcert_context_for``,
+``SELFCERT_RULES``, ``SELFCERT_UNREAD_RULE`` and ``selfcert_rules_digest`` in ``adapters``; ``label_on_content``, the reader's
+label-or-mark-on-content reading the auditor's FID-005 shares), removing or changing none (the older
+reader names stay, as thin calls into it).
 """
 from __future__ import annotations
 
@@ -35,7 +40,7 @@ AREAS: tuple[str, ...] = ("ir", "engine", "channel", "integrity", "translate", "
 #: The public API's version, MAJOR.MINOR: MINOR goes up with every name added; MAJOR with every name removed or
 #: changed in meaning. Attached components check it (the overseer: ``epinoic_overseer.compat``, which refuses at import
 #: a translator whose API states another MAJOR than the one it was built against).
-API_VERSION = "1.1"
+API_VERSION = "1.2"
 
 __all__ = ["API_VERSION", "AREAS", "exports_table", "markdown"]
 

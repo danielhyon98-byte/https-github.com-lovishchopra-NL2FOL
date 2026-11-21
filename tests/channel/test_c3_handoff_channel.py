@@ -157,6 +157,30 @@ def test_request_items_scenario_sentences_closing_instructions_and_brackets(ques
     assert [i.text for i in items] == texts
 
 
+CS_P10A_HEAD = ("I'm a Computer Science HL student (the course first assessed in May 2027; my exams are in May 2027). Paper 1 Section A "
+                "practice on A4.3, machine learning approaches. A recycling plant uses a camera and a k-nearest neighbours classifier (k = 5) to "
+                "decide whether each item on a conveyor belt is aluminium (positive) or not aluminium (negative). On a labelled test set of 600 "
+                "items, the classifier correctly identified 132 aluminium items. ")
+
+
+@pytest.mark.parametrize("extra", [(), ("find", "solve")], ids=["general", "stem imperatives"])
+def test_a_scenario_sentence_before_the_labelled_parts_is_no_item(extra):
+    """Round-10 leftover R10-PARSERS-7 (c3 cs-p10a i1): the scenario sentence 'A recycling plant uses a camera ... to decide whether
+    each item ... is aluminium ...' was a request item of its own (its 'to decide' read as a command). An infinitive of purpose in a
+    sentence that sets the scene asks for nothing: the parts are the items. A sentence that addresses the writer, states an
+    obligation, opens with a command or asks a question is still an item (controls)."""
+    question = CS_P10A_HEAD + "(a) Construct the confusion matrix for the test set. [2] (b) Calculate the accuracy. [3]"
+    items = RP.extract_items(question, extra_imperatives=extra)
+    assert [i.text for i in items] == ["(a) Construct the confusion matrix for the test set. [2]", "(b) Calculate the accuracy. [3]"]
+    assert RP.is_scenario_sentence("A recycling plant uses a camera to decide whether each item is aluminium.")
+    for sentence in ("Use Source A to explain why the treaty failed.", "The essay should use evidence to explain the decline.",
+                     "Your answer needs to describe the method.", "A survey was carried out; explain what it shows.",
+                     "The plant manager says that the classifier is reliable. Is it?", "The question asks you to evaluate the claim."):
+        assert not RP.is_scenario_sentence(sentence), sentence
+    assert [i.text for i in RP.extract_items("The plant sorts cans. Use the data to explain why accuracy misleads.")] == \
+        ["Use the data to explain why accuracy misleads."]
+
+
 # ------------------------------------------------------------------------------------------ feedback wording
 
 def test_the_quotation_feedback_asks_first_and_keeps_the_removal_of_an_invented_quotation():

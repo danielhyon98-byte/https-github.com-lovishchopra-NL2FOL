@@ -66,7 +66,8 @@ the label will need when it returns, not a label any answer receives now.
   COUNTEREXAMPLE that carries the engine's coverage warning W110 or W111 (perhaps a gap of the translation) neither refutes
   nor confirms its claim: the claim is unassessed, the warning named as its evidence, never ``refuted_by_signed_result``
   (rule ``coverage-gap``, read since round-9 clearance c2b; round-10 clearance c3 corrected this text, which still said it
-  refuted the claim). A claim whose working the
+  refuted the claim; on the formal path such a claim is ``unresolved`` with the coverage note, never ``refuted``: round-10
+  hold remedy c3b). A claim whose working the
   receipt names unchecked is never accurate on a verdict's silence; a supporting claim so named is scored with the
   material claims (rule ``unchecked-working``).
 * ``not_checked``: only when the operator configured ``on_overseer_timeout="deliver_canonical_not_checked"`` and the
@@ -796,7 +797,7 @@ _TRANSLATION_FAULT_PREFIX = "OVS-TRN-"
 #: audit names as delivered content (OVS-FID-005, OVS-FID-009), at any severity, keeps the answer from every fallback mode: an
 #: OVERSEER-SELECTED or NOT CHECKED delivery never contains a claim that it was checked or verified.
 SELF_CERTIFICATION_RULE = "self-certification-gate"
-SELF_CERTIFICATION_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014"})
+SELF_CERTIFICATION_CODES: frozenset = frozenset({"CORE-SELF-001", "CORE-SELF-002", "INT-REQ-014"})
 #: The English pack's meta-text code. It names every meta-text paragraph, a study suggestion or a caveat about an unseen image
 #: included (all six of the recorded c1 and c2 answers are such notes), so the gate reads its paragraph
 #: (:func:`.meta_notes.self_certifying_meta`): a sentence-level one, or a paragraph a self-report reader names (narration, a
@@ -836,7 +837,19 @@ def is_translation_fault(code: str) -> bool:
 SELF_REPORT_CLAIM_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014", "INT-HANDOFF-006"})
 
 
-def _self_reporting_claim(c: Any, report: Any = None, receipt: Any = None) -> bool:
+def _reading_context(view: Any, t: Transfer) -> Any:
+    """The self-certification reader's context for ``t``, built from the ROUTER's journaled request ``t`` answers
+    (``selfcert.context_for``: marking only when the router's plan task type is a marking task; the supplied texts as known sources).
+    Missing or unreadable: the strict default context (round-10 hold remedy c3b; an agent never relaxes its own reading)."""
+    from epinoic_logic.api.adapters import selfcert_context_for
+    try:
+        rt = view.by_seq.get(t.request_seq) if (view is not None and t.request_seq is not None) else None
+        return selfcert_context_for(rt.request if rt is not None else None)
+    except Exception:  # noqa: BLE001 - the strict default
+        return selfcert_context_for(None)
+
+
+def _self_reporting_claim(c: Any, report: Any = None, receipt: Any = None, ctx: Any = None) -> bool:
     """Whether claim ``c`` is a self-report (rule ``self-certification-gate``): it carries an advisory verification status, or the one
     self-report reader names its text or one of its sentences (:func:`.meta_notes.self_certifying_sentence`), or the gate's claim
     reading names it (:func:`.meta_notes.claim_self_report`, the very reading the gate applies to the same claim: hold-fix round 3,
@@ -860,12 +873,12 @@ def _self_reporting_claim(c: Any, report: Any = None, receipt: Any = None) -> bo
             from epinoic_logic.api.adapters import self_report_spots
             inner = " ".join(text.strip().strip("\"'\u201c\u201d\u2018\u2019\u00ab\u00bb").split())[:200]
             return any(inner[:60] in " ".join(p.split()) for _n, p in self_report_spots(getattr(report, "original_response", "") or ""))
-        return any(self_certifying_sentence(p) for p in [text, *split_sentences(text)]) or claim_self_report(text)
+        return any(self_certifying_sentence(p, ctx) for p in [text, *split_sentences(text)]) or claim_self_report(text, ctx)
     except Exception:  # noqa: BLE001 - fail closed
         return True
 
 
-def _self_certification_refusals(t: Transfer) -> list[str]:
+def _self_certification_refusals(t: Transfer, ctx: Any = None) -> list[str]:
     """Rule ``self-certification-gate`` read on the answer itself, whatever its branch, its parser's roles or its receipt named (the
     round-9 push check on the c2 clearance commit): each paragraph of the journaled answer as written one of whose sentences, lines
     or table cells the translator's shared self-report reader names (:func:`.meta_notes.self_certifying_sentences`), and each claim
@@ -874,9 +887,9 @@ def _self_certification_refusals(t: Transfer) -> list[str]:
     journaled report is named as a whole (fail closed)."""
     if t.report is None:
         return ["the answer as a whole (no journaled report)"]
-    out = list(self_certifying_sentences(getattr(t.report, "original_response", None)))
+    out = list(self_certifying_sentences(getattr(t.report, "original_response", None), ctx))
     out += [f"claim {cid} (a self-reported verification status)" for cid in self_reported_statuses(t.report)]
-    out += report_field_refusals(t.report)  # the specialist's own fields beside the response (second remedy of the round-9 hold)
+    out += report_field_refusals(t.report, ctx)  # the specialist's own fields beside the response
     return out
 
 
@@ -1062,8 +1075,14 @@ def _claim_formal(c: ClaimRecord, o: Optional[ClaimVerificationOutcome], report:
     base = dict(claim_id=c.claim_id, role=c.claim_role, eligible=True, translation_status=o.translation.status.value, display_status=display.value,
                 result_id=ver.result_id if ver is not None else None, finished_s=finished)
     if display in REFUTING_STATUSES and authentic and ver is not None and ver.status is display:
+        gap_note = _coverage_note(ver) if display is S.COUNTEREXAMPLE else []
+        if gap_note:
+            # rule coverage-gap on the formal path too (round-9 leftover R9-W110): a counterexample carrying W110/W111 may only show a gap
+            # of the translation, so it refutes nothing; the claim is unresolved, as the accuracy assessment reads it (unassessed)
+            return ClaimFormal(**base, outcome="unresolved", reasons=[f"the signed engine result {ver.result_id} is {display.value} but does "
+                                                                         "not refute the claim: " + gap_note[0]] + err_reasons)
         return ClaimFormal(**base, outcome="refuted", reasons=[f"the signed engine result {ver.result_id} is {display.value}: the claim's "
-                                                                  "encoding does not hold as stated"] + _coverage_note(ver) + err_reasons)
+                                                                  "encoding does not hold as stated"] + err_reasons)
     reasons: list[str] = []
     if o.translation.status is not TranslationStatus.TRANSLATED:
         reasons.append(f"translation {o.translation.status.value}")
@@ -1585,7 +1604,7 @@ class DeliveryPolicy:
             reasons.append(f"the answer carries a self-report or a relayed check result no check established: {_cut(_code_claims(self_reports), 400)}")
         # rule self-certification-gate on the answer as written: the backstop of the receipt's codes (an advisory verification status,
         # or a sentence no receipt code names), read when no self-report code already refuses the label
-        certified = [] if self_reports else guarded(SELF_CERTIFICATION_RULE, lambda: _self_certification_refusals(t))
+        certified = [] if self_reports else guarded(SELF_CERTIFICATION_RULE, lambda: _self_certification_refusals(t, _reading_context(view, t)))
         if certified:
             reasons.append(f"the answer certifies its own checking, read on the answer as written (rule {SELF_CERTIFICATION_RULE}): {_listed(certified)}")
         unread = guarded(LEAD_BLOCKS_RULE, lambda: _lead_block_refusals(view, t))  # rules self-report-disclosed and lead-blocks
@@ -1708,7 +1727,7 @@ class DeliveryPolicy:
         return out
 
     def _integrity(self, session: DeliverySession, t: Transfer, consolidation: Optional[ConsolidatedResponse], receipts: Mapping[str, Any],
-                   audit: Any = None) -> list[str]:
+                   audit: Any = None, ctx: Any = None) -> list[str]:
         """Why ``t`` may not be delivered whatever its accuracy (empty when it may): the consolidation excludes it (an
         error-level finding on its receipt or in the task audit, a clearance not passed, a repeated fault), or the
         router may not act on its clearance now; its payload digest must be its envelope's. Rule ``translation-faults``
@@ -1736,9 +1755,9 @@ class DeliveryPolicy:
         certs = _receipt_findings_of(t.receipt, SELF_CERTIFICATION_CODES) if t.receipt is not None else []
         try:  # an ES-META-001 or a set-aside claim a self-report reader names (fail closed: a reader that fails withholds)
             certs += self_certifying_meta(_receipt_findings_of(t.receipt, _META_CODES), t.report) if t.receipt is not None else []
-            notes = [f"claim {cid}" for cid in self_reporting_notes(t.report)]
-            notes += self_reporting_note_blocks(getattr(t.report, "original_response", None) if t.report is not None else None)
-            notes += [x for x in _self_certification_refusals(t) if x not in notes and x.split(" (")[0] not in notes]
+            notes = [f"claim {cid}" for cid in self_reporting_notes(t.report, ctx)]
+            notes += self_reporting_note_blocks(getattr(t.report, "original_response", None) if t.report is not None else None, ctx)
+            notes += [x for x in _self_certification_refusals(t, ctx) if x not in notes and x.split(" (")[0] not in notes]
         except Exception as exc:  # noqa: BLE001
             notes = [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
         audit_self = [f for f in _audit_findings_naming(audit, t.message_id or "") if f.code in SELF_REPORT_AUDIT_CODES]
@@ -1768,8 +1787,9 @@ class DeliveryPolicy:
             incomplete_by = sorted({va.agent_id for va in listing if getattr(va, "declared_incomplete", None)} - set(reviewed_by))
             # rule self-certification-gate (hold-fix round 2): a claim that certifies the answer's own checking never counts toward the
             # accuracy, neither as accurate on a review's silence nor in the denominator that could lift a candidate above the threshold
-            mats = [c for c in material_claims(t.report) if not _self_reporting_claim(c, t.report, t.receipt)]
-            scored = list(mats) + [c for c in _unchecked_supporting(t, mats) if not _self_reporting_claim(c, t.report, t.receipt)]  # rule unchecked-working
+            rctx = _reading_context(view, t)
+            mats = [c for c in material_claims(t.report) if not _self_reporting_claim(c, t.report, t.receipt, rctx)]
+            scored = list(mats) + [c for c in _unchecked_supporting(t, mats) if not _self_reporting_claim(c, t.report, t.receipt, rctx)]  # rule unchecked-working
             claims = [_assess_claim(t, c, reviewed_by=reviewed_by, counted=counted, all_assessed=assessed, audit=audit, keyring=keyring, view=view,
                                     incomplete_by=incomplete_by) for c in scored]
             accurate = sum(1 for c in claims if c.assessment == "accurate")
@@ -1777,7 +1797,7 @@ class DeliveryPolicy:
             answer_level = _answer_level_errors(t.receipt, [c.claim_id for c in mats])
             refuted = any(c.refuted_by_signed_result for c in claims)
             faulted = refuted or any(c.faulted_by_check for c in claims) or bool(answer_level)
-            integrity = self._integrity(session, t, consolidation, receipts, audit)
+            integrity = self._integrity(session, t, consolidation, receipts, audit, rctx)
             r = rank.get(t.message_id or "", (9, 0, t.seq, None, False))
             out.append(CandidateAssessment(
                 message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=t.sender_agent_id, report_id=t.report_id, seq=t.seq, group_id=r[3],

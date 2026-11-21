@@ -398,21 +398,26 @@ def test_no_closed_reader_reads_an_assurance(text):
     assert not read_meta_paragraph(text).note and not read_source_list(text, TUNER_GROUNDING).ok and not read_layout(text, EN_T14_Q).ok
 
 
-#: The one assurance of the corpus that neither rule names on en-t14: "NB" with no punctuation after it is no lead for any
-#: parser, so the English parser reads the sentence as a claim of the answer (a material point appended, an interpretation
-#: inside a paragraph): the open class, recorded for round 9.
+#: The one assurance of the corpus with no lead any parser reads: "NB" with no punctuation after it is no lead, so the English
+#: parser reads the sentence as a claim of the answer (a material point appended, an interpretation inside a paragraph). It
+#: was the open class recorded for round 9 (neither rule named it); since hold remedy c3b the one self-certification reader
+#: names it ("all quotations hold" is the answer's own fidelity claim), so rule non-material-text names it too (below).
 NO_LEAD_ASSURANCES = ["NB all quotations hold."]
 
 
 @pytest.mark.parametrize("text", ALL_ASSURANCES, ids=[f"a{i}" for i in range(len(ALL_ASSURANCES))])
 def test_an_assurance_added_to_en_t14_is_named_appended_or_at_the_end_of_a_body_paragraph(text):
-    """Appended as paragraph 7, or written after the last sentence of paragraph 4, every assurance but the open one is named:
+    """Appended as paragraph 7, or written after the last sentence of paragraph 4, every assurance is named:
     by rule non-material-text when the English parser keeps it out of the claims (meta-text, a list line, a note sentence), by
-    rule lead-blocks when the parser reads it as a claim but a lead opens it ("Remarque : tout est en ordre.")."""
-    for text_with in (EN_T14 + "\n\n" + text, EN_T14.replace(P4_END, P4_END + " " + text)):
+    rule lead-blocks when the parser reads it as a claim but a lead opens it ("Remarque : tout est en ordre.").
+
+    Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 6.1): it pinned the no-lead assurance
+    ("NB all quotations hold.") as named by neither rule (named == set()); the one reader now names it, so rule
+    non-material-text names its paragraph: 7 appended, 4 inside the last body paragraph."""
+    for where, text_with in ((7, EN_T14 + "\n\n" + text), (4, EN_T14.replace(P4_END, P4_END + " " + text))):
         named = {b.paragraph for b in _en_unread(text_with)} | {b.paragraph for b in unread_lead_blocks(text_with, TUNER_GROUNDING)}
         if text in NO_LEAD_ASSURANCES:
-            assert named == set(), text
+            assert named == {where}, (text, named)  # stricter (selfcert-1 c3b, was set(): named by neither rule)
             continue
         assert named & {4, 7}, (text, named)
 

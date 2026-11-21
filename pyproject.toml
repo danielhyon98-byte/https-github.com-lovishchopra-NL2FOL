@@ -32,6 +32,7 @@ where = ["src"]
 "epinoic_logic" = [
   "translate/prompts/*.txt",
   "translate/prompts/*.md",
+  "selfcert/*.json",
 ]
 
 [tool.pytest.ini_options]

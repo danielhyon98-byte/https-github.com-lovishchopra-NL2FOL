@@ -8,16 +8,17 @@ code point, no whitespace, non-ASCII raw): the rules digest and the cost-data di
 recorded review. The sub-project's tests hold every released file to its recorded digest (a released file never
 changes) and the current files to the manifest.
 
-What the current rules file holds (``rules-4.json``, 0.4.0; ``rules-3.json`` of 0.3.0 has the same sections): the rules
+What the current rules file holds (``rules-5.json``, 0.5.0, which is ``rules-4.json`` of 0.4.0 re-released under its own name;
+``rules-3.json`` of 0.3.0 has the same sections): the rules
 in words (``rules``: the flash decision maker's rules D1 to D7, the port rules 1 to 7 and the pool rules P1 to P8), the
 port planner's parameters (``parameters``:
 max_parts, max_reviews, hard_max_instances, context_max_bytes), the pool planner's thresholds and batch size (``pool``:
 escalated_reviewers, baseline_reviewers, record_weight, batch_size, and for a combined answer source_reviewers and
 merged_reviewers), the flash decision maker's own section (``decision``: its two methods and the order its choice
 follows), the agreement signals the port rules read (``signals``), the features each planner reads (``features``) and the
-method table (``methods``). The cost data (``cost-data-4.json``) holds the decision maker's planning estimates (the
+method table (``methods``). The cost data (``cost-data-5.json``) holds the decision maker's planning estimates (the
 instance budget, the output budget, the seconds a call, the dossier estimate) and the sizes of the system text of every
-composition of the knowledge pack the overseer sends (pack 2.1, which ``recorded.system_text_pack`` names) and of its
+composition of the knowledge pack the overseer sends (pack 2.2, which ``recorded.system_text_pack`` names) and of its
 dossiers: estimates and sizes, never a price or a latency, and no model.
 
 A rules/2 document (``rules-2.json``, 0.2.0) has no ``decision`` section and a ``split_words`` parameter: the planners

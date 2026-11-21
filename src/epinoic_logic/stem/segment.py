@@ -153,7 +153,7 @@ class _Builder:
             nxt = k + 1
             while nxt < n and pv[nxt] in " \t\n":
                 nxt += 1
-            if nxt > k + 1 and nxt < n and pv[nxt].isupper():
+            if nxt > k + 1 and nxt < n and (pv[nxt].isupper() or pv[nxt] in "¿¡"):  # (a Spanish question or exclamation opens with ¿ ¡)
                 absolute = base + k
                 after_mask = absolute in self.mask_ends or self._unit_after_mask(pv, k, base)
                 letter = k >= 1 and pv[k - 1].isalpha() and pv[k - 1].islower() and (k == 1 or not pv[k - 2].isalnum()) and pv[k - 1] in self.names \
@@ -473,7 +473,7 @@ def _derivation_split(view: str, a: int, b: int, line_spans: list[Span]) -> Opti
             continue
         while j < b and view[j] in " \t":
             j += 1
-        if j < b and view[j].isupper() and not any(x <= j < y for x, y in inside) and len(view[j:b].split()) >= 2:
+        if j < b and (view[j].isupper() or view[j] in "¿¡") and not any(x <= j < y for x, y in inside) and len(view[j:b].split()) >= 2:
             return k + 1, j
     return None
 

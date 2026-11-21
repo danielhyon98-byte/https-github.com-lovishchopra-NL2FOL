@@ -18,7 +18,9 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 A round directory holds `specialists/*.json` (the answers, each one JSON object of the round format: `task_id`, `subject`,
 `agent_id`, `question`, `response_text`, and optionally `group`, `peer_of`, `task_type`, `supplied_texts`), and optionally
 `translations/*.json` (recorded translations, with `claim_text_sha256` binding each to the claim text it was produced for,
-written by `bind_translations.py` when the translations are recorded), `mutation_translations/<file stem>/<variant>.json`
+written by `bind_translations.py` when the translations are recorded; the replay also binds each to its supporting claims'
+texts as the genuine pass serves it, and refuses it as a stale fixture where a mutation changed one of them, such as the
+quotation under a point: `stale_support_reason`), `mutation_translations/<file stem>/<variant>.json`
 (the recorded translations of the claims a mutation changes, below, "Mutated claims"), `syntheses/*.json`,
 `relayed/*.json`, `router/*.json`, `tasks.json` (the round's plan: every task the router dispatches, below, "The round's
 plan") and `adjudications/translation_fidelity.json`.

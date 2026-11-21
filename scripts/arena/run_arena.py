@@ -107,6 +107,9 @@ runs what production runs wherever a recording allows it, and names what it cann
     then, and the configuration says so;
   - the binding of each fixture to its claim text: by the digest recorded with the fixture (``claim_text_sha256``,
     written when the translations are recorded: bind_translations.py), else by claim id only (FIXTURES_UNBOUND, below);
+    and to its supporting claims' texts (``stale_support_reason``: the genuine pass records their digest, and a mutation
+    that changes a claim the fixture's claim rests on, such as the quotation under a point, is refused the fixture as a
+    stale fixture; round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING);
   - retries: a recorded translation is one provider output, so a retry the pipeline asks for (a rejected first attempt
     with a retryable diagnostic) is served the same output and fails the same way. It is never shown as a retry that
     ran: each outcome carries its ``attempts`` and ``retry_not_exercised``, and the configuration counts and names the
@@ -298,6 +301,7 @@ from epinoic_logic.translate.eligibility import decide_eligibility
 from epinoic_logic.translate.outcome import verify_claim
 from epinoic_logic.translate.parsing import ProviderOutputError, parse_json_object
 from epinoic_logic.translate.pipeline import Translator, apply_subject_policy
+from epinoic_logic.translate.providers.base import ProviderError
 from epinoic_logic.translate.providers.fixture import FixtureTranslationProvider
 from epinoic_logic.translate.subjects import resolve_profile
 
@@ -354,7 +358,7 @@ OVERSEER_FOUND_BESIDE = find_overseer_beside()
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
 #: Codes under which the infrastructure names an agent's self-certification (core pack, hand-off check, subject pack).
-SELF_REPORT_CODES = ("CORE-SELF-001", "INT-HANDOFF-006", "ES-META-001")
+SELF_REPORT_CODES = ("CORE-SELF-001", "CORE-SELF-002", "INT-HANDOFF-006", "ES-META-001")
 #: Mutations in the order they are applied; the variant index is part of the report id.
 MUTATIONS = ("invented_quotation", "invented_quotation_single", "altered_quotation", "self_certification", "wrong_arithmetic", "chronology_error")
 #: Mutations that invent or alter a quotation: INT-REQ-003 against a supplied text, CORE-SRC-003 (unverifiable) without one.
@@ -1588,6 +1592,31 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
         if undelivered:
             rec["failure_reasons"] = synthesis_failure_reasons(None, True, [], 0, undelivered, not_answered=not_answered, unreadable=unreadable)
     return rec
+
+
+def support_sha256(claim: ClaimRecord, report: SpecialistReport) -> str:
+    """The digest of the supporting claims a translation of ``claim`` is made with (``TranslationRequest.supporting_claims``: the
+    report's claims the claim cites, itself excepted), id and text in report order: a recorded translation is bound to it as to
+    its own claim text (round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING)."""
+    ids = set(claim.supporting_claim_ids) - {claim.claim_id}
+    return sha256_text("\n".join(f"{c.claim_id}\t{c.claim_text}" for c in report.claims if c.claim_id in ids))
+
+
+def stale_support_reason(key: str, claim: ClaimRecord, report: SpecialistReport, supports: dict, *, genuine: bool,
+                         mutated=frozenset()) -> str | None:
+    """Rule of the fixture binding to supporting claims (round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING). In the genuine pass
+    (``genuine``) the digest of the supporting claims the fixture ``key`` is served with is recorded in ``supports`` (first
+    serving wins) and None returned. In any other pass, the refusal message when that digest differs from the recorded one and
+    the fixture is no recorded translation of a mutated claim (``mutated``); else None. The message carries the harness's
+    stale-fixture mark, so the outcome counts as a stale fixture refused (:func:`stale_fixture`)."""
+    support = support_sha256(claim, report)
+    if genuine:
+        supports.setdefault(key, support)
+        return None
+    if key in mutated or supports.get(key, support) == support:
+        return None
+    return (f"fixture for claim {claim.claim_id!r} was produced with other supporting claim texts ({STALE_FIXTURE_MARK}: a supporting "
+            "claim changed); it is not served for the current report")
 
 
 def stale_fixture(o: ClaimVerificationOutcome) -> bool:
@@ -3454,6 +3483,9 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     # file stem -> {claim_id: sha256 of the claim text each fixture was produced for}: carried by the translations file
     # or captured from the genuine transmission, and handed to the fixture provider for every later variant
     fixture_digests: dict[str, dict[str, str]] = {stem: dict(tr.get("claim_text_sha256") or {}) for stem, tr in translations.items()}
+    # file stem -> {fixture key: digest of the supporting claims' texts the genuine pass served the fixture with}: a translation is
+    # made with its claim's supporting claims in view (``TranslationRequest.supporting_claims``), so it is bound to them too
+    support_digests: dict[str, dict[str, str]] = {}
     for it in items:
         last_in_group[group_of(it)] = it["task_id"]
     # file stem -> the tag the hub qualifies that specialist's STEM claim ids with (None for a parser that never does so on
@@ -3495,8 +3527,11 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
             digests = {**digests, **mt["claim_text_sha256"]}
         provider = FixtureTranslationProvider({cid: json.dumps(obj) if not isinstance(obj, str) else obj for cid, obj in claims.items()}, claim_text_sha256=digests)
 
+        supports = support_digests.setdefault(stem, {})
+        mutated = frozenset((mt or {}).get("claims") or ())
+
         def verify_fn(claim, report, task=None, *, _t=Translator(provider), _ids=frozenset(claims), _capture=digests if capture else None,
-                      _tag=qualification_tags.get(stem), _agent=agents_by_stem.get(stem)):
+                      _tag=qualification_tags.get(stem), _agent=agents_by_stem.get(stem), _supports=supports, _genuine=capture, _mutated=mutated):
             # the recorded translation of this claim: under its own id, or, for this specialist's own report, under the other
             # form of its STEM id (the hub qualifies a report's ids after another agent's report holding them, which a
             # mutation's own hub task holds only when it is the peer's), so the listing's id and the delivered id never part
@@ -3513,6 +3548,14 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                 # the fixture was produced for the genuine text: bind it to that claim text (computed here, at verify
                 # time, from the parsed report) so a re-stated claim under the same id, in either form, is refused later
                 _capture[key] = sha256_text(claim.claim_text)
+            stale_support = stale_support_reason(key, claim, report, _supports, genuine=_genuine, mutated=_mutated)
+            if stale_support is not None:
+                # round-10 leftover R10-HARNESS-FIXTURE-SUPPORTING: the claim's own text is unchanged but a supporting claim's text
+                # changed (a mutation of the quotation a point rests on): refused as stale, never served for the changed answer
+                refusal = ProviderError(stale_support)
+                verifier = verify or verify_claim
+                with_task = {"task": task} if (task is not None and task_record and accepts_task(verifier)) else {}
+                return verifier(claim, report, Translator(FixtureTranslationProvider({claim.claim_id: refusal})), config=CFG, signing_key=KEY, **with_task)
             translator = _t
             if key != claim.claim_id:
                 # served explicitly under the delivered id: the same recorded translation, its problem naming the claim

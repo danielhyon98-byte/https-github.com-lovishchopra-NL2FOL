@@ -37,7 +37,7 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    data: it is parsed strictly, validated against a closed schema and never executed. The engine checks consistency
    before entailment, signs every result (HMAC) and lists every premise the proof relied on that no check established.
    The release assessment is a separate record from the formal status. Versions on this tree (`epinoic-logic version`):
-   engine 0.4.0, policy 2026.10-v4, translator 0.4.0, IR 1.0, z3 5.1.0.
+   engine 0.4.0, policy 2026.11-v5, translator 0.4.0, IR 1.0, z3 5.1.0 (contract 0.6; self-certification rules `selfcert-1`).
 2. **STEM support** (`src/epinoic_logic/stem/`, the `sciences`, `mathematics` and `computer_science` branches). A
    front end reads answers that mix equations and prose in LaTeX, Unicode, ASCII and words, and evaluates no text. It
    turns each relation it recognises into an IR problem the engine decides: written arithmetic, substitutions, unit
@@ -51,8 +51,9 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
      accounts for its sources. The router acts on a transfer only when the auditor's clearance allows it
      (`policy.may_act`).
    - **The overseer agents** are model-based reviewers. They are built only from the package's code and an exportable,
-     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 2.1 (the architecture step added 2.0 and
-     2.1); round 8 ran with 1.4, and its clearance installed 1.5. Each of them stays pinned beside 2.1. Each agent gets
+     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 2.2 (the architecture step added 2.0 and
+     2.1; the round-10 hold remedy c3b added 2.2, which lists the receipt code CORE-SELF-002); round 8 ran with 1.4, and
+     its clearance installed 1.5. Each of them stays pinned beside 2.2. Each agent gets
      a dossier and returns a verdict, which is validated against the journal and the
      signed results. A verdict is advisory: only an accusation that a deterministic check confirms reaches the router,
      and no agent changes a clearance.
@@ -179,8 +180,8 @@ python scripts/arena/run_arena.py <copy> --fail-on-qualification
 **Export the overseer pack.**
 
 ```
-python -m epinoic_overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-2.1/ and its zip
-python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.1.zip
+python -m epinoic_overseer.export --out <dir> --zip     # writes <dir>/overseer-knowledge-docs-2.2/ and its zip
+python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.2.zip
 ```
 
 - The export writes the master prompt, nine numbered documents, a README for whoever deploys it, the dossier and
@@ -190,6 +191,9 @@ python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.1.zip
   which is the digest pinned in `overseer/src/epinoic_overseer/pack.py` and in the service (`integration/overseer_port.py`).
   `--verify` on the zip returned `ok`. Pack 2.0 (`c2be21ab…`) and pack 1.5, the round-8 pack (`cac995dc…`), stay pinned
   beside it.
+- Round-10 hold remedy c3b: pack 2.2 (a MINOR version: the receipt code CORE-SELF-002 listed in Kinds and codes §5 and §8),
+  digest `ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28`, pinned in `overseer/src/epinoic_overseer/pack.py`
+  and in the service (`integration/overseer_port.py`); pack 2.1 (`a60727fc…`) stays pinned beside it.
 - The delivery policy loads the exported pack: `DeliveryPolicy(pack=load_pack(<zip>), provider_factory=...)`.
 
 ## 3. What round 8 measured

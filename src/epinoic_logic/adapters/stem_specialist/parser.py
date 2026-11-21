@@ -84,6 +84,12 @@ _MAX_ASSUMPTIONS = 32
 _MAX_REPORT_ASSUMPTIONS = 64
 _MIN_QUOTE_CHARS = 4
 _SELF_REPORT = "self-certified in the response text"
+
+
+def _certifies_where_written(claim_text: str, response: str) -> bool:
+    from ... import selfcert
+    from ..self_report import task_context
+    return selfcert.certifies_where_written(claim_text, response, task_context(None))
 _DIGIT_RE = re.compile(r"[0-9⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]")
 _RESULT_CUE_RE = re.compile(r"\b(?:therefore|hence|thus|so|the answer is|the result is|giving|gives|which gives)\b", re.IGNORECASE)
 _LINK_CUE_RE = re.compile(r"\b(?:because|since|so|therefore|hence|thus|as a result|consequently)\b", re.IGNORECASE)
@@ -173,6 +179,50 @@ def _question_title(rest: str) -> bool:
     return bool(body) and len(body.split()) <= 12 and _TITLE_QUESTION_RE.match(body) is not None and body[-1:] not in ".!?:;"
 
 
+#: A bracketed aside in a title ("Confusion matrix (rows show the actual class, columns the predicted class)"): read past.
+_TITLE_ASIDE_RE = re.compile(r"\([^()\n]{0,200}\)")
+#: What a title never holds outside its asides: a relation or operation sign, a reaction arrow, a sub- or superscript digit (an
+#: equation or a formula: '2C₁₂H₂₆(l) + 37O₂(g) → 24CO₂(g) + 26H₂O(l)'), or a finite verb of a statement (``generic_parser._COPULA_RE``).
+_TITLE_RELATION_RE = re.compile(r"[=≈≠<>≤≥+×÷*/^→⇌↔←⟶₀-₉⁰¹²³⁴-⁹]|\s[-−]\s")
+
+
+def _section_title(rest: str, has_following: bool, table_soon: bool = False) -> bool:
+    """Round-10 leftover R10-STEM-H1-ROLES: the content of a part's lead line is a section title over the lines that answer the part,
+    never the part's answer: a noun phrase of at most ten words outside its asides, with no relation sign, no statement verb and no
+    closing sentence mark ("(a) Confusion matrix (rows show the actual class, columns the predicted class)", "(b) Round robin, time slice
+    2 ms", "(a) First come, first served") over a table it heads (``table_soon``: a table row among the next lines of its part), or a
+    label closing on a colon over the working after it ("(f) For the current cans, r = 3.2 cm:"; ``generic_parser.stem_colon_label``:
+    never a line citing its method, 'Substitute into C(t) = ...:', nor a statement, 'Acceleration is the derivative of velocity:'). Only with lines after it in the
+    part (``has_following``); a lead line that opens with a figure ('(c) 0.0896 mol') is an answer, never a title. Bounded reads."""
+    body = _TITLE_MARK_RE.sub("", rest.strip()[:400]).strip()
+    if not body or not has_following:
+        return False
+    if body.endswith(":"):
+        return _generic().stem_colon_label(body)
+    outside = _TITLE_ASIDE_RE.sub(" ", body)
+    words = outside.split()
+    if not table_soon or outside.lstrip()[:1].isdigit():
+        return False
+    return (0 < len(words) <= 10 and body[-1:] not in ".!?;" and not _TITLE_RELATION_RE.search(outside)
+            and not _generic()._COPULA_RE.search(outside) and re.search(r"[^\W\d_]{3}", outside) is not None)
+
+
+def _table_soon(plains: list[str], li: int, lead_lines: set[int], window: int = 4) -> bool:
+    """Whether a table row stands among the next ``window`` non-blank lines after line ``li``, before the next part lead line."""
+    seen = 0
+    for k in range(li + 1, min(len(plains), li + 64)):
+        if k in lead_lines:
+            return False
+        if not plains[k].strip():
+            continue
+        if TABLE_ROW_RE.match(plains[k]):
+            return True
+        seen += 1
+        if seen >= window:
+            return False
+    return False
+
+
 def _units(text: str, rows: list[dict]) -> list:
     """One generic-branch unit per statement, with what the generic parser records for a unit of the same line
     (``generic_parser._units_of``): its paragraph (the blank-line paragraphs of the answer), its logical line, the
@@ -221,7 +271,10 @@ def _units(text: str, rows: list[dict]) -> list:
     label_only = {li for li in lead_lines if LABEL_ONLY_REST_RE.fullmatch(plains[li][_PART_LEAD_RE.match(plains[li]).end():])}
     # a part's title worded as the question it answers ("(f) Why a volumetric flask is used [1]"; round-9 clearance c2b, ch-p9b and
     # ch-t15) heads the part like a label-only lead: a heading (role other), the part opening on the next line
-    titles = {li for li in lead_lines - label_only if _question_title(plains[li][_PART_LEAD_RE.match(plains[li]).end():])}
+    titles = {li for li in lead_lines - label_only if _question_title(plains[li][_PART_LEAD_RE.match(plains[li]).end():])
+              or _section_title(plains[li][_PART_LEAD_RE.match(plains[li]).end():],
+                                any(plains[k].strip() for k in range(li + 1, min(len(plains), li + 4))),
+                                _table_soon(plains, li, lead_lines))}
     label_only |= titles
     headers = {li for li, pl in enumerate(plains) if TABLE_ROW_RE.match(pl) and li + 1 < len(plains)
                and TABLE_SEPARATOR_RE.match(plains[li + 1]) and "-" in plains[li + 1]}
@@ -248,7 +301,7 @@ def _units(text: str, rows: list[dict]) -> list:
         idx = by_line[ln]
         body = " ".join(rows[i]["text"] for i in idx)
         following = n + 1 < len(order) and paras[by_line[order[n + 1]][0]] == paras[idx[0]]
-        heading_of[ln] = ln in headers or ln in titles or (ln not in lead_lines and _line_heading(body, following))
+        heading_of[ln] = ln in headers or ln in titles or (ln not in lead_lines and _line_heading(body, following, stem=True))
     for i, r in enumerate(rows):
         ln = logical[i]
         u = _Unit(text=r["text"], para=paras[i], line=ln, part=part_at[ln] if ln < len(part_at) else count)
@@ -402,7 +455,9 @@ class StemTextParser:
             stem_role, stem_kind, chain = self._role(kind, core or claim_text, rels, refs, quotes, False, doc, sid)
             rows.append(dict(sid=sid, kind=kind, a=a, b=b, para=para, part=part, line=line, chain=chain, stem_role=stem_role, stem_kind=stem_kind, refs=refs,
                              quoted=bool(refs or quotes), assumptions=list(dict.fromkeys(assumptions))[:_MAX_ASSUMPTIONS], text=claim_text,
-                             self_report=is_self_certification(claim_text), value=bool(_DIGIT_RE.search(core or "")),
+                             # (read where it stands: a heading joined to the working under it is read in its paragraph)
+                             self_report=is_self_certification(claim_text) and _certifies_where_written(claim_text, text),
+                             value=bool(_DIGIT_RE.search(core or "")),
                              maths_note=maths and bool(notes) and not core.strip(), res=any(r.kind == "res" for r in rels if r.outcome == "check"),
                              prose_value=sid in prose_valued))
         self._assign(text, rows)
@@ -594,7 +649,7 @@ class StemTextParser:
     @staticmethod
     def _self_report_notes(rows: list[dict], cid) -> list[str]:
         out: list[str] = []
-        demoted = [r for r in rows if r["self_report"]]
+        demoted = [r for r in rows if r["self_report"] and r.get("role") == "other"]  # a label on content keeps its role (design 3.13)
         if demoted:
             shown = "; ".join(f"{cid(r['sid'])} ('{r['text'][:80]}')" for r in demoted)
             out.append(f"{len(demoted)} statement(s) carrying verification-status language were roled other and count as no material claim: {shown[:600]}")

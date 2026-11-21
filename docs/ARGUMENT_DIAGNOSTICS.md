@@ -2699,3 +2699,24 @@ brackets): development 44/44 defects named [44/44], 27/57 controls clean [57/57]
 name, 1 missed [64 named, 2 caught without a name], 48/68 controls clean [68/68]; second hold-out 68 named, 1 caught
 without a name, 1 missed [70/70 named], 38/66 controls clean [55/66]. Every remaining difference is listed above, and no
 case is worse than on the integrated base.
+
+## 21. Round-10 hold remedy c3b (rules argdiag-2, unchanged version)
+
+Four rule refinements ship under argdiag-2, as every round's fixes since the port have (the build and policy identities
+separate the builds):
+
+* ARG-CIRC-002: an equation in another form that the premise derives from an earlier line of the answer ("(from 7.2)",
+  "from the difference of the two equations") is a step of working, not the point assumed in other words; a restatement of
+  the point's own figures stays a circle whatever its label says (`argument._cites_earlier_line`).
+* ARG-BARE-001: a closing summary of marking feedback ("Pattern summary:", "Summary:", "Common errors:") after the last part
+  (a part label or a question heading, "Question (c) — explain — [2]") and the provisional mark or total answers no part, so no part's reason requirement is its own
+  (`diag_argument._closing_summary_paragraphs`).
+* EVD-LACK-001: a premise that restates one of the claim's own supporting points (roled point or judgement) is not named; a
+  supporting fact the writer states with no source still is (e01). The message says that nothing the premise cites
+  supports it, and that its words were not looked for when no figure was read.
+* The translator's fidelity flag `supposition_as_fact` (not an argument rule): a value the claim supposes ("at x = 0")
+  encoded as a premise of the writer's own on a symbol glossed as a free variable makes the outcome AMBIGUOUS_TRANSLATION.
+
+Not changed (recorded for the owner): EVD-SRC-001/005 on a premise the translation stated without an excerpt stay warnings,
+as `tests/translate/test_unchecked_sources.py` and `test_repair_round2_evidence.py` pin them.
+

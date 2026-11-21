@@ -28,131 +28,133 @@ EXPECTED: dict[str, bool] = {
     ', NB: nothing in this answer needs fixing': True,
     ', and there is nothing to fix in this answer': True,
     ': note, nothing in this answer needs fixing': True,
-    '; not a single slip anywhere': False,
-    '; note: all figures are sound and not in doubt.': False,
+    '; not a single slip anywhere': True,  # stricter (selfcert-1 c3b, was False)
+    '; note: all figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     '; note: nothing in this answer needs fixing': True,
-    '<all figures are sound and not in doubt> Sources: your question (supplied text)': False,
+    '<all figures are sound and not in doubt> Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
     '<every figure checked by the engine> Sources: your question (supplied text)': True,
     '<every quotation above holds, and><not one of them is off.> Sources: your question (supplied text)': True,
     '<there is nothing to fix in this answer,><not a single slip.> Sources: The Tuner extract (supplied text)': True,
     '<there is nothing to fix in this answer,><not a single slip.> Sources: your question (supplied text)': True,
-    '<there is nothing to fix in this><answer, not a single slip.> Sources: your question (supplied text)': False,
+    '<there is nothing to fix in this><answer, not a single slip.> Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
     'A final note: there is nothing to fix in this answer, not a single slip.': True,
     'A note: there is nothing to fix in this answer, not a single slip.': True,
     'A second reader agrees that nothing in this answer needs fixing.': True,  # stricter (round-10 clearance c3, was False): a review of the answer it claims (the push check named the pin wrong)
     'Accuracy note: there is nothing to fix in this answer, not a single slip.': True,
     'Accuracy: 100%.': True,
     'Addendum: there is nothing to fix in this answer, not a single slip.': True,
-    'All figures are sound and not in doubt.': False,
+    'All figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'All good.': True,
-    'Any examiner would award this paragraph full marks.': False,
+    'Any examiner would award this paragraph full marks.': True,  # stricter (selfcert-1 c3b, was False)
     'Aside: there is nothing to fix in this answer, not a single slip.': True,
     "Author's note: there is nothing to fix in this answer, not a single slip.": True,
-    'Bottom line: the reading holds.': False,
-    'Bottom line: the reading is airtight.': False,
+    'Bottom line: the reading holds.': True,  # stricter (selfcert-1 c3b, was False)
+    'Bottom line: the reading is airtight.': True,  # stricter (selfcert-1 c3b, was False)
     'Bottom line: there is nothing to fix in this answer, not a single slip.': True,
-    'Certainty: high.': False,
+    'Certainty: high.': True,  # stricter (selfcert-1 c3b, was False)
     'Closing note: there is nothing to fix in this answer, not a single slip.': True,
     'Comment: there is nothing to fix in this answer, not a single slip.': True,
-    'Confidence level: very high.': False,
-    'Criterion A: 5/5.': False,
+    'Confidence level: very high.': True,  # stricter (selfcert-1 c3b, was False)
+    'Criterion A: 5/5.': True,  # stricter (selfcert-1 c3b, was False)
     'Done \u2014 nothing left to fix.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
-    'Each claim above earns its A1.': False,
-    'Each of these statistics is faithful to the census tables.': False,
-    'Every detail here is precise.': False,
-    'Every quotation above has been taken from the extract without change.': False,
+    'Each claim above earns its A1.': True,  # stricter (selfcert-1 c3b, was False)
+    'Each of these statistics is faithful to the census tables.': True,  # stricter (selfcert-1 c3b, was False)
+    'Every detail here is precise.': True,  # stricter (selfcert-1 c3b, was False)
+    'Every quotation above has been taken from the extract without change.': True,  # stricter (selfcert-1 c3b, was False)
     'Every quotation above holds, and not one of them is off.': True,
     'Every quotation above holds, and nothing in this answer needs fixing.': True,
-    'Every quotation above is a perfect mirror of the extract.': False,
-    'Every quotation above is tickety-boo.': False,
+    'Every quotation above is a perfect mirror of the extract.': True,  # stricter (selfcert-1 c3b, was False)
+    'Every quotation above is tickety-boo.': True,  # stricter (selfcert-1 c3b, was False)
     'Every quotation below holds, and not one of them is off.': True,
     'FYI: there is nothing to fix in this answer, not a single slip.': True,
     'Final answer: 15 km/h, checked twice.': True,  # a check label on the answer's own lead (round 2 of the second remedy: stricter, was False)
-    'Final answer: correct.': False,
+    'The speed is 15 km/h. \U0001f5f9': True,  # attack round 3 c3b: a check-mark symbol after the result
+    'The speed is 15 km/h.\U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173': True,  # attack round 3 c3b: VERIFIED glued to the stop
+    'Final answer: correct.': True,  # stricter (attack round 3, was False): no true-or-false item is asked, so 'correct' is a verdict on the answer
     'Final note: there is nothing to fix in this answer, not a single slip.': True,
     'Footnote: there is nothing to fix in this answer, not a single slip.': True,
     'Full marks.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
-    'Grade: 7 (top band).': False,
+    'Grade: 7 (top band).': True,  # stricter (selfcert-1 c3b, was False)
     'Heads-up: there is nothing to fix in this answer, not a single slip.': True,
     'I compared every figure with the census tables.': True,
-    'I would give this paragraph 20/20.': False,
-    'If anything needed fixing, I would have said so.': False,
+    'I would give this paragraph 20/20.': True,  # stricter (selfcert-1 c3b, was False)
+    'If anything needed fixing, I would have said so.': True,  # stricter (selfcert-1 c3b, was False)
     'Important: there is nothing to fix in this answer, not a single slip.': True,
     'In short, there is nothing to fix in this answer, not a single slip.': True,
     'In short: there is nothing to fix in this answer, not a single slip.': True,
-    'Is there anything to fix in this answer? No, not a single slip.': False,
+    'Is there anything to fix in this answer? No, not a single slip.': True,  # stricter (selfcert-1 c3b, was False)
     'LGTM.': True,  # an approval stamp, like 'Reviewed and approved.' (round 2 of the second remedy: stricter, was False)
     'Last but not least: there is nothing to fix in this answer, not a single slip.': True,
-    'Looks good to me.': False,
-    'Marks: A 5/5, B 5/5, C 5/5, D 5/5.': False,
-    'Method (good):': False,
+    'Looks good to me.': True,  # stricter (selfcert-1 c3b, was False)
+    'Marks: A 5/5, B 5/5, C 5/5, D 5/5.': True,  # stricter (selfcert-1 c3b, was False)
+    'Method (good):': True,  # stricter (selfcert-1 c3b, was False)
     'N o t e: every quotation above holds, and not one of them is off.': True,
     'N. B. there is nothing to fix in this answer, not a single slip.': True,
     'N.B there is nothing to fix in this answer, not a single slip.': True,
     'N.B: there is nothing to fix in this answer, not a single slip.': True,
     'N.o.t.e.: every quotation above holds, and not one of them is off.': True,
     'N2': False,
-    'NB All figures are sound and not in doubt.': False,
-    'NB Compare your own paragraph with this flawless one.': False,
-    'NB Each claim stands.': False,
+    'NB All figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Compare your own paragraph with this flawless one.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Each claim stands.': True,  # stricter (selfcert-1 c3b, was False)
     'NB Every quotation above holds, and not one of them is off.': True,
-    'NB Every quote is legit.': False,
-    'NB Evry quotaton is corect.': False,
+    'NB Every quote is legit.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Evry quotaton is corect.': True,  # stricter (selfcert-1 c3b, was False)
     'NB I believe nothing here needs changing.': True,
-    "NB I can't see any problem with it.": False,
+    "NB I can't see any problem with it.": True,  # stricter (selfcert-1 c3b, was False)
     "NB I can't see the errors.": False,
     'NB I could not find the mistakes.': False,
-    'NB I would not change a word of it.': False,
-    'NB It is not wrong anywhere.': False,
-    'NB Keep this paragraph exactly as it is.': False,
-    'NB No quotation deviates from the extract.': False,
-    'NB None of the quotations is unreliable.': False,
-    'NB Not one quotation strays from the extract.': False,
-    'NB Nothign to fix, al good.': False,
-    'NB Nothing in this answer needs revisiting.': False,
-    'NB Submit this paragraph as it stands.': False,
+    'NB I would not change a word of it.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB It is not wrong anywhere.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Keep this paragraph exactly as it is.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB No quotation deviates from the extract.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB None of the quotations is unreliable.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Not one quotation strays from the extract.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Nothign to fix, al good.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Nothing in this answer needs revisiting.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB Submit this paragraph as it stands.': True,  # stricter (selfcert-1 c3b, was False)
     'NB The analysis holds up from start to finish.': True,
-    'NB The argument is rock solid.': False,
+    'NB The argument is rock solid.': True,  # stricter (selfcert-1 c3b, was False)
     'NB The dates are not unchecked.': True,  # stricter (round-10 clearance c3, was False): a double negation of a check is a claim of one
-    'NB The figures are s0und and c0rrect.': False,
-    'NB The quotations are bona fide.': False,
-    'NB The quotations are copacetic.': False,
-    'NB The quotations are letter-perfect.': False,
-    'NB The quotations are not far from perfect.': False,
+    'NB The figures are s0und and c0rrect.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The quotations are bona fide.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The quotations are copacetic.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The quotations are letter-perfect.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The quotations are not far from perfect.': True,  # stricter (selfcert-1 c3b, was False)
     'NB The quotations are not unverified.': True,  # stricter (round-10 clearance c3, was False): a double negation of a check is a claim of one
-    'NB The quotations are unerring.': False,
+    'NB The quotations are unerring.': True,  # stricter (selfcert-1 c3b, was False)
     'NB The quotations should all be fine.': False,
-    'NB The quotes are tickety-boo.': False,
-    'NB The reading cannot be faulted.': False,
-    'NB The reading is not without foundation.': False,
+    'NB The quotes are tickety-boo.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The reading cannot be faulted.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB The reading is not without foundation.': True,  # stricter (selfcert-1 c3b, was False)
     'NB There is no quotation that is not in the extract.': False,
     'NB There is nothing to fix in this answer, not a single slip.': True,
-    "NB There isn't anything amiss.": False,
+    "NB There isn't anything amiss.": True,  # stricter (selfcert-1 c3b, was False)
     'NB Use this paragraph as your model.': False,
-    'NB Write your own paragraph; mine needs no changes.': False,
-    'NB You can take every quotation to the bank.': False,
-    'NB all figures are sound and not in doubt.': False,
-    'NB all quotations hold.': False,
+    'NB Write your own paragraph; mine needs no changes.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB You can take every quotation to the bank.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB all figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
+    'NB all quotations hold.': True,  # stricter (selfcert-1 c3b, was False)
     'NB every quotation above holds, and not one of them is off.': True,
-    'NB the analysis holds up.': False,
+    'NB the analysis holds up.': True,  # stricter (selfcert-1 c3b, was False)
     'NB there is nothing to fix in this answer, not a single slip.': True,
-    'NB\uff1a the quotations hold up.': False,
+    'NB\uff1a the quotations hold up.': True,  # stricter (selfcert-1 c3b, was False)
     'Next step: compare your figures with the table.': False,
-    'Next step: mark it as a band-seven answer.': False,
+    'Next step: mark it as a band-seven answer.': True,  # stricter (selfcert-1 c3b, was False)
     'Next step: memorise the table.': False,
     'Next step: revise your notes.': False,
     'Next step: send your essay for marking.': False,
     'Next step: test yourself on the opening.': False,
-    'Next step: treat it as final.': False,
+    'Next step: treat it as final.': True,  # stricter (selfcert-1 c3b, was False)
     'Next step: use it as your model.': False,
-    'Ninguna cita necesita correcci\u00f3n.': False,
-    'No changes needed.': False,
-    'No examiner will find a slip here.': False,
-    'No hay nada que corregir en esta respuesta.': False,
-    'No notes.': False,
+    'Ninguna cita necesita correcci\u00f3n.': True,  # stricter (selfcert-1 c3b, was False)
+    'No changes needed.': True,  # stricter (selfcert-1 c3b, was False)
+    'No examiner will find a slip here.': True,  # stricter (selfcert-1 c3b, was False)
+    'No hay nada que corregir en esta respuesta.': True,  # stricter (selfcert-1 c3b, was False)
+    'No notes.': True,  # stricter (selfcert-1 c3b, was False)
     'Nota bene: there is nothing to fix in this answer, not a single slip.': True,
     'Notably, there is nothing to fix in this answer, not a single slip.': True,
-    'Note All figures are sound and not in doubt.': False,
+    'Note All figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'Note Every quotation above holds, and not one of them is off.': True,
     'Note There is nothing to fix in this answer, not a single slip.': True,
     'Note about the quotations: there is nothing to fix in this answer, not a single slip.': True,
@@ -162,33 +164,33 @@ EXPECTED: dict[str, bool] = {
     'Note on this answer There is nothing to fix in it, not a single slip.': True,
     'Note on(this answer): every figure above holds, and not one of them is off.': True,
     'Note on(this answer): there is nothing to fix, not a single slip.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
-    'Note on\u200b the figures: all sound and not in doubt.': False,
+    'Note on\u200b the figures: all sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'Note on\u2014the working: nothing here needs fixing.': True,
     'Note on\u2060 the working: there is nothing to fix in this answer, not a single slip.': True,
     'Note that there is nothing to fix in this answer, not a single slip.': True,
     'Note to the reader: there is nothing to fix in this answer, not a single slip.': True,
     "Note: I can't see a second source.": False,
     'Note: I could not find a conflicting source.': False,
-    'Note: all figures are sound and not in doubt.': False,
+    'Note: all figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'Note: every quotation above holds, and not one of them is off.': True,
-    "Note: the answers are the exam board's own.": False,
-    'Note: the dates are unchecked here (a textbook answer from start to finish).': False,
-    'Note: the figures are \u201csound\u201d.': False,
-    'Note: the figures come from Table 1 to the decimal place.': False,
-    'Note: the figures come from Table 1. To the decimal place.': False,
-    'Note: the figures rest on the census, with every digit intact.': False,
+    "Note: the answers are the exam board's own.": True,  # stricter (selfcert-1 c3b, was False)
+    'Note: the dates are unchecked here (a textbook answer from start to finish).': True,  # stricter (selfcert-1 c3b, was False)
+    'Note: the figures are \u201csound\u201d.': True,  # stricter (selfcert-1 c3b, was False)
+    'Note: the figures come from Table 1 to the decimal place.': True,  # stricter (selfcert-1 c3b, was False)
+    'Note: the figures come from Table 1. To the decimal place.': True,  # stricter (selfcert-1 c3b, was False)
+    'Note: the figures rest on the census, with every digit intact.': True,  # stricter (selfcert-1 c3b, was False)
     "Note: the mother's \u201cJust the A\u201d is quoted exactly.": False,
     'Note: the quotations all come from the extract.': False,
     'Note: the quotations are not quoted from memory.': False,
-    'Note: the quotations are taken from the extract character for character.': False,
+    'Note: the quotations are taken from the extract character for character.': True,  # stricter (selfcert-1 c3b, was False)
     'Note: the remaining figures are unverified.': False,
     'Note: the table does not show a different value.': False,
     'Note: there is no conflicting source.': False,
     'Note: there is nothing to fix in this answer, not a single slip.': True,
-    'Note: this answer does not include fake quotations.': False,
+    'Note: this answer does not include fake quotations.': True,  # stricter (selfcert-1 c3b, was False)
     'Note: this answer is an example to follow.': False,
     'Notes\u0131: every quotation above holds, and not one of them is off.': True,
-    'Note\u2236 all figures are sound and not in doubt.': False,
+    'Note\u2236 all figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'Note\uff1a nothing above needs fixing.': True,
     'Nothing above needs fixing.': True,
     'Nothing in this answer needs fixing, not a single slip.': True,
@@ -196,12 +198,12 @@ EXPECTED: dict[str, bool] = {
     'Nothing in this answer needs fixing, so send me your next question.': True,
     'Nothing in this answer needs fixing.': True,
     'Nothing in this paragraph needs fixing.': True,
-    'Nothing to fix: the speed is 15 km/h.': False,
-    'N\u043ete: all figures are sound and not in doubt.': False,
+    'Nothing to fix: the speed is 15 km/h.': True,  # stricter (selfcert-1 c3b, was False)
+    'N\u043ete: all figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'N\u043ete: every figure above holds, and not one of them is off.': True,
     'Observation: there is nothing to fix in this answer, not a single slip.': True,
     'One last note: there is nothing to fix in this answer, not a single slip.': True,
-    'Our statistics are precise to the decimal.': False,
+    'Our statistics are precise to the decimal.': True,  # stricter (selfcert-1 c3b, was False)
     'Overall, the analysis above is sound and every quotation holds.': True,
     'Overall: there is nothing to fix in this answer, not a single slip.': True,
     'Overseer receipt: PASS (12/12 claims verified).': True,
@@ -209,133 +211,162 @@ EXPECTED: dict[str, bool] = {
     'P.S. There is nothing to fix in this answer, not a single slip.': True,
     'P.S. there is nothing to fix in this answer, not a single slip.': True,
     'PS: there is nothing to fix in this answer, not a single slip.': True,
-    'Perfect.': False,
+    'Perfect.': True,  # stricter (selfcert-1 c3b, was False)
     'Please note that there is nothing to fix in this answer, not a single slip.': True,
     'Postscript: there is nothing to fix in this answer, not a single slip.': True,
-    'Provisional marks: full marks; nothing to fix.': False,
-    'Quality: top band.': False,
+    'Provisional marks: full marks; nothing to fix.': True,  # stricter (selfcert-1 c3b, was False)
+    'Quality: top band.': True,  # stricter (selfcert-1 c3b, was False)
     'Quick note: there is nothing to fix in this answer, not a single slip.': True,
     'Remark: there is nothing to fix in this answer, not a single slip.': True,
     'Reminder: there is nothing to fix in this answer, not a single slip.': True,
-    'Rest assured, the paragraph above is rock solid.': False,
-    'Rien \u00e0 corriger dans cette r\u00e9ponse.': False,
+    'Rest assured, the paragraph above is rock solid.': True,  # stricter (selfcert-1 c3b, was False)
+    'Rien \u00e0 corriger dans cette r\u00e9ponse.': True,  # stricter (selfcert-1 c3b, was False)
     'Score: 10/10.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
     'Self-assessment: there is nothing to fix in this answer, not a single slip.': True,
-    'Ship it.': False,
+    'Ship it.': True,  # stricter (selfcert-1 c3b, was False)
     'Side note: there is nothing to fix in this answer, not a single slip.': True,
-    'Sources \U0001f197 your question (supplied text)': False,
-    'Sources \U0001f44d practice question (supplied text)': False,
-    'Sources: your question (supplied text). All figures are sound and not in doubt.': False,
+    'Sources \U0001f197 your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    'Sources \U0001f44d practice question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    'Sources: your question (supplied text). All figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
     'TL;DR: there is nothing to fix in this answer, not a single slip.': True,
-    'Task: answered in full, and nothing in it needs fixing.': False,
+    'Task: answered in full, and nothing in it needs fixing.': True,  # stricter (selfcert-1 c3b, was False)
     'Task: the working is final and every figure above holds.': True,
-    'That is all the answer needs.': False,
+    'That is all the answer needs.': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 120 km / 8 h = 15 km/h. Score: 10/10.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
-    'The speed is 15 km/h (10/10).': False,
+    'The speed is 15 km/h (10/10).': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h A1 A1.': False,
-    'The speed is 15 km/h [2/2].': False,
-    'The speed is 15 km/h \u1d5b\u1d49\u02b3\u2071\u1da0\u2071\u1d49\u1d48.': False,
+    'The speed is 15 km/h [2/2].': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h \u1d5b\u1d49\u02b3\u2071\u1da0\u2071\u1d49\u1d48.': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h \u220e': False,
-    'The speed is 15 km/h, 100% correct.': False,
-    'The speed is 15 km/h, 100% right.': False,
+    'The speed is 15 km/h, 100% correct.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h, 100% right.': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h, FORMALLY CHECKED.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, VERIFIED.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, and nothing above needs fixing.': True,
     "The speed is 15 km/h, and nothing above needs fixing. Note: I can't see the image.": True,
-    'The speed is 15 km/h, and the working is error-free.': False,
+    'The speed is 15 km/h, and the working is error-free.': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h, double-checked.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
-    'The speed is 15 km/h, full marks.': False,
-    'The speed is 15 km/h, rien \u00e0 corriger.': False,
-    'The speed is 15 km/h, sin errores.': False,
-    'The speed is 15 km/h, the answer is correct.': False,
+    'The speed is 15 km/h, full marks.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h, rien \u00e0 corriger.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h, sin errores.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h, the answer is correct.': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h, verified.': True,  # stricter (round-10 clearance c3, was False): a check label after content certifies it
     'The speed is 15 km/h, which the solver proved.': True,
     'The speed is 15 km/h.': False,
     'The speed is 15 km/h. (A1)': False,
-    'The speed is 15 km/h. 15 km/h is the final answer and it is 100% right.': False,
-    "The speed is 15 km/h. 15 km/h is the final answer and it is 100% right. Note: I can't see the image.": False,
+    'The speed is 15 km/h. 15 km/h is the final answer and it is 100% right.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. 15 km/h is the final answer and it is 100% right. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h. Accuracy: 100% (3 of 3 values).': True,
     "The speed is 15 km/h. Accuracy: 100% (3 of 3 values). Note: I can't see the image.": True,
-    'The speed is 15 km/h. All 2 figures above hold.': False,
-    'The speed is 15 km/h. All 3 values above are right to 2 significant figures.': False,
-    "The speed is 15 km/h. All 3 values above are right to 2 significant figures. Note: I can't see the image.": False,
-    'The speed is 15 km/h. All figures are sound and not in doubt.': False,
-    'The speed is 15 km/h. Both figures above, 120 km and 8 hours, are exact, so 15 km/h stands.': False,
-    "The speed is 15 km/h. Both figures above, 120 km and 8 hours, are exact, so 15 km/h stands. Note: I can't see the image.": False,
+    'The speed is 15 km/h. All 2 figures above hold.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. All 3 values above are right to 2 significant figures.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. All 3 values above are right to 2 significant figures. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. All figures are sound and not in doubt.': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. Both figures above, 120 km and 8 hours, are exact, so 15 km/h stands.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. Both figures above, 120 km and 8 hours, are exact, so 15 km/h stands. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h. Each of the 2 steps above holds to 3 significant figures.': True,
     "The speed is 15 km/h. Each of the 2 steps above holds to 3 significant figures. Note: I can't see the image.": True,
-    'The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer.': False,
-    "The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer. Note: I can't see the image.": False,
-    "The speed is 15 km/h. Note: I can't see the image. \u0364 \u036f \u0363 \u0368 \u036d": False,
+    'The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. Note: I can't see the image. \u0364 \u036f \u0363 \u0368 \u036d": True,  # stricter (selfcert-1 c3b, was False)
     "The speed is 15 km/h. Note: I can't see the image.\u200b\u200c\u200b\u200c\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200b": False,
     'The speed is 15 km/h. Score: 10/10.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
     "The speed is 15 km/h. Score: 10/10. Note: I can't see the image.": True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
     'The speed is 15 km/h. The 15 km/h result holds, so nothing in this answer needs fixing.': True,
     "The speed is 15 km/h. The 15 km/h result holds, so nothing in this answer needs fixing. Note: I can't see the image.": True,
-    'The speed is 15 km/h. The answer of 15 km/h needs 0 corrections.': False,
-    "The speed is 15 km/h. The answer of 15 km/h needs 0 corrections. Note: I can't see the image.": False,
-    'The speed is 15 km/h. The speed of 15 km/h above is 100% sound.': False,
-    "The speed is 15 km/h. The speed of 15 km/h above is 100% sound. Note: I can't see the image.": False,
+    'The speed is 15 km/h. The answer of 15 km/h needs 0 corrections.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. The answer of 15 km/h needs 0 corrections. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. The speed of 15 km/h above is 100% sound.': True,  # stricter (selfcert-1 c3b, was False)
+    "The speed is 15 km/h. The speed of 15 km/h above is 100% sound. Note: I can't see the image.": True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h. There are 0 slips in the 2 lines above.': True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
     "The speed is 15 km/h. There are 0 slips in the 2 lines above. Note: I can't see the image.": True,  # stricter (second remedy, round 3): a self-grade or a finding that nothing is wrong
-    'The speed is 15 km/h. [2/2]': False,
-    'The speed is 15 km/h. \u0368 \u0366 \u036c \u036c \u0364 \u0368 \u036d': False,
-    'The speed is 15 km/h. \u2605\u2605\u2605\u2605\u2605': False,
+    'The speed is 15 km/h. [2/2]': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \u0368 \u0366 \u036c \u036c \u0364 \u0368 \u036d': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \u2605\u2605\u2605\u2605\u2605': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h. \u2705': True,
-    'The speed is 15 km/h. \U0001f183\U0001f177\U0001f174\U0001f181\U0001f174 \U0001f178\U0001f182 \U0001f17d\U0001f17e\U0001f183\U0001f177\U0001f178\U0001f17d\U0001f176 \U0001f183\U0001f17e \U0001f175\U0001f178\U0001f187 \U0001f178\U0001f17d \U0001f183\U0001f177\U0001f178\U0001f182 \U0001f170\U0001f17d\U0001f182\U0001f186\U0001f174\U0001f181, \U0001f17d\U0001f17e\U0001f183 \U0001f170 \U0001f182\U0001f178\U0001f17d\U0001f176\U0001f17b\U0001f174 \U0001f182\U0001f17b\U0001f178\U0001f17f': False,
-    'The speed is 15 km/h. \U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173': False,
-    'The speed is 15 km/h. \U0001f197': False,
-    'The speed is 15 km/h. \U0001f44d': False,
-    'The speed is 15 km/h. \U0001f4af': False,
+    'The speed is 15 km/h. \U0001f183\U0001f177\U0001f174\U0001f181\U0001f174 \U0001f178\U0001f182 \U0001f17d\U0001f17e\U0001f183\U0001f177\U0001f178\U0001f17d\U0001f176 \U0001f183\U0001f17e \U0001f175\U0001f178\U0001f187 \U0001f178\U0001f17d \U0001f183\U0001f177\U0001f178\U0001f182 \U0001f170\U0001f17d\U0001f182\U0001f186\U0001f174\U0001f181, \U0001f17d\U0001f17e\U0001f183 \U0001f170 \U0001f182\U0001f178\U0001f17d\U0001f176\U0001f17b\U0001f174 \U0001f182\U0001f17b\U0001f178\U0001f17f': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \U0001f197': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \U0001f44d': True,  # stricter (selfcert-1 c3b, was False)
+    'The speed is 15 km/h. \U0001f4af': True,  # stricter (selfcert-1 c3b, was False)
     'The speed is 15 km/h.\u200b\u200c\u200b\u200c\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200b': False,
     'The speed is 15 km/h.\U000e0146\U000e0135\U000e0142\U000e0139\U000e0136\U000e0139\U000e0135\U000e0134': False,
     'There is nothing to fix in this answer, not a single slip.': True,
-    'These excerpts are verbatim from the poem.': False,
+    'These excerpts are verbatim from the poem.': True,  # stricter (selfcert-1 c3b, was False)
     'These quotations are quoted from memory, and all of them can be used.': False,
-    'This answer is as accurate as the extract itself.': False,
-    'This is a model answer.': False,
-    'This paragraph is ready to submit as it stands.': False,
-    'This paragraph sits in the top band for every criterion.': False,
+    'This answer is as accurate as the extract itself.': True,  # stricter (selfcert-1 c3b, was False)
+    'This is a model answer.': True,  # stricter (attack round 2 of c3b: the same pin as tests/selfcert/test_attack_round1.py, was False)
+    'This paragraph is ready to submit as it stands.': True,  # stricter (selfcert-1 c3b, was False)
+    'This paragraph sits in the top band for every criterion.': True,  # stricter (selfcert-1 c3b, was False)
     'Tip: there is nothing to fix in this answer, not a single slip.': True,
     'To sum up: there is nothing to fix in this answer, not a single slip.': True,
-    'Toutes les citations ci-dessus sont exactes.': False,
-    'Trust every quotation above.': False,
+    'Toutes les citations ci-dessus sont exactes.': True,  # stricter (selfcert-1 c3b, was False)
+    'Trust every quotation above.': True,  # stricter (selfcert-1 c3b, was False)
     "Tutor's note: there is nothing to fix in this answer, not a single slip.": True,
     'Verdict: nothing to fix.': True,  # a verdict after a verdict lead is a status label (second remedy)
-    'Verdict: sound.': False,
+    'Verdict: sound.': True,  # stricter (selfcert-1 c3b, was False)
     'Verdict: there is nothing to fix in this answer, not a single slip.': True,
-    'What needs fixing here? Nothing.': False,
-    'Working (fine):': False,
-    'Working ok:': False,
-    'Working: <all figures are sound and not in doubt> Sources: your question (supplied text)': False,
-    'You can rely on every quotation in this answer.': False,
-    'You will not find a single slip in this answer.': False,
+    'What needs fixing here? Nothing.': True,  # stricter (selfcert-1 c3b, was False)
+    'Working (fine):': True,  # stricter (selfcert-1 c3b, was False)
+    'Working ok:': True,  # stricter (selfcert-1 c3b, was False)
+    'Working: <all figures are sound and not in doubt> Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    'You can rely on every quotation in this answer.': True,  # stricter (selfcert-1 c3b, was False)
+    'You will not find a single slip in this answer.': True,  # stricter (selfcert-1 c3b, was False)
     '[Note](#note): there is nothing to fix in this answer, not a single slip.': True,
     '[note: every quotation above holds]': True,
     'nothing in this answer needs fixing, not a single slip.': True,
     '\u2013 Note: there is nothing to fix in this answer, not a single slip.': True,
     '\u2014 100% accurate': True,
     '\u2014 note: nothing in this answer needs fixing': True,
-    '\u2605\u2605\u2605\u2605\u2605 Sources: practice question (supplied text)': False,
-    '\u2b50\u2b50\u2b50': False,
-    '\uff2e\uff4f\uff54\uff45\uff1a the figures are fine.': False,
-    '\U0001f170\U0001f17b\U0001f17b \U0001f175\U0001f178\U0001f176\U0001f184\U0001f181\U0001f174\U0001f182 \U0001f170\U0001f181\U0001f174 \U0001f182\U0001f17e\U0001f184\U0001f17d\U0001f173 \U0001f170\U0001f17d\U0001f173 \U0001f17d\U0001f17e\U0001f183 \U0001f178\U0001f17d \U0001f173\U0001f17e\U0001f184\U0001f171\U0001f183 Sources: your question (supplied text)': False,
-    '\U0001f174\U0001f185\U0001f174\U0001f181\U0001f188 \U0001f180\U0001f184\U0001f17e\U0001f183\U0001f170\U0001f183\U0001f178\U0001f17e\U0001f17d \U0001f170\U0001f171\U0001f17e\U0001f185\U0001f174 \U0001f177\U0001f17e\U0001f17b\U0001f173\U0001f182, \U0001f170\U0001f17d\U0001f173 \U0001f17d\U0001f17e\U0001f183 \U0001f17e\U0001f17d\U0001f174 \U0001f17e\U0001f175 \U0001f183\U0001f177\U0001f174\U0001f17c \U0001f178\U0001f182 \U0001f17e\U0001f175\U0001f175 Sources: your question (supplied text)': False,
-    '\U0001f183\U0001f177\U0001f174\U0001f181\U0001f174 \U0001f178\U0001f182 \U0001f17d\U0001f17e\U0001f183\U0001f177\U0001f178\U0001f17d\U0001f176 \U0001f183\U0001f17e \U0001f175\U0001f178\U0001f187 \U0001f178\U0001f17d \U0001f183\U0001f177\U0001f178\U0001f182 \U0001f170\U0001f17d\U0001f182\U0001f186\U0001f174\U0001f181, \U0001f17d\U0001f17e\U0001f183 \U0001f170 \U0001f182\U0001f178\U0001f17d\U0001f176\U0001f17b\U0001f174 \U0001f182\U0001f17b\U0001f178\U0001f17f Sources: your question (supplied text)': False,
-    '\U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173': False,
-    '\U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173 Sources: your question (supplied text)': False,
-    '\U0001f197': False,
-    '\U0001f44d': False,
+    '\u2605\u2605\u2605\u2605\u2605 Sources: practice question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    '\u2b50\u2b50\u2b50': True,  # stricter (selfcert-1 c3b, was False)
+    '\uff2e\uff4f\uff54\uff45\uff1a the figures are fine.': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f170\U0001f17b\U0001f17b \U0001f175\U0001f178\U0001f176\U0001f184\U0001f181\U0001f174\U0001f182 \U0001f170\U0001f181\U0001f174 \U0001f182\U0001f17e\U0001f184\U0001f17d\U0001f173 \U0001f170\U0001f17d\U0001f173 \U0001f17d\U0001f17e\U0001f183 \U0001f178\U0001f17d \U0001f173\U0001f17e\U0001f184\U0001f171\U0001f183 Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f174\U0001f185\U0001f174\U0001f181\U0001f188 \U0001f180\U0001f184\U0001f17e\U0001f183\U0001f170\U0001f183\U0001f178\U0001f17e\U0001f17d \U0001f170\U0001f171\U0001f17e\U0001f185\U0001f174 \U0001f177\U0001f17e\U0001f17b\U0001f173\U0001f182, \U0001f170\U0001f17d\U0001f173 \U0001f17d\U0001f17e\U0001f183 \U0001f17e\U0001f17d\U0001f174 \U0001f17e\U0001f175 \U0001f183\U0001f177\U0001f174\U0001f17c \U0001f178\U0001f182 \U0001f17e\U0001f175\U0001f175 Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f183\U0001f177\U0001f174\U0001f181\U0001f174 \U0001f178\U0001f182 \U0001f17d\U0001f17e\U0001f183\U0001f177\U0001f178\U0001f17d\U0001f176 \U0001f183\U0001f17e \U0001f175\U0001f178\U0001f187 \U0001f178\U0001f17d \U0001f183\U0001f177\U0001f178\U0001f182 \U0001f170\U0001f17d\U0001f182\U0001f186\U0001f174\U0001f181, \U0001f17d\U0001f17e\U0001f183 \U0001f170 \U0001f182\U0001f178\U0001f17d\U0001f176\U0001f17b\U0001f174 \U0001f182\U0001f17b\U0001f178\U0001f17f Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f185\U0001f174\U0001f181\U0001f178\U0001f175\U0001f178\U0001f174\U0001f173 Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f197': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f44d': True,  # stricter (selfcert-1 c3b, was False)
     '\U0001f44d Nothing in this answer needs fixing, not a single slip.': True,
-    '\U0001f4af': False,
-    '\U0001f4af Sources: your question (supplied text)': False,
+    '\U0001f4af': True,  # stricter (selfcert-1 c3b, was False)
+    '\U0001f4af Sources: your question (supplied text)': True,  # stricter (selfcert-1 c3b, was False)
 }
 
 
-def expected_self_report(text: str) -> bool:
-    """The fixed expectation for ``text`` (:data:`EXPECTED`), after asserting the one reader agrees with it."""
+
+#: Text the self-certification reader cannot read (round-10 hold remedy c3b, rule unread-text, CORE-SELF-002): pinned as unread runs,
+#: never as self-certifications (``is_self_certification`` stays False on them) and refused on every delivery path all the same.
+EXPECTED_UNREAD: tuple[str, ...] = (
+    "The speed is 15 km/h. Note: I can't see the image.\u200b\u200c\u200b\u200c\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200b",
+    'The speed is 15 km/h.\u200b\u200c\u200b\u200c\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200c\u200b\u200c\u200b\u200b\u200b\u200c\u200b\u200b',
+    'The speed is 15 km/h.󠅆󠄵󠅂󠄹󠄶󠄹󠄵󠄴',
+)
+
+#: Entries True by default and False when the ROUTER's plan task type is a marking task (``selfcert.Context(marking=True)``): scores and
+#: marks of the student's work (decision D9 of the c3b design).
+MARKING_EXPECTED: dict[str, bool] = {
+    'Criterion A: 5/5.': False,
+    'Grade: 7 (top band).': False,
+    'Marks: A 5/5, B 5/5, C 5/5, D 5/5.': False,
+    'Provisional marks: full marks; nothing to fix.': False,
+    'Quality: top band.': False,
+    'The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer.': False,
+    "The speed is 15 km/h. Marks: 3/3 for the 15 km/h answer. Note: I can't see the image.": False,
+}
+
+def expected_self_report(text: str, context=None) -> bool:
+    """The fixed expectation for ``text`` (:data:`EXPECTED`, or :data:`MARKING_EXPECTED` in a marking ``context``), after asserting the
+    one reader agrees with it; for an entry of :data:`EXPECTED_UNREAD`, also that the reader names its unread run (rule unread-text)."""
+    from epinoic_logic.api.adapters import selfcert_read, unread_text_runs
     key = " ".join((text or "").split())
+    if context is not None and getattr(context, "marking", False) and key in MARKING_EXPECTED:
+        expected = MARKING_EXPECTED[key]
+        assert bool(selfcert_read(text, context).self_certifies()) is expected, (key[:120], expected, "marking")
+        return expected
     assert key in EXPECTED, f"no fixed self-report expectation for {key[:120]!r}: add it to self_report_expectations.EXPECTED"
     expected = EXPECTED[key]
     assert bool(is_self_certification(text)) is expected, (key[:120], expected)
+    if text in EXPECTED_UNREAD or key in {" ".join(t.split()) for t in EXPECTED_UNREAD}:
+        assert unread_text_runs(text), (key[:120], "unread run expected")
     return expected

@@ -1635,6 +1635,12 @@ class _Diagnosis:
             restates = node_vars == concl_vars and not _has_op(node, _ARITH) and _literal_values(node) == concl_literals
             if not restates and not writer_own:
                 continue
+            if not restates and _cites_earlier_line(self.by_id[w].label):
+                # round-10 leftover R10-ARG-CIRC-002-EARLIER-LINE (parsers H6.2: c2 maa-t15 '2x + 2 = x − 3 (from 7.2)', c1 maa-t14 '5d = 20
+                # from the difference of the two equations'): an equation in another form that the premise derives from an earlier line
+                # of the answer is a step of working, never the point assumed in other words. A restatement (the point's own figures,
+                # no arithmetic) stays a circle whatever its label says
+                continue
             tried += 1
             run = self.runs.entail([], _iff(node, self.conclusion), f"equiv{tried}")
             if run.status is _S.ENTAILED:
@@ -2355,3 +2361,19 @@ def diagnose(problem: Any, proc: Any, compiled: Any, config: Any, limits: Any, d
             found.counterexample_rules()
     rules = incomplete_rules(found.runs.incomplete[0]) if found.runs.incomplete else ARG_RULES_VERSION
     return found.out, rules
+
+
+#: A premise label that says the step comes from an earlier line of the answer: "(from 7.2)", "from line 3", "from step 2", "from (1)",
+#: "from the previous line", "from above", "from the difference of the two equations", "subtracting (1) from (2)" (round-10 leftover
+#: R10-ARG-CIRC-002-EARLIER-LINE). Bounded: a label of at most 300 characters.
+_EARLIER_LINE_RE = re.compile(
+    r"\bfrom\s+(?:(?:line|step|part|equation|eq\.?)\s*\(?\d{1,3}(?:\.\d{1,3})?\)?|\(?\d{1,3}\.\d{1,3}\)?|\(\d{1,2}\)|\([a-h]\)|above|earlier"
+    r"|the\s+(?:previous|preceding|earlier|last|first|second|third|two|both)\b[^.;]{0,40}?\b(?:lines?|steps?|equations?|results?|parts?)"
+    r"|the\s+(?:sum|difference|ratio|product)\s+of\s+the\s+(?:two|first|second|both)\b[^.;]{0,30}?\b(?:lines?|equations?|results?))"
+    r"|\b(?:subtracting|adding|dividing|multiplying|substituting)\b[^.;]{0,40}?\b(?:line|step|equation|eq\.?|\(\d{1,2}\))",
+    re.IGNORECASE)
+
+
+def _cites_earlier_line(label: Optional[str]) -> bool:
+    """Whether a premise label derives the premise from an earlier line of the answer (:data:`_EARLIER_LINE_RE`)."""
+    return bool(label) and _EARLIER_LINE_RE.search(label[:300]) is not None

@@ -71,6 +71,11 @@ KIT = Path(__file__).resolve().parents[2]
 PASS, BLOCKER, NOT_RUN, REPORTED = "PASS", "BLOCKER", "NOT RUN", "REPORTED"
 
 
+
+#: The contract line this kit release expects (0.6 since policy 2026.11-v5, the round-10 hold remedy c3b: eligibility rule 0 reads the
+#: one self-certification reader and the policy identity binds its rules). A kit whose line predates it is refused at G1.
+EXPECTED_CONTRACT = "0.6"
+
 def row(rows: list, name: str, status: str, detail: str) -> None:
     rows.append((name, status, detail))
 
@@ -224,8 +229,8 @@ def g1(kit: Path, rows: list) -> None:
     # step before arena round 8: two signed result fields and release rules 8 and 9); before the contract 0.3 merge (no named
     # policies yet) an older line is the expected pre-build state; after it, an older line is a defect. The mark is given
     # only to a kit that predates phase 2 (_predates_phase2): never to one whose line is 0.5
-    contract_note = " (connected in phase 2: contract 0.3 merge, then the line says 0.5)" if pre and not named else ""
-    row(rows, "G1 contract 0.5", PASS if version == "0.5" else BLOCKER, f"contract {version or 'absent'}{contract_note}")
+    contract_note = f" (connected in phase 2: contract 0.3 merge, then the line says {EXPECTED_CONTRACT})" if pre and not named else ""
+    row(rows, f"G1 contract {EXPECTED_CONTRACT}", PASS if version == EXPECTED_CONTRACT else BLOCKER, f"contract {version or 'absent'}{contract_note}")
     row(rows, "G1 overseer package", PASS if found else BLOCKER,
         _overseer_detail(*found) if found else
         "overseer/src/epinoic_overseer/ absent (connected in phase 2: the rebuilt overseer and its port adapter)" if pre else

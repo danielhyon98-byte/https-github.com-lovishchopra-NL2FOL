@@ -63,10 +63,11 @@ DELIVERABLE_CONSOLIDATIONS: frozenset[str] = frozenset({"CONSOLIDATED", "CONSOLI
 MAX_PENDING_WAIT_MS = 250
 AUDIT_KEY_ID = "overseer-audit"
 #: The overseer knowledge packs this release of the service accepts (pre-build NOTES item 33): the overseer sub-project's
-#: installed pack, ``overseer-knowledge-docs`` 2.1 since integration step 2 (specialist feedback: the review of a revision
-#: request; 2.0 before it, from architecture step 3, and 1.5 before that), its ``pack.PACK_DIGESTS`` entry;
-#: ``tests/integration/test_overseer_subproject.py`` compares the two without the service ever importing the overseer).
-PINNED_PACK_DIGESTS: frozenset[str] = frozenset({"a60727fce80a4190f59a8a0e21bf0c69cb759bab4a04876d81c88095ea21ebb5"})
+#: installed pack, ``overseer-knowledge-docs`` 2.2 since the round-10 hold remedy c3b (the receipt code CORE-SELF-002 listed;
+#: 2.1 before it, from integration step 2, the review of a revision request; 2.0 before that, from architecture step 3), its
+#: ``pack.PACK_DIGESTS`` entry; ``tests/integration/test_overseer_subproject.py`` compares the two without the service ever
+#: importing the overseer).
+PINNED_PACK_DIGESTS: frozenset[str] = frozenset({"ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28"})
 _AGENT_CODE_RE = re.compile(r"^OVS-AGENT-")
 
 _State = Literal["AUDIT_FAILED", "AUDIT_PENDING", "AUDIT_PASSED_WITH_FINDINGS", "AUDIT_PASSED"]

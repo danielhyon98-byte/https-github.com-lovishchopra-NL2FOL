@@ -1433,11 +1433,11 @@ def t5d(suite: Suite, target: str) -> list[Fault]:
 
 
 # ============================================================================================ L5 fidelity
-#: Self-certifications phrased so that the adapters' detector misses them (T8: FID-009 is the auditor's own rule for what
-#: the detector misses). The recorded round-5 phrasings used before the translator merge ("These quotations are accurate
-#: and need no further checking.", "Every mileage figure above has been checked against the Board of Trade railway
-#: returns.") are caught by the merged detector, which makes them FID-005 when delivered as content
-#: (tests/overseer_tests/test_audit_fidelity.py), so T8 uses phrasings the merged detector still misses.
+#: Self-certifications of the answer's own items (T8). Before the round-10 hold remedy c3b these were phrasings the adapters'
+#: detector missed, so only the auditor's own structural rule named them (OVS-FID-009, a warning). Since c3b both detectors
+#: are the one self-certification reader (``epinoic_logic.selfcert``; design 1.3 item 16: the two never disagree), so a
+#: self-certification delivered as content is OVS-FID-005 (error) whatever its phrasing, and no phrasing is left that only
+#: the auditor's detector names.
 SELF_CERT = {"English": "These excerpts are verbatim from the poem.",
              "History": "Each of these statistics is faithful to the census tables."}
 
@@ -1456,7 +1456,7 @@ def _append_to_specialist(stem: str, sentence: str) -> Callable[[Path], None]:
     return edit
 
 
-@case("T8", "self_certification_as_content", "a self-certification phrasing the adapters miss, delivered as content", module=("selfcert", "fidelity"))
+@case("T8", "self_certification_as_content", "a self-certification of the answer's own items delivered as content (the one reader names it: FID-005)", module=("selfcert", "fidelity"))
 def t8(suite: Suite, target: str) -> list[Fault]:
     def body(aud):
         if target == "synthetic":
@@ -1479,9 +1479,12 @@ def t8(suite: Suite, target: str) -> list[Fault]:
         if not content:
             raise SkipCase(f"the parser roled the claim carrying the sentence ({cid}) other: it is not delivered as content (T8c's control)")
         f = Fault("T8", target, "self_certification_as_content", "the sentence certifying the answer's own items is delivered as content",
-                  expected_codes=["OVS-FID-009"], injected=ids(message_ids=[t.message_id], claim_ids=[cid]))
+                  expected_codes=["OVS-FID-005"], injected=ids(message_ids=[t.message_id], claim_ids=[cid]))
         audit = run.audit()
-        f.check("FID-009 is a warning (a heuristic never fails a transfer)", all(x.severity == "warning" for x in audit.report.findings if x.code == "OVS-FID-009"))
+        fid5 = [x for x in audit.report.findings if x.code == "OVS-FID-005"]
+        f.check("FID-005 is an error (a self-certification delivered as content fails the transfer)", bool(fid5) and all(x.severity == "error" for x in fid5))
+        f.check("no FID-009: the auditor's structural detector is the one reader, so it never names what the adapters' reader did not",
+                not [x for x in audit.report.findings if x.code == "OVS-FID-009"])
         return [suite.finish(f, run, audit=audit, transfer=t.message_id)]
     return _with(suite, target, body)
 

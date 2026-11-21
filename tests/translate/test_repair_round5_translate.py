@@ -301,3 +301,36 @@ def test_control_a_reason_that_gives_content_is_not_circular():
     named = _deliver("English A: Literature", "english-specialist", CHAPTER, "The second chapter is dull because nothing happens in it for twenty pages.",
                      "analytical_paragraph")
     assert not [n for n in named if n[0] == "ARG-CIRC-003"]
+
+
+MARKING = "(a) State the sign of the enthalpy change. [1 mark]\n(b) Explain why the student's value is less exothermic than the booklet value. [3 marks]"
+FEEDBACK = ("(a) Your answer: negative. Correct, because the temperature of the water rose.\n\n"
+            "(b) Your answer says heat was lost, so the value is less exothermic, because less energy reached the water.\n\n"
+            "Provisional total: 3 out of 4 (provisional).\n\n")
+SUMMARY = "1. Signs: a temperature rise means a negative enthalpy change.\n2. Units: convert joules to kilojoules before dividing.\n3. Checks: compare every energy with the data booklet."
+
+
+@pytest.mark.parametrize("heading", ["Pattern summary:", "Summary:", "Common errors:"])
+def test_a_closing_pattern_summary_after_the_provisional_total_answers_no_part(heading):
+    """Round-10 leftover R10-ARG-BARE-PATTERN-SUMMARY (parsers H12; c1 bm-t14 g5.2-g5.4, ch-t14 s6.2-s6.4): the numbered lines of a
+    marking feedback's closing 'Pattern summary:' after the provisional total were held to the last part's reason requirement and named
+    ARG-BARE-001. A closing summary after the provisional total and the last part answers no part."""
+    named = _deliver("Chemistry", "chemistry-specialist", MARKING, FEEDBACK + heading + "\n" + SUMMARY, "marking_feedback")
+    assert not [n for n in named if n[0] == "ARG-BARE-001"], named
+
+
+def test_control_the_same_lines_inside_the_last_part_are_still_held_to_its_reasons():
+    named = _deliver("Chemistry", "chemistry-specialist", MARKING,
+                     "(a) Your answer: negative. Correct, because the temperature of the water rose.\n\n(b) " + SUMMARY.replace("\n", "\n\n"),
+                     "marking_feedback")
+    assert ("ARG-BARE-001", "warning", "report") in named, named
+
+
+def test_a_closing_pattern_summary_after_question_headed_sections_answers_no_part():
+    """The same with the sections headed by their questions ('Question (b) — explain — [3]', c1 bm-t14's layout): the headings make the
+    parts, so the closing 'Pattern summary:' after the last of them and the provisional total answers no part."""
+    feedback = ("Provisional total: 3 out of 4 (provisional).\n\nQuestion (a) — state — [1]\nYour answer: negative. Correct, because the "
+                "temperature of the water rose.\n\nQuestion (b) — explain — [3]\nYour answer says heat was lost, so the value is less exothermic, "
+                "because less energy reached the water.\n\nPattern summary:\n" + SUMMARY)
+    named = _deliver("Chemistry", "chemistry-specialist", MARKING, feedback, "marking_feedback")
+    assert not [n for n in named if n[0] == "ARG-BARE-001"], named

@@ -540,8 +540,10 @@ def local_gloss_names(probs: list) -> dict[str, list[int]]:
             if k[0] != "local" and groups[0] is not None and groups[0][0] != "local":
                 f0, g0 = groups[0]
                 f1, g1 = k
-                # one gloss naming functions or figures the other does not name at all is no evidence of two quantities
-                if not ((f0 and f1 and f0 != f1) or (g0 and g1 and g0 != g1)):
+                # one gloss naming functions or figures the other does not name at all is no evidence of two quantities; nor is a
+                # figure only one gloss states (a label number, 'Table 1'): two quantities need a function or a figure on EACH side
+                # that the other lacks, as the channel's rule same-gloss decides (cross_check.gloss_difference; round 10, R10-K2)
+                if not ((f0 - f1 and f1 - f0) or (g0 - g1 and g1 - g0)):
                     continue
             apart.append(i)
         if apart:

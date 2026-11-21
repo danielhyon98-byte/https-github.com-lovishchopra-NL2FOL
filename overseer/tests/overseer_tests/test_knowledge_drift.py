@@ -529,8 +529,9 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    # the footer names another version than the pack's own (the pack is 2.1 since integration step 2, specialist feedback)
-    "titles_and_footers": ("08-never.md", "Pack version 2.1 · overseer-knowledge-docs", "Pack version 2.2 · overseer-knowledge-docs"),
+    # the footer names another version than the pack's own (the pack is 2.2 since the round-10 hold remedy c3b, which listed
+    # CORE-SELF-002; 2.1 before it, from integration step 2: the same one-byte rule on the installed pack's own footer)
+    "titles_and_footers": ("08-never.md", "Pack version 2.2 · overseer-knowledge-docs", "Pack version 2.3 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

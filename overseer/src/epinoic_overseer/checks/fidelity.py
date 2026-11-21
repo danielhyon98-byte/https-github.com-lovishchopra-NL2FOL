@@ -101,12 +101,17 @@ reading it replaces, so no finding changes.
   INT-REQ-010, INT-REQ-013, INT-SUBJ-003 for a source rule, or a branch ``-SRC-`` rule), nor any other claim of the
   report that carries the same quotation (a sentence claim and its evidence claim quote the same words; the receipt
   names one of them); quoted words that are no quotation to verify (rule ``no-quotation-to-verify``) are not read.
-* FID-005: a self-report delivered as content: the branch's own detector (``adapters.markdown.is_self_certification``)
-  flags its TEXT read with its quotations masked (``mask_quotations``, as the adapters read it: a quoted claim of
+* FID-005: a self-report delivered as content: the one self-certification reader (``epinoic_logic.selfcert`` through
+  ``adapters.self_report.is_self_report``), read in the context of the ROUTER's journaled request (``selfcert.context_for``: a
+  marking task reads the marks of the student's work as content, exactly as the hub's core pack read the answer; round-10
+  hold remedy c3b), flags its TEXT read with its quotations masked (``mask_quotations``, as the adapters read it: a quoted claim of
   accuracy belongs to the supplied text, rule ``quoted-certification``), or (raw-text path) the adapter set ``advisory_verification_status`` or
   ``advisory_verification_eligibility`` yet roled it as content, and it is delivered with a role other than ``other``,
   with materiality ``material``, or counts towards coverage. On a structured report the advisory fields alone are the
-  contract's ignored self-report (INT-HANDOFF-006): FID-009, a warning (review round 2).
+  contract's ignored self-report (INT-HANDOFF-006): FID-009, a warning (review round 2). A verification label or mark ON
+  content (``self_report.label_on_content``: "x = 4 ✓", "Verified: <content>") that the receipt names (CORE-SELF-001 or
+  INT-HANDOFF-006 on the claim) is no FID-005 or FID-009: the content keeps its role by design (selfcert design 3.13) and the
+  self-certification gate refuses the answer by the receipt's code.
 * FID-006 (warning): parse loss: a quoted span, figure or sentence of the response that no claim carries and no
   INT-REQ-013 fold accounts for (markdown heading lines and list numbering are structure and are not scanned; a
   sentence counts when it has five words or more, does not end with a colon, and neither occurs in the claims nor
@@ -129,7 +134,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_certification, not_a_self_report, quotation_only, reading_form
+from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_report, label_on_content, not_a_self_report, quotation_only, reading_form
+from epinoic_logic.api.adapters import selfcert_context_for
 from epinoic_logic.api.adapters import OWN_TEXT_RULE, mask_outside_quotations, model_mark_ranges, own_model_spans, own_text_spans, template_form
 from epinoic_logic.api.adapters import check_excerpt
 from epinoic_logic.api.branches import GENERIC_MARK_ALLOC as _MARK_ALLOC, GENERIC_MARK_CODE as _MARK_CODE
@@ -487,6 +493,34 @@ def _named_claims(t: Transfer) -> set[str]:
     return out
 
 
+#: Receipt codes that name a claim's self-report (the channel's CORE-SELF-001, the advisory status INT-HANDOFF-006).
+_SELF_REPORT_NAMING_CODES = ("CORE-SELF-001", "INT-HANDOFF-006")
+
+
+def _self_report_named_claims(t: Transfer) -> set[str]:
+    """Claims the receipt names a self-report (CORE-SELF-001, INT-HANDOFF-006), at any severity."""
+    rc = t.receipt
+    out: set[str] = set()
+    if rc is None:
+        return out
+    for f in list(rc.findings) + list(rc.structural_findings):
+        if f.code in _SELF_REPORT_NAMING_CODES:
+            out.update(f.claim_ids)
+    return out
+
+
+def _reading_context(ctx: CheckContext, t: Transfer):
+    """The self-certification reader's context for ``t``: built from the ROUTER's journaled request (``selfcert.context_for``:
+    marking only when the router's plan task type is a marking task, the supplied texts as known sources), as the hub's core pack
+    read the same answer, so the auditor and the receipt never disagree on a marking task's feedback (round-10 hold remedy c3b,
+    design 1.3 item 16). Missing or unreadable: the strict default context."""
+    try:
+        req = ctx.view.by_seq[t.request_seq].request if t.request_seq is not None and t.request_seq in ctx.view.by_seq else None
+        return selfcert_context_for(req)
+    except Exception:  # noqa: BLE001 - the strict default
+        return selfcert_context_for(None)
+
+
 def _accounted(rep: SpecialistReport, quote: str, named: set[str]) -> bool:
     """A quotation is accounted for when a source finding names a claim of the report that carries the same quotation
     (as a quoted span or an excerpt; one containing the other, after normalisation)."""
@@ -575,6 +609,8 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     request_text = _request_text(ctx, t)
     mention_keys = {_quote_key(q) for q in _absent_mentions(rep.original_response, find_quotation_spans(rep.original_response))}
     own_models = own_text_quotations(rep.original_response)  # rules own-model and own-text
+    reading_ctx = _reading_context(ctx, t)  # FID-005 / FID-009 read in the context of the ROUTER's journaled request
+    self_named = _self_report_named_claims(t)
     ctx.coverage.claims_checked += len(rep.claims)
     claim_texts_norm: list[str] = []
     for c in rep.claims:
@@ -621,7 +657,13 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             # text, not the specialist certifying its answer, and a claim that is only such a quotation is evidence
             # (second remedy of the round-9 hold: the one reader reads every quotation as written; this check masks a quotation
             # outside the answer's own scope, never one that refers to this answer or names a checking engine or status)
-            text_self = not quotation_only(c.claim_text) and is_self_certification(mask_outside_quotations(c.claim_text))
+            masked_text = mask_outside_quotations(c.claim_text)
+            text_self = not quotation_only(c.claim_text) and is_self_report(masked_text, reading_ctx)
+            if text_self and c.claim_id in self_named and label_on_content(masked_text, reading_ctx):
+                # rule label-on-content (design 3.13): a verification label or mark ON content ("x = 4 ✓", "Verified: <content>") keeps
+                # the content's role by design; the label is the self-report, and the receipt names this claim (CORE-SELF-001 or
+                # INT-HANDOFF-006), so the self-certification gate refuses the answer by that code. No fidelity fault of the channel.
+                continue
             # the advisory fields are the contract's "agent self-report; ignored, recorded for audit" (INT-HANDOFF-006): on a
             # structured report they are the specialist's own record, so the field alone is a warning; the TEXT being a
             # self-certification delivered as content, or an adapter that set the field yet roled the claim as content (raw
@@ -633,7 +675,7 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
                 ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} of a structured report carries the contract's advisory self-report fields (ignored, recorded by "
                         f"INT-HANDOFF-006) while delivered as content (role {c.claim_role}, materiality {c.materiality}); its text is not a self-certification",
                         claim_ids=cid, **ids)
-            elif flags_self_certification(template_form(c.claim_text)) and not not_a_self_report(reading_form(c.claim_text)):
+            elif flags_self_certification(template_form(c.claim_text), reading_ctx) and not not_a_self_report(reading_form(c.claim_text)):
                 # read as the student sees it, a quoted source's words masked, and held to the one reader's vetoes (hold-fix round 3: "I
                 # checked this by hand: 2(4) + 3 = 11." is a worked check, named a self-certification only by this detector)
                 ctx.ovs(t.seq, "OVS-FID-009", f"claim {c.claim_id} reads as a self-certification of the answer's own items (auditor's structural detector) but is delivered as content "

@@ -69,6 +69,7 @@ question, or that the units are right.
 """
 from __future__ import annotations
 
+import contextvars
 import re
 from dataclasses import dataclass, replace
 from fractions import Fraction
@@ -167,7 +168,8 @@ def _read_figure(s: str, i: int) -> tuple[_Fig, int]:
         i = _skip_ws(s, m.end())
     if i >= len(s) or not (s[i].isdigit() and s[i].isascii() or (s[i] == "." and i + 1 < len(s) and s[i + 1].isdigit())):
         raise _Refuse("no figure")
-    scan = scan_number(s, i)
+    point_groups = _POINT_GROUPS.get()
+    scan = scan_number(s, i, thousands_point=point_groups, thousands_comma=not point_groups)
     if scan is None or scan.number is None:
         raise _Refuse("a figure outside the number reader's bounds")
     j = scan.end
@@ -439,6 +441,11 @@ def _unit_key(word: str) -> Optional[str]:
     return f"{w}" if u is not None else None
 
 
+def _compound_key(f) -> str:
+    """The figure's unit words that name units of measurement, as one compound unit ("m³ s⁻¹"), or ""."""
+    return " ".join(k for w in f.units for k in [_unit_key(w)] if k)
+
+
 def _products_only(trees) -> bool:
     """True when no link of the line adds or subtracts (products, quotients, powers and signs only)."""
     def walk(node) -> bool:
@@ -478,7 +485,7 @@ _VULGAR = {"½": Fraction(1, 2), "⅓": Fraction(1, 3), "⅔": Fraction(2, 3), "
 _VULGAR_CHARS = "".join(_VULGAR)
 #: Where the words before a line's arithmetic end their clause: a comma, a semicolon, 'so', 'giving', 'which is', or a copula that ends
 #: the words ('so the loan needed is $60,000 − $45,000', 'At 7%, interest is $15,000 × 7%'). Read on the head only (bounded by the link).
-_HEAD_BOUNDARY_RE = re.compile(r"[,;]|\b(?:so|thus|hence|giving|which\s+is|that\s+is|i\.e\.|is|are|was|were|equals?|comes\s+to)\b", re.IGNORECASE)
+_HEAD_BOUNDARY_RE = re.compile(r"[,;]|\b(?:so|thus|hence|giving|gives?|gave|says?|said|which\s+is|that\s+is|i\.e\.|is|are|was|were|equals?|comes\s+to)\b", re.IGNORECASE)
 #: The start of a figure of the arithmetic, read back from its first digit: a sign, a currency sign, an opening bracket, blanks.
 _FIGURE_LEAD_CHARS = frozenset(" \t([−-+$£€¥")
 
@@ -513,7 +520,9 @@ def _strip_label(link: str) -> str:
     if re.search(r"\d", head) or not re.fullmatch(r"[\s\w'’:,.\-]+", head):
         raise _Refuse("label words outside the reading")
     words = re.findall(r"[A-Za-z]+", head)
-    if words and words[-1].lower() in _ARITHMETIC_WORDS:
+    if words and words[-1].lower() in _ARITHMETIC_WORDS and not (
+            words[-1].lower() == "of" and len(words) >= 2 and words[-2].lower() not in _ARITHMETIC_WORDS):
+        # ("half of $6,000 ÷ 2" takes part; "a doubling time of 70 ÷ 2" names the working's result, attack round 3)
         raise _Refuse("label words that take part in the arithmetic")
     return link[m.start():]
 
@@ -540,7 +549,8 @@ def _strip_head(link: str) -> str:
             if not cuts or re.search(r"\d", rest) or not re.fullmatch(r"[\s\w'’:.\-]*", rest):
                 raise _Refuse("label words outside the reading")
             words = re.findall(r"[A-Za-z]+", rest)
-            if words and words[-1].lower() in _ARITHMETIC_WORDS:
+            if words and words[-1].lower() in _ARITHMETIC_WORDS and not (
+                    words[-1].lower() == "of" and len(words) >= 2 and words[-2].lower() not in _ARITHMETIC_WORDS):
                 raise _Refuse("label words that take part in the arithmetic")
             return link[start:]
         if _WORD_FORMULA_HEAD_RE.fullmatch(head):
@@ -548,7 +558,20 @@ def _strip_head(link: str) -> str:
     return _strip_label(link)
 
 
+#: Whether the statement being read is Spanish: there a point separates thousands ("50.000 habitantes"), never decimals.
+_POINT_GROUPS: contextvars.ContextVar = contextvars.ContextVar("worked_point_groups", default=False)
+
+
 def _read(phrase: str, statement: str) -> _Read:
+    from ..stem.lexer import _spanish_text
+    token = _POINT_GROUPS.set(_spanish_text(statement, 0, len(statement)))
+    try:
+        return _read_inner(phrase, statement)
+    finally:
+        _POINT_GROUPS.reset(token)
+
+
+def _read_inner(phrase: str, statement: str) -> _Read:
     parts = re.split(r"([=≈])", phrase)
     links = parts[0::2]
     seps = parts[1::2]
@@ -600,6 +623,11 @@ def _read(phrase: str, statement: str) -> _Read:
     if len(curs) > 1:
         raise _Refuse("figures in two currencies")
     units = {k for f in figs for w in f.units for k in [_unit_key(w)] if k}
+    # (the unit words of one figure are ONE compound unit, "5.2 m³ s⁻¹": an additive chain whose figures share it, or whose operands
+    # carry none, converts nothing; attack round 6 read m³ and s⁻¹ as two units and left '5.4 − 1.2 = 5.2 m³ s⁻¹' unread)
+    compound = {_compound_key(f) for f in figs if _compound_key(f)}
+    if len(units) > 1 and len(compound) == 1:
+        units = compound
     if len(units) > 1 and not (_products_only(trees) and all(_coherent_si(u) for u in units)):
         # two units of measurement: a conversion the line does not write ('120 km ÷ 90 minutes = 80 km/h'), unless the line only multiplies
         # and divides figures in coherent SI units, whose product is the result's unit as written ('6.0 m × 1.8 m = 10.8 m²', '10.8 m² ×
@@ -821,9 +849,70 @@ _BREAKDOWN_FIG = r"(?:US\$|[$£€¥])?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?!\d)|(?:US\
 _BREAKDOWN_RE = re.compile(
     rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>(?:\s{{1,3}}[A-Za-z]{{1,15}}){{0,6}}?)\s{{0,3}}"
     rf"\((?P<parts>\s{{0,3}}(?:{_BREAKDOWN_FIG})(?:\s{{0,3}}[+−-]\s{{0,3}}(?:{_BREAKDOWN_FIG})){{1,11}}\s{{0,3}})\)")
+#: A stated figure followed by the product or quotient of two figures in brackets (attack round 4, ge-t15): '241.0 PJ (0.22 × 1,050)',
+#: '311.6 PJ (0.38 × 820 PJ)', '15 km/h (120 ÷ 8)'. A unit of at most four letters may follow each figure; nothing else stands in the
+#: bracket (a bracket that also holds '=' is working of its own, read by the worked-line reader).
+_PRODUCT_RE = re.compile(
+    rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>(?:\s{{1,3}}[A-Za-z]{{1,15}}){{0,6}}?)\s{{0,3}}"
+    rf"\((?P<parts>\s{{0,3}}(?:{_BREAKDOWN_FIG})(?:\s{{1,2}}[A-Za-z]{{1,4}})?\s{{0,3}}[×÷]\s{{0,3}}(?:{_BREAKDOWN_FIG})(?:\s{{1,2}}[A-Za-z]{{1,4}})?\s{{0,3}})\)")
+#: A stated figure followed by any arithmetic of figures in brackets (attack round 7): a sum or difference after a unit written with
+#: superscripts ('23.6 m³ s⁻¹ (5.4 + 16.2)'), nested brackets ('24 ((24 + 22 + 23) ÷ 3)'), a scale word or a unit after an operand
+#: ('34 GJ (820 PJ ÷ 21.4 million people)'), a percentage of a figure ('251 PJ (22% of 1,050 PJ)'), a year between the figure and its
+#: bracket ('123 PJ in 2005 (0.15 × 820)'). The bracket holds figures, operators, brackets, "of" after a percentage and unit or scale
+#: words of at most ten letters; at most 120 characters. Each run is bounded.
+_EXPR_WORD = r"(?:[ \t]{1,3}(?:[A-Za-z][A-Za-z²³⁻¹/·]{0,14}|(?:1[89]\d{2}|20\d{2})(?![\d,.])))"
+_EXPR_RE = re.compile(
+    rf"(?<![\d.,])(?P<stated>{_BREAKDOWN_FIG})(?P<words>{_EXPR_WORD}{{0,7}}?)[ \t]{{1,3}}"
+    r"\((?P<parts>\s{0,3}\(?\s{0,3}(?:US\$|[$£€¥])?\d[^\n]{1,118}?)\)(?=[\s.,;:!?]|$)")
+_EXPR_PARTS_OK = re.compile(r"[\d\s.,+−\-×÷*/()%$£€¥A-Za-z²³⁻¹·]+")
+_EXPR_PART_WORD = re.compile(r"[A-Za-z][A-Za-z²³⁻¹/·]*")
 _YEAR_ONLY_RE = re.compile(r"^(?:1[0-9]{3}|20[0-9]{2})$")
 #: The longest text the breakdown reader reads.
 _BREAKDOWN_MAX_CHARS = 200_000
+
+
+class _BalancedMatch:
+    """A match of :data:`_EXPR_RE` whose bracket is extended to its balanced close ("24 ((24 + 22 + 23) ÷ 3)")."""
+
+    re = _EXPR_RE
+
+    def __init__(self, m: "re.Match", parts_end: int, text: str):
+        self._m, self._text, self._parts_end = m, text, parts_end
+
+    def group(self, name=0):
+        if name == "parts":
+            return self._text[self._m.start("parts"):self._parts_end]
+        if name == 0:
+            return self._text[self._m.start():self._parts_end + 1]
+        return self._m.group(name)
+
+    def start(self, name=0):
+        return self._m.start(name) if name else self._m.start()
+
+    def end(self) -> int:
+        return self._parts_end + 1
+
+
+def _balanced(m: "re.Match", text: str):
+    """``m`` with its bracket closed where its depth returns to zero (at most 120 characters), or None."""
+    open_at = m.start("parts") - 1
+    depth = 0
+    for k in range(open_at, min(len(text), open_at + 122)):
+        c = text[k]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                j = k + 1
+                while j < len(text) and j - k < 4 and text[j] in " \t":
+                    j += 1
+                if j < len(text) and text[j] in "+−-×÷*/=^·":
+                    return None  # "(51.2 − 7.0) ÷ 7.0 × 100": the bracket is an operand of more working, no stated result's parts
+                return _BalancedMatch(m, k, text)
+        elif c == "\n":
+            return None
+    return None
 
 
 def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
@@ -832,12 +921,43 @@ def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
     line (the scale rule included: '$1,237.50 million ... ($712.50 + $525)' is read in millions). Years in brackets ('(2019 + 2020)') are
     no parts."""
     out: list[tuple[str, str, _Read]] = []
-    for m in _BREAKDOWN_RE.finditer(text[:_BREAKDOWN_MAX_CHARS]):
+    found = sorted(list(_BREAKDOWN_RE.finditer(text[:_BREAKDOWN_MAX_CHARS])) + list(_PRODUCT_RE.finditer(text[:_BREAKDOWN_MAX_CHARS])),
+                   key=lambda x: x.start())
+    # (a year read as the stated figure, "123 PJ in 2005 (0.15 × 820)", is no reading of the bracket: the general reader tries it)
+    seen_brackets = {m.end() for m in found if not (_YEAR_ONLY_RE.match(m.group("stated")) and not m.group("words").strip())}
+    for m0 in _EXPR_RE.finditer(text[:_BREAKDOWN_MAX_CHARS]):
+        m = _balanced(m0, text)
+        if m is None or m.end() in seen_brackets or _YEAR_ONLY_RE.match(m.group("stated")):
+            continue  # (an unbalanced bracket; read by the sum or the product reader already; a year is a date, never a result:
+            # "2025 profit before interest and tax ($380,000 ÷ $336,000 × 100)")
         parts = m.group("parts")
+        if not _EXPR_PARTS_OK.fullmatch(parts) or not re.search(r"[+−×÷*/]|\s-\s|%\s{1,3}of\b", parts) or \
+                len(re.findall(r"\d[\d,.]*", parts)) < 2 or "=" in parts:
+            continue
+        words = [w for w in _EXPR_PART_WORD.findall(parts) if w != "of"]
+        if any(len(w) > 10 for w in words) or len(words) > 4:
+            continue  # (words in the bracket are units or scale words, never a sentence)
+        found.append(m)
+        seen_brackets.add(m.end())
+    found.sort(key=lambda x: x.start())
+    for m in found:
+        gap = text[m.start("parts") - 4:m.start("parts")]
+        after = text[m.end():m.end() + 4].lstrip(" \t")
+        if "\n" in gap or (after[:1] and after[:1] in "+−-×÷*/=^·"):
+            continue  # "× 100\n(51.2 − 7.0) ÷ 7.0": a bracket on the next line, or one that more working operates on, holds no
+            # stated figure's parts (attack round 7)
+        parts = m.group("parts")
+        if m.re is _EXPR_RE:
+            parts = re.sub(r"%\s{1,3}of\b", "% ×", parts)  # "22% of 1,050 PJ": a percentage of a figure, a product
         figures = re.findall(r"\d[\d,.]*", parts)
         if all(_YEAR_ONLY_RE.match(f) for f in figures):
             continue
-        stated_text = m.group("stated") + m.group("words")
+        if _YEAR_ONLY_RE.match(m.group("stated")) and not m.group("words").strip():
+            continue  # "62% of primary energy in 2005 (100 − 38)": the year is a date, never the bracket's result (attack round 4)
+        top = re.findall(r"\d[\d,.]*", re.sub(r"\([^()]*\)", " ", parts)) if m.re is _EXPR_RE else figures
+        if m.re in (_PRODUCT_RE, _EXPR_RE) and re.sub(r"[^\d.]", "", m.group("stated")) in {re.sub(r"[^\d.]", "", f) for f in top}:
+            continue  # "Christchurch's 185 deaths (300,000 ÷ 185)": the figure is an operand cited, the bracket works out another one
+        stated_text = m.group("stated") + (re.sub(r"\s(?:1[89]\d{2}|20\d{2})\b.*$", "", m.group("words")) if m.re is _EXPR_RE else m.group("words"))
         try:
             toks = _tokens(parts)
             tree = _Parser(toks).parse()
@@ -847,7 +967,8 @@ def _breakdown_reads(text: str) -> list[tuple[str, str, _Read]]:
         except Exception:  # noqa: BLE001 - never an exception on agent text: the figure is not read
             continue
         figs = _figures(tree) + [result]
-        if len({f.cur for f in figs if f.cur}) > 1 or len({k for f in figs for w in f.units for k in [_unit_key(w)] if k}) > 1:
+        if len({f.cur for f in figs if f.cur}) > 1 or (len({k for f in figs for w in f.units for k in [_unit_key(w)] if k}) > 1 and
+                                                       len({_compound_key(f) for f in figs if _compound_key(f)}) != 1):
             continue
         line_start = text.rfind("\n", 0, m.start()) + 1
         line_end = text.find("\n", m.end())
@@ -1092,6 +1213,9 @@ _P_PCT_PAIR_RE = re.compile(rf"\b(?P<dir>rose|risen|rises|increased|increases|gr
 #: A per cent with its working in brackets and no '=': "131.1% of the 2025 profit before interest and tax ($380,000 ÷ $336,000 × 100)".
 _P_PCT_WORK_RE = re.compile(rf"(?P<p>\d{{1,4}}(?:\.\d+)?)\s*(?:%|per\s*cent)(?P<gap>[^().;:%=≈]{{0,90}}?)\(\s*(?P<expr>[^()=≈;]{{3,120}}?[×÷*/][^()=≈;]{{1,120}}?)\s*\)",
                             re.IGNORECASE)
+#: A per cent and its additive parts in brackets after it (a year or a few words between): "56% in 2025 (100 − 54)".
+_P_PCT_PARTS_RE = re.compile(r"(?<![\d.,])(?P<p>\d{1,4}(?:\.\d+)?)\s*(?:%|per\s*cent)(?P<gap>[^().;:%=≈\d]{0,40}?(?:\b(?:1[89]\d{2}|20\d{2})\b)?"
+                             r"[^().;:%=≈\d]{0,10}?)\(\s*(?P<expr>\d[\d.,]{0,10}(?:\s*[+−–-]\s*\d[\d.,]{0,10}){1,11})\s*\)", re.IGNORECASE)
 #: A difference: "Haiti's 7.0 and Darfield's 7.1 differ by 0.3".
 #: (Possessive runs: a unit read as blanks and letters, and the blanks before 'and' and 'differ', never given back one by one; the class
 #: sweep of this stage measured 1.4 s for a figure followed by 20,000 blanks with the earlier '\\s*[%a-z]{0,8}\\s+and'.)
@@ -1240,6 +1364,13 @@ def _prose_reads(text: str) -> list[tuple[str, str, _Read]]:
             continue  # words in the bracket: a comment, not working
         if not re.search(r"×\s*100\b|\*\s*100\b", expr):
             continue  # a per cent's working multiplies by 100; any other bracket is read by the worked equations or not at all
+        r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, m.group("p") + "%", False)
+        if r is not None:
+            out.append((r.phrase, r.statement, r))
+    for m in _P_PCT_PARTS_RE.finditer(text):
+        # a per cent followed by its parts in brackets, joined by + and − ("56% in 2025 (100 − 54)", "79% in 2025 (28 + 27 + 22)": attack
+        # round 5): the per cent is the sum of its parts, read and checked
+        expr = " ".join(m.group("expr").split())
         r = _p_read(" ".join(m.group(0).split()), _p_sentence(text, m.start(), m.end()), expr, m.group("p") + "%", False)
         if r is not None:
             out.append((r.phrase, r.statement, r))

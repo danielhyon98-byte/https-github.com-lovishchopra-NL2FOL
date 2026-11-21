@@ -346,6 +346,35 @@ def _section_parts(report: SpecialistReport) -> dict[str, Optional[str]]:
     return {cid: (labels[k] if k is not None and k < len(labels) else None) for cid, k in sections.items()}
 
 
+#: The heading of a closing summary of marking feedback, at the start of its paragraph ("Pattern summary:", "Summary:", "Overall
+#: patterns:", "Common errors:", "General points:"): bounded.
+_CLOSING_SUMMARY_RE = re.compile(r"^[ \t*_#>-]{0,6}(?:pattern\s+summary|summary|overall(?:\s+patterns?)?|patterns?|common\s+(?:errors|mistakes)"
+                                 r"|general\s+(?:points|feedback|advice)|across\s+(?:the|your)\s+answers?)[*_ \t]{0,4}:", re.IGNORECASE)
+#: A section heading naming a part or a question ("Question (c) — explain — [2]", "Part 2:", "Q3."): a part of the answer, as a part
+#: label is (c1 bm-t14 heads its sections so).
+_PART_HEAD_RE = re.compile(r"^[ \t*_#>-]{0,6}(?:question|part|q)[ \t]{0,3}\(?(?:[a-h]|\d{1,2})\)?(?=[\s:.—–-])", re.IGNORECASE)
+#: The provisional mark or total a marking-feedback answer gives before its closing summary.
+_PROVISIONAL_RE = re.compile(r"(?m)^[ \t*_#>-]{0,6}provisional\s+(?:mark|marks|total|score|band)\b", re.IGNORECASE)
+
+
+def _closing_summary_paragraphs(report: SpecialistReport) -> set[int]:
+    """The paragraphs of a closing summary (round-10 leftover R10-ARG-BARE-PATTERN-SUMMARY, parsers H12: c1 bm-t14 and ch-t14's
+    "Pattern summary:" after the provisional mark): a paragraph that opens with a closing-summary heading (:data:`_CLOSING_SUMMARY_RE`),
+    after the last labelled part and after a provisional mark or total. It summarises the whole marking and answers no part, so it is
+    not held to the last part's reason requirement. Bounded: the answer's paragraphs are read once."""
+    text = report.original_response or ""
+    paras = _paragraphs(text)
+    labelled = [k for k, (a, b) in enumerate(paras) if _part_label(text[a:b]) is not None or _PART_HEAD_RE.match(text[a:b])]
+    if not labelled:
+        return set()
+    provisional = [m.start() for m in _PROVISIONAL_RE.finditer(text[:200_000])]
+    out: set[int] = set()
+    for k, (a, b) in enumerate(paras):
+        if k > labelled[-1] and provisional and provisional[-1] < a and _CLOSING_SUMMARY_RE.match(text[a:b]):
+            out.add(k)
+    return out
+
+
 def _asserts(c: ClaimRecord, pointless: bool) -> bool:
     """Whether ``c`` can stand as the answer's assertion: a material claim of an assertion role, or, when the report holds
     no material claim at all (a parser found no point to mark), a claim of an argued role other than a note ("other")."""
@@ -508,10 +537,13 @@ def bare_assertion(rctx) -> list[NamedDiagnostic]:
     unlinked = not cited
     sections = answer_sections(rctx.report)
     pointless = not any(c.materiality == "material" for c in claims)
+    summary = _closing_summary_paragraphs(rctx.report) if reason_parts else set()
     out: list[NamedDiagnostic] = []
     for c in claims:
         if c.claim_id in empty:
             continue
+        if summary and sections.get(c.claim_id) in summary:
+            continue  # a closing summary answers no part: no part's reason requirement is its own
         if reason_parts and part_of.get(c.claim_id) is not None and part_of[c.claim_id] not in reason_parts:
             continue
         if not _asserts(c, pointless) or c.claim_id in cited or supports(c) or has_reason_connective(c.claim_text) or wrapped_passage(c.claim_text):

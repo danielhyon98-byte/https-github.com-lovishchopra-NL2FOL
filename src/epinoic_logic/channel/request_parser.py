@@ -53,7 +53,7 @@ _PARA_RE = re.compile(r"(?P<q>no more than|at most|at least|exactly|in|write|pro
 _CITE_RE = re.compile(r"\b(quote|quoting|quotations?|cite|citing|textual evidence|refer(?:ring)? to the (?:text|passage|extract))\b", re.IGNORECASE)
 _IMPERATIVES = ("analyse", "analyze", "discuss", "compare", "contrast", "explain", "evaluate", "to what extent", "examine", "assess", "describe", "outline", "calculate", "show that", "prove", "justify", "identify", "write", "comment on", "how does", "how do", "why does", "what is", "what are",
                 "give", "judge", "recommend", "decide", "conclude", "label", "suggest", "interpret", "distinguish", "define", "summarise", "summarize", "argue", "consider")
-_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(])")
+_SENT_RE = re.compile(r"(?<=[.?!])\s+(?=[A-Z\"'(¿¡ÁÉÍÓÚÑÜ])")
 _WORD_NUM = {"one": 1, "a single": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 
 # IB command terms by level (shared command-terms document, C1-C3). Longest match wins.
@@ -550,6 +550,28 @@ def request_parts(text: str) -> list[tuple[str | None, str]]:
     return out
 
 
+#: A scenario sentence of a request (round-10 leftover R10-PARSERS-7, c3 cs-p10a: "A recycling plant uses a camera and a k-nearest
+#: neighbours classifier (k = 5) to decide whether each item ... is aluminium ..." was request item i1): it opens with a determiner
+#: or a setting ("A ...", "The ...", "On a test set ...", "In 2019 ..."), names no addressee and no obligation, and the only command
+#: words it carries are infinitives of purpose ("to decide whether", "used to describe"). It describes the task's situation and
+#: asks for nothing, so it is no item. Bounded reads.
+_SCENARIO_OPEN_RE = re.compile(r"^(?:a|an|the|this|these|those|each|every|one|two|three|its|their|on|in|at|during|after|before|over|for)\b", re.IGNORECASE)
+_SCENARIO_ADDRESS_RE = re.compile(r"\b(?:you|your|yourself|please|should|must|need|needs|required|requires|has[ \t]{1,3}to|have[ \t]{1,3}to|is[ \t]{1,3}to|"
+                                  r"are[ \t]{1,3}to|asked|ask|let|let's)\b", re.IGNORECASE)
+_INFINITIVE_COMMAND_RE = re.compile(r"\bto[ \t]{1,3}(?:" + "|".join(sorted((re.escape(v) for v in _IMPERATIVES if " " not in v), key=len, reverse=True))
+                                    + r")\b", re.IGNORECASE)
+
+
+def is_scenario_sentence(sentence: str) -> bool:
+    """True for a declarative sentence that sets the task's scene (:data:`_SCENARIO_OPEN_RE`): no question, no addressee or
+    obligation (:data:`_SCENARIO_ADDRESS_RE`), and every command word it carries an infinitive of purpose ("to decide whether")."""
+    s = sentence.strip()[:2000]
+    if not s or "?" in s or "¿" in s or not _SCENARIO_OPEN_RE.match(s) or _SCENARIO_ADDRESS_RE.search(s):
+        return False
+    rest = _INFINITIVE_COMMAND_RE.sub(" ", s).lower()
+    return not any(f" {v} " in f" {rest} " for v in _IMPERATIVES) and not _CONTENT_CUE_RE.search(rest)
+
+
 def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = (), *, split_language_b: bool = False) -> list[tuple[str, str, bool]]:
     """``(item text, kind, is_item)`` per sentence of an unlabelled piece: questions, imperatives and requests ("Please
     ..."), a constraint span removed; a sentence that is only a constraint is not an item. ``extra_imperatives`` (a
@@ -563,8 +585,8 @@ def _sentence_items(chunk: str, extra_imperatives: tuple[str, ...] = (), *, spli
         item_text, topic_follows = _residual(sent)
         if not item_text:
             continue
-        if is_context_sentence(item_text):
-            out.append((item_text, "instruction", False))  # context or form: never an item of an unlabelled piece
+        if is_context_sentence(item_text) or is_scenario_sentence(item_text):
+            out.append((item_text, "instruction", False))  # context, form or the task's scene: never an item of an unlabelled piece
             continue
         if "?" not in item_text and "¿" not in item_text:
             lb = language_b_items(item_text)
