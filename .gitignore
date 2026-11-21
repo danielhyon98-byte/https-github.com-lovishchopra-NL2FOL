@@ -8,3 +8,6 @@ dist/
 build/
 *.log
 .env
+# Python tempfile directories (tmp + random suffix) left at the repository root by a probe that ran
+# tempfile.mkdtemp(dir=".") from here; temporary output belongs under the system temporary directory.
+/tmp*/

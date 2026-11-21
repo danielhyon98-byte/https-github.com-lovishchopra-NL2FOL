@@ -1,103 +1,109 @@
-"""Build (or check) the reviewed exclusion list of the self-certification reader's one-edit variants (rule N9 of the
-self-certification design, ``lexicon.json`` ``fuzzy_excluded``).
+"""Build (or check) the misspelling exemptions of the self-certification reader (rule N9, ``lexicon.json`` ``fuzzy_excluded``).
 
-The lexicon generates, for the long closed-lexicon words, every variant with ONE deletion or ONE adjacent transposition that keeps
-the first letter ("corect", "quotaton", "evry"), so a misspelt self-certification is still read. A variant that is itself a real
-word must never be read as the lexicon word ("close" is no misspelling of "closed", "pints" none of "points"): every variant that
-occurs as a word in the repository's own real text (recorded round answers and fixtures, branch data, the documentation) and in
-any extra corpus directory named on the command line (the knowledge-base snapshot the arena uses) is EXCLUDED and listed, sorted,
-in ``lexicon.json`` for review. The Python standard library's own sources (English documentation strings and comments, fixed per
-Python version) are scanned too, as a large real-text corpus of ordinary English words ("noting" is no misspelling of "nothing").
+The lexicon reads, for the long family and part words, every variant with ONE deletion or ONE adjacent transposition that keeps
+the first letter ("corect", "psased", "signd", "reviewe"), so a misspelt self-certification reads as the word it misspells. A
+variant that is itself a REAL WORD must never be read as the lexicon word ("close" is no misspelling of "closed", "pints" none
+of "points"): those variants, and only those, are exempt.
+
+What counts as a real word is the committed, cited word source ``scripts/selfcert/real_words.txt`` (each entry looked up in a
+named dictionary; its header cites the dictionaries and carries their notices). The exemption list is a pure function of two
+committed inputs, that word source and the rest of ``lexicon.json``:
+
+    fuzzy_excluded = sorted(variant for variant in candidates(lexicon without exemptions) if variant in word source)
+
+No other text is scanned (no repository corpus, no standard library, no site-packages or dist-packages): a misspelling found in
+some corpus is a misspelling, never a word. ``tests/selfcert/test_c3c_fuzzy_and_labels.py`` checks that the committed list
+equals this builder's output and that every entry is in the word source.
 
 Usage (repository root, the venv's Python)::
 
-    python -I scripts/selfcert/build_fuzzy_exclusions.py [--corpus DIR ...]          # write the list
-    python -I scripts/selfcert/build_fuzzy_exclusions.py --check [--corpus DIR ...]  # exit 1 if the committed list misses one
+    python -I scripts/selfcert/build_fuzzy_exclusions.py            # write the list into lexicon.json
+    python -I scripts/selfcert/build_fuzzy_exclusions.py --check    # exit 1 if the committed list differs from the build
+    python -I scripts/selfcert/build_fuzzy_exclusions.py --vet DICT [DICT ...]
+        # REVIEW AID, never part of the build: print the candidates that are words of the given dictionary files (one word per
+        # line) and are missing from the word source, for a reviewed addition to real_words.txt with its source named
 """
 from __future__ import annotations
 
 import argparse
 import json
 import pathlib
-import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LEXICON = ROOT / "src" / "epinoic_logic" / "selfcert" / "lexicon.json"
-#: The repository's own real text. The self-certification tests and the expectation tables are NOT corpus: they hold the
-#: obfuscated self-certifications themselves.
-DEFAULT_CORPUS = ["tests/fixtures", "tests/branches/data", "docs", "README.md", "REVIEW_FIXES_README.md", "src/epinoic_logic/branches",
-                  "overseer/docs", "combinator", "flash-router/docs", "integration/corpus"]
-_SKIP_PARTS = ("selfcert", "self_report_expectations", "__pycache__", "/.git/", "site-packages", "/test/", "/tests/")
-_WORD_RE = re.compile(r"[A-Za-zÀ-ÿ]{3,}")
+WORD_SOURCE = pathlib.Path(__file__).resolve().parent / "real_words.txt"
 
 
-def corpus_words(paths: list[pathlib.Path]) -> set[str]:
-    sys.path.insert(0, str(ROOT / "src"))
-    from epinoic_logic.selfcert.lexicon import fold_word
-    words: set[str] = set()
-    for base in paths:
-        files = [base] if base.is_file() else sorted(base.rglob("*")) if base.exists() else []
-        for f in files:
-            if not f.is_file() or any(p in str(f) for p in _SKIP_PARTS):
-                continue
-            if f.suffix.lower() not in (".md", ".json", ".txt", ".jsonl", ".py", ".csv", ".yaml", ".yml", ""):
-                continue
-            try:
-                text = f.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
-            for w in _WORD_RE.findall(text):
-                words.add(fold_word(w))
-    return words
-
-
-def variants_in(words: set[str]) -> list[str]:
-    sys.path.insert(0, str(ROOT / "src"))
+def _lexicon_module():
+    src = str(ROOT / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
     import epinoic_logic.selfcert.lexicon as lx
-    raw = json.loads(LEXICON.read_text(encoding="utf-8"))
-    saved = raw.get("fuzzy_excluded", [])
-    raw["fuzzy_excluded"] = []
-    lx.lexicon.cache_clear()
-    lx.tags.cache_clear()
-    orig = lx._HERE
-    tmp = pathlib.Path(sys.argv[0]).resolve().parent / ".fuzzy_tmp"
-    tmp.mkdir(exist_ok=True)
-    (tmp / "lexicon.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    try:
-        lx._HERE = tmp
-        lex = lx._load()
-    finally:
-        lx._HERE = orig
-        (tmp / "lexicon.json").unlink()
-        tmp.rmdir()
-        raw["fuzzy_excluded"] = saved
-    return sorted(v for v in lex.fuzzy if v in words)
+    return lx
+
+
+def word_source(path: pathlib.Path = WORD_SOURCE) -> dict[str, str]:
+    """The word source: case-folded word -> its cited source tag. Comment lines start with ``#``; a malformed line raises."""
+    lx = _lexicon_module()
+    out: dict[str, str] = {}
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) != 2 or parts[1] not in ("EN", "ES") or lx.fold_word(parts[0]) != parts[0] or not parts[0].isalpha():
+            raise ValueError(f"{path.name}:{n}: expected '<folded word> EN|ES', got {line!r}")
+        out[parts[0]] = parts[1]
+    return out
+
+
+def candidates(raw: dict) -> set[str]:
+    """Every rule-N9 variant of the lexicon data ``raw`` read with NO exemption."""
+    lx = _lexicon_module()
+    data = dict(raw)
+    data["fuzzy_excluded"] = []
+    return lx.fuzzy_candidates(lx.build(data))
+
+
+def build(raw: dict, words: dict[str, str]) -> list[str]:
+    """The exemption list: the candidates that are words of the word source, sorted."""
+    return sorted(v for v in candidates(raw) if v in words)
+
+
+def _dictionary(paths: list[str]) -> set[str]:
+    lx = _lexicon_module()
+    out: set[str] = set()
+    for p in paths:
+        for line in pathlib.Path(p).read_text(encoding="utf-8", errors="replace").splitlines():
+            w = line.strip()
+            if w and "'" not in w:
+                out.add(lx.fold_word(w))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--check", action="store_true")
-    ap.add_argument("--corpus", action="append", default=[], help="an extra corpus directory (the knowledge-base snapshot)")
-    ap.add_argument("--no-stdlib", action="store_true", help="do not scan the Python standard library's sources")
+    ap.add_argument("--check", action="store_true", help="exit 1 if lexicon.json's list differs from the build")
+    ap.add_argument("--vet", nargs="+", metavar="DICT", help="review aid: candidates in these dictionary files missing from the source")
     args = ap.parse_args(argv)
-    paths = [ROOT / p for p in DEFAULT_CORPUS] + [pathlib.Path(p) for p in args.corpus]
-    if not args.no_stdlib:
-        import sysconfig
-        paths.append(pathlib.Path(sysconfig.get_paths()["stdlib"]))
-    found = variants_in(corpus_words(paths))
     raw = json.loads(LEXICON.read_text(encoding="utf-8"))
-    committed = set(raw.get("fuzzy_excluded", []))
-    if args.check:
-        missing = sorted(set(found) - committed)
-        if missing:
-            print(f"fuzzy exclusions missing from lexicon.json: {missing[:40]}")
-            return 1
-        print(f"fuzzy exclusions: none missing ({len(committed)} committed)")
+    words = word_source()
+    if args.vet:
+        missing = sorted((candidates(raw) & _dictionary(args.vet)) - set(words))
+        print("\n".join(missing) if missing else "no candidate of these dictionaries is missing from the word source")
         return 0
-    raw["fuzzy_excluded"] = sorted(committed | set(found))
+    built = build(raw, words)
+    committed = raw.get("fuzzy_excluded", [])
+    if args.check:
+        if committed != built:
+            extra, missing = sorted(set(committed) - set(built)), sorted(set(built) - set(committed))
+            print(f"fuzzy_excluded differs from the build: not in the build {extra[:40]}, missing {missing[:40]}")
+            return 1
+        print(f"fuzzy_excluded: equal to the build ({len(built)} entries)")
+        return 0
+    raw["fuzzy_excluded"] = built
     LEXICON.write_text(json.dumps(raw, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(f"wrote {len(raw['fuzzy_excluded'])} exclusions to {LEXICON}")
+    print(f"wrote {len(built)} exclusions to {LEXICON.relative_to(ROOT)}")
     return 0
 
 

@@ -20,8 +20,9 @@ import unicodedata
 from dataclasses import dataclass, replace as _dc_replace
 from typing import Optional
 
-from .lexicon import lexicon, tags as word_tags, fold_word
+from .lexicon import fuzzy_target, lexicon, tags as word_tags, fold_word
 from .normalise import TOKEN_WORDS, fold_table, letter_like
+from .encoded import encoded_hits, join_split_sentences, spelled_hits
 
 __all__ = ["Context", "Hit", "Unread", "Reading", "read_text"]
 
@@ -124,7 +125,7 @@ def _derive_fields(raw: str, w: Optional[str], t: Optional[frozenset], idiom: bo
         t = frozenset(t | {x for x in word_tags(base) if x.startswith("C:eval") or x in ("C:tool", "C:assess_instrument",
                                                                                      "C:src_noun", "C:genre")} | {"poss"})
     if "fuzzy" in t and not given_t:
-        target = lexicon().fuzzy.get(w)
+        target = fuzzy_target(w)
         if target:
             w = target
     if not given_t and raw[-1:] in "\u00e9\u00f3\u00c9\u00d3" and "lang:es" in t:
@@ -234,6 +235,8 @@ def _merge(toks: list[Tok]) -> list[Tok]:
             if k <= n - i and (k == 1 or (ws[i + 1] == cand[1] and (k == 2 or tuple(ws[i + 2:i + k]) == cand[2:]))):
                 if best is None or k > len(best[0]):
                     best = (cand, tg)
+        if best is not None and best[0] == ("in", "order") and i + 2 < n and ws[i + 2] in ("to", "that", "for"):
+            best = None  # "in order to find and correct mistakes": a purpose, never the outcome "in order" (check round 9 of c3c)
         if best is not None:
             k = len(best[0])
             parts = tuple(toks[i:i + k])
@@ -1098,6 +1101,13 @@ def _comma_split(toks: list[Tok]) -> list[list[Tok]]:
     """Split at ", " before a coordinator or subordinator, before a new subject with its own verb, or before a verbless fragment
     that holds a family word (rule S3)."""
     commas = [k for k, t in enumerate(toks) if t.w == ","]
+    # ("and" or "but" with no comma before a pronoun subject and its own verb opens a clause too: "I re-read it in order to check it
+    # and it is correct." is two clauses, the second an outcome of its own; check round 9 of c3c)
+    bare = [k for k in range(1, len(toks) - 2) if toks[k].w in ("and", "but") and toks[k - 1].w != "," and
+            toks[k + 1].w in ("it", "they", "everything", "all", "this", "these", "that", "i", "we") and
+            toks[k + 2].has("C:copula", "C:aux")] if toks and not toks[0].has("v:base", "C:imperative_verbs") else []
+    if bare:
+        commas = sorted(set(commas) | set(bare))
     if not commas:
         return [toks]
     out: list[list[Tok]] = []
@@ -1117,7 +1127,9 @@ def _comma_split(toks: list[Tok]) -> list[list[Tok]]:
         before = toks[max(start, k - 24):k]
         before_verb = any(fin[max(start, k - 24):k])
         split = False
-        if first.w in ("which", "who", "whose") and idx + 1 < len(commas) and commas[idx + 1] + 1 < len(toks) and \
+        if k in bare:
+            split = True
+        elif first.w in ("which", "who", "whose") and idx + 1 < len(commas) and commas[idx + 1] + 1 < len(toks) and \
                 fin[commas[idx + 1] + 1] and not toks[commas[idx + 1] + 1].has("C:aux", "C:copula", "C:det", "C:pron1", "C:pron3") and \
                 not toks[start].has("C:subordinator", "C:coordinator"):
             split = False  # a non-restrictive relative between a subject and its verb ("Kenya's pyramid, which has a wide base, matches
@@ -2348,6 +2360,15 @@ def _bearer_result(toks: list[Tok], i: int, ctx: Context, es: bool) -> Optional[
 def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, info: dict, mood: str, fragment_clause: bool,
           modal: Optional[str], score_len: int) -> Optional[tuple[str, str]]:
     """The gate rule (G1 to G8) that applies to a positive, asserted trigger, with the hit's form; None when none applies."""
+    if fam == "OUTCOME" and t.w in ("correct", "corrects", "corregir") and 0 < i < len(toks) - 1 and \
+            toks[i - 1].w in ("to", "and", "or", "then", "y", "o", "para") and \
+            (toks[i + 1].w in _ERROR_NOUNS or (toks[i + 1].has("C:det") and i + 2 < len(toks) and toks[i + 2].w in _ERROR_NOUNS)):
+        return None  # the verb "correct" ("to find and correct mistakes"): an act on errors, no outcome (check round 9 of c3c)
+    if fam in ("CHECK", "APPROVE") and t.has("v:past", "v:3sg") and i + 1 < len(toks) and toks[i + 1].has("C:anchor_idioms") and \
+            any(g in toks[i + 1].w for g in _ANSWER_SELF_NOUNS | {"essay"}):
+        # a check or approval whose object is this answer itself ("The BBC fact-checked this response."), whoever is credited:
+        # no outside party has seen this answer (THE CLASS; check round 9 of c3c)
+        return ("G2", "sentence")
     subj, v = _subject_for(toks, i)
     if subj and all(x.w in ("having", "after", "upon", "on", "once") for x in subj):
         subj = []  # "Having re-derived each step, ...": a perfect participle clause, its object is the theme
@@ -2583,6 +2604,7 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
     # X2 a named outside party's check of items (the figures it published, quoted above): evidence about the subject matter. With a
     # theme that names this answer itself it is gated ("Kershaw has checked every claim in this answer.")
     if ev == "OUT" and fam in ("CHECK", "APPROVE", "STATUS", "AGREE") and theme.cls in ("A", "N", "M") and not _names_answer(theme) and \
+            not any(x.has("C:anchor_idioms") and any(g in x.w for g in _ANSWER_SELF_NOUNS | {"essay"}) for x in toks[i + 1:]) and \
             not any(x.has("C:pron1", "C:poss1") for x in subj) and not any(
                 x.has("C:tool", "C:eval_int", "C:check_noun", "C:eval_int_agentive") and not x.has("C:eval_out") and not (
                     m + 1 < len(toks) and (toks[m + 1].has("C:eval_out") or toks[m + 1].w in _INSTITUTIONS)) and (m > i or x in subj)
@@ -2743,12 +2765,52 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
     if ev == "OUT":
         if cls == "I" and fragment and not subj and fam in _FAMS_G5:
             return None  # a fragment crediting an outside party ("(checked by the Registrar General)"): its check, cited (boundary b)
+        if cls == "A" and fam in ("CHECK", "APPROVE", "STATUS", "AGREE", "SCORE") and _names_answer(theme) and not marking:
+            # a named outside authority credited with checking THIS answer ("Wikipedia confirms every figure in this response.", "The
+            # BBC fact-checked this response.", "Professor Smith reviewed this answer and approved it."): no outside party has seen
+            # this answer, so the credit is the answer's own claim (THE CLASS, whoever is credited; c3c). A named source's check of
+            # the subject matter ("the ONS confirmed the figures") keeps its subject-matter theme and stays evidence (boundary (b))
+            return ("G2", form)
         return None
     # SRCEVAL never fires through G3 on a specialist's branch (the History source evaluation, "This is reliable."); in the combinator's
     # synthesis a pronoun that takes up the synthesis's own preceding statement ("...; this is fully reliable.", "..., which is
     # beyond doubt.") has no source to evaluate but that statement: its reliability is a quality claim of the synthesis (G3)
-    srceval_own = fam == "SRCEVAL" and ctx.writer == "combinator" and bool(theme.toks) and all(
-        x.w in ("this", "that", "which", "it", "esto", "eso", "lo cual") for x in theme.toks if not x.punct)
+    srceval_own = fam == "SRCEVAL" and bool(theme.toks) and all(
+        x.w in ("this", "that", "which", "it", "esto", "eso", "lo cual") for x in theme.toks if not x.punct) and (
+        ctx.writer == "combinator" or _own_claim_before(info.get("sentence_toks") or toks, theme.toks[0].a))
+    st_all = info.get("sentence_toks") or toks
+    if srceval_own and marking and ctx.writer != "combinator" and not any(
+            x.w in ("you", "your", "yours", "tu", "tus", "usted", "vosotros") and x.a < toks[0].a and not any(
+                (y.w.split() or [""])[-1] in ("mark", "marks", "total", "grade", "score", "band", "nota", "puntuacion", "calificacion")
+                for y in st_all[m + 1:m + 4]) for m, x in enumerate(st_all)):
+        # in a marking task too: "Your provisional total is 21 out of 30; this is fully reliable." takes up the writer's OWN
+        # marking statement, so its reliability is the writer's confidence in its own claim, not an evaluation of the student's
+        # work (boundary (a); check round 9 of c3c). A statement about the student's text ("you quote ...") stays the student's
+        return ("G3", form)
+    if not srceval_own and fam == "SRCEVAL" and toks:
+        # the clause opens with the pronoun itself ("that is completely reliable", "and that is entirely trustworthy", "— all of
+        # which is fully reliable"; check round 9 of c3c): the same taking-up of the sentence's own statement
+        lw = [x for x in toks[:i] if not x.punct]
+        k0 = 1 if lw and lw[0].w in ("and", "but", "y", "pero") else 0
+        head = lw[k0:]
+        lead_n = 2 if len(head) >= 2 and head[0].w in ("all of", "both of", "each of", "todo lo", "todo") and head[1].w in (
+            "which", "this", "that", "cual", "esto", "eso") else (1 if head and head[0].w in ("this", "that", "which", "it", "esto",
+                                                                                              "eso", "lo cual") else 0)
+        if lead_n and len(head) > lead_n and head[lead_n].has("C:copula") and all(
+                x.has("C:copula", "C:aux") or x.w in _DEGREE_WORDS for x in head[lead_n + 1:]) and \
+                (ctx.writer == "combinator" or _own_claim_before(info.get("sentence_toks") or toks, head[0].a)):
+            return ("G3", form)
+    if not srceval_own and fam == "SRCEVAL" and ctx.writer != "combinator" and toks and toks[0].w in ("which", "lo cual") and \
+            not any(x.has("C:det", "C:prep", "C:neg") for x in toks[1:i]) and any(x.has("C:copula") for x in toks[1:i]) and \
+            not (i + 1 < len(toks) and not toks[i + 1].punct) and _own_claim_before(info.get("sentence_toks") or toks, toks[0].a):
+        # a sentential relative after the answer's own statement ("..., which is entirely trustworthy"): the relative takes up that
+        # statement, the writer's confidence in its own claim (the reading of the clause head as its subject is for a relative on
+        # a noun; a predicate with a complement, "which is reliable evidence of ...", stays the subject's)
+        return ("G3", form)
+    # (c3c, boundary (a)): on a specialist's branch too, a pronoun that takes up the answer's OWN statement earlier in the same
+    # sentence ("The treaty was signed in 1919; this is fully reliable.", "..., which is entirely trustworthy") has no source to
+    # evaluate but that statement: the writer's confidence in its own claim. A statement about a source, a text or evidence ("The
+    # diary was written by an eyewitness; this is reliable.") keeps the source evaluation of the subject (boundary (b)).
     generic_present = (t.has("v:3sg", "v:base") and not t.has("v:past")) and _generic_subject(subj)
     if not generic_present and t.has("v:ger") and i > 0 and toks[i - 1].w == "by":
         # the method of a generic act ("Unit tests check the algorithm by comparing ..."): the act's subject is the clause's lead
@@ -2791,6 +2853,54 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
             return None
         return ("G5", "fragment" if form == "fragment" else "sentence")
     return None
+
+
+#: Nouns of evidence besides the source nouns of the lexicon: a reliability said of what they name evaluates the subject's evidence.
+_EVIDENCE_NOUNS = frozenset("evidence data testimony testimonies record records census survey surveys study studies estimate estimates "
+                            "statistics figures sample samples witness witnesses account accounts method methods measurement "
+                            "measurements experiment experiments instrument instruments test tests model models theory theories "
+                            "datos testimonio registro registros censo encuesta estudio estudios estadisticas cifras muestra testigo "
+                            "metodo medicion".split())
+
+
+_DEGREE_WORDS = frozenset("fully completely entirely totally wholly absolutely perfectly quite very highly utterly thoroughly really "
+                          "100% plenamente completamente totalmente absolutamente muy".split())
+
+
+def _own_claim_before(sentence_toks: list[Tok], at: int) -> bool:
+    """Whether the sentence holds, before offset ``at`` and after its last clause break, a statement of its own (three words or more
+    with a finite verb) that names no source, text or evidence: what a "this"/"which" after it takes up is the answer's own claim."""
+    prior = [x for x in sentence_toks if x.b <= at]
+    while prior and (prior[-1].punct or prior[-1].w in ("and", "y")):
+        prior.pop()
+    cut = max((k for k, x in enumerate(prior) if x.w in (";", ":", "—", "–")), default=-1)
+    prior = prior[:cut] if cut >= 0 and len(prior[:cut]) >= 3 else prior
+    words = [x for x in prior if not x.punct]
+    if len(words) < 3:
+        return False
+    # the statement's verb: a finite verb, or (check round 9 of c3c) the first verb form after its subject ("States often resist
+    # outside pressure", "Schemas shape what people recall", "It also slows hasty judgement", "A firm can use surveys")
+    v = next((k for k, x in enumerate(words) if k >= 1 and (_finite(words, k) or x.has("v:past", "v:3sg", "v:part")) or (
+        k >= 1 and not x.t and x.w.isalpha() and len(x.w) > 3 and x.w.endswith(("ed", "es", "s")))), None)
+    v2 = next((k for k, x in enumerate(words) if k >= 1 and (x.has("C:aux", "C:copula", "v:3sg", "v:past", "v:base") and
+                                                             not x.has("C:det", "C:prep"))), None)
+    if v is None and v2 is None:
+        # (the lexicon knows few content verbs: a clause of four words or more with no verb it knows is still a statement, read
+        # whole for a source)
+        if len(words) < 4:
+            return False
+        v = len(words)
+    else:
+        v = min(k for k in (v, v2) if k is not None)
+    # a statement ABOUT a source, a text or evidence ("The diary was written by an eyewitness; this is reliable."): the pronoun
+    # evaluates that source (boundary (b)); the statement's subject names it. Evidence the statement only mentions after its verb
+    # ("A firm can use surveys to test demand") is the subject matter, not the thing evaluated
+    subject = words[:max(v, 1)]
+    whole_source = any(x.has("C:src_noun") or x.w in _EVIDENCE_NOUNS or x.w.rstrip("s") in _EVIDENCE_NOUNS or x.has("C:genre") and
+                       x.w not in ("answer", "response", "reply") for x in subject)
+    by_source = any(x.w in ("by", "from", "according to", "segun", "por") for x in words[v:]) and any(
+        x.has("C:src_noun") or x.w in _EVIDENCE_NOUNS for x in words[v:])
+    return not whole_source and not by_source
 
 
 #: Outcome words of correctness itself (never the everyday "fine", "good", "perfect" of a narrative).
@@ -3610,18 +3720,49 @@ def _according_to_pipeline(toks: list[Tok], ctx: Context) -> bool:
     return False
 
 
-def _bracket_status(toks: list[Tok], ctx: Context) -> bool:
+#: The words of a solver's result line: a satisfiability value, an unsat core, a counterexample or a model and their emptiness.
+_SOLVER_RESULT_WORDS = frozenset("sat unsat satisfiable unsatisfiable unsat-core core cex counterexample counterexamples model models "
+                                 "found empty none nil null no 0 result status solver z3 smt".split())
+#: Words that make a bracket's host line itself about satisfiability (a formula, its clauses or a truth assignment), where "(sat)"
+#: glosses the subject matter (boundary (b)) instead of labelling the line with the solver's result.
+_LOGIC_HOST_WORDS = frozenset("satisfiable unsatisfiable satisfiability satisfied satisfies satisfy formula formulas formulae clause "
+                              "clauses cnf dnf boolean propositional proposition literal literals assignment assignments valuation "
+                              "tautology contradiction solver solvers sat smt variable variables true false truth wff "
+                              "formula's model models".split())
+
+
+def _solver_result(words: list[Tok]) -> bool:
+    """Whether a bracket's words are a solver's positive result ("sat", "sat, unsat-core empty", "cex: none", "no counterexample",
+    "model found"): every word of the solver's result vocabulary, a satisfiability value, a found model, or an empty counterexample."""
+    ws = [t.w for t in words]
+    if not ws or not all(w in _SOLVER_RESULT_WORDS for w in ws) or any(w in ("not", "unknown", "timeout") for w in ws):
+        return False
+    if ws[0] in _SAT_VALUES:
+        return True
+    if "model" in ws or "models" in ws:
+        return "found" in ws and not any(w in ("no", "none", "0") for w in ws)
+    if "cex" in ws or "counterexample" in ws or "counterexamples" in ws:
+        return any(w in ("none", "no", "0", "empty", "nil", "null") for w in ws)
+    return False
+
+
+def _bracket_status(toks: list[Tok], ctx: Context, host_logic=True) -> bool:
     """Whether a bracket holds nothing but a status of the pipeline's vocabulary, positive and unnegated: a label ("(signature
-    valid)", "[proof checked]", "(sat)" in a synthesis; a satisfiability value alone is a status only in the combinator's text,
-    where no formula of the answer is the writer's own)."""
+    valid)", "[proof checked]", "(sat)"). A solver's result ("(sat)", "(sat, unsat-core empty)", "(cex: none)", "(model found)") is
+    the answer's own solver label (boundary (a), c3c) on every branch, except on a specialist's line that is itself about
+    satisfiability (``host_logic``: "The formula p ∧ ¬q is satisfiable (sat)."), where it glosses the subject matter."""
     words = [t for t in toks if not t.punct or t.w in (":",)]
     words = [t for t in words if t.w not in ("(", ")", "[", "]")]
+    if callable(host_logic) and any(t.w in _SOLVER_RESULT_WORDS for t in words[:7]):
+        host_logic = host_logic()  # (read only for a bracket with a solver word: once per such bracket, never per mark code)
+    if words and len(words) <= 6 and _solver_result([t for t in words if t.w != ":"]):
+        return ctx.writer == "combinator" or not host_logic
     if not words or len(words) > 6 or any(t.has("C:neg") or t.has("negaffix") for t in words):
         return False
     value = False
     for t in words:
         if t.w in _SAT_VALUES:
-            if ctx.writer != "combinator":
+            if ctx.writer != "combinator" and (host_logic() if callable(host_logic) else host_logic):
                 return False
             value = True
         elif t.w in _BRACKET_VALUES or (t.fam() & {"STATUS", "CHECK", "OUTCOME", "APPROVE"} and not (t.has("v:base") and not t.has("v:part", "adj", "noun"))):
@@ -3713,6 +3854,8 @@ def _pronoun_reporter(before: list[Tok]) -> bool:
     v = next((k for k, t in enumerate(fw) if t.has("C:report_verb") or t.w in _ES_REPORT_FINITE or t.w in ("reads", "read")), None)
     if v is None:
         return False
+    if any(t.has("C:anchor", "C:anchor_idioms") for t in fw[v + 1:]):
+        return False  # "note on this answer:": a note ON this answer, no pronoun reporting a source (check round 9 of c3c)
     subj = [t for t in fw[:v] if t.w not in ("also", "then", "later", "tambien", "luego")]
     return all(t.w in ("it", "they", "he", "she", "this", "which", "ella", "el", "esta", "este") for t in subj) and len(subj) <= 1
 
@@ -3978,7 +4121,10 @@ def _quote_processing(s: str, a: int, b: int, ctx: Context) -> tuple[str, list[t
                                                                   "the solution") for t in itoks)
             analysis = any(t.has("C:analysis") for t in toks_all[max(0, kb - 24):kb] + toks_all[ka:ka + 24])
             if not analysis and any(t.has("C:src_noun", "C:analysed_text", "C:eval_out") or t.name for t in frame) and not any(
-                    t.has("C:eval_asr", "C:eval_int", "C:tool", "C:eval_int_agentive", "C:m_eval") for t in frame):
+                    t.has("C:eval_asr", "C:eval_int", "C:tool", "C:eval_int_agentive", "C:m_eval", "C:anchor", "C:anchor_idioms")
+                    for t in frame):
+                # (a frame naming this answer, "Reviewer's note on this answer: '...'", relays a verdict on the answer whatever the
+                # sentence before analyses: check round 9 of c3c)
                 # (the next sentence analyses the quotation only when the frame credits it to a source of the subject, never to an
                 # assessor, an agent or a tool of this exchange)
                 if near_memo is None:
@@ -4034,6 +4180,10 @@ def _quote_processing(s: str, a: int, b: int, ctx: Context) -> tuple[str, list[t
                                                  for k, t in enumerate(fr[:verb_at]))
             if not source and _pronoun_reporter(before) and _source_before(s, a):
                 source = True  # (a pronoun reporting for the source the sentence before names)
+            if not explicit and reporter == "OUT" and any(t.has("C:anchor_idioms") and t.w not in ("so far",) and any(
+                    g in t.w for g in ("answer", "response", "reply", "respuesta", "working", "solution")) and m > 0 and
+                    before[-8:][m - 1].w in ("on", "of", "about", "for", "regarding", "sobre", "de") for m, t in enumerate(before[-8:])):
+                explicit = True  # an evaluator's words ON this answer ("Reviewer's note on this answer: '...'"; check round 9 of c3c)
             if explicit or (not analysis and not analysed and _relay_has_no_reporter_theme(itoks, source)):
                 relays.append((a + qa + 1, a + qb - 1, "OUT-relayed"))
             for m in range(qa, qb):
@@ -4437,6 +4587,9 @@ _FOOTNOTE_MARK_RE = re.compile("(?:(?<=^)|(?<=\n)|(?<=[.!?;:\"'\u201d\u2019\u00b
                                "(?=[ \t\n]|$)")
 
 
+_LEAD_NOTE_MARK_RE = re.compile(r"(?m)^([ \t>]*)(\[\d{1,3}\]|\(\d{1,3}\)|\^\d{1,3}|\d{1,3}\)|[*†‡§]{1,3})(?=[ \t]+[^\W\d_])")
+
+
 def _blank_footnote_marks(text: str) -> str:
     """``text`` with its superscript footnote marks blanked character for character (length kept)."""
     return _FOOTNOTE_MARK_RE.sub(lambda m: m.group(0)[:m.start(1) - m.start(0)] + " " * (m.end(1) - m.start(1)), text)
@@ -4555,6 +4708,8 @@ _IN_STRUCK: list = []
 _SECOND_TO_FIRST = {"your": "my", "yours": "mine", "you": "I", "tu": "mi", "tus": "mis", "tuya": "mía", "tuyo": "mío", "usted": "yo"}
 _SECOND_TO_FIRST_RE = re.compile(r"\b(?:your|yours|you|tu|tus|tuya|tuyo|usted)\b", re.I)
 _IN_RUNON: list = []
+#: Set while the decoding of an encoded label is read (rule N10): a decoding is never decoded again.
+_IN_ENCODED: list = []
 #: A key=value attribute written into prose ("status=FORMALLY_CHECKED", "verified=true"): a label of its own, never a word of the
 #: sentence around it (a key of three letters or more, a value with a letter; "x=2" stays maths).
 _KEY_VALUE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z_.-]{2,40}=[^\s=]*[A-Za-z][^\s=]*")
@@ -4733,6 +4888,9 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
         toks = [(m.start() + pos, m.end() + pos, m.group(0)) for m in re.finditer(r"\S+", line)]
         # never inside a quotation: what a quotation says is read as a quotation (rule 3.6)
         quoted = [(m.start() + pos, m.end() + pos) for m in _RUNON_QUOTE_RE.finditer(line)]
+        # the dashes of the line, counted once (counting them again at every dash was quadratic in a line of dashes: a line of
+        # 10,000 list marks "- - - ..." took about 5 s; repair 1 after clearance c3c)
+        dashes = sum(1 for t in toks if t[2] in ("-", "–", "—"))
         for k in range(1, len(toks)):
             a0, a1, x = toks[k - 1]
             b0, b1, y = toks[k]
@@ -4740,10 +4898,12 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
             brk = None
             xl = x.lower().strip(".,;:!?\"'«»()")
             yw = y.strip("\"'«»(")
-            if x in ("-", "–", "—") and k >= 2 and _operand_like(toks[k - 2][2]) and _operand_like(y):
-                brk = None  # a minus sign between two operands ("Check: 30 - 10 = 20.", "6% - 2% = 4%", "3 – 2 = 1"): the
-                # computation goes on (attack round 7: a worked check is material, boundary (b))
-            elif x in ("-", "–", "—") and k >= 2 and sum(1 for t in toks if t[2] in ("-", "–", "—")) == 1:
+            if x in ("-", "–", "—") and k >= 2 and (_operand_like(toks[k - 2][2]) or toks[k - 2][2] in ("€", "$", "£", "¥", "%")
+                                                       and k >= 3 and _operand_like(toks[k - 3][2])) and _operand_like(y):
+                brk = None  # a minus sign between two operands ("Check: 30 - 10 = 20.", "6% - 2% = 4%", "3 – 2 = 1"; a currency
+                # sign written after the figure, "45 € - 9 € = 36 €", check round 9 of c3c): the computation goes on (attack
+                # round 7: a worked check is material, boundary (b))
+            elif x in ("-", "–", "—") and k >= 2 and dashes == 1:
                 brk = a1  # a spaced dash: what follows it is read on its own too ("... parques - 100% correct")
             elif x[-1] in ".!?:;" or (x[-1] in "\"'»”’)" and len(x) > 1 and x[-2] in ".!?:;"):
                 brk = None  # a sentence or label break already: read as written
@@ -4868,6 +5028,61 @@ def read_text(text: str, ctx: Context) -> tuple[list[tuple[str, str, str, int, i
     (same offsets); the hits of either reading count."""
     if _IN_RUNON:
         return _read_text_one(text, ctx)
+    h1, u1 = _read_text_runon(text, ctx)
+    if not _IN_ENCODED:
+        # rule N10: an encoded check label ("Status: deifirev", "Status: VkVSSUZJRUQ=", Morse) is decoded and read as the label's
+        # value (encoded.py); its decoding is read once, with no further decoding
+        _IN_ENCODED.append(1)
+        memo: dict = {}
+
+        def reads_as_class(s: str) -> bool:
+            # (one reading per distinct decoding: a text of thousands of equal status lines reads the decoding once)
+            if s not in memo:
+                memo[s] = bool(_read_text_runon(s, ctx)[0])
+            return memo[s]
+        try:
+            enc = encoded_hits(text, reads_as_class)
+            enc += spelled_hits(text, reads_as_class)
+            joined = join_split_sentences(text)
+            if joined is not None:
+                # a sentence split by a blank line ("Nothing above is\n\nwrong."): read as one, the hits of either reading count
+                enc += _read_text_runon(joined, ctx)[0]
+        finally:
+            _IN_ENCODED.pop()
+        keys = {(h[0], h[3], h[4]) for h in h1}
+        h1 = h1 + [h for h in enc if (h[0], h[3], h[4]) not in keys]
+    if any(h[1] == "MARK" and h[2] == "symbol" for h in h1) and _CROSS_BULLET_RE.search(text):
+        bullets = {h[3] for h in h1 if h[1] == "MARK" and h[2] == "symbol" and _tick_bullet(text, h[3])}
+        if bullets:
+            # the list is read again with its tick bullets written as plain bullets (same offsets): the words after each are read
+            # as any words are ("✔ all figures checked" stays a check)
+            alt = "".join("-" if k in bullets else c for k, c in enumerate(text)) if len(text) <= 200_000 else text
+            h_alt, _u = read_text(alt, ctx) if alt != text else ([], [])
+            keys = {(h[0], h[3], h[4]) for h in h1}
+            h1 = [h for h in h1 if not (h[1] == "MARK" and h[2] == "symbol" and h[3] in bullets)] + \
+                [h for h in h_alt if (h[0], h[3], h[4]) not in keys]
+    return h1, u1
+
+
+#: A line that opens with a cross mark used as a list bullet ("✘ less control over quality").
+_CROSS_BULLET_RE = re.compile(r"(?m)^[ \t]*[✘✗✖❌❎×][ \t]+[^\W\d_]")
+_TICK_BULLETS = "✔✓☑✅"
+
+
+def _tick_bullet(text: str, at: int) -> bool:
+    """Whether the tick at ``at`` opens its line as a list bullet before words of content, in a list whose other bullets are
+    crosses: a pros-and-cons list ("✔ rapid expansion with little capital" over "✘ less control over quality"; check round 9 of
+    c3c), the tick marking an advantage, not a check. The words after it are read as any words are."""
+    if at >= len(text) or text[at] not in _TICK_BULLETS:
+        return False
+    line_start = text.rfind("\n", 0, at) + 1
+    if text[line_start:at].strip():
+        return False
+    rest = text[at + 1:text.find("\n", at) if text.find("\n", at) >= 0 else len(text)]
+    return bool(re.match(r"[ \t\ufe0f]+[^\W\d_]{2,}", rest)) and len(re.findall(r"[^\W\d_]{2,}", rest)) >= 2
+
+
+def _read_text_runon(text: str, ctx: Context) -> tuple[list, list]:
     _IN_RUNON.append(1)
     try:
         h1, u1 = _read_text_one(text, ctx)
@@ -4914,6 +5129,10 @@ def _read_text_one(text: str, ctx: Context) -> tuple[list[tuple[str, str, str, i
     pre = blank_model_marks(text)
     if any(c in _SUPERSCRIPT_DIGITS for c in pre):
         pre = _blank_footnote_marks(pre)
+    if _LEAD_NOTE_MARK_RE.search(pre):
+        # a footnote or list number opening a line ("[1] Figures audited prior to release.", "(2) ...", "^3 ..."): blanked, so the
+        # line is read as the note it opens (check round 9 of c3c: the marker hid the note's subject)
+        pre = _LEAD_NOTE_MARK_RE.sub(lambda m: m.group(1) + " " * len(m.group(2)), pre)
     if "[x]" in pre or "[X]" in pre:
         pre = pre.replace("[x]", "✓  ").replace("[X]", "✓  ")
     if any(c in _TURNED for c in pre):
@@ -4972,6 +5191,18 @@ def original_spelling(t: "Tok") -> str:
     except Exception:  # noqa: BLE001 - an offset outside the fold: no spelling
         return ""
     return text[oa:ob] if 0 <= oa <= ob <= len(text) and ob - oa <= 64 else ""
+
+
+def _logic_host(s: str, pa: int, pb: int) -> bool:
+    """Whether the line holding the bracket ``s[pa:pb]`` is, outside the bracket, about satisfiability (formulas, clauses, truth
+    assignments, logical connectives): see :func:`_bracket_status`. Bounded to 2,000 characters around the bracket."""
+    ls = max(s.rfind("\n", 0, pa) + 1, pa - 2000)
+    le = s.find("\n", pb)
+    le = min(le if le >= 0 else len(s), pb + 2000)
+    host = s[ls:max(ls, pa - 1)] + " " + s[pb + 1:le]
+    if any(c in host for c in "∧∨¬→↔⊨⊢⊤⊥"):
+        return True
+    return any(fold_word(w) in _LOGIC_HOST_WORDS for w in re.findall(r"[^\W\d_]+(?:'s)?", host))
 
 
 def _read_text_folded(text: str, ctx: Context, folded, s: str):
@@ -5093,7 +5324,9 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
             fnd = _sentence_found(toks, sctx, question, info)
             if not fnd and _according_to_pipeline(toks, sctx):
                 fnd.append(_Found("G7", "CHECK", "relayed", a, b))
-            if kind == "bracket" and not fnd and not host_computation and _bracket_status(toks, sctx):
+            if kind == "bracket" and not fnd and (not host_computation or _solver_result([x for x in toks if not x.punct])) and \
+                    _bracket_status(toks, sctx, lambda: _logic_host(s, pa, pb)):
+                # (a solver's result after a computation, "= 15 km/h (sat)", is the solver label all the same, c3c)
                 fnd.append(_Found("G6", "STATUS", "label_inside", a, b))
             if _counterfactual(toks, sctx):
                 fnd.append(_Found("G8", "DEFECT", "sentence", a, b))

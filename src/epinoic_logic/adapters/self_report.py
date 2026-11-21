@@ -160,7 +160,10 @@ def label_on_content(text: str, ctx: Optional[Context] = None) -> bool:
                 candidates.append(text[k + 1:])
     for c in candidates:
         try:
-            if _states_content(c) and not _sc.is_self_certification(c, ctx) and _subject_words(c, ctx):
+            # (a score said in words after a score label, "Graded: top of the band.", is the label's value: one verdict, no
+            # content; check round 9 of c3c)
+            if _states_content(c) and not _sc.is_self_certification(c, ctx) and _subject_words(c, ctx) and \
+                    not _sc._score_value(c.strip()):
                 return True
         except Exception:  # noqa: BLE001
             continue

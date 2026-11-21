@@ -61,7 +61,7 @@ __all__ = [
     "JOIN_GAP_CHARS", "EXCERPT_CHECK_MAX_ENTRIES", "clear_excerpt_cache",
     "UNCREDITED_QUOTATION", "attribute_excerpt", "credited_spans", "document_mentions", "governing_document", "uncredited_assumption", "uncredited_excerpt",
     "Credit", "quotation_credit", "is_peer_text", "peer_prose_span", "credited_agents", "clause_boundaries", "nearest_text", "specialist_names",
-    "UnquotedCredit", "unquoted_credits", "OWN_MODEL_NOTE", "OWN_EXAMPLE_NOTE", "own_model_words",
+    "UnquotedCredit", "unquoted_credits", "OWN_MODEL_NOTE", "OWN_EXAMPLE_NOTE", "own_model_words", "holds_half_in_a_run",
 ]
 
 ExcerptStatus = Literal["found", "found_elided", "found_inexact", "found_long_elision", "found_joined", "not_found", "no_document", "no_texts", "empty"]
@@ -980,18 +980,25 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
     key = strip_trailing_punctuation(excerpt).casefold()
     if not key or len(sentence) > 4000:
         return False
-    from .own_text import own_text_kinds
+    from .own_text import correction_pairs, own_text_kinds
     spans = find_quotation_spans(sentence)
     at = next((k for k, sp in enumerate(spans) if strip_trailing_punctuation(sp[2]).casefold() == key), None)
     if at is None:
         return False
     # round-10 leftover R10-OWN-TEXT-ONE-READER: the one reader of the writer's own quoted words decides whether the sentence presents
-    # the span as the writer's own (a labelled model, rewrite or topic, a 'Better:' rewrite, a correction after an arrow); the
-    # supplied texts below decide whether it is still an altered quotation of one of them (INV-Q1)
-    if _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, spans[at][0]) is None and own_text_kinds(sentence, spans)[at] is None:
-        return False
+    # the span as the writer's own (a labelled model, rewrite or topic, a 'Better:' rewrite, a correction after an arrow, and the
+    # wording that correction replaces: '"x" -> "y"', '"y" rather than "x"', push check of 2ff70224); the supplied texts below decide
+    # whether it is still an altered quotation of one of them (INV-Q1)
+    in_correction = False
+    if _OWN_MODEL_LABEL_RE.fullmatch(sentence, 0, spans[at][0]) is None:
+        kinds = own_text_kinds(sentence, spans)
+        in_correction = any(at in pair for pair in correction_pairs(sentence, spans, kinds))
+        if kinds[at] is None and not in_correction:
+            return False
     words = _WORD_RE.findall(excerpt)
-    if len(words) < _OWN_MODEL_MIN_WORDS:
+    # a correction pair is the writer's own at any length ('"greed" -> "thrift"'): the run rule below keeps a span a supplied text
+    # holds half of in a row, or one word of, a quotation
+    if not words or (len(words) < _OWN_MODEL_MIN_WORDS and not in_correction):
         return False
 
     def fold(w: str) -> str:
@@ -1020,6 +1027,20 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
         if sum(shared) * 2 >= len(folded) and any(shared):
             return False
     return True
+
+
+def holds_half_in_a_run(excerpt: str, text: str) -> bool:
+    """Whether ``text`` holds at least half of the words of ``excerpt`` in one run (case and accents folded): the run rule with which
+    :func:`own_model_words` keeps a span the one reader presents as the writer's own (a topic, a 'Better:' rewrite, a correction and
+    the wording it replaces) an altered quotation of a text. The channel reads the request with the same rule for the wording an own
+    correction replaces (``bus._uncredited_quotations``), so a correction built from words scattered over the request alters nothing.
+    Linear in the text for an excerpt of bounded length."""
+    import unicodedata
+
+    def fold(w: str) -> str:
+        return "".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
+    words = [fold(w) for w in _WORD_RE.findall(excerpt or "")]
+    return bool(words) and _longest_shared_run(words, [fold(w) for w in _WORD_RE.findall(text or "")]) * 2 >= len(words)
 
 
 def _longest_shared_run(words: Sequence[str], text_words: Sequence[str]) -> int:

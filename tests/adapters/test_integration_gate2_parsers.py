@@ -31,7 +31,9 @@ Found by the sweep of the same class in these modules (each fixed the same way, 
 
 Finding 7 (major): the combinator's verdict on what it wrote ("The answer is correct.", "(signed engine result)", "Overseer verdict:
 pass.", "Correct: ...", "...; this is fully reliable.") is a self-report on a synthesis (INT-LEDGER-029), while the negated, failed and
-credited forms, and every form on a specialist's branch, stay clean.
+credited forms stay clean. Rewritten to stricter rules since (hold remedies of the round-9 and round-10 push checks, and the c3c
+follow-up): every one of these forms but "Fact: ..." is a self-report on a specialist's branch too (NAMED_ON_EVERY_BRANCH), the solver
+labels "(sat)", "(cex: none)" and "(model found)" after content and the writer's "; this is fully reliable." included.
 
 The sweep tests feed every public entry point of each module the standard hostile inputs (``hostile_inputs``) and assert a time bound
 with a wide margin."""
@@ -604,7 +606,19 @@ NAMED_ON_EVERY_BRANCH = {"this has been verified, alone", "this answer is comple
                          # push check: the answer's own correctness ("The answer is correct."), a correctness key on content
                          # ("Correct: ...") and the writer's confidence in its own claim (", which is beyond doubt") are
                          # self-assessments on every branch
-                         "the answer is correct, alone", "Correct: prefix", ", which is beyond doubt"}
+                         "the answer is correct, alone", "Correct: prefix", ", which is beyond doubt",
+                         # stricter (c3c follow-up, was False on a specialist's branch: this test pinned both as specialist content):
+                         # boundary (a), as the push check of the c3 clearance commit required. "(sat)" after content is the answer's
+                         # own solver label, and "; this is fully reliable." is the writer's confidence in its own claim; both are
+                         # self-certifications on every branch
+                         "(sat)", "; this is fully reliable"}
+#: Solver results written after content on a specialist's branch (stricter, c3c follow-up): the answer's own solver label, a
+#: self-certification on every branch, each with its expected value fixed here (True).
+SOLVER_LABELS_ON_CONTENT = [CLAIM + " (sat).", CLAIM + " (sat, unsat-core empty).", CLAIM + " (cex: none).", CLAIM + " (model found).",
+                            CLAIM + " (no counterexample)."]
+#: Boundary (b): the same brackets glossing a line that is itself about satisfiability, and failed results, stay content (False).
+SOLVER_GLOSSES = ["The formula p \u2227 \u00acq is satisfiable (sat).", "With p = true and q = false the clause set is satisfied (sat).",
+                  CLAIM + " (not sat).", CLAIM + " (model not found)."]
 
 
 @pytest.mark.parametrize("form", list(VERDICT_FORMS))
@@ -616,6 +630,17 @@ def test_the_combinators_verdict_on_what_it_wrote_is_a_self_report_on_a_synthesi
         return
     # on a specialist's branch the same words may be content ("the formula is satisfiable (sat)"): the specialists' reading is unchanged
     assert not md.is_self_certification(sentence) and md.verification_label(sentence) is None, sentence
+
+
+@pytest.mark.parametrize("sentence", SOLVER_LABELS_ON_CONTENT)
+def test_a_solver_result_after_content_is_a_self_report_on_every_branch(sentence):
+    """Stricter (c3c follow-up): the answer's own solver label on content is a self-certification on a specialist's branch too."""
+    assert md.is_self_certification(sentence) is True, sentence
+
+
+@pytest.mark.parametrize("sentence", SOLVER_GLOSSES)
+def test_a_solver_word_glossing_satisfiability_or_a_failed_result_is_content(sentence):
+    assert md.is_self_certification(sentence) is False, sentence
 
 
 @pytest.mark.parametrize("sentence", CLEAN_FORMS)

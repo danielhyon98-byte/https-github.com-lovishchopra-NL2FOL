@@ -294,3 +294,72 @@ def inverted_mark_spans(text: str) -> list[tuple[int, int]]:
                     del stack[k:]
                     break
     return sorted(out)
+
+
+# ------------------------------------------------------------------------------------------------------------------ concepts
+#: A closed bilingual gloss (attack round 8): the count nouns, kin words and event words an answer in one language uses for a text in the
+#: other ("three bakeries" against "dos panaderías", "tres palabras" against "two words", "your father says" against "mi padre dice").
+#: Each concept lists its English and Spanish forms; a word outside the table is its own first five letters, as before.
+_CONCEPTS = {
+    "bakery": "bakery bakeries panadería panaderías panaderia panaderias",
+    "school": "school schools escuela escuelas colegio colegios",
+    "pupil": "pupil pupils student students alumno alumnos alumna alumnas",
+    "inhabitant": "inhabitant inhabitants habitante habitantes",
+    "resident": "resident residents neighbour neighbours neighbor neighbors vecino vecinos vecina vecinas",
+    "person": "person people personas persona",
+    "child": "child children hijo hijos hija hijas",
+    "house": "house houses home homes casa casas vivienda viviendas",
+    "desk": "desk desks workstation workstations place places puesto puestos",
+    "application": "application applications solicitud solicitudes",
+    "word": "word words palabra palabras",
+    "measure": "measure measures medida medidas proposal proposals propuesta propuestas",
+    "reason": "reason reasons razón razones razon",
+    "advantage": "advantage advantages ventaja ventajas",
+    "disadvantage": "disadvantage disadvantages drawback drawbacks inconveniente inconvenientes desventaja desventajas",
+    "example": "example examples ejemplo ejemplos",
+    "thing": "thing things cosa cosas lesson lessons",
+    "idea": "idea ideas",
+    "point": "point points punto puntos",
+    "paragraph": "paragraph paragraphs párrafo párrafos parrafo parrafos",
+    "stanza": "stanza stanzas verse verses estrofa estrofas",
+    "line": "line lines verso versos línea líneas linea lineas",
+    "day": "day days día días dia dias",
+    "week": "week weeks semana semanas",
+    "month": "month months mes meses",
+    "year": "year years año años",
+    "hour": "hour hours hora horas",
+    "night": "night nights noche noches",
+    "family": "family families familia familias",
+    "translator": "translator translators traductor traductores",
+    "close": "closed close shut cerrada cerrado cerró cerro closure cierre",
+    "arrive": "arrived arrive came llegó llego llegaron llegada",
+    "reopen": "reopened reopen reabrió reabrir reabrieron",
+    "fibre": "fibre fiber fibra",
+    "optic": "optic optical óptica optica",
+    "stay": "stay stays staying quedarse quedar queda quedan",
+    "learn": "learn learned learnt learning aprendió aprendio aprendí aprendi aprender aprendiste aprendieron",
+    "burn": "burn burned burnt burning quemarse quemó quemo quema quemar quemándose",
+    "hand": "hand hands mano manos",
+    "return": "return returned returning back volvió volvio volví volvi volver regresó regresé",
+    "father": "father dad padre papá",
+    "mother": "mother mum mom madre mamá",
+    "grandmother": "grandmother grandma granny abuela",
+    "grandfather": "grandfather grandad grandpa abuelo",
+    "brother": "brother hermano",
+    "sister": "sister hermana",
+    "friend": "friend friends amigo amiga amigos amigas",
+    "teacher": "teacher profesor profesora maestro maestra",
+}
+_CONCEPT_OF = {w: k for k, forms in _CONCEPTS.items() for w in forms.split()}
+#: Small number words of English and Spanish (counts a sentence states in words).
+SMALL_NUMBER_WORDS = {**{w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+                                                     "seventeen eighteen nineteen twenty".split())},
+                      **{w: i for i, w in enumerate("cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciséis "
+                                                     "diecisiete dieciocho diecinueve veinte".split())},
+                      "una": 1, "un": 1, "a": 1, "an": 1, "twice": 2}
+
+
+def concept(word: str) -> str:
+    """The concept of ``word`` (case folded) in the closed bilingual gloss, else its first five letters."""
+    w = (word or "").casefold().strip("'’-")
+    return _CONCEPT_OF.get(w) or w[:5]

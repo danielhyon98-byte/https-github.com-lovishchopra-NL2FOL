@@ -435,6 +435,14 @@ _PLATFORM_NOTE_SHAPES = tuple(re.compile(x, re.DOTALL) for x in (
     r"sentences counts as material",
     r"\d+ line\(s\) of the answer were not joined to the line before them: deciding the join would have read the logical line before them "
     r"again beyond the parser's reading bound \(\d+ characters per character of the answer and [\d,]+ more\), so each opens a claim of its own",
+    # the notes the parsers put on the writer's own invented example and model sentence (adapters.sources OWN_EXAMPLE_NOTE and
+    # OWN_MODEL_NOTE; check round 9 of c3c: read as the specialist's field, the note's "not checked" gave ll-t16 CORE-SELF-001)
+    r"the writer's own invented example, announced in its paragraph: its quoted words are the writer's example, not a quotation of a "
+    r"supplied text, and are not checked as one",
+    r"the writer's own model sentence, under a 'Model:' or 'Rewrite:' label \(or another frame of the writer's own wording: a topic, "
+    r"a 'Better:' rewrite, a correction after an arrow\): its words occur in none of the supplied texts, no supplied text holds all of "
+    r"its words but one or two, and none holds four of its words in a row, so it is not a quotation of a supplied text and is not "
+    r"checked as one",
 ))
 #: One item of a list of demoted sentences in a platform note ("sentence 2 ('...')" or "<claim id> ('...')", joined by "; ",
 #: the list cut at 600 characters).
@@ -472,8 +480,8 @@ def _platform_note_slots(flat: str) -> Optional[list[str]]:
 
 def report_texts(report) -> list[tuple[str, Optional[str], str]]:
     """``(where, claim id or None, text)`` for each text of a specialist report, other than its response and its claims' texts,
-    that is the specialist's own: the report's assumptions and unresolved issues, and each claim's assumptions and assessment
-    criteria. A field whose whole text has the shape of a note the platform's own parsers write (:data:`_PLATFORM_NOTE_SHAPES`;
+    that is the specialist's own: the report's assumptions and unresolved issues, and each claim's assumptions, assessment
+    criteria and source-reference locators. A field whose whole text has the shape of a note the platform's own parsers write (:data:`_PLATFORM_NOTE_SHAPES`;
     never judged by its opening words alone) is the platform's, and only the words it carries that are not the response's own
     are read; a field whose words are a copy of the response's own is not read again (the response is read as written already);
     a note "<lead>: <words of the response>" is read for its lead. Works on a report object or its mapping; anything unreadable
@@ -518,4 +526,11 @@ def report_texts(report) -> list[tuple[str, Optional[str], str]]:
                 o = own(t)
                 if o is not None:
                     out.append((where, str(cid) if cid is not None else None, o))
+        # the locator of each of the claim's source references: the specialist writes it ("para:1 (every figure verified by the
+        # hub)", "verified: all correct"), it travels in the delivered payload, and it is read as any other text of the report
+        # (paths lens of attack round 8, c3c). The excerpt is the source's words, read by the channel's quotation checks.
+        for ref in list(_field(c, "source_refs") or [])[:64]:
+            loc = _field(ref, "locator")
+            if isinstance(loc, str) and loc.strip() and any(ch.isalpha() for ch in loc):
+                out.append(("the locator of a source reference of claim", str(cid) if cid is not None else None, loc[:2000]))
     return out

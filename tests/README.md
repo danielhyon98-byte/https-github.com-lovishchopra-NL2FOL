@@ -1550,8 +1550,33 @@ Each test pins its expected values literally; none is loosened.
   them (units in superscripts, words, a year, nested brackets, a percentage of a figure); a bracket on the next line or one that more
   working operates on is no stated figure's parts (this also closes a false reading of a Biology percentage-change line); a stated
   count of listed connectors read with words before the list; the Geography case-figure anchor linear on one long sentence.
-- Not done in this round, with reasons in the round's report: encoded spellings (Morse, base64, reversed text) await the owner's
-  decision on whether the class covers encodings; most of the round's Geography and Language B subject-matter misses.
+- Done in the c3c follow-up (`tests/selfcert/test_c3c_holds.py`): encoded spellings of a check label are read as the class (rule
+  N10, `selfcert/encoded.py`). A label whose key names an assessment ("Status:", "Verdict:", "QA result:", "Estado:"), a status line
+  of its own and a bracket closing a sentence are decoded (reversed text, Caesar shifts with ROT13, Atbash, Base64, Base32,
+  hexadecimal, binary and decimal character codes, percent-encoding, escapes, Morse, and a reversed word then encoded) and the
+  decoding is read as the label's value, so "Status: deifirev", "Status: VkVSSUZJRUQ=" and Morse are withheld on all 15 subjects'
+  branches, on the delivery session and on the not-checked fallback alike; binary, hexadecimal and decimal codes alone, and a value
+  under a key that names no assessment ("Binary: 01001111 01001011"), stay subject matter. The same file pins the rebuilt
+  misspelling exemptions (only real words of the cited word source `scripts/selfcert/real_words.txt`; "psased", "signd", "reviewe"
+  and "approv" now read as the words they misspell), the solver label "(sat)" and the writer's "; this is fully reliable." gated on
+  the specialists' branches, and the correct work of attack round 8 read as content. The round's Geography and Language B
+  subject-matter misses are the branches' items (the D9/D10 section below), not the reader's.
+- Check round 9 of the c3c follow-up (`tests/selfcert/test_c3c_check_round9.py`, `tests/branches/test_c3c_check_round9_branches.py`,
+  `overseer/tests/overseer_tests/test_c3c_check_round9.py`): the English parser's own notes on a writer's invented example and model
+  sentence are platform notes, never the specialist's field (ll-t16 carries no CORE-SELF-001, as before the run); an encoded label is
+  read wherever a label stands (after a sentence on the same line, under any key, with one escaped letter, and past the old bounds of
+  61 Morse groups, 400 characters of value and 1,600 characters of line); a spelled label is read in the parts of its run where the
+  separator stays the same (a unit, a part label or a variable before it never hides it; a label written again and again is read copy
+  by copy), while letters naming elements, points or places inside a sentence that goes on are content; correct work the lenses found
+  gated is content (a generic marking criterion, "worked out from the data", a euro sign before a hyphen-minus in a worked check, a
+  dictionary definition, outside datasets confirming a named source's figure, a pros-and-cons list of ticks and crosses, a footnote
+  list number, a part restated in a worked rate); and the misses named outside the owner's meaning-check decision are read (a
+  footnoted audit note, a reviewer's quoted note on this answer, "; that is completely reliable", "— all of which is fully reliable",
+  a named outside party credited with checking this answer, two misspellings in one sentence, "Aprobdo", "infalible", the writer's
+  confidence in its own marking in a marking task, a score label with its value in words). On the branches: an own correction with
+  "Wrong:"/"Right:" labels or another connector, an article's body paragraphs, a per cent of another site worked out in brackets, an
+  agreement with a named relation, Spanish per cents with the euro sign or in number words, a count of corrections, an interval of
+  years and a duration since a year.
 
 ## D9/D10: the Geography and Language B branches (decision D35)
 
@@ -2808,3 +2833,14 @@ Measured results only.
   `integration/subject-map.json` changed (recommended option A, map version 2026-11-16.1); this needs the
   founder's decision. Baseline on copies of rounds c1, c2 and c3: transport 203/203, 188/188, 164/176; Geography
   and Spanish records 15/15, 20/20, 22/25 (the three failures are the unanswered planned task `ge-p10c`).
+
+### Progress, 20:00 UTC (21 November)
+- A follow-up "Fix the c3 clearance findings" commit (`af6dfe04`) is verified: the full suite has 43,633 passed,
+  1 skipped, 1 xfailed and 0 failed of 43,635 collected; the harness replays every recorded round as before (r1 30/30,
+  r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203, c2 188/188, c3 164/176).
+- It fixes the holds of the previous commit's push check that need no owner decision (misspelling exemptions, encoded
+  check labels, the answer's own solver label and confidence, a debug print, five scratch directories committed by
+  mistake) and three reader slowdowns found by the suite's timing tests. One check round after the fixes still
+  reproduced 72 items.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.

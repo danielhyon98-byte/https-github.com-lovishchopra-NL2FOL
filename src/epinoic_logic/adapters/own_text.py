@@ -30,7 +30,8 @@ from .markdown import _MODAL_FORM_BEFORE_RE as _MD_MODAL_FORM_BEFORE_RE
 from .markdown import _TRIGGER_AFTER_RE as _MD_TRIGGER_AFTER_RE
 from .markdown import find_quotation_spans
 
-__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "own_model_spans", "own_text_kinds", "own_text_spans"]
+__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "correction_originals", "correction_pairs", "own_model_spans", "quotes_own_wording", "unquoted_text", "own_text_kinds",
+           "own_text_spans"]
 
 #: The two kinds of the writer's own quoted words (:func:`own_text_kinds`; round-10 leftover R10-OWN-TEXT-ONE-READER, one reader for
 #: the channel, the packs and the auditor). A FORM is never a quotation of a text in any task: a gloss, a base or standard form, a
@@ -59,12 +60,19 @@ OWN_TEXT_RULE = "own-text"
 _OWN_TEXT_BEFORE = 160
 _OWN_TEXT_AFTER = 96
 #: The corrected form: a quoted original, an arrow (or "should be", "becomes"), then the span.
-_CORRECTION_BEFORE_RE = re.compile(r"[\"'”’»][*_ \t]{0,6}(?:→|->|=>|⇒|⟶|⟹|➔|➜|➝|\bshould[ \t]{1,3}be\b[ \t:]{0,3}|\bbecomes\b[ \t:]{0,3})"
-                                   r"[ \t*_]{0,6}\Z", re.IGNORECASE)
+#: (check round 9 of c3c: also a long or plain arrow, "-->", "—>", ">", and a "Right:" or "Correct form:" label after the replaced
+#: wording, '- Wrong: "x". Right: "y"')
+_CORRECTION_MARKS = (r"(?:→|-{1,2}>|—>|=>|⇒|⟶|⟹|➔|➜|➝|>|\bshould[ \t]{1,3}be\b[ \t:]{0,3}|\bbecomes\b[ \t:]{0,3}|"
+                     r"[.;,]?[ \t]{0,3}(?:right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?)[ \t]{0,3}:[ \t]{0,3})")
+_CORRECTION_BEFORE_RE = re.compile(r"[\"'”’»][*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
+#: The longest text :data:`_CORRECTION_BEFORE_RE` matches is 44 characters, and it ends at the window's end (``\Z``): the search
+#: starts this many characters before the end (repair 1 after clearance c3c: searching the whole window from every quotation mark
+#: in it doubled the cost of this pattern on a paragraph of thousands of quotations; the reading is the same).
+_CORRECTION_TAIL = 48
 #: A model, topic or line of inquiry under its label at the start of a line or sentence; a parenthesis of at most 200 characters may
 #: follow the label ("Model (one sentence, to show range with your own content; not a replacement for your text):").
 _OWN_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model|rewrite|rewritten|corrected|correction|"
-                                  r"improved|revised|alternative|suggested|suggestion|topic|line[ \t]{1,3}of[ \t]{1,3}inquiry|better|stronger|"
+                                  r"improved|revised|alternative|suggested|suggestion|topic|line[ \t]{1,3}of[ \t]{1,3}inquiry|better|stronger|right|correct|"
                                   r"research[ \t]{1,3}question)(?:[ \t]{1,3}(?:answer|sentence|paragraph|response|version|wording|form|"
                                   r"opening|line|thesis|statement|introduction|conclusion|topic[ \t]{1,3}sentence))?[ \t]{0,3}(?:\([^()\n\"“”]{0,200}\))?[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}\Z",
                                   re.IGNORECASE)
@@ -165,10 +173,11 @@ _INVENTED_OVERLAP = 200
 def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None) -> list[Optional[str]]:
     """THE reader of the writer's own quoted words (rules ``own-model`` and ``own-text``; round-10 leftover R10-OWN-TEXT-ONE-READER:
     the channel, the packs and the transfer auditor read them with this one function): per quotation span of ``text`` (``spans``,
-    default :func:`markdown.find_quotation_spans`), :data:`OWN_FORM`, :data:`OWN_FRAME` or None (a quotation of a text). A FORM is a
-    cue of :func:`_form_flags` or of the gloss, base-form, language-form, recommended-form, named-phrase, class and invented-example
-    cues read around the span; a FRAME is a correction after an arrow, a labelled model, rewrite, topic or line of inquiry, a model
-    lead, or a span offered "instead of" or "rather than" another; a list continuing an own span takes its kind. One pass over the
+    default :func:`markdown.find_quotation_spans`), :data:`OWN_FORM`, :data:`OWN_FRAME` or None (a quotation of a text, or words of
+    no fixed owner: the wording a correction replaces, which :func:`correction_pairs` names). A FORM is a cue of :func:`_form_flags`
+    or of the gloss, base-form, language-form, recommended-form, named-phrase, class and invented-example cues read around the span; a
+    FRAME is a correction after an arrow, a labelled model, rewrite, topic or line of inquiry, a model lead, or a span offered
+    "instead of" or "rather than" another; a list continuing an own span takes its kind. One pass over the
     spans, each reading bounded windows before and after it; the paragraphs and the invented-example sentences are found in one pass
     each (linear)."""
     text = text or ""
@@ -190,7 +199,7 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
         if (_GLOSS_BEFORE_RE.search(before) or _FORM_BEFORE_RE.search(before) or _LANGUAGE_BEFORE_RE.search(before)
                 or _SUGGEST_BEFORE_RE.search(before) or _PHRASE_ONLY_AFTER_RE.match(after)):
             kinds[i] = OWN_FORM
-        elif (_CORRECTION_BEFORE_RE.search(before) or _OWN_LABEL_BEFORE_RE.search(before) or _PHRASE_AFTER_RE.match(after)
+        elif (_CORRECTION_BEFORE_RE.search(before, max(0, len(before) - _CORRECTION_TAIL)) or _OWN_LABEL_BEFORE_RE.search(before) or _PHRASE_AFTER_RE.match(after)
               or _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start])):
             kinds[i] = OWN_FRAME
         elif i > 0 and kinds[i - 1] is not None and _LIST_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE]):
@@ -209,9 +218,116 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
     return kinds
 
 
+#: The gap between the wording a correction replaces and its correction: an arrow, "should be" or "becomes" and nothing else
+#: ('"x" -> "y"', '"x" should be "y"'). The span after the gap is the correction (a FRAME, :data:`_CORRECTION_BEFORE_RE`).
+_CORRECTION_GAP_RE = re.compile(r"\A[*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
+#: The gap between the writer's own form and the wording it replaces, offered after it ('"y" rather than "x"', '"y" instead of "x"',
+#: '"y", not "x"').
+_REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than|not)[ \t:]{0,3}\Z", re.IGNORECASE)
+
+
+#: An instruction to write, which credits nothing ('Write "x" -> "y"', 'Instead, write: "x" -> "y"').
+_IMPERATIVE_WRITE_BEFORE_RE = re.compile(r"(?:^|[\n.!?;:(])[ \t*_>#-]{0,8}(?:(?:so|then|instead|now|here|rather|please),?[ \t]{1,3})?write[ \t]{0,3}[,:]?\Z",
+                                         re.IGNORECASE)
+
+
+def _replaced_partner(text: str, spans: Sequence[tuple[int, int, str]], kinds: Sequence[Optional[str]], i: int) -> Optional[int]:
+    """The index of the correction that replaces span ``i`` (a span :func:`own_text_kinds` read as neither a FORM nor a FRAME), or
+    None: the FRAME right after an arrow, "should be" or "becomes" that follows it ('"x" -> "y"'), or the writer's own form it follows
+    after "rather than", "instead of" or ", not" ('"y" rather than "x"'). A span the sentence credits to a text ('your email says
+    "x" -> "y"', 'the poem reads "x"') is a quotation of that text, never wording the answer's own correction replaces."""
+    start, end, inner = spans[i]
+    if not inner.strip() or kinds[i] is not None:
+        return None
+    before = text[max(0, start - 40):start].rstrip(" \t*_")
+    if _ATTRIBUTION_BEFORE_RE.search(before) and not _IMPERATIVE_WRITE_BEFORE_RE.search(before):
+        return None
+    if (i + 1 < len(spans) and kinds[i + 1] == OWN_FRAME and end <= spans[i + 1][0]
+            and _CORRECTION_GAP_RE.match(text[end:spans[i + 1][0]][:_OWN_TEXT_BEFORE])):
+        return i + 1  # '"x" -> "y"'
+    if (i > 0 and kinds[i - 1] is not None and spans[i - 1][1] <= start
+            and _REPLACED_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE])):
+        return i - 1  # '"y" rather than "x"'
+    return None
+
+
+def correction_pairs(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None,
+                     kinds: Optional[Sequence[Optional[str]]] = None) -> list[tuple[int, int]]:
+    """The answer's OWN corrections among the quotation spans of ``text`` (``spans``, default :func:`markdown.find_quotation_spans`;
+    ``kinds`` as :func:`own_text_kinds` reads them), as ``(replaced, correction)`` span indices (push check of 2ff70224, item
+    R10-OWN-TEXT-ONE-READER still partial: in '"x" -> "y"' the reader named "y" the writer's FRAME and left "x" a quotation, which the
+    English parser credited to the text under analysis, so the channel charged it INT-REQ-003 and the English pack ES-SRC-001 at error
+    level). The replaced span (:func:`_replaced_partner`) keeps its kind None, words of no fixed owner: the answer's own wording, or the
+    student's or a text's words it corrects. The channel decides it with the sources in view, as it decides a FRAME
+    (``sources.own_model_words``: a supplied text that holds its words, altered or not, keeps it a quotation, checked as any other;
+    INV-Q1; ``bus._uncredited_quotations`` still reads it against the request), and the transfer auditor keeps it a quotation. A span
+    the sentence credits to a text ('your email says "x" -> "y"') is never part of an own correction. Linear in the spans."""
+    text = text or ""
+    spans = list(find_quotation_spans(text) if spans is None else spans)
+    kinds = list(own_text_kinds(text, spans) if kinds is None else kinds)
+    out: list[tuple[int, int]] = []
+    for i in range(len(spans)):
+        j = _replaced_partner(text, spans, kinds, i)
+        if j is not None:
+            out.append((i, j))
+    return out
+
+
+def correction_originals(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None,
+                         kinds: Optional[Sequence[Optional[str]]] = None) -> list[bool]:
+    """Per quotation span of ``text``, whether it is the wording one of the answer's own corrections replaces (:func:`correction_pairs`)."""
+    text = text or ""
+    spans = list(find_quotation_spans(text) if spans is None else spans)
+    out = [False] * len(spans)
+    for i, _j in correction_pairs(text, spans, kinds):
+        out[i] = True
+    return out
+
+
+#: Shortest quotation read as the answer quoting its own wording (a shorter span is a phrase any text may share).
+_OWN_WORDING_MIN_WORDS = 4
+#: A quotation its sentence presents as the reader's or the task's words ('your draft says', 'you wrote', 'the task asks for'): the
+#: request's words, never the answer's own.
+_READER_CREDIT_BEFORE_RE = re.compile(r"\b(?:you|your|yours|the[ \t]{1,3}(?:task|request|question|prompt|student|brief))\b"
+                                      r"[^.!?\n\"“”«»]{0,60}\Z", re.IGNORECASE)
+
+
+def unquoted_text(text: str) -> str:
+    """``text`` with every quotation span (:func:`markdown.find_quotation_spans`, marks included) blanked to spaces: the words the
+    answer writes in its own voice. One pass over the spans."""
+    text = text or ""
+    parts: list[str] = []
+    at = 0
+    for start, end, _inner in find_quotation_spans(text):
+        if start < at:
+            continue
+        parts.append(text[at:start])
+        parts.append(" " * (end - start))
+        at = end
+    parts.append(text[at:])
+    return "".join(parts)
+
+
+def quotes_own_wording(own_unquoted: str, sentence: str, span_start: int, excerpt: str) -> bool:
+    """Whether the quotation ``excerpt`` (its opening mark at ``span_start`` of ``sentence``) is the answer quoting its OWN earlier
+    wording (round-8 attack, Language B: 'The article opens with "Cada verano, nuestra ciudad se llena de turistas".' quotes the
+    first sentence of the answer's own model article word for word, and the channel charged it INT-REQ-003 as an altered quotation of
+    the request): ``own_unquoted`` (:func:`unquoted_text` of the whole answer) holds its words exactly (case and blanks aside), it
+    has at least four words, and its sentence does not present it as the reader's or the task's words ('your draft says', 'you
+    wrote', 'the task asks for'). The caller keeps it checked against the supplied texts (a supplied text that holds it, altered or
+    not, keeps it a quotation of that text: INV-Q1)."""
+    from ..translate.grounding import locate_excerpt
+    if len(re.findall(r"\w+", excerpt or "")) < _OWN_WORDING_MIN_WORDS:
+        return False
+    if _READER_CREDIT_BEFORE_RE.search((sentence or "")[max(0, span_start - 80):span_start]):
+        return False
+    return locate_excerpt(excerpt, own_unquoted or "") is not None
+
+
 def own_text_spans(text: str) -> list[tuple[int, int, str]]:
     """Rule ``own-text`` (round-10 clearance c3): the quotation spans ``text`` presents as the writer's own words, as ``(start, end,
-    inner)``: every span :func:`own_text_kinds` reads as a FORM or a FRAME (rule ``own-model``'s included). The transfer auditor
+    inner)``: every span :func:`own_text_kinds` reads as a FORM or a FRAME (rule ``own-model``'s included); the wording a
+    correction replaces stays out (the auditor's control: the original of a correction stays a quotation). The transfer auditor
     reads these; the channel reads the same kinds (``markdown.own_form_flags`` the FORMs, ``sources.own_model_words`` the FRAMEs
     with the supplied texts in view). Linear in the spans."""
     text = text or ""

@@ -1697,9 +1697,19 @@ def payload_self_reports(payload: Any, ctx: Any = None) -> list[str]:
             return out
         synth = SelfCertContext(writer="combinator", marking=base.marking, known_sources=base.known_sources,
                                 peer_documents=base.peer_documents)
+        from epinoic_logic.api.adapters import selfcert_read
         for c in payload.get("claims") or []:
             if isinstance(c, dict) and claim_self_report(str(c.get("text") or ""), synth):
                 out.append(f"synthesized claim {c.get('claim_id')}")
+            # the locator of each of the claim's evidence references: the combinator writes it ("h1.1 (every figure verified by
+            # the hub)", "VERIFIED"), it travels in the released payload, and it is read by the same reader as a specialist
+            # report's source-reference locators (check round 9 of c3c)
+            if isinstance(c, dict):
+                for ref in list(c.get("evidence_refs") or [])[:64]:
+                    loc = ref.get("locator") if isinstance(ref, dict) else getattr(ref, "locator", None)
+                    if isinstance(loc, str) and any(ch.isalpha() for ch in loc) and selfcert_read(loc[:2000], synth).refuses():
+                        out.append(f"the locator of an evidence reference of synthesized claim {c.get('claim_id')}")
+                        break
         text = payload.get("text")
         if not isinstance(text, str):
             return out + ["the synthesis text as a whole (it could not be read)"]

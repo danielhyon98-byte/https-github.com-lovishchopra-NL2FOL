@@ -696,6 +696,8 @@ def _stem_noun_findings(claim_id: str, text: str, docs: list[SuppliedText]) -> l
     return out
 
 
+#: Comparative words between a figure and its year: the figure is a difference against the year's figure (attack round 8).
+_COMPARATIVE_TOKENS = frozenset("más mas menos more fewer less than que".split())
 #: How far (in tokens) a year may stand from a dated figure and its noun, in the answer and in the text.
 _DATED_WINDOW = 8
 
@@ -714,14 +716,22 @@ def _dated_noun_findings(claim_id: str, text: str, docs: list[SuppliedText]) -> 
         noun = claim_tokens[i + 1]
         if _is_number(noun) or len(noun) < 4 or noun in _STOP:
             continue
-        years = {t for t in claim_tokens[i + 2:i + 2 + _DATED_WINDOW // 2] if _YEAR_RE.match(t)}
+        between = claim_tokens[i + 2:i + 2 + _DATED_WINDOW // 2]
+        years = {t for t in between if _YEAR_RE.match(t)}
         if len(years) != 1:
             continue
         year = next(iter(years))
+        if any(t in _COMPARATIVE_TOKENS for t in between[:between.index(year)]):
+            continue  # "56 vecinos más que en 2015", "56 more residents than in 2015": a difference worked out against the year's figure,
+            # never the year's figure itself (attack round 8)
         for doc in docs:
             toks, where = _tokens(doc.text or "")
-            if tok in where:
-                break  # the text states the answer's figure: nothing misread
+            # the text states the answer's figure with this noun, or in a sentence of this year: nothing misread. A figure the text states
+            # only elsewhere ('268 personas' today) is no figure of this year ('268 vecinos en 2015' against '212 vecinos' in 2015,
+            # attack round 8)
+            if any(toks[p - 1] == tok for p in where.get(noun, ()) if p > 0) or \
+                    any(year in toks[max(0, q - _DATED_WINDOW):q + _DATED_WINDOW] for q in where.get(tok, ())[:_MAX_WINDOW_HITS]):
+                break
             hits = where.get(noun, ())
             if len(hits) > _MAX_WINDOW_HITS:
                 continue

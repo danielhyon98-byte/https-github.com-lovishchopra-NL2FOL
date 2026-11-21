@@ -20,8 +20,17 @@ kind                       statement read                                       
 ``lb_percent_change``      a Spanish change with its from-to pair ("pasó de 1.250 a 212 ...")      INT-SUBJ-001
 ``supplied_figure``        a Spanish figure with its noun read against the supplied text           INT-SUBJ-001 credited (or a numbered
                                                                                                   reading answer); INT-SUBJ-004
+``lb_structure_count``     a count of a text's paragraphs, stanzas or lines                        INT-SUBJ-004
+``lb_occurrence_count``    how often a quoted form occurs in a text ('three times in a row')       INT-SUBJ-004
+``lb_quote_speaker``       the speaker of a quotation, of unquoted words or of a paraphrase        INT-SUBJ-001 credited; INT-SUBJ-004
 ``worked_arithmetic``      every worked equation, as on the generic branch                         as there
 =========================  =====================================================================  ===================================
+
+Attack round 8 widened the readers: the change readers read a currency sign and Spanish number words; ``lb_quoted_form`` reads "opens
+with", "says", the byline and a paraphrase located at a line; ``lb_listed_count`` reads a count of the model's or the student's items
+(their own count or their ordinals) and of the answer's corrections by category; ``supplied_figure`` reads a count across languages (the
+closed bilingual gloss :func:`.spanish_lexicon.concept`), a duration with a quoted form and an event's year stated in English or with no
+credit (a warning).
 
 Measured counts are premises grounded in the answer or the supplied text as written (a deterministic measurement, as the channel's own
 word-bound problems are). Words are counted with the channel's own counter (``request_parser.count_words``), so pack and channel never
@@ -550,8 +559,11 @@ def _course_range(ctx: _Ctx) -> None:
         claim_ids=(), severity="warning"))
 
 
-_MODEL_REF_RE = re.compile(r"\b(?:the|my|this|our)\s+(?:model(?:\s+(?:text|article|answer|email|letter|sentence))?|article|sample(?:\s+text)?)\s+"
-                           r"(?:uses?|used|includes?|included|contains?|has|writes?|wrote|shows?|employs?|features?|address(?:es)?|addressed)\b"
+_MODEL_REF_RE = re.compile(r"\b(?:the|my|this|our)\s+(?:model(?:\s+(?:text|article|answer|email|letter|sentence))?|article|sample(?:\s+text)?|"
+                           r"(?:opening|closing|first|last|final)\s+(?:line|sentence|question|paragraph)|headline|title|writer|author)\s+"
+                           r"(?:uses?|used|includes?|included|contains?|has|writes?|wrote|shows?|employs?|features?|address(?:es)?|addressed|"
+                           r"says?|said|states?|stated|reads?|asks?|asked|puts?\s+it|(?P<pos>opens?|begins?|starts?|ends?|closes?|finishes?)\s+with|opened\s+with|"
+                           r"began\s+with|ended\s+with|closed\s+with)\b"
                            r"|\b(?:el\s+(?:modelo|texto\s+modelo|art[ií]culo))\s+(?:usa|utiliza|emplea|incluye|contiene|tiene)\b", re.IGNORECASE)
 _ITALIC_FORM_RE = re.compile(r"(?<![*\w])\*(?!\*)([^*\n]{1,80})\*(?!\*)")
 
@@ -606,7 +618,14 @@ def _quoted_forms(ctx: _Ctx, statements: list[_Stmt]) -> None:
         if not forms:
             continue
         seen += len(forms)
-        counts = [(f, _occurs(f, target[1])) for f in forms]
+        pos = (m.groupdict().get("pos") or "").casefold()
+        if pos and target[0] == "the model" and r.body_text:
+            # "opens with" / "ends with": the form stands at the start (end) of the model's body, not merely somewhere in it (attack round 8)
+            body = _norm(r.body_text)
+            counts = [(f, 1 if (body.startswith(_norm(f).rstrip(".")) if pos.startswith(("open", "begin", "start")) else body.rstrip(" .!?»\"”").endswith(_norm(f).rstrip(" .!?»\"”"))) else 0)
+                      for f in forms]
+        else:
+            counts = [(f, _occurs(f, target[1])) for f in forms]
         inputs = [(f"f{k + 1}", Fraction(c), f"occurrences of «{f[:80]}» in {target[0]} ({c})") for k, (f, c) in enumerate(counts)]
         concl = {"op": "and", "args": [{"op": "ge", "left": _var(f"f{k + 1}"), "right": _real(Fraction(1))} for k in range(len(counts))]} if len(counts) > 1 else \
             {"op": "ge", "left": _var("f1"), "right": _real(Fraction(1))}
@@ -619,7 +638,8 @@ def _quoted_forms(ctx: _Ctx, statements: list[_Stmt]) -> None:
             return
 
 
-_ADDRESS_CLAIM_RE = re.compile(r"\b(?:you|your\s+(?:email|e-mail|text|letter|draft)|the\s+(?:model|email|e-mail|letter|text|article|speech)|tu\s+(?:texto|correo|carta)|el\s+(?:modelo|correo|texto))"
+_ADDRESS_CLAIM_RE = re.compile(r"\b(?:you|your\s+(?:email|e-mail|text|letter|draft)|the\s+(?:model|email|e-mail|letter|text|article|speech|writer|author|headline|"
+                               r"(?:opening|closing|first|last|final)\s+(?:line|sentence|question|paragraph))|tu\s+(?:texto|correo|carta)|el\s+(?:modelo|correo|texto))"
                                r"\b[^.;\n]{0,60}?\b(?:write|writes|wrote|use|uses|used|keep|keeps|kept|address|addresses|addressed|employ|employs|mix|mixes|mixed|switch|switches|"
                                r"usa|utiliza|mezcla|emplea|tutea|mantiene)\b", re.IGNORECASE)
 _HYPOTHETICAL_RE = re.compile(r"\b(?:would|could|should|might|may|can|if|debería|podría|deberías|podrías)\b", re.IGNORECASE)
@@ -689,10 +709,22 @@ def _address_checks(ctx: _Ctx, statements: list[_Stmt]) -> None:
             claim_ids=ctx.claims(st.text, st.text[:60]), severity="warning"))
 
 
-_ARROW_LINE_RE = re.compile(r"^[ \t]*+(?:[-*•]|\d{1,2}[.)])?[ \t]*+[«\"“'‘][^\n]{1,300}?[»\"”'’][ \t]*+(?:→|->|=>|⟶)[ \t]*+[«\"“'‘]", re.MULTILINE)
+_ARROW_LINE_RE = re.compile(r"^[ \t]*+(?:[-*•]|\d{1,2}[.)])?[ \t]*+(?:[«\"“'‘][^\n]{1,300}?[»\"”'’][ \t]*+"
+                            # (check round 9 of c3c: any arrow, "-->", "⇒", ">", "becomes", "should be", or a "Correct form:" label after
+                            # the replaced wording)
+                            r"(?:→|-{1,2}>|—>|=>|⇒|⟶|>|becomes|should\s+be|[.;,]?[ \t]*+(?:correct(?:ed)?(?:\s+(?:form|version|sentence))?|right)\s*+:)"
+                            r"[ \t]*+[«\"“'‘]|"
+                            # 'Write "y", not "x"': the correction first, the replaced wording after it
+                            r"(?:write|use|say)\s+[«\"“'‘][^\n]{1,300}?[»\"”'’][ \t]*+,?[ \t]*+not\s+[«\"“'‘]|"
+                            # a correction written with labels (attack round 8): 'Wrong: "x". Right: "y"', 'Incorrect: "x" Correct: "y"',
+                            # 'Instead of "x", write "y"', 'Not "x" but "y"'
+                            r"(?:wrong|incorrect|error|original|you\s+wrote|student)\s*+:[ \t]*+[«\"“'‘][^\n]{1,300}?[»\"”'’][ \t.;,]*+"
+                            r"(?:right|correct(?:ed)?|corrected\s+form|better|should\s+be|fix)\s*+:[ \t]*+[«\"“'‘]|"
+                            r"instead\s+of\s+[«\"“'‘][^\n]{1,300}?[»\"”'’][ \t,]*+(?:write|use|say)\s+[«\"“'‘])", re.MULTILINE | re.IGNORECASE)
 _LISTED_RE = re.compile(r"\b(?:fix|correct|check|review|revise|make|work\s+on|corrige|revisa|repasa)\s+(?:the|these|those|all(?:\s+the)?|los|las|estos|estas)\s+"
                         r"(?P<n>" + _NUMBER_WORD + r"|\d{1,2})\s+(?P<noun>points|corrections|changes|errors|mistakes|fixes|puntos|correcciones|errores|cambios)\b"
-                        r"|\b(?:the|these|those|las|los|estas|estos)\s+(?P<n2>" + _NUMBER_WORD + r"|\d{1,2})\s+(?P<noun2>corrections|correcciones)\b", re.IGNORECASE)
+                        r"|\b(?:the|these|those|las|los|estas|estos|there\s+are|hay)\s+(?P<n2>" + _NUMBER_WORD + r"|\d{1,2})\s+(?P<noun2>corrections|correcciones)\b",
+                        re.IGNORECASE)  # ("There are seven corrections above.": check round 9 of c3c)
 #: (up to six words may stand between the noun and the list's colon or bracket: "four connectors to organise the argument: ...", attack
 #: round 7)
 _CONNECTOR_LIST_RE = re.compile(r"\b(?P<n>" + _NUMBER_WORD + r"|\d{1,2})\s+(?:connectors|conectores|linking\s+words|connectives)"
@@ -741,7 +773,9 @@ _ES_YEAR = r"(?:1[89]\d{2}|20\d{2})"
 #: 36 %, de 212 a 268"); between the two figures: up to three words or a year ("de 212 vecinos en 2015 a 268 personas") (attack round 3).
 _ES_FROM_TO_RE = re.compile(r"\b(?:pas(?:ó|a|aron|an)|ha\s+pasado|(?:ha|han)\s+(?:ca[ií]do|bajado|subido|aumentado|crecido|descendido|disminuido)|"
                             r"se\s+ha(?:n)?\s+(?:reducido|duplicado|triplicado)|cay(?:ó|eron)|baj(?:ó|aron)|subi(?:ó|eron)|aument(?:ó|aron)|creci(?:ó|eron)|descendi(?:ó|eron)|"
-                            r"disminuy(?:ó|eron)|se\s+redujo|se\s+redujeron|se\s+duplic(?:ó|aron)|se\s+triplic(?:ó|aron))\s+"
+                            r"disminuy(?:ó|eron)|se\s+redujo|se\s+redujeron|se\s+duplic(?:ó|aron)|se\s+triplic(?:ó|aron)|"
+                            # (the present too, "Si un alquiler sube de 500 € a 650 €, sube un 20 %": check round 9 of c3c)
+                            r"sube|suben|baja|bajan|cae|caen|crece|crecen|aumenta|aumentan|disminuye|disminuyen|desciende|descienden)\s+"
                             r"(?:(?:[^\W\d_]{1,20}|(?:" + _ES_NUM + r")\s*+(?:%|por\s+ciento)),?\s+){0,4}?de\s+"
                             r"(?P<a>" + _ES_NUM + r")(?:\s+(?:[^\W\d_]{1,20}|" + _ES_YEAR + r")){0,3}?\s+a\s+(?P<b>" + _ES_NUM + r")(?![\d,.]\d)", re.IGNORECASE)
 #: After a from-to pair: the size of the change ("..., es decir, en 1.138 personas", "..., una caída de 1.038 habitantes").
@@ -758,17 +792,38 @@ _POINT_FLOOR = Fraction(1, 2)
 _PCT_TOL = Fraction(1, 20)
 
 
+#: A Spanish number word that may open a figure (a cheap test before the number-word reader runs on a paragraph).
+_ES_NUMBER_WORD_HINT_RE = re.compile(r"\b(?:dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|veint\w*|treinta|cuarenta|cincuenta|"
+                                     r"sesenta|setenta|ochenta|noventa|cien|ciento|\w+cientos|\w+cientas|quinientos|quinientas|mil)\b", re.IGNORECASE)
+_CURRENCY_SIGN_RE = re.compile(r"(?:US\$|[€$£¥])")
+
+
+def _normalise_es_figures(sent: str) -> str:
+    """The sentence with its figures as digits for the change readers (attack round 8, the push check's open item): "por ciento" as '%', a
+    currency sign before or after a figure as a blank ("de 600 € a 900 €", "de €600 a €900"), and a figure written in Spanish words as its
+    digits ("de seiscientos a novecientos euros, una subida del treinta por ciento"). The words are read by the shared number-word reader,
+    never evaluated; a sentence of no such figure is returned unchanged."""
+    out = re.sub(r"\bpor\s+ciento\b", "%", sent, flags=re.IGNORECASE)
+    out = _CURRENCY_SIGN_RE.sub(" ", out)
+    if _ES_NUMBER_WORD_HINT_RE.search(out):
+        spans = es.spanish_number_figures(out)
+        for a, b, v in sorted(spans, reverse=True):
+            out = out[:a] + str(v) + out[b:]
+    return " ".join(out.split()) if out != sent else sent
+
+
 def _percent_changes(ctx: _Ctx) -> None:
     from ..adapters.history_specialist.sentences import split_sentences
     if not (ctx.regions.spanish or _spanish_context(ctx.report)):
         return
     for para in ctx.regions.paragraphs:
-        if not re.search(r"\d", para):
+        if not re.search(r"\d", para) and not _ES_NUMBER_WORD_HINT_RE.search(para):
             continue
-        for sent in split_sentences(para):
-            en, sp, _n = es.english_ratio(sent)
+        for orig in split_sentences(para):
+            en, sp, _n = es.english_ratio(orig)
             if en > sp:
                 continue
+            sent = _normalise_es_figures(orig)
             for m in _ES_FROM_TO_RE.finditer(sent):
                 clause = sent[m.start():m.end() + 120]
                 if _YEAR_RE.match(m.group("a")) and _YEAR_RE.match(m.group("b")):
@@ -803,9 +858,9 @@ def _percent_changes(ctx: _Ctx) -> None:
                         ctx.report, check_id=cid, kind="lb_percent_change", inputs=[("stated", signed, f"the change stated in per cent ({what})")],
                         conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
                         label=f"stated {what} against (b - a) / a x 100 from {m.group('a')} to {m.group('b')} (every reading of the numerals)",
-                        description=(f"{sent[:220]} [a percentage change against its from-to pair: within 5% of the computed change or half a point; "
+                        description=(f"{orig[:220]} [a percentage change against its from-to pair: within 5% of the computed change or half a point; "
                                      "a numeral is read every way it can be read and one reading holding is enough]"),
-                        claim_ids=ctx.claims(sent, m.group(0)), defect="stem_arithmetic_slip"))
+                        claim_ids=ctx.claims(orig, orig[:60]), defect="stem_arithmetic_slip"))
                 elif _ES_DIFF_AFTER_RE.match(sent, m.end()):
                     # the size of the change after its pair ("cayó de 1.250 a 212 habitantes, es decir, en 1.138 personas"): the stated
                     # difference equals |b - a| for one reading of the numerals (attack round 4)
@@ -826,9 +881,9 @@ def _percent_changes(ctx: _Ctx) -> None:
                         ctx.report, check_id=cid, kind="lb_percent_change", inputs=[("stated", stated, f"the size of the change stated ({dm.group('n')})")],
                         conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
                         label=f"stated change {dm.group('n')} against |b - a| from {m.group('a')} to {m.group('b')} (every reading of the numerals)",
-                        description=(f"{sent[:220]} [the size of a change stated after its from-to pair equals their difference, within half a unit "
+                        description=(f"{orig[:220]} [the size of a change stated after its from-to pair equals their difference, within half a unit "
                                      "(5% after 'unos'); a numeral is read every way it can be read and one reading holding is enough]"),
-                        claim_ids=ctx.claims(sent, m.group(0)), defect="stem_arithmetic_slip"))
+                        claim_ids=ctx.claims(orig, orig[:60]), defect="stem_arithmetic_slip"))
                 elif fold is not None:
                     k = _FOLD_ES[" ".join(fold.group(0).casefold().split())]
                     options = [{"op": "and", "args": [{"op": "le", "left": {"op": "sub", "left": _var("later"), "right": _real(a * k)}, "right": _real(abs(a * k) * _PCT_TOL)},
@@ -839,8 +894,8 @@ def _percent_changes(ctx: _Ctx) -> None:
                             ctx.report, check_id=cid, kind="lb_percent_change", inputs=[("later", b, f"the later figure ({m.group('b')})")],
                             conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
                             label=f"'{fold.group(0)}' (x{float(k):g}) from {m.group('a')} to {m.group('b')}",
-                            description=f"{sent[:220]} [a fold change against its from-to pair, within 5%; every reading of the numerals]",
-                            claim_ids=ctx.claims(sent, m.group(0)), defect="stem_arithmetic_slip"))
+                            description=f"{orig[:220]} [a fold change against its from-to pair, within 5%; every reading of the numerals]",
+                            claim_ids=ctx.claims(orig, orig[:60]), defect="stem_arithmetic_slip"))
 
 
 # ------------------------------------------------------------------------------------------------------------------ dated series
@@ -897,6 +952,33 @@ def _within(var: str, value, slack) -> dict:
                                   {"op": "ge", "left": {"op": "sub", "left": _var(var), "right": _real(value)}, "right": _real(-slack)}]}
 
 
+_SINCE_RE = re.compile(r"\b(?:en|in)\s+(?P<y1>(?:1[5-9]|20)\d{2})\b[^.;\n]{0,80}?\b(?:llevaba(?:n)?|hac[ií]a|had\s+been\s+\w+\s+for)\s+"
+                       r"(?P<n>\d{1,3}|[^\W\d_]{2,12}(?:\s+y\s+[^\W\d_]{2,8})?)\s+(?:años|years)\b[^.;\n]{0,60}?\(?\s*(?:desde|since)\s+(?:el\s+)?(?P<y0>(?:1[5-9]|20)\d{2})\b",
+                       re.IGNORECASE)
+
+
+def _durations_since(ctx: _Ctx) -> None:
+    """Check round 9 of c3c (sp-t14): a duration stated at a year and counted from another ("En 2015 la escuela llevaba nueve años
+    cerrada (desde 2009)."): the difference of the two years. Number words are read as their digits."""
+    from ..adapters.history_specialist.sentences import split_sentences
+    for para in ctx.regions.paragraphs:
+        if not re.search(r"\d{4}", para):
+            continue
+        for orig in split_sentences(para):
+            sent = _normalise_es_figures(orig)
+            for m in _SINCE_RE.finditer(sent):
+                n = int(m.group("n")) if m.group("n").isdigit() else _small(m.group("n"))
+                y1, y0 = int(m.group("y1")), int(m.group("y0"))
+                if n is None or y1 < y0:
+                    continue
+                ctx.add("lb_dated_change", lambda cid, n=n, y1=y1, y0=y0, m=m, sent=sent: make_check(
+                    ctx.report, check_id=cid, kind="lb_dated_change", inputs=[("stated", Fraction(n), f"the duration stated ({m.group('n')} years)")],
+                    conclusion={"op": "eq", "left": _var("stated"), "right": _real(Fraction(y1 - y0))},
+                    label=f"the duration stated ({n} years) against {y1} − {y0} = {y1 - y0}",
+                    description=f"{sent[:220]} [a duration at one year counted from another is the difference of the two years]",
+                    claim_ids=ctx.claims(orig, m.group(0)[:60]), severity="warning", defect="stem_arithmetic_slip"))
+
+
 def _dated_changes(ctx: _Ctx) -> None:
     """Attack round 3 (sp-t14): arithmetic over the supplied text's dated figures that the answer states without its from-to pair: a per
     cent change over a period ("la población bajó un 73 % entre 1960 y 2015"), a difference against a dated figure ("268 personas, 66 más
@@ -912,11 +994,16 @@ def _dated_changes(ctx: _Ctx) -> None:
     r = ctx.regions
     excluded = set(r.model) | set(r.disclaimer)
     for pi, para in enumerate(r.paragraphs):
-        if pi in excluded or not re.search(r"\d", para):
+        if pi in excluded or not (re.search(r"\d", para) or _ES_NUMBER_WORD_HINT_RE.search(para)):
             continue
         for sent in split_sentences(para):
             en, sp, _n = es.english_ratio(sent)
-            if en > sp or _ES_FROM_TO_RE.search(sent):
+            if en > sp:
+                continue
+            # (a per cent or a difference in Spanish number words, "cayó un treinta y ocho por ciento", is read as its digits, as the
+            # from-to readers read it: the push check's still-partial item, check round 9 of c3c)
+            sent = _normalise_es_figures(sent)
+            if _ES_FROM_TO_RE.search(sent) or not re.search(r"\d", sent):
                 continue
             series = line.get("population") if _POPULATION_RE.search(sent) else None
             if series is None:
@@ -1280,8 +1367,14 @@ _EVENT_STOP = frozenset("según texto artículo dice cuenta afirma hace había t
 
 
 def _content_stems(clause: str) -> set:
-    return {_stem(w.casefold()) for w in re.findall(r"[^\W\d_]{4,40}", clause) if w.casefold() not in _CONTEXT_STOP and
-            w.casefold() not in _EVENT_STOP}
+    # (each word by its concept in the closed bilingual gloss, else its first five letters: "The school had been closed since 2003"
+    # meets "la escuela llevaba cerrada desde 2009", attack round 8)
+    return {es.concept(w) for w in re.findall(r"[^\W\d_]{4,40}", clause) if w.casefold() not in _CONTEXT_STOP and
+            w.casefold() not in _EVENT_STOP and w.casefold() not in _EN_EVENT_STOP}
+
+
+_RELATIVE_YEAR_RE = re.compile(r"\b(?:despu[eé]s|antes|after|before|later|earlier|tras)\s+(?:de\s+|of\s+|than\s+)?(?:1[89]\d{2}|20\d{2})\b", re.IGNORECASE)
+_EN_EVENT_STOP = frozenset("text article says said that this with from have been were when where there their which".split())
 
 
 def _event_years(ctx: _Ctx) -> None:
@@ -1310,26 +1403,29 @@ def _event_years(ctx: _Ctx) -> None:
         if pi in excluded or not _YEAR_IN_RE.search(para):
             continue
         for line in para.split("\n"):
-            en, sp, _n = es.english_ratio(line)
-            if en > sp or es.SPANISH_CREDIT_RE.search(line) is None:
+            # a line credited to the text is an error when wrong; an uncredited line, Spanish or English, a warning (attack round 8:
+            # "La fibra óptica llegó en 2012.", "The school had been closed since 2003.")
+            credited = es.SPANISH_CREDIT_RE.search(line) is not None or re.search(r"\b(?:according\s+to|the\s+(?:text|article)\s+(?:says|states))\b", line, re.IGNORECASE) is not None
+            if _ARROW_LINE_RE.match(line) or (ctx.task not in ("reading", "notes") and not credited):
                 continue
             for clause in _CLAUSE_SPLIT_RE.split(line):
                 ys = _YEAR_IN_RE.findall(clause)
-                if len(ys) != 1 or re.search(r"\d", _YEAR_IN_RE.sub("", clause)):
-                    continue  # a clause with a figure besides its year is the figure readers'
+                if len(ys) != 1 or re.search(r"\d", _YEAR_IN_RE.sub("", clause)) or _RELATIVE_YEAR_RE.search(clause):
+                    continue  # a clause with a figure besides its year is the figure readers'; "seis años después de 2015": the year is the
+                    # reference point of a relative date, never the event's (attack round 8)
                 mine = _content_stems(clause)
                 scored = sorted(((len(mine & st), y, doc) for st, y, _all, doc in events), key=lambda x: -x[0])
                 if not scored or scored[0][0] < 2 or (len(scored) > 1 and scored[1][0] == scored[0][0] and scored[1][1] != scored[0][1]):
                     continue
                 _n2, year, doc = scored[0]
                 stated = ys[0]
-                ctx.add("supplied_figure", lambda cid, year=year, stated=stated, clause=clause, doc=doc, line=line: make_check(
+                ctx.add("supplied_figure", lambda cid, year=year, stated=stated, clause=clause, doc=doc, line=line, credited=credited: make_check(
                     ctx.report, check_id=cid, kind="supplied_figure", inputs=[("year", int(year), f"the year the supplied text gives this event ({year})")],
                     conclusion={"op": "eq", "left": _var("year"), "right": _real(int(stated))},
                     label=f"the year {stated} the answer credits to the text for '{clause.strip()[:80]}' equals the year {year} in {doc}",
                     description=(f"an event's year credited to a supplied text: '{line[:200]}' against {doc} ({year}) [rule: an event taken from a "
                                  "supplied text keeps the text's year]"),
-                    claim_ids=ctx.claims(line, stated), severity="error", defect="source_mismatch"))
+                    claim_ids=ctx.claims(line, stated), severity="error" if credited else "warning", defect="source_mismatch"))
 
 
 def _add_year(ctx: _Ctx, line: str, f: _Fig, cell: _Fig, doc: str, credited: bool) -> None:
@@ -1471,6 +1567,593 @@ def _speakers(ctx: _Ctx) -> None:
                 defect="source_mismatch"))
 
 
+# ------------------------------------------------------------------------------------------------------------------ attack round 8
+#: A count written in digits or in a small English or Spanish number word.
+_SMALL_COUNT = r"\d{1,3}|" + "|".join(sorted((w for w in es.SMALL_NUMBER_WORDS if len(w) > 2), key=len, reverse=True))
+
+
+def _small(w: str) -> Optional[int]:
+    w = w.casefold()
+    return int(w) if w.isdigit() else es.SMALL_NUMBER_WORDS.get(w)
+
+
+def _target_texts(ctx: _Ctx) -> list[tuple[str, str]]:
+    """``(name, text)`` of the productions and texts a statement can be about: the student's text, the supplied texts, the model."""
+    out = []
+    if ctx.regions.student_text is not None:
+        out.append(("the student's text", ctx.regions.student_text))
+    for t in ctx.report.supplied_texts:
+        if not (t.document_id or "").startswith("peer:") and t.text and t.text != ctx.regions.student_text:
+            out.append((t.document_id, t.text[:MAX_REGION]))
+    if ctx.regions.model_text:
+        out.append(("the model", ctx.regions.model_text))
+    return out
+
+
+def _subject_text(ctx: _Ctx, subject: str) -> Optional[tuple[str, str]]:
+    """The one text a statement's subject names: 'your email' / 'tu correo' the student's text, 'the model' / 'the article' the model
+    (a writing task) or the one supplied text, 'the poem' / 'the text' / 'the extract' the one supplied text."""
+    s = " ".join(subject.casefold().split())
+    docs = [(t.document_id, t.text[:MAX_REGION]) for t in ctx.report.supplied_texts
+            if not (t.document_id or "").startswith("peer:") and t.text and t.text != ctx.regions.student_text]
+    if s.startswith(("your", "tu ", "the student")) and ctx.regions.student_text is not None:
+        return "the student's text", ctx.regions.student_text
+    if ("model" in s or (ctx.task == "writing" and ("article" in s or "text" in s or "email" in s or "letter" in s))) and ctx.regions.model_text:
+        return "the model", ctx.regions.model_text
+    if len(docs) == 1 and not s.startswith(("your", "tu ")):
+        return docs[0]
+    return None
+
+
+def _blocks(text: str) -> list[list[str]]:
+    """The blank-line blocks of a text, each its non-empty lines."""
+    return [[ln for ln in b.split("\n") if ln.strip()] for b in _PARA_RE.split(text[:MAX_REGION]) if b.strip()][:2000]
+
+
+#: A structural count of a production or a supplied text: "Your email has seven paragraphs between the greeting and the sign-off", "The
+#: poem has five stanzas", "The poem has twenty lines in four stanzas of six lines".
+_STRUCT_SUBJ = (r"(?P<subj>your\s+(?:email|e-mail|text|letter|essay|draft|article|composition)|tu\s+(?:correo|texto|carta|redacción)|"
+                r"the\s+(?:poem|text|extract|passage|song|article|email|e-mail|letter|model(?:\s+(?:text|article|email|letter))?|story)|el\s+(?:poema|texto|modelo|correo))")
+_STRUCT_RE = re.compile(r"\b" + _STRUCT_SUBJ + r"\s+(?:has|had|contains|consists\s+of|is\s+made\s+up\s+of|is\s+divided\s+into|is\s+written\s+in|runs\s+to|tiene|consta\s+de)"
+                        r"\s+(?P<body>[^.;\n]{1,160})", re.IGNORECASE)
+_STRUCT_UNIT_RE = re.compile(r"(?P<n>" + _SMALL_COUNT + r")\s+(?P<u>paragraphs?|stanzas?|verses?|lines?|párrafos?|estrofas?|versos?|líneas?)"
+                             r"(?:\s+(?:of|de)\s+(?P<m>" + _SMALL_COUNT + r")\s+(?P<mu>lines?|versos?|líneas?))?", re.IGNORECASE)
+_BODY_ONLY_RE = re.compile(r"\bbetween\s+the\s+greeting\s+and\s+the\s+(?:sign-?off|closing)|\bin\s+the\s+body\b|\bentre\s+el\s+saludo\s+y\s+la\s+despedida", re.IGNORECASE)
+#: "The body of the article has ...", "el cuerpo del artículo tiene ...": the article's own paragraphs (check round 9 of c3c).
+_ARTICLE_BODY_RE = re.compile(r"\b(?:the\s+body\s+of|el\s+cuerpo\s+del?)\s+(?:the\s+|la\s+|el\s+)?(?:article|model|text|artículo|modelo|texto)\b", re.IGNORECASE)
+
+
+def _structure(text: str, poem: bool) -> dict:
+    """The structural counts of a text: its blocks (paragraphs or stanzas) whole and between a greeting and a closing, and its lines. A
+    first block of one short line with no end mark is a title (a poem's), never a stanza."""
+    blocks = _blocks(text)
+    if blocks and len(blocks[0]) == 1 and len(blocks[0][0].split()) <= 8 and not re.search(r"[.!?:]\s*$", blocks[0][0]) and len(blocks) > 1:
+        blocks = blocks[1:]
+    body = list(blocks)
+    if body and (es.greeting_line(body[0][0]) or es.header_line(body[0][0])) and len(body[0]) == 1:
+        body = body[1:]
+    if body and any(es.closing_line(ln) for ln in body[-1][:2]):
+        body = body[:-1]
+    # an article's body (check round 9 of c3c): its paragraphs of prose, without a note in italics, a headline, a byline or a note
+    # after it (a word count, a bracketed note) — "The body of the article has seven paragraphs"
+    art = [b for b in blocks if not _apparatus_block(b)]
+    return {"blocks": len(blocks), "body": len(body), "article": len(art), "lines": sum(len(b) for b in blocks),
+            "sizes": [len(b) for b in blocks]}
+
+
+_BYLINE_RE = re.compile(r"^\s*(?:por|by|de|autor(?:a)?\s*:|author\s*:)\s+\S", re.IGNORECASE)
+_NOTE_BLOCK_RE = re.compile(r"^\s*(?:\*[^*\n].*\*|_[^_\n].*_|\(.*\)|\[.*\]|(?:word\s+count|words|palabras|número\s+de\s+palabras|nota|note)\b.*)\s*$",
+                            re.IGNORECASE)
+
+
+def _apparatus_block(block: list[str]) -> bool:
+    """A block that is no paragraph of an article's body: one line that is a headline (short, no end stop), a byline, or a note
+    (in italics or brackets, a word count)."""
+    if len(block) != 1:
+        return False
+    ln = block[0].strip()
+    if _NOTE_BLOCK_RE.match(ln) or _BYLINE_RE.match(ln):
+        return True
+    return len(ln.split()) <= 12 and not re.search(r"[.!:]\s*$", ln)
+
+
+def _structural_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    for st in statements:
+        m = _STRUCT_RE.search(st.text)
+        if m is None:
+            continue
+        target = _subject_text(ctx, m.group("subj"))
+        if target is None:
+            continue
+        name, text = target
+        poem = "poem" in m.group("subj").casefold() or "poema" in m.group("subj").casefold()
+        info = _memo(ctx, ("structure", name), lambda text=text, poem=poem: _structure(text, poem))
+        body_only = _BODY_ONLY_RE.search(st.text) is not None
+        for u in _STRUCT_UNIT_RE.finditer(m.group("body")):
+            n = _small(u.group("n"))
+            unit = es.concept(u.group("u"))
+            if n is None or unit not in ("paragraph", "stanza", "line"):
+                continue
+            if unit == "line":
+                measured = [info["lines"]]
+                what = "lines"
+            elif _ARTICLE_BODY_RE.search(st.text):
+                measured = [info["article"]]
+                what = "body paragraphs (without its headline, byline and notes)"
+            else:
+                measured = [info["body"]] if body_only else sorted({info["blocks"], info["body"], info["article"]})
+                what = "blocks between the greeting and the closing" if body_only else "blocks (with or without a greeting and a closing)"
+            inputs = [("stated", Fraction(n), f"the count stated ({u.group(0)})")]
+            options = [{"op": "eq", "left": _var("stated"), "right": _real(Fraction(c))} for c in measured]
+            concl = options[0] if len(options) == 1 else {"op": "or", "args": options}
+            if u.group("m"):
+                mm = _small(u.group("m"))
+                if mm is not None:
+                    odd = sum(1 for size in info["sizes"] if size != mm)
+                    inputs.append(("odd", Fraction(odd), f"the blocks of {name} not of {mm} lines ({odd})"))
+                    concl = {"op": "and", "args": [concl, {"op": "eq", "left": _var("odd"), "right": _real(Fraction(0))}]}
+            ctx.add("lb_structure_count", lambda cid, inputs=inputs, concl=concl, st=st, u=u, name=name, what=what, measured=measured: make_check(
+                ctx.report, check_id=cid, kind="lb_structure_count", inputs=inputs, conclusion=concl,
+                label=f"{u.group(0)} against {name}'s {what} ({', '.join(str(x) for x in measured)})",
+                description=f"{st.text[:220]} [a count of a text's paragraphs, stanzas or lines equals the count of the text as written]",
+                claim_ids=ctx.claims(st.text, u.group(0)), severity="warning", defect="invented_figure"))
+
+
+#: How often a quoted form occurs in a text: '"ándale" appears three times in a row in the poem'.
+_OCCURS_RE = re.compile(r"[«\"“](?P<q>[^»\"”\n]{1,80})[»\"”]\s+(?:appears|occurs|is\s+used|is\s+repeated|is\s+said|comes|aparece|se\s+repite)\s+"
+                        r"(?P<k>once|twice|(?:" + _SMALL_COUNT + r")\s+times|una\s+vez|dos\s+veces|(?:" + _SMALL_COUNT + r")\s+veces)(?P<row>\s+in\s+a\s+row|\s+seguid[oa]s?)?"
+                        r"(?:\s+in\s+(?P<subj>the\s+(?:poem|text|extract|passage|song|article|model)|your\s+(?:email|text|letter)))?", re.IGNORECASE)
+
+
+def _occurrence_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    for st in statements:
+        for m in _OCCURS_RE.finditer(st.text):
+            target = _subject_text(ctx, m.group("subj") or "the text")
+            if target is None:
+                continue
+            k = m.group("k").casefold().split()
+            n = 1 if k[0] in ("once", "una") else 2 if k[0] in ("twice",) else _small(k[0])
+            if n is None:
+                continue
+            form = _norm_quote(m.group("q"))
+            if not form:
+                continue
+            words = re.findall(r"[^\W_]+", target[1].casefold())
+            fw = form.split()
+            hits = [i for i in range(len(words) - len(fw) + 1) if words[i:i + len(fw)] == fw][:400] if len(fw) <= 6 else []
+            if m.group("row"):
+                best, run = 0, 0
+                for j, i in enumerate(hits):
+                    run = run + 1 if j and i == hits[j - 1] + len(fw) else 1
+                    best = max(best, run)
+                measured = best
+            else:
+                measured = len(hits)
+            ctx.add("lb_occurrence_count", lambda cid, n=n, measured=measured, m=m, st=st, target=target: make_check(
+                ctx.report, check_id=cid, kind="lb_occurrence_count", inputs=[("found", Fraction(measured), f"occurrences of «{m.group('q')[:60]}» in {target[0]}"
+                                                                                                      f"{' in a row' if m.group('row') else ''} ({measured})")],
+                conclusion={"op": "eq", "left": _var("found"), "right": _real(Fraction(n))},
+                label=f"«{m.group('q')[:60]}» occurs {m.group('k')}{m.group('row') or ''} in {target[0]}",
+                description=f"{st.text[:220]} [how often a quoted form occurs in a text equals the count of the text as written (whole words, case folded)]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="invented_figure"))
+
+
+#: A count of items a text lists by ordinals: "Tu correo da cuatro cosas que aprendiste", "Your email gives four things you learned".
+_ENUM_CLAIM_RE = re.compile(r"\b(?P<subj>tu\s+(?:correo|texto|carta)|your\s+(?:email|e-mail|text|letter|draft)|the\s+(?:model|article))\s+"
+                            r"(?:da|menciona|incluye|tiene|presenta|explica|enumera|propone|gives|lists|mentions|includes|has|names|explains|offers|proposes|"
+                            r"suggests|makes|puts\s+forward)\s+(?P<n>" + _SMALL_COUNT + r")\s+(?P<noun>[^\W\d_]{4,20})", re.IGNORECASE)
+_ORDINALS = ("primero", "segundo", "tercero", "cuarto", "quinto", "sexto", "first", "second", "third", "fourth", "fifth", "sixth",
+             "en primer lugar", "en segundo lugar", "en tercer lugar", "en cuarto lugar", "firstly", "secondly", "thirdly", "fourthly")
+_ORDINAL_RE = re.compile(r"(?:^|(?<=[.!?:\n]))\s*+(?P<o>en\s+(?:primer|segundo|tercer|cuarto|quinto)\s+lugar|primero|segundo|tercero|cuarto|quinto|sexto|"
+                         r"first(?:ly)?|second(?:ly)?|third(?:ly)?|fourth(?:ly)?|fifth(?:ly)?)\s*+,", re.IGNORECASE)
+_ORDINAL_PROPOSAL_RE = re.compile(r"\b(?:mi|la|una|the|my)\s+(?P<o>primera|segunda|tercera|cuarta|quinta|first|second|third|fourth|fifth)\s+(?:propuesta|medida|"
+                                  r"raz[oó]n|idea|proposal|measure|reason)\b", re.IGNORECASE)
+_ORDINAL_RANK = {"primer": 1, "primero": 1, "primera": 1, "first": 1, "firstly": 1, "segundo": 2, "segunda": 2, "second": 2, "secondly": 2,
+                 "tercer": 3, "tercero": 3, "tercera": 3, "third": 3, "thirdly": 3, "cuarto": 4, "cuarta": 4, "fourth": 4, "fourthly": 4,
+                 "quinto": 5, "quinta": 5, "fifth": 5, "fifthly": 5, "sexto": 6, "sixth": 6}
+#: A count the text states of its own items ("propongo dos medidas", "two measures").
+_OWN_COUNT_RE = re.compile(r"(?P<n>" + _SMALL_COUNT + r")\s+(?P<noun>[^\W\d_]{4,20})", re.IGNORECASE)
+
+
+def _enumerated_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    for st in statements:
+        for m in _ENUM_CLAIM_RE.finditer(st.text):
+            n = _small(m.group("n"))
+            target = _subject_text(ctx, m.group("subj"))
+            if n is None or target is None:
+                continue
+            noun = es.concept(m.group("noun"))
+            if noun in ("paragraph", "stanza", "line", "word"):
+                continue  # a count of a text's parts or words: the structure and word-count readers'
+            name, text = target
+            # the text's own count of the same items ("propongo dos medidas"), else the highest rank of its ordinals ("Primero, ...
+            # Segundo, ... Tercero, ...", "En primer lugar ... Mi segunda propuesta")
+            own = {(_small(x.group("n"))) for x in _OWN_COUNT_RE.finditer(text) if es.concept(x.group("noun")) == noun and _small(x.group("n"))}
+            ranks = [_ORDINAL_RANK.get(o.group("o").casefold().split()[-2] if o.group("o").casefold().startswith("en ") else o.group("o").casefold(), 0)
+                     for o in _ORDINAL_RE.finditer(text)]
+            ranks += [_ORDINAL_RANK.get(o.group("o").casefold(), 0) for o in _ORDINAL_PROPOSAL_RE.finditer(text)]
+            if len(own) == 1:
+                measured, how = own.pop(), f"the count {name} states itself"
+            elif ranks and max(ranks) >= 2:
+                measured, how = max(ranks), f"the ordinals {name} lists its items by (up to the {max(ranks)}th)"
+            else:
+                continue
+            ctx.add("lb_listed_count", lambda cid, n=n, measured=measured, how=how, m=m, st=st: make_check(
+                ctx.report, check_id=cid, kind="lb_listed_count", inputs=[("listed", Fraction(measured), f"{how} ({measured})")],
+                conclusion={"op": "eq", "left": _var("listed"), "right": _real(Fraction(n))},
+                label=f"{m.group('n')} {m.group('noun')} against {how} ({measured})",
+                description=f"{st.text[:220]} [a count of the items a text gives equals the count the text states, or the ordinals it lists them by]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="invented_figure"))
+
+
+#: The categories of the answer's own corrections, by the words of each correction's explanation (subjunctive first, then ser/estar,
+#: then agreement, then tense, spelling and accents).
+_CATEGORIES = (("subjunctive", re.compile(r"\bsubjunctive|subjuntivo", re.IGNORECASE)),
+               ("ser/estar", re.compile(r"\bser\s*+/\s*+estar|\btakes\s+(?:ser|estar)\b|\b(?:ser|estar)\s+(?:for|is\s+used)|\bser\s+and\s+estar", re.IGNORECASE)),
+               ("agreement", re.compile(r"\bagree|\bagreement|\bfeminine|\bmasculine|\bplural|\bsingular|\bgender\b|concordancia", re.IGNORECASE)),
+               ("tense", re.compile(r"\bpreterite|\bimperfect|\btense\b|pret[eé]rito", re.IGNORECASE)),
+               ("spelling", re.compile(r"\bspell|\baccent|ortograf|\btilde", re.IGNORECASE)))
+_CAT_WORD = r"(?P<cat>agreement|concordancia|(?:the\s+)?subjunctive|subjuntivo|ser\s*+/\s*+estar|ser\s+and\s+estar|tenses?|spelling|accents?)"
+_CAT_COUNT_RES = (re.compile(r"\b" + _CAT_WORD + r"\b[^()\n.;]{0,50}?\((?P<n>" + _SMALL_COUNT + r")\)", re.IGNORECASE),
+                  re.compile(r"\b(?P<n>" + _SMALL_COUNT + r")\s+(?:for|in|on|with)\s+(?:the\s+)?" + _CAT_WORD + r"\b", re.IGNORECASE),
+                  re.compile(r"\b(?P<n>" + _SMALL_COUNT + r")\s+" + _CAT_WORD + r"\s+(?:errors?|mistakes?|corrections?|points?)\b", re.IGNORECASE))
+_TOTAL_PARTS_RE = re.compile(r"\b(?P<n>" + _SMALL_COUNT + r")\s+(?:corrections|errors|mistakes|points)\b[^:\n]{0,40}:\s*+(?P<parts>[^.\n]{3,240})", re.IGNORECASE)
+
+
+def _category_of(explanation: str) -> Optional[str]:
+    for name, rx in _CATEGORIES:
+        if rx.search(explanation):
+            return name
+    return None
+
+
+def _cat_key(word: str) -> str:
+    w = " ".join(word.casefold().replace("the ", "").split())
+    if "subj" in w:
+        return "subjunctive"
+    if "ser" in w and "estar" in w:
+        return "ser/estar"
+    if w.startswith(("agree", "concord")):
+        return "agreement"
+    if w.startswith("tense"):
+        return "tense"
+    return "spelling"
+
+
+def _category_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    """Attack round 8 (sp-t16): a count of the answer's own corrections by category ("agreement (three)", "two for the subjunctive", "one
+    ser/estar error"), and a total stated with its parts ("six corrections above: four for agreement, two ... and one ..."), against the
+    correction lines the answer lists, each categorised by the words of its explanation."""
+    lines = [ctx.text[m.start():ctx.text.find("\n", m.start()) if ctx.text.find("\n", m.start()) >= 0 else len(ctx.text)]
+             for m in _ARROW_LINE_RE.finditer(ctx.text[:MAX_TEXT])][:200]
+    if not lines:
+        return
+    counts: dict[str, int] = {}
+    for ln in lines:
+        expl = ln[ln.rfind("(") :] if "(" in ln else ln
+        cat = _category_of(expl)
+        if cat:
+            counts[cat] = counts.get(cat, 0) + 1
+    model = set(ctx.regions.model)
+    for st in statements:
+        if st.paragraph in model:
+            continue
+        seen: set[tuple[int, str]] = set()
+        for rx in _CAT_COUNT_RES:
+            for m in rx.finditer(st.text):
+                n = _small(m.group("n"))
+                cat = _cat_key(m.group("cat"))
+                if n is None or (m.start(), cat) in seen:
+                    continue
+                seen.add((m.start(), cat))
+                have = counts.get(cat, 0)
+                ctx.add("lb_listed_count", lambda cid, n=n, have=have, cat=cat, m=m, st=st: make_check(
+                    ctx.report, check_id=cid, kind="lb_listed_count", inputs=[("listed", Fraction(have), f"the answer's {cat} corrections ({have})")],
+                    conclusion={"op": "eq", "left": _var("listed"), "right": _real(Fraction(n))},
+                    label=f"{m.group('n')} {cat} corrections against the {have} the answer lists",
+                    description=f"{st.text[:220]} [a count of the answer's own corrections of a category equals the correction lines of that category]",
+                    claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="invented_figure"))
+        for m in _TOTAL_PARTS_RE.finditer(st.text):
+            total = _small(m.group("n"))
+            parts = [_small(x) for x in re.findall(r"\b(" + _SMALL_COUNT + r")\s+(?:for|in|on|with)\b", m.group("parts"), re.IGNORECASE)]
+            if total is None or len(parts) < 2 or any(p is None for p in parts):
+                continue
+            s = sum(parts)
+            ctx.add("lb_listed_count", lambda cid, total=total, s=s, m=m, st=st: make_check(
+                ctx.report, check_id=cid, kind="lb_listed_count", inputs=[("parts", Fraction(s), f"the sum of the parts stated ({s})")],
+                conclusion={"op": "eq", "left": _var("parts"), "right": _real(Fraction(total))},
+                label=f"the parts stated sum to the total {m.group('n')}",
+                description=f"{st.text[:220]} [a total stated with its parts equals their sum]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="invented_figure"))
+
+
+#: A byline claim: "The byline names Marta Ruiz Pérez as the author", "written by ...", "The author is ...".
+_NAME = r"(?P<{g}>[A-ZÁÉÍÓÚÑ][\wáéíóúñ'’-]{{1,30}}+(?:\s[A-ZÁÉÍÓÚÑ][\wáéíóúñ'’-]{{1,30}}+){{0,3}})"
+_BYLINE_CLAIM_RE = re.compile(r"\bbyline\s+(?:names|gives|credits|reads|says|shows|lists)\s+" + _NAME.format(g="a") + r"|\b(?:written|signed)\s+by\s+" + _NAME.format(g="b")
+                              + r"|\bthe\s+(?:author|writer)\s+(?:is|was)\s+" + _NAME.format(g="c"))
+
+
+def _byline_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    byline = ctx.regions.byline
+    if not byline:
+        return
+    held = {w.casefold() for w in re.findall(r"[^\W\d_]+", byline)}
+    for st in statements:
+        for m in _BYLINE_CLAIM_RE.finditer(st.text):
+            name = m.group("a") or m.group("b") or m.group("c")
+            words = [w for w in re.findall(r"[^\W\d_]+", name)]
+            missing = [w for w in words if w.casefold() not in held]
+            ctx.add("lb_quoted_form", lambda cid, missing=missing, name=name, st=st, m=m: make_check(
+                ctx.report, check_id=cid, kind="lb_quoted_form", inputs=[("missing", Fraction(len(missing)), f"words of '{name}' not in the byline ({', '.join(missing) or 'none'})")],
+                conclusion={"op": "eq", "left": _var("missing"), "right": _real(Fraction(0))},
+                label=f"the byline names {name}",
+                description=f"{st.text[:220]} [a name the answer gives the model's byline is the byline's own: every word of it stands in the byline ('{byline[:80]}')]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="altered_quotation"))
+
+
+#: A speaker named for a paraphrase of a text: "In your email your father says that Tomás can stay at your house."
+_KIN = r"father|dad|mother|mum|mom|grandmother|grandma|granny|grandfather|grandad|grandpa|brother|sister|friend|teacher"
+_PARAPHRASE_RE = re.compile(r"\b(?:your|the\s+(?:student's|writer's|narrator's))\s+(?P<kin>" + _KIN + r")\s+(?:says|said|tells|told|thinks|thought|writes|wrote)"
+                            r"\s+(?:that\s+)?(?P<content>[^.;\n]{3,200})", re.IGNORECASE)
+_ES_KIN = r"padre|madre|abuela|abuelo|hermano|hermana|amigo|amiga|profesor|profesora|maestro|maestra|papá|mamá"
+_ES_SPEECH_RE = re.compile(r"\b(?:(?:[Mm]i|[Tt]u|[Ss]u)\s+(?P<kin>" + _ES_KIN + r")|(?P<pron>[ÉE]l|Ella))\s+(?:me\s+|nos\s+|le\s+|les\s+)?(?:dice|dijo|cuenta|contó|piensa|"
+                           r"pensaba|cree|creía|explica|explicó)\s+(?:que\s+)?(?P<content>[^.;\n]{3,200})")
+_ES_KIN_RE = re.compile(r"\b(?:mi|tu|su)\s+(?P<kin>" + _ES_KIN + r")\b", re.IGNORECASE)
+
+
+def _paraphrase_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    text = ctx.regions.student_text
+    if text is None:
+        return
+    frames = []
+    for m in _ES_SPEECH_RE.finditer(text[:MAX_REGION]):
+        kin = m.group("kin")
+        if kin is None:
+            prev = list(_ES_KIN_RE.finditer(text, max(0, m.start() - 300), m.start()))
+            if not prev:
+                continue
+            kin = prev[-1].group("kin")
+        frames.append((es.concept(kin), {es.concept(w) for w in re.findall(r"[^\W\d_]{4,}", m.group("content"))}))
+        if len(frames) >= 64:
+            break
+    if not frames:
+        return
+    for st in statements:
+        for m in _PARAPHRASE_RE.finditer(st.text):
+            kin = es.concept(m.group("kin"))
+            mine = {es.concept(w) for w in re.findall(r"[^\W\d_]{4,}", m.group("content"))} - {"your", "their", "that", "with", "this"}
+            scored = sorted(((len(mine & c), k) for k, c in frames), reverse=True)
+            if not scored or scored[0][0] < 1 or (len(scored) > 1 and scored[1][0] == scored[0][0] and scored[1][1] != scored[0][1]):
+                continue
+            said_by = scored[0][1]
+            ctx.add("lb_quote_speaker", lambda cid, kin=kin, said_by=said_by, m=m, st=st: make_check(
+                ctx.report, check_id=cid, kind="lb_quote_speaker", inputs=[("same", Fraction(1 if kin == said_by else 0),
+                                                                            f"whether the speaker named ({m.group('kin')}) is the one the student's text gives ({said_by})")],
+                conclusion={"op": "eq", "left": _var("same"), "right": _real(Fraction(1))},
+                label=f"the paraphrase is credited to the speaker the student's text gives it ({said_by})",
+                description=f"{st.text[:220]} [a paraphrase of the student's text keeps the text's speaker (the reported-speech frame its words match best)]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="source_mismatch"))
+
+
+#: A quotation of a supplied text credited to a speaker the text gives with no quotation marks: '"¡Ojo, que quema!" is said by Doña Celia'.
+_SAID_BY_CLAIM_RE = re.compile(r"[«\"“](?P<q>[^»\"”\n]{2,120})[»\"”]\s*+(?:,\s*+)?(?:is|was)\s+(?:said|spoken|shouted|whispered|called\s+out|used)\s+by\s+(?P<who>[^.;\n]{2,80})"
+                               r"|(?<![\w'’])(?P<who2>[A-ZÁÉÍÓÚÑ][\wáéíóúñ]{1,30}+(?:\s[A-ZÁÉÍÓÚÑ][\wáéíóúñ]{1,30}+){0,2})\s+(?:says|said|shouts|tells\s+(?:him|her|them|the\s+narrator))\s+"
+                               r"[«\"“](?P<q2>[^»\"”\n]{2,120})[»\"”]")
+_EN_SAY_RE = re.compile(r"\b(?:said|says|told|tells|shouted|shouts|whispered|called|asked|asks|answered|replied|say)\b", re.IGNORECASE)
+
+
+def _unquoted_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    docs = [(t.document_id, t.text[:MAX_REGION]) for t in ctx.report.supplied_texts if not (t.document_id or "").startswith("peer:") and t.text]
+    if not docs:
+        return
+    for st in statements:
+        for m in _SAID_BY_CLAIM_RE.finditer(st.text):
+            q, who = (m.group("q") or m.group("q2")), (m.group("who") or m.group("who2"))
+            claimed = {w.casefold() for w in re.findall(r"[^\W\d_]+", who) if w[:1].isupper()}
+            if not claimed:
+                continue
+            for doc, text in docs:
+                at = text.casefold().find(q.casefold().strip(" ¡!¿?.,"))
+                if at < 0:
+                    continue
+                start = max(text.rfind(".", 0, at), text.rfind("\n\n", 0, at), text.rfind("!", 0, max(0, at - 1)), at - 300) + 1
+                span = text[start:at]
+                verbs = list(_EN_SAY_RE.finditer(span))
+                if not verbs:
+                    break
+                names = {w.casefold() for w in re.findall(r"[^\W\d_]+", span[:verbs[-1].start()]) if w[:1].isupper() and w.casefold() not in _WHO_STOP
+                         and w not in ("I", "On", "For", "When", "The", "And", "But", "Tonight", "Nobody")}
+                if not names:
+                    break
+                same = bool(claimed & names)
+                ctx.add("lb_quote_speaker", lambda cid, same=same, who=who, names=names, doc=doc, st=st, q=q: make_check(
+                    ctx.report, check_id=cid, kind="lb_quote_speaker", inputs=[("same", Fraction(1 if same else 0),
+                                                                                f"whether the speaker named ({who.strip()[:60]}) is one {doc} gives ({', '.join(sorted(names))})")],
+                    conclusion={"op": "eq", "left": _var("same"), "right": _real(Fraction(1))},
+                    label=f"«{q[:60]}» is credited to the speaker {doc} gives it",
+                    description=f"{st.text[:220]} [words of a supplied text keep the text's speaker: the names before the speech verb of their sentence]",
+                    claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="source_mismatch"))
+                break
+
+
+#: A duration attached to a quoted form: 'The narrator was "el nuevo" for a month' against 'For a week I was el nuevo'.
+_DURATION = r"(?P<GGn>a|an|one|" + _SMALL_COUNT + r")\s+(?P<GGu>days?|weeks?|months?|years?|nights?|hours?|días?|semanas?|mes(?:es)?|años?|noches?|horas?)"
+_QUOTE_DURATION_RE = re.compile(r"[«\"“](?P<q>[^»\"”\n]{2,80})[»\"”][^.;\n]{0,40}?\b(?:for|during|durante)\s+" + _DURATION.replace("GG", "a")
+                                + r"|\b(?:for|during|durante)\s+" + _DURATION.replace("GG", "b") + r"[^.;\n]{0,40}?[«\"“](?P<q2>[^»\"”\n]{2,80})[»\"”]", re.IGNORECASE)
+_TEXT_DURATION_RE = re.compile(r"\b(?:for|during|durante)\s+" + _DURATION.replace("GG", "t"), re.IGNORECASE)
+
+
+def _quote_durations(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    docs = _target_texts(ctx)
+    for st in statements:
+        for m in _QUOTE_DURATION_RE.finditer(st.text):
+            q = m.group("q") or m.group("q2")
+            n, u = (m.group("an"), m.group("au")) if m.group("q") else (m.group("bn"), m.group("bu"))
+            stated = (_small(n), es.concept(u.rstrip("s") if u.endswith("s") and not u.endswith(("es", "as")) else u))
+            for name, text in docs:
+                at = text.casefold().find(q.casefold())
+                if at < 0:
+                    continue
+                start = max(text.rfind(".", 0, at), text.rfind("\n\n", 0, at), at - 200) + 1
+                end_ = min(x for x in (text.find(".", at), at + 200, len(text)) if x >= 0)
+                given = [(_small(x.group("tn")), es.concept(x.group("tu"))) for x in _TEXT_DURATION_RE.finditer(text, start, end_)]
+                if len(given) != 1 or None in given[0] or None in stated:
+                    break
+                same = given[0] == stated
+                ctx.add("supplied_figure", lambda cid, same=same, given=given, m=m, st=st, name=name, q=q: make_check(
+                    ctx.report, check_id=cid, kind="supplied_figure", inputs=[("same", Fraction(1 if same else 0), f"whether the duration stated is the one {name} gives "
+                                                                                                                  f"with «{q[:40]}» ({given[0][0]} {given[0][1]})")],
+                    conclusion={"op": "eq", "left": _var("same"), "right": _real(Fraction(1))},
+                    label=f"the duration stated with «{q[:40]}» is the one {name} gives",
+                    description=f"{st.text[:220]} [a duration stated with a quoted form is the one the text gives in the sentence that holds the form]",
+                    claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="source_mismatch"))
+                break
+
+
+#: A count with its noun, in digits or in a small English or Spanish number word ("three bakeries", "tres palabras", "hace dos semanas").
+_COUNT_NOUN_RE = re.compile(r"(?<![\w.,])(?P<n>" + _SMALL_COUNT + r")\s+(?P<noun>[^\W\d_]{4,20})\b", re.IGNORECASE)
+
+
+def _worked_out(line: str, start: int, end: int) -> bool:
+    """Whether the count at ``line[start:end]`` is worked out from the text's figures (a difference, the size of a change, a restatement,
+    a figure with its operands): the frames of :func:`_derived_figure` other than a duration, which a text states as such ("hace dos
+    semanas")."""
+    after = line[end:end + 80]
+    head = line[max(0, start - 60):start]
+    if _COMPARATIVE_AFTER_RE.match(after) or _WORKED_AFTER_RE.match(after) or _APPOSITION_RE.search(head[-40:]):
+        return True
+    return bool(_CHANGE_VERB_RE.search(head) and not re.search(r"\bde\s*+$|\bfrom\s*+$|\ba\s*+$|\bto\s*+$", head))
+
+
+_CC_SENT_RE = re.compile(r"[.!?;]\s|\n")
+_CC_STOP = frozenset("that this with from have were their there which what when where they them then than your about into also some more "
+                     "para pero como cuando donde porque desde hasta entre sobre todo todos este esta esto muy más años semanas".split())
+
+
+def _cc_concepts(text: str) -> set:
+    """The concepts of the content words of ``text`` (four letters or more, function words set aside; a bounded window)."""
+    return {es.concept(w) for w in re.findall(r"[^\W\d_]{4,30}", text[:600]) if w.casefold() not in _CC_STOP and w.casefold() not in _CONTEXT_STOP}
+
+
+def _cross_counts(ctx: _Ctx) -> None:
+    """Attack round 8: a count the answer states with its noun against the count a text gives with the same noun, when the answer and the
+    text are written in different languages ("three bakeries" against "dos panaderías", "tres palabras" against "two words": the closed
+    bilingual gloss of :func:`.spanish_lexicon.concept`), or the text is the student's own (the core figure reader reads the other
+    texts). Only a noun the text gives exactly one count for is read; a figure worked out from the text's figures (a difference, a change)
+    is not compared."""
+    texts = []
+    for name, text in _target_texts(ctx):
+        if name == "the model":
+            continue
+        # each count with the concepts of its sentence: a count is compared only with the text's counts of a sentence that shares a
+        # content word with the answer's line (attack round 8: "El intercambio duró tres semanas" is no restatement of "Ya hace dos semanas
+        # que volví a Inglaterra")
+        counts: dict[str, list] = {}
+        body = text[:MAX_REGION]
+        bounds = [0] + [x.end() for x in _CC_SENT_RE.finditer(body)] + [len(body)]
+        ctx_of: dict[int, frozenset] = {}
+        import bisect
+        for m in _COUNT_NOUN_RE.finditer(body):
+            v = _small(m.group("n"))
+            if v is None or _YEAR_RE.match(m.group("n")) or m.group("noun").casefold() in _STOP_NOUNS:
+                continue
+            j = bisect.bisect_right(bounds, m.start()) - 1
+            if j not in ctx_of:
+                ctx_of[j] = frozenset(_cc_concepts(body[bounds[j]:bounds[min(j + 1, len(bounds) - 1)]]))
+            key = es.concept(m.group("noun"))
+            counts.setdefault(key, []).append((v, ctx_of[j] - {key}))
+        texts.append((name, es.is_spanish(text), counts, name == "the student's text"))
+    if not texts:
+        return
+    r = ctx.regions
+    excluded = set(r.model) | set(r.disclaimer)
+    for pi, para in enumerate(r.paragraphs):
+        if pi in excluded:
+            continue
+        for line in para.split("\n"):
+            if _ARROW_LINE_RE.match(line):
+                continue  # a correction line quotes the student's forms, never a count of the text
+            from bisect import bisect_right
+
+            from ..adapters.markdown import find_quotation_spans
+            quoted = sorted((a, b) for a, b, _q in find_quotation_spans(line, min_single_words=1))
+            q_starts = [a for a, _b in quoted]
+            q_reach: list[int] = []
+            for _a, b in quoted:
+                q_reach.append(max(b, q_reach[-1]) if q_reach else b)
+            en_, sp_, _n = es.english_ratio(line)
+            line_spanish = sp_ > en_
+            for m in _COUNT_NOUN_RE.finditer(line):
+                k = bisect_right(q_starts, m.start()) - 1  # (inside a quotation, by bisection: a scan of every span per figure was quadratic)
+                if (k >= 0 and q_reach[k] > m.start()) or m.group("n").casefold() in ("a", "an", "un", "una", "uno", "one"):
+                    continue
+                v = _small(m.group("n"))
+                key = es.concept(m.group("noun"))
+                if v is None or len(key) < 4 or _worked_out(line, m.start(), m.end()):
+                    continue
+                mine = None
+                for name, spanish, counts, own in texts:
+                    if not own and spanish == line_spanish:
+                        continue  # one language on both sides of another text: the core figure reader's
+                    entries = counts.get(key, [])
+                    if not entries or any(ev == v for ev, _c in entries):
+                        continue  # the text gives the answer's count with this noun: nothing misread
+                    if mine is None:
+                        mine = frozenset(_cc_concepts(line)) - {key}
+                    held = {ev for ev, c in entries if c & mine}
+                    if len(held) != 1:
+                        continue
+                    h = next(iter(held))
+                    ctx.add("supplied_figure", lambda cid, v=v, h=h, m=m, line=line, name=name: make_check(
+                        ctx.report, check_id=cid, kind="supplied_figure", inputs=[("held", Fraction(h), f"the count {name} gives with this noun ({h})")],
+                        conclusion={"op": "eq", "left": _var("held"), "right": _real(Fraction(v))},
+                        label=f"{m.group(0)} against the count {name} gives ({h})",
+                        description=f"{line[:200]} [a count stated with its noun equals the count the text gives with the same noun (a closed bilingual gloss)]",
+                        claim_ids=ctx.claims(line, m.group(0)), severity="warning", defect="source_mismatch"))
+                    break
+
+
+#: A paraphrase located at a line of a text: 'The narrator puts a whole arm into the oven in the last line.'
+_LINE_LOC_RE = re.compile(r"\b(?:in|on|at)\s+the\s+(?P<w>last|final|first|opening|closing)\s+line\b|\bin\s+line\s+(?P<k>\d{1,2})\b", re.IGNORECASE)
+_LOC_STOP = frozenset("the a an in on at of to into onto and or his her their its my your last final first opening closing line poem narrator speaker "
+                      "poet text writer says said does did is was are were has have had into with from".split())
+
+
+def _line_paraphrases(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    docs = [(t.document_id, t.text[:MAX_REGION]) for t in ctx.report.supplied_texts if not (t.document_id or "").startswith("peer:") and t.text]
+    if len(docs) != 1:
+        return
+    name, text = docs[0]
+    blocks = _blocks(text)
+    if blocks and len(blocks[0]) == 1 and len(blocks) > 1:
+        blocks = blocks[1:]
+    lines = [ln for b in blocks for ln in b]
+    if not lines:
+        return
+    all_words = set(re.findall(r"[^\W\d_]+", text.casefold()))
+    for st in statements:
+        m = _LINE_LOC_RE.search(st.text)
+        if m is None or es.english_ratio(st.text)[0] < es.english_ratio(st.text)[1]:
+            continue
+        w = (m.group("w") or "").casefold()
+        idx = len(lines) - 1 if w in ("last", "final", "closing") else 0 if w in ("first", "opening") else int(m.group("k")) - 1
+        if not 0 <= idx < len(lines):
+            continue
+        claim = st.text[:m.start()] + st.text[m.end():]
+        mine = [x for x in re.findall(r"[^\W\d_]{3,}", claim.casefold()) if x not in _LOC_STOP]
+        located = set(re.findall(r"[^\W\d_]+", lines[idx].casefold()))
+        shared = [x for x in mine if x in located or x.rstrip("s") in located]
+        absent = [x for x in mine if x not in all_words and x.rstrip("s") not in all_words and x + "s" not in all_words]
+        if len(shared) < 2:
+            continue
+        ctx.add("lb_quoted_form", lambda cid, absent=absent, st=st, m=m, idx=idx: make_check(
+            ctx.report, check_id=cid, kind="lb_quoted_form", inputs=[("absent", Fraction(len(absent)), f"words of the paraphrase found nowhere in {name} ({', '.join(absent) or 'none'})")],
+            conclusion={"op": "eq", "left": _var("absent"), "right": _real(Fraction(0))},
+            label=f"the paraphrase of line {idx + 1} of {name} keeps its words",
+            description=f"{st.text[:220]} [a paraphrase located at a line of a text keeps that line's content: a content word the text never has is a misreading]",
+            claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="altered_quotation"))
+
+
 # ------------------------------------------------------------------------------------------------------------------ the pack
 _CACHE: dict[tuple, tuple[list, list]] = {}
 _CACHE_MAX = 32
@@ -1504,8 +2187,13 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> tuple[list[
     failures: list[StructuralFinding] = []
     for stage, step in (("word counts and ranges", lambda: _word_checks(ctx, statements)), ("course range", lambda: _course_range(ctx)),
                         ("quoted forms", lambda: _quoted_forms(ctx, statements)), ("address forms", lambda: _address_checks(ctx, statements)),
-                        ("listed counts", lambda: _listed_counts(ctx, statements)), ("percentage changes", lambda: _percent_changes(ctx)), ("dated changes", lambda: _dated_changes(ctx)),
-                        ("supplied figures", lambda: _supplied_figures(ctx)), ("event years", lambda: _event_years(ctx)), ("quotation speakers", lambda: _speakers(ctx))):
+                        ("listed counts", lambda: _listed_counts(ctx, statements)), ("percentage changes", lambda: _percent_changes(ctx)), ("dated changes", lambda: _dated_changes(ctx)), ("durations since a year", lambda: _durations_since(ctx)),
+                        ("supplied figures", lambda: _supplied_figures(ctx)), ("event years", lambda: _event_years(ctx)), ("quotation speakers", lambda: _speakers(ctx)),
+                        ("structural counts", lambda: _structural_counts(ctx, statements)), ("occurrence counts", lambda: _occurrence_counts(ctx, statements)),
+                        ("enumerated counts", lambda: _enumerated_counts(ctx, statements)), ("correction categories", lambda: _category_counts(ctx, statements)),
+                        ("bylines", lambda: _byline_claims(ctx, statements)), ("paraphrase speakers", lambda: _paraphrase_speakers(ctx, statements)),
+                        ("unquoted speakers", lambda: _unquoted_speakers(ctx, statements)), ("quoted durations", lambda: _quote_durations(ctx, statements)),
+                        ("cross-language counts", lambda: _cross_counts(ctx)), ("line paraphrases", lambda: _line_paraphrases(ctx, statements))):
         try:
             step()
         except ArithmeticError:

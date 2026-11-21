@@ -1,0 +1,91 @@
+# The committed word source of the self-certification reader's misspelling exemptions (rule N9, lexicon.json "fuzzy_excluded").
+#
+# Every word below is a REAL WORD that is one deletion or one adjacent transposition away from a word the reader reads misspelt.
+# scripts/selfcert/build_fuzzy_exclusions.py rebuilds the exemption list from this file and lexicon.json alone: a variant of the
+# reader's words is exempt exactly when it is listed here. A misspelling ("psased", "signd", "reviewe") is never listed, so it
+# reads as the word it misspells. An addition is a reviewed edit that names its source below.
+#
+# Sources (each entry was looked up, case-folded, in at least one of them):
+#  [EN] SCOWL (Spell Checker Oriented Word Lists) size-50 English lists, as packaged in Debian/Ubuntu wbritish and wamerican
+#       2020.12.07: british-english and american-english (proper nouns included, possessives left out).
+#       Copyright 2000-2011 by Kevin Atkinson. Permission to use, copy, modify, distribute and sell these word lists, the
+#       associated scripts, the output created from the scripts, and its documentation for any purpose is hereby granted without
+#       fee, provided that the above copyright notice appears in all copies and that both that copyright notice and this
+#       permission notice appear in supporting documentation. Kevin Atkinson makes no representations about the suitability of
+#       this array for any purpose. It is provided "as is" without express or implied warranty.
+#  [ES] The Spanish word list of Debian/Ubuntu wspanish 1.0.30 (word list licence: public domain), accents folded. Only its
+#       nouns, adjectives and adverbs are taken: a Spanish verb form one edit away from an English check word ("teste", "entres",
+#       "endose", "sorce") is not taken, so it reads as the English word it is one edit from.
+#
+# Format: one case-folded word per line, sorted; the source after a blank.
+asses EN
+baked EN
+bucked EN
+bucking EN
+bucle ES
+chang EN
+clams EN
+close EN
+compete EN
+compiled EN
+compiles EN
+complain EN
+complains EN
+compliant EN
+cuneta ES
+decima ES
+deduced EN
+deducing EN
+discharge EN
+eery EN
+ever EN
+except EN
+excepts EN
+fabricate EN
+faction EN
+factions EN
+fagged EN
+fagging EN
+falls EN
+funded EN
+grads EN
+grated EN
+grating EN
+holing EN
+identica ES
+infalible ES
+insect EN
+insects EN
+litera ES
+maker EN
+makers EN
+making EN
+pares EN
+particula ES
+passe EN
+pates EN
+pints EN
+prates EN
+precis EN
+prefect EN
+profs EN
+punts EN
+repuesta ES
+repuestas ES
+sancion ES
+sanding EN
+sands EN
+sears EN
+selling EN
+settle EN
+singed EN
+siting EN
+sores EN
+stayed EN
+staying EN
+super EN
+surly EN
+thins EN
+tings EN
+truss EN
+vales EN
