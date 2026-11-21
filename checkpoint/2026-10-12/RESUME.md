@@ -629,3 +629,7 @@ Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing i
 - Push check of af6dfe04: HOLD (push-check/af6dfe04....json). fix-c3d (wf_67b2a9f9-c21, task w8488i768) runs the
   decision-independent items. After it commits: adapt make_pushcheck_c3c.py (held list + af6dfe04, PCX text) and run
   the push check on the new sha; then refresh the handoff from filled-21nov (same writer + reviewer pattern).
+- 21 Nov 21:1x: push check for the c3d commit READY: wf-scripts/pushcheck-c3d.js (make_pushcheck_c3d.py fix-c3c.js
+  pushcheck-c3d.js; six held commits incl. 2ff70224 + af6dfe04; probes under wf/phase2/c3d/push-check). Launch with
+  Workflow({scriptPath: S/wf-scripts/pushcheck-c3d.js, args: {sha: "<c3d commit full sha>"}}) when fix-c3d commits
+  (a remote-head watch like 19:0x: until origin dev head != 82774fc4...).
