@@ -606,3 +606,11 @@ Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing i
 4. STEM review fixes: integrate review-stem-checks/channel, retest every finding of both reviews, README, commit, push.
 5. Overseer STEM accommodation stage with the specialist feedback function (feedback-design.json), then phase 2
    (round 8 with the push check and immediate push, o1, prototype, rounds 9-10, scaling up to 32, final release).
+
+## 21 Nov 14:0x — fix-c3c stopped and resumed (hygiene clause fault)
+- First verify: suite 2 failed (wall-clock timing under harness load), harness = baseline, hygiene false only because
+  the clause required `git status --porcelain -- 'tmp*'` to print nothing while the five tmp dirs are staged deletions.
+- fix-c3c.js patched (backup `wf-scripts/fix-c3c.js.before-hygiene-fix-21nov`): verifyPrompt2 (re-verifies accept
+  staged 'D ' lines under tmp*/; harness only after the suite), repair brief, commit step. NOT yet folded into
+  make_fix_c3c.py (regenerating would drop the patch).
+- Resumed 14:02 as task wghhld2im with `Workflow({scriptPath: S/wf-scripts/fix-c3c.js, resumeFromRunId: "wf_0c993385-3af"})`.
