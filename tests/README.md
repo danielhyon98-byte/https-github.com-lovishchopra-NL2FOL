@@ -2783,3 +2783,28 @@ Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
   path consults, and the policy-version bump for eligibility rule 0. Eight adversarial rounds ran before the commit;
   the last still reproduced 75 items (fresh self-certifying phrasings missed: 14 of 83; correct sentences gated: 1 of 20).
 - Its push check over the four held commits is running; nothing is uploaded until a push check clears.
+
+## Rounds 9 and 10: resolution attempt after round 10
+
+Measured results only.
+
+- Held commits: `be91e89`, `bef76ad`, `fe2e639` and `03a3021` remain held.
+- New commit `2ff7022` ("Fix the c3 clearance findings", second version) was verified, but its independent push
+  check still holds it. The push check's detailed reasons were not part of the result recorded for this note; the
+  last adversarial round before the commit still reproduced 75 items (fresh self-certifying phrasings missed: 14 of
+  83; correct sentences gated: 1 of 20). Nothing new is uploaded. The published code stays `c4f276c`.
+- Self-certification design (design only; the tree was unchanged and the held-out set was not opened):
+  - A read-only probe of 58 sentences found 17 that pass every current reader, including all six round-10
+    sentences, both negative-squared VERIFIED forms and the five `03a3021` correctness forms. None of the 13
+    boundary (b) examples is gated.
+  - The design proposes one `selfcert` package used by every release path, character normalisation with a fold
+    table, refusal of unreadable or hidden text under a new rule (receipt code CORE-SELF-002), linear-time reading,
+    22 frames and 9 gate rules, and CorePack first on every branch.
+  - Test expectations: 147 of 180 False entries become True, 30 stay False, 3 move to a new unread table; no True
+    pin becomes False. Two circular asserts become literal expectations; four other negative pins get stricter.
+  - Version bump proposed: POLICY_VERSION 2026.10-v4 to 2026.11-v5; contract 0.5 to 0.6.
+  - Development sets: 207 positive and 213 negative records over all sixteen subjects, English and Spanish.
+- Geography and Language B design (D9/D10, design only): proper branches need three `branch` values in
+  `integration/subject-map.json` changed (recommended option A, map version 2026-11-16.1); this needs the
+  founder's decision. Baseline on copies of rounds c1, c2 and c3: transport 203/203, 188/188, 164/176; Geography
+  and Spanish records 15/15, 20/20, 22/25 (the three failures are the unanswered planned task `ge-p10c`).

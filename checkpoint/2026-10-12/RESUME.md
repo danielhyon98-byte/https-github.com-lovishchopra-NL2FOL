@@ -8,6 +8,13 @@ prose; type the full path), R = /home/user/https-github.com-lovishchopra-NL2FOL,
 
 
 
+## 21 Nov 08:5x UTC: resolve-c3b COMPLETED (commit 2ff70224 verified + pushed; push check HOLD: class open; fuzzy_excluded
+non-word exemptions; README encoded-label limitation; test pins '(sat)'/'fully reliable'; five stray tmp* dirs in the commit).
+FOLLOW-UP fix-c3c launched: wf_0c993385-3af (task wydw2kb60), script S/wf-scripts/fix-c3c.js (built by make_fix_c3c.py from
+fix-c3c-body.js + asserted blocks of resolve-c3b.js). Resume: Workflow({scriptPath: S/wf-scripts/fix-c3c.js, resumeFromRunId:
+"wf_0c993385-3af"}). After it: read S/handoff/refresh-21nov/, then bash S/handoff/push_handoff.sh S/handoff/refresh-21nov
+1c2fb5cd0b64dafdea25ce9471d533afbbbde08b (publisher; read back). Pending with Daniel: meaning check (recommended); tag 403.
+
 ## 20 Nov 20:1x UTC: ATTACK EXTENDED TO 8 ROUNDS (task wm38st1q0; script sha256 b2ce6b18454339c9, backups *.before-atk8; rounds 1-4 prompts byte-identical, so cached). Round 4 reproduced 59 (phrasings 27, paths 10, correct-work 7, branches 15 incl. 1 stall and 5 regressions); fix:attack:4 running. Resume: same scriptPath + resumeFromRunId wf_681da8f2-f04.
 
 ## 20 Nov 17:0x UTC: RESUMED after the weekly reset (task w2knprs89). Earlier: 17 Nov 18:0x WEEKLY LIMIT; HOW TO RESUME AFTER FRI 20 NOV 16:00 UTC
