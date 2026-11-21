@@ -623,3 +623,9 @@ Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing i
 - It will hold while the class awaits the owner's meaning-check decision; its value is the exact list of what else
   remains. Publish the handoff refresh after it, with its result added (re-run the publisher's greps).
 - suite_shards.max = 2 is in place (see 04-PROCEDURES).
+
+## 21 Nov 20:3x — handoff refreshed; fix-c3d running
+- Handoff published: docs/final-z3-handoff 82981fee (from S/handoff/refresh-21nov; copies in S/handoff/filled-21nov).
+- Push check of af6dfe04: HOLD (push-check/af6dfe04....json). fix-c3d (wf_67b2a9f9-c21, task w8488i768) runs the
+  decision-independent items. After it commits: adapt make_pushcheck_c3c.py (held list + af6dfe04, PCX text) and run
+  the push check on the new sha; then refresh the handoff from filled-21nov (same writer + reviewer pattern).
