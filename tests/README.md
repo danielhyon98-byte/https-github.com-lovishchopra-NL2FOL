@@ -2774,3 +2774,12 @@ Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
   accusations; 26 answers green-lit, of which independent judges found 20 inaccurate (each confirmed by a second judge).
 - The handoff report for the round-8 upload was refreshed and published on the main repository's handoff branch, with
   rounds 9 and 10 listed as done but held by their push checks.
+
+### Progress, 08:00 UTC (21 November)
+- A second "Fix the c3 clearance findings" commit is verified: the full suite has 42,725 passed, 1 skipped, 1 xfailed
+  and 0 failed of 42,727 collected; the harness replays every recorded round as before (r1 30/30, r1-adv 150/151,
+  r2 to r6 46/46, r7 177/177, c1 203/203, c2 188/188, c3 164/176).
+- It adds Geography and Language B (Spanish) subject branches, one shared self-certification reader that every release
+  path consults, and the policy-version bump for eligibility rule 0. Eight adversarial rounds ran before the commit;
+  the last still reproduced 75 items (fresh self-certifying phrasings missed: 14 of 83; correct sentences gated: 1 of 20).
+- Its push check over the four held commits is running; nothing is uploaded until a push check clears.
