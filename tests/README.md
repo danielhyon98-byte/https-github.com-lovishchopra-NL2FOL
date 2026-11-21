@@ -2833,3 +2833,14 @@ Measured results only.
   `integration/subject-map.json` changed (recommended option A, map version 2026-11-16.1); this needs the
   founder's decision. Baseline on copies of rounds c1, c2 and c3: transport 203/203, 188/188, 164/176; Geography
   and Spanish records 15/15, 20/20, 22/25 (the three failures are the unanswered planned task `ge-p10c`).
+
+### Progress, 20:00 UTC (21 November)
+- A follow-up "Fix the c3 clearance findings" commit (`af6dfe04`) is verified: the full suite has 43,633 passed,
+  1 skipped, 1 xfailed and 0 failed of 43,635 collected; the harness replays every recorded round as before (r1 30/30,
+  r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203, c2 188/188, c3 164/176).
+- It fixes the holds of the previous commit's push check that need no owner decision (misspelling exemptions, encoded
+  check labels, the answer's own solver label and confidence, a debug print, five scratch directories committed by
+  mistake) and three reader slowdowns found by the suite's timing tests. One check round after the fixes still
+  reproduced 72 items.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.
