@@ -1740,6 +1740,17 @@ def _ratio_of(node: Node, leaf: Node, values: frozenset[Fraction]) -> bool:
 _CELL_EVAL_DEPTH = 48
 
 
+def _leaf_nodes(node: Node, limit: int = 256) -> list:
+    """The nodes of a written expression, depth first, at most ``limit`` (a bounded walk through ``children``)."""
+    out: list = []
+    stack = [node]
+    while stack and len(out) < limit:
+        n = stack.pop()
+        out.append(n)
+        stack.extend(children(n))
+    return out
+
+
 def _exact_eval(node: Node, cell: Optional[Fraction] = None, x: Fraction = Fraction(0), depth: int = 0) -> Optional[Fraction]:
     """The exact value of a written expression of numerals as written (``+ − × ÷``, integer powers up to 12, signs, a per cent as its
     fraction, a '±' before a value read as '+', every unit as written), with each numeral of value ``cell`` replaced by ``x``; None for
@@ -3463,6 +3474,22 @@ class _Planner:
                         # expression with no value after it ('G = 6.67 × 40⁻¹¹ N m² kg⁻²' beside the request's G = 6.67 × 10⁻¹¹), is named as
                         # a rebinding is (it had passed with no word, the substitutions reading the request's value)
                         b0 = given[0]
+                        # round-9 leftover R9-STEM-NAMED-UNDECIDED: when the written expression's own value, read exactly in the unit as
+                        # written, differs from the request's value beyond half a unit in the request's last digit, the restatement is a
+                        # second value for one symbol: named as a symbol conflict (ST-SCOPE-002, warning), never only at info
+                        units = {" ".join(n.unit.text.split()) for n in _leaf_nodes(rnode) if isinstance(n, (Quantity, WithUnit)) and n.unit is not None}
+                        if isinstance(rnode, WithUnit) and rnode.unit is not None:
+                            units.add(" ".join(rnode.unit.text.split()))
+                        unit_text = next(iter(units)) if len(units) == 1 else ("" if not units else None)
+                        # a stated constant only (the request's value carries a unit and the restatement is in that unit): a bare
+                        # variable the request evaluates at ('at x = 1') and the answer solves for ('x = −1/3') is no second value
+                        same_unit = bool(unit_text) and unit_text == " ".join((b0.unit.text if b0.unit is not None else "").split())
+                        restated = _exact_eval(rnode) if same_unit else None
+                        if restated is not None and abs(restated - b0.number.value) > b0.number.half_width:
+                            self.finding("ST-SCOPE-002", f"symbol conflict (stem_symbol_conflict): '{head.name}' is stated again as the written expression "
+                                                         f"'{render(rnode)[:80]}' in {item.statement_id}, whose value differs from the request's value "
+                                                         f"{b0.number.text}{' ' + b0.unit.text if b0.unit else ''}; the substitutions read the request's value",
+                                         (item.statement_id,), base["start"], base["end"])
                         self.finding("ST-SCOPE-001", f"'{head.name}' is stated again as the written expression '{render(rnode)[:80]}' in "
                                                      f"{item.statement_id}, beside the request's value {b0.number.text}"
                                                      f"{' ' + b0.unit.text if b0.unit else ''}; the substitutions read the request's value",
@@ -8348,8 +8375,19 @@ class _Planner:
         pv = None if pvs is None else pvs[0]
         text = run.number.text.strip()  # type: ignore[union-attr]
         named = self._binary_named(item)
-        if pvs is not None and not named and not text.startswith("0") and run.number.value == pvs[1]:  # type: ignore[union-attr]
-            return False  # '8 + 2 + 1 = 11': the decimal numeral is the sum's value as written, so it keeps its decimal reading
+        if pvs is not None and not text.startswith("0") and run.number.value == pvs[1]:  # type: ignore[union-attr]
+            # '8 + 2 + 1 = 11': the decimal numeral is the sum's value as written, so it keeps its decimal reading, even where the
+            # statement calls another numeral binary ("The binary number 1011 is 11 in denary, since 8 + 2 + 1 = 11")
+            return False
+        if not text.startswith("0"):
+            from .models import exact_value
+            try:
+                ov = exact_value(other)
+            except Exception:  # noqa: BLE001 - no value: the evidence below decides
+                ov = None
+            if ov is not None and ov == run.number.value and pvs is None:  # type: ignore[union-attr]
+                # '1×8 + 0×4 + 1×2 + 1×1 = 11': decimal arithmetic whose value is the numeral as written (denary), not a binary numeral
+                return False
         evidence = pv is not None or (text.startswith("0") and len(text) >= 4) or named
         if not evidence:
             return False

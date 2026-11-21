@@ -51,7 +51,7 @@ export const COMPATIBILITY = deepFreeze({
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
   "components": {
     "contract": [
-      "0.5"
+      "0.6"
     ],
     "engine": [
       "0.4.0"
@@ -60,7 +60,7 @@ export const COMPATIBILITY = deepFreeze({
       "1.0"
     ],
     "policy": [
-      "2026.10-v4"
+      "2026.11-v5"
     ],
     "translator": [
       "0.4.0"
@@ -153,8 +153,8 @@ export const COMPATIBILITY = deepFreeze({
     "sciences"
   ],
   "subject_map": {
-    "sha256": "b5ea5000d6dfa9028aba6a72c975ae5046cf8179f1feed64410065b95877c521",
-    "version": "2026-10-17.2"
+    "sha256": "c4eeaae45660c107c558e71616ccf264b15b9bb2c58913d07a79ded14e1aee85",
+    "version": "2026-11-16.1"
   },
   "timing": {
     "bases": {
@@ -191,4 +191,4 @@ export const COMPATIBILITY = deepFreeze({
   }
 });
 
-export const COMPATIBILITY_SHA256 = "0749d8e9e45dfaf98d79b5469aed3c423bdc39c29fe7a128d895c9707962a8bf";
+export const COMPATIBILITY_SHA256 = "9b734d382c89935eb4bb572ad5154b9a8900ce3959967da64dc594023dd2710a";

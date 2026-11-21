@@ -525,9 +525,20 @@ GENUINE_NOTES = ["Next step: write your own paragraph on the same two strands an
                  "Next step: plot percentage change against concentration for all six solutions and check that the line crosses zero near 0.34 mol dm⁻³.",
                  "Next step: redo the percentage change in (a)(ii) using a different pair of years, and check that the base value is the earlier year.",
                  "What earned credit: the subtraction 45.6 − 55.1 is correct, and the answer carries its unit and a deficit sign.",
-                 "Word count: about 513 including headline", "[1]",
+                 "[1]",
                  "The NPV is zero at a steel price of about $679 per tonne, so the case holds only while the price stays above that level.",
                  "I have no verified source in this session for last year's worldwide area of tropical rainforest cleared."]
+
+
+#: Rewritten to the stricter rule of hold remedy c3b (decision D7): the writer's own word count is a compliance self-report. This
+#: line was in GENUINE_NOTES (freed); it is now asserted gated.
+SELF_MEASURES = ["Word count: about 513 including headline"]  # stricter (selfcert-1 c3b, was freed)
+
+
+def test_the_writers_own_word_count_is_a_self_report():
+    from epinoic_overseer.meta_notes import self_report_reading
+    for text in SELF_MEASURES:
+        assert self_report_reading(text) is not None, text
 
 
 def test_the_fallbacks_self_report_reader_names_what_certifies_and_frees_genuine_notes():

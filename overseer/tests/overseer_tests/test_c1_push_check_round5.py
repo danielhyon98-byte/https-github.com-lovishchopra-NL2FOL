@@ -48,13 +48,17 @@ from epinoic_overseer.meta_notes import (
     read_meta_paragraph, read_source_list, source_list_grounding, strict_lead_end, unread_lead_blocks,
 )
 from epinoic_overseer.non_material import claim_key, english_units, read_layout, unread_non_material_blocks
-from epinoic_logic.api.translate import sha256_text
+from epinoic_logic.api.branches import RouterHub
+from epinoic_logic.api.integrity import WorkPlan
+from epinoic_logic.api.translate import SpecialistReport, sha256_text
 
 from .c1_texts import EN_T14, EN_T14_Q
+from .conftest import CFG, KEY, make_auditor
 from .growth import growth
 from .timing import measure
 from .delivery_support import (
-    CONSOLIDATION_EXCLUDED, FakeClock, Verifier, assert_label_withheld_only, assert_refused_beyond_the_label, physics_report, run_task,
+    CONSOLIDATION_EXCLUDED, PHYSICS, QUESTION, FakeClock, Verifier, assert_honest, assert_label_withheld_only, assert_refused_beyond_the_label,
+    physics_report, run_task,
 )
 from .test_c1_push_check_meta_note import (
     TUNER, UNVERIFIED_REASON, _clean_formal_claims, _clean_recorded_claims, _deliver, assert_claim_refusal,
@@ -111,6 +115,96 @@ def _physics_report(text: str, *, evidence: bool = False):
 
 def _is_control(name: str) -> bool:
     return "control" in name
+
+
+# ============================================================================================ hold remedy c3b: a mark said of the answer
+#: Rewritten to the stricter rule for hold remedy c3b (selfcert design 2.7 N7, rule G6, and 1.3 item 16): an approval, check,
+#: full-score or verification mark glued to a sources or note line ("👍", "💯", "🆗", "👌", "✅", "✔", "☑", "(✓)", "[x]", an
+#: "all-verified" link) is a self-certification of the answer, whatever its position. The parser keeps the line as a claim of its
+#: content; the receipt names that claim CORE-SELF-001 and the claim carries the advisory status "self-certified in the response
+#: text"; on the formal path rule self-report-disclosed names it FIRST (design 4.0 principle 2 and 4.4), the hub's rule
+#: self-certification-gate makes the answer no deliverable candidate, and it is refused beyond the self-report and label rules
+#: too (rule lead-blocks or rule unverified-claims): never formally checked, never delivered. The rows are fixed literals (never
+#: computed from a reader under test).
+#:
+#: Stabilisation round 3: an intermediate rewrite pinned the MECHANISM of an earlier code state (the overseer's OVS-FID-005 at
+#: error on the claim, the task audit failing and the consolidation excluding the answer, two reasons). The design's rule
+#: label-on-content (a label or mark on content the receipt names CORE-SELF-001 is the receipt's, no OVS-FID-005; the gate refuses
+#: by the receipt's code) decides it: the answer reaches the formal path and is refused there, by more rules than before. The
+#: outcome pinned is never weaker: not formally checked, not delivered, the self-report named on the receipt and on the formal
+#: path, a reason beyond the self-report and label rules, the label rule's reason last, and no reason holding the line's words.
+#: The round-5 bypass line on en-t14 (appended as paragraph 7) named as a self-certification.
+SELF_CERT_EN_BYPASS = ("Sources💯 The Tuner extract (supplied text).",)
+#: The regions before a genuine note appended to en-t14 ("<region>Note: I can't see the image.") named as a self-certification;
+#: before en-t14's own sources line the same regions keep the 6b reasons (the line is no claim of the answer there).
+SELF_CERT_NOTE_REGIONS = ("👍 ", "💯 ", "👌 ", "🆗 ", "✅ ", "✔ ", "☑ ", "<https://example.org/all-verified> ", "[x] ", "(✓) ", "\u2060👍 ",
+                          "[👍](#) ", "**👍 ")
+#: The lines after the Physics fixture's answer delivered as text named as a self-certification (the STEM parser reads each as
+#: the analysis claim s2.1).
+SELF_CERT_PHYS_LINES = ("💯 Sources: your question (supplied text)", "Sources🆗 your question (supplied text)",
+                        "Sources👍 your question (supplied text)", "Sources 👍 your question (supplied text)")
+#: The bypass and review lenses' Physics text rows whose line is one of :data:`SELF_CERT_PHYS_LINES`.
+SELF_CERT_LENS_ROWS = ("prefix 100 points", "lead mark OK button", "lead mark thumbs up", "phys 100 sources", "phys sources thumbs")
+#: The advisory status a claim the receipt names as a self-certification carries (fixed literal).
+SELF_CERTIFIED_STATUS = "self-certified in the response text"
+#: The hub's integrity rule that makes an answer carrying a self-certification no deliverable candidate (fixed literal).
+SELF_CERT_GATE = "(rule self-certification-gate)"
+
+
+def assert_refused_as_a_self_certification(decision, rc, report, agent: str, claim_id: str, added: str) -> None:
+    """The refusal of an answer whose glued mark is a self-certification (hold remedy c3b, see :data:`SELF_CERT_EN_BYPASS`), on
+    the formal path: the receipt names claim ``claim_id`` CORE-SELF-001 and the journaled claim carries the advisory status
+    :data:`SELF_CERTIFIED_STATUS`; the formal path's FIRST reason is rule self-report-disclosed naming CORE-SELF-001 on that
+    claim; ``agent``'s answer is no deliverable candidate, by rule self-certification-gate; the refusal rests on a reason of
+    rule lead-blocks, rule non-material-text, rule unverified-claims or a claim reason too (so it holds without the self-report
+    and label rules), with the label rule's reason last; no reason holds the line's words or its mark (named by place, never by
+    its words); the decision is honest and nothing is delivered."""
+    rec = decision.receipt
+    reasons = list(rec.formal.reasons)
+    assert decision.mode != "formally_checked" and rec.mode == decision.mode and not rec.formal.complete and not decision.delivered, reasons
+    assert not decision.label.lower().startswith("formally checked"), decision.label
+    # the receipt names the claim, and the claim carries the self-certified status (never a success status)
+    named = [f for f in list(rc.findings) + list(rc.structural_findings) if f.code == "CORE-SELF-001" and claim_id in (f.claim_ids or [])]
+    assert named, [(f.code, f.severity, list(f.claim_ids or [])) for f in list(rc.findings) + list(rc.structural_findings)]
+    holding = [c for c in report.claims if c.claim_id == claim_id]
+    assert holding and all(c.advisory_verification_status == SELF_CERTIFIED_STATUS for c in holding), \
+        [(c.claim_id, c.advisory_verification_status) for c in holding]
+    # the formal path names the self-report first, and refuses beyond the self-report and label rules
+    assert reasons and reasons[0] == SELF_REPORT_REASON + f"CORE-SELF-001 (claims {claim_id})", reasons
+    other = assert_refused_beyond_the_label(decision, SIX_B_DECIDING + (UNVERIFIED_REASON, "claim "))
+    assert any(r.startswith(SIX_B_DECIDING + (UNVERIFIED_REASON, "claim ")) for r in other[1:]), other
+    assert reasons[-1] == FORMAL_LABEL_REASON, reasons
+    # the hub's self-certification gate: on the fallback the answer is no deliverable candidate
+    assert rec.fallback is not None and rec.fallback.why == reasons, rec.fallback
+    mine = [c for c in rec.fallback.candidates if c.agent_id == agent]
+    assert mine and all(not c.deliverable for c in mine), [(c.agent_id, c.deliverable) for c in mine]
+    assert any(SELF_CERT_GATE in r and "CORE-SELF-001" in r for c in mine for r in c.integrity_reasons), [c.integrity_reasons for c in mine]
+    shown = reasons + [r for c in mine for r in c.integrity_reasons]
+    for piece in {" ".join(added.split()), *(w for w in added.split() if not w.isascii()), *(c for c in added if not c.isascii() and not c.isspace())}:
+        assert all(piece not in r for r in shown), (piece, shown)
+    assert_honest(decision)
+
+
+def _physics_text_audited(text: str):
+    """``test_c1_push_check_round4._physics_text`` with the receipt and the task audit too: the Physics delivery fixture's task
+    answered with ``text`` delivered as text, for real; the receipt, the journaled report, the decision and the latest task
+    audit (the order of ``test_c1_push_check_meta_note._deliver``)."""
+    clock = FakeClock()
+    hub = RouterHub(signing_key=KEY, config=CFG, auditor=make_auditor())
+    try:
+        plan = WorkPlan(plan_id="plan-task-dlv", selected_agent_ids=["physics-specialist"], **PHYSICS)
+        ch = hub.open_task(plan)
+        ch.verify_claim_fn = Verifier(clock)
+        m, _req, rq = hub.dispatch(plan.task_id, "physics-specialist", QUESTION, [])
+        assert m is not None, rq.findings
+        session = DeliveryPolicy(clock=clock).start(hub, plan.task_id)
+        session.install()
+        reply, rc = hub.receive(plan.task_id, m.message_id, text, agent_id="physics-specialist", report_id="rep-1")
+        assert reply is not None, rc
+        decision = session.decide(request_message_ids=[m.message_id], receipts={rc.message_id: rc})
+        return rc, SpecialistReport.model_validate(reply.payload), decision, hub.auditor.audit(ch.channel_uid, final=True)
+    finally:
+        hub.close()
 
 
 # ============================================================================================ the data
@@ -297,9 +391,14 @@ def test_every_round_5_bypass_keeps_en_t14_off_the_label(monkeypatch, row):
     them with the label rule's reason last."""
     _clean_recorded_claims(monkeypatch)
     text = _with(row["form"], row["text"])
-    _rc, report, decision, _audit = _deliver(text)
+    rc, report, decision, _audit = _deliver(text)
     assert report.original_response == text
     reasons = decision.receipt.formal.reasons
+    if row["text"] in SELF_CERT_EN_BYPASS:
+        # stricter (hold remedy c3b; stabilisation round 3 pins the outcome on the formal path, see SELF_CERT_EN_BYPASS): the glued
+        # mark is a self-certification, named first by rule self-report-disclosed, and every pin below still holds for it
+        assert row["form"] == "append"
+        assert_refused_as_a_self_certification(decision, rc, report, "english-a-literature-specialist", "p7-point", row["text"])
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked"), reasons
     where = "paragraph 7 (" if row["form"] == "append" else "paragraph 6 ("
     lead = [r for r in reasons if r.startswith(LEAD_REASON)]
@@ -329,11 +428,22 @@ def test_every_region_keeps_en_t14_off_the_label_for_its_sources_line_and_for_a_
     Made stricter again after the re-review of the c1 landing: the self-report reason (rules self-report-disclosed and
     meta-note) is no longer accepted as the reason a row rests on; with that reader switched off every row still has a
     reason of the rules named here or condition 3. The test catches the removal of all the rules it names, not of one of
-    them while another also refuses the row."""
+    them while another also refuses the row.
+
+    Made stricter for hold remedy c3b: before a genuine note, a region of :data:`SELF_CERT_NOTE_REGIONS` (an approval, check,
+    full-score or verification mark) is a self-certification of the answer: the receipt names the note's claim CORE-SELF-001,
+    rule self-report-disclosed names it first on the formal path and the hub's rule self-certification-gate makes the answer no
+    deliverable candidate, and the answer is still refused beyond the label by the rules named here
+    (:func:`assert_refused_as_a_self_certification`, stabilisation round 3); before the sources line the same regions keep a
+    reason of the rules named here."""
     _clean_recorded_claims(monkeypatch)
     for text in (_with("replace-sources", region + SOURCES), EN_T14 + "\n\n" + region + NOTE):
-        _rc, _report, decision, _audit = _deliver(text)
+        rc, report, decision, _audit = _deliver(text)
         reasons = decision.receipt.formal.reasons
+        if region in SELF_CERT_NOTE_REGIONS and text.endswith(region + NOTE):
+            # stricter (hold remedy c3b; stabilisation round 3 pins the outcome on the formal path): named first as a
+            # self-certification, and still refused beyond the label by the rules this test accepted (asserted below)
+            assert_refused_as_a_self_certification(decision, rc, report, "english-a-literature-specialist", "p7-point", region + NOTE)
         if region in QUOTE_REGIONS:
             assert decision.mode != "formally_checked" and len(reasons) == 2 and reasons[0] == CONSOLIDATION_EXCLUDED, (text[-90:], reasons)
             assert reasons[1].endswith("is excluded: its receipt carries error-level findings"), reasons
@@ -359,8 +469,19 @@ def test_every_review_lens_answer_on_en_t14_is_refused(monkeypatch, row):
 def test_every_round_5_bypass_on_the_physics_text_path_is_refused_for_real(row):
     """No counterfactual: the Physics fixture's answer delivered as text is FORMALLY CHECKED, and each line after it travelled
     under the label (the STEM parser reads it as an analysis step, rule source-list freed it through rule lead-blocks). Now
-    rule lead-blocks names the block and rule unverified-claims the analysis step, which no signed engine result decides."""
-    _report, decision = _physics_text(PHYS + "\n\n" + row["text"])
+    rule lead-blocks names the block and rule unverified-claims the analysis step, which no signed engine result decides.
+
+    Made stricter for hold remedy c3b: a line of :data:`SELF_CERT_PHYS_LINES` holds a mark said of the answer, a
+    self-certification: the receipt names its analysis claim s2.1 CORE-SELF-001, rule self-report-disclosed names it first on the
+    formal path, the hub's rule self-certification-gate makes the answer no deliverable candidate, and rule lead-blocks still
+    names the block (:func:`assert_refused_as_a_self_certification`, stabilisation round 3)."""
+    if row["text"] in SELF_CERT_PHYS_LINES:
+        rc, report, decision, _audit = _physics_text_audited(PHYS + "\n\n" + row["text"])
+        # stricter (hold remedy c3b; stabilisation round 3 pins the outcome on the formal path): named first as a
+        # self-certification, and rule lead-blocks' reason "(a sources lead: rule source-list)" is still asserted below
+        assert_refused_as_a_self_certification(decision, rc, report, "physics-specialist", "s2.1", row["text"])
+    else:
+        _report, decision = _physics_text(PHYS + "\n\n" + row["text"])
     reasons = decision.receipt.formal.reasons
     assert decision.mode != "formally_checked" and not decision.label.lower().startswith("formally checked"), reasons
     assert any(r.startswith(LEAD_REASON) and "(a sources lead: rule source-list)" in r for r in reasons), reasons
@@ -386,12 +507,37 @@ def test_the_bypass_and_review_lenses_physics_text_rows_for_real(row):
     reason of the rules named here. The test catches the removal of all the rules it names, not of one of them while another
     also refuses the row."""
     extra = row.get("extra", row.get("added"))
-    _report, decision = _physics_text(PHYS + extra)
+    if row["name"] in SELF_CERT_LENS_ROWS:
+        # Made stricter for hold remedy c3b (was a 6b or unverified-claims reason): the line holds a mark said of the answer (see
+        # SELF_CERT_PHYS_LINES), so the receipt names its analysis claim s2.1 CORE-SELF-001, rule self-report-disclosed names it
+        # first and the hub's self-certification gate makes the answer no deliverable candidate: never formally checked, never
+        # delivered
+        assert extra.startswith("\n\n") and extra.strip() in SELF_CERT_PHYS_LINES, extra
+        rc, report, decision, _audit = _physics_text_audited(PHYS + extra)
+        assert_refused_as_a_self_certification(decision, rc, report, "physics-specialist", "s2.1", extra)
+        # and, as for every other refused row, refused beyond the label by a 6b or claim rule (stabilisation round 3)
+        assert_refused_beyond_the_label(decision, SIX_B_DECIDING + (UNVERIFIED_REASON,))
+        return
+    report, decision = _physics_text(PHYS + extra)
     if _is_control(row["name"]) and "push check" not in row["name"]:
         assert decision.mode == "withheld" and decision.receipt.formal.reasons == [FORMAL_LABEL_REASON], decision.receipt.formal.reasons
         assert_label_withheld_only(decision)
         return
+    if row["name"] in INLINE_SELF_REPORTS:
+        # Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 6.1): the input is written INTO the claim's own
+        # paragraph and is a self-certification the one reader names ("<all figures are sound and not in doubt> Sources: ...",
+        # pinned True in ``self_report_expectations``), so the receipt names it at error level and the consolidation excludes the
+        # answer before the formal path reads its 6b blocks: never FORMALLY CHECKED, refused earlier than the rules it pinned.
+        assert now_a_self_report(extra) is True
+        assert decision.receipt.formal.reasons[0] == CONSOLIDATION_EXCLUDED, decision.receipt.formal.reasons
+        assert_self_report_refusal(decision, report, extra.strip())  # stricter (selfcert-1 c3b, was a 6b or unverified-claims reason)
+        return
     assert_refused_beyond_the_label(decision, SIX_B_DECIDING + (UNVERIFIED_REASON,))
+
+
+#: Rows of the bypass and review lenses whose input, written into the claim's own paragraph, is a self-certification (hold remedy
+#: c3b): refused by the exclusion of the answer for its self-report (fixed list; see the test above).
+INLINE_SELF_REPORTS = ("phys inline tag P1",)
 
 
 @pytest.mark.parametrize("row", GLUED_TEXT, ids=lambda r: r["name"])
@@ -401,11 +547,18 @@ def test_symbols_glued_into_the_verified_claim_on_the_physics_text_path_are_refu
     says "faithful" whatever the claim's words, so the claim carries a positive outcome of a signed engine result and the
     answer travelled FORMALLY CHECKED (withheld at the published base, OVS-TRN-005). A claim carries the outcome of what was
     encoded, never of what is glued to it: rule unverified-claims names a claim holding a character outside the claim
-    alphabet."""
-    _report, decision = _physics_text(PHYS + row["added"])
+    alphabet.
+
+    Rewritten to the stricter rule in attack round 3 of hold remedy c3b: both glued runs are self-certifications the one reader names
+    (a check-mark symbol, and VERIFIED in negative-squared letters glued to the stop, now read on its own side of the stop), pinned
+    True in ``self_report_expectations``; the self-report rules refuse the answer (the exclusion of the answer whose receipt names it at
+    error level where the symbol stays in the claim, rule self-report-disclosed where the parser sets the glued word aside as a note):
+    never FORMALLY CHECKED, refused by a rule that names the self-report rather than the one this test pinned."""
+    report, decision = _physics_text(PHYS + row["added"])
     reasons = decision.receipt.formal.reasons
     assert decision.mode != "formally_checked", reasons
-    assert any(r.startswith(UNVERIFIED_REASON) and "s1.1 (quantitative: a character outside the claim alphabet, U+" in r for r in reasons), reasons
+    assert now_a_self_report(PHYS + row["added"]) is True
+    assert_self_report_refusal(decision, report, row["added"].strip())  # stricter (attack round 3 c3b, was the unverified-claims reason)
 
 
 #: The claim alphabet: what an encoding of a claim reads.
@@ -506,6 +659,13 @@ def test_every_review_lens_row_on_the_physics_report_object_is_refused_for_real(
     assert_refused_beyond_the_label(decision, SIX_B_DECIDING + (UNVERIFIED_REASON,))
 
 
+#: The review lens's "mid" rows whose glued words are a self-certification the one reader names (hold remedy c3b, design 6.1).
+#: Rewritten to the stricter rule after attack round 6 of the c3b fix: the one reader now also reads the enclosed letters run into
+#: the sentence of "mid sq all good" ("The speed ALL GOOD is 15 km/h", a verdict glued into the content) and names it, so that row's
+#: exclusion may also name the answer's own receipt first, as "mid sq P1" does (the task audit must still name it; never weaker).
+MID_SELF_REPORTS = ("mid sq P1", "mid sq all good")
+
+
 @pytest.mark.parametrize("row", REVIEW_FULL, ids=lambda r: r["name"][:36])
 def test_every_review_lens_whole_answer_on_the_report_object_is_refused_for_real(row):
     """As the lens delivered it (the report holds the evidence claim, so rule unverified-claims refuses it in any case), and
@@ -525,7 +685,13 @@ def test_every_review_lens_whole_answer_on_the_report_object_is_refused_for_real
         reasons = decision.receipt.formal.reasons
         if row["name"].startswith("mid "):
             assert decision.mode != "formally_checked" and len(reasons) == 2 and reasons[0] == CONSOLIDATION_EXCLUDED, reasons
-            assert "is excluded: the task audit names it in error-level findings" in reasons[1], reasons
+            # rewritten for hold remedy c3b: where the glued words are a self-certification the one reader names ("mid sq P1": the
+            # negative-squared "ALL FIGURES ARE SOUND AND NOT IN DOUBT"), the exclusion reason may also name the answer's own receipt's
+            # error-level findings before the task audit's; the task audit's error-level findings must still be named, and the
+            # answer is still excluded before the formal path reads it (the same refusal, its reason no weaker)
+            assert " is excluded: " in reasons[1] and "the task audit names it in error-level findings" in reasons[1], reasons
+            if row["name"] not in MID_SELF_REPORTS:
+                assert "is excluded: the task audit names it in error-level findings" in reasons[1], reasons
         else:
             assert_refused_beyond_the_label(decision, (NON_MATERIAL_REASON, UNVERIFIED_REASON))
     refused(_physics_report(row["added"], evidence=True))
@@ -538,9 +704,19 @@ def test_every_review_lens_whole_answer_on_the_report_object_is_refused_for_real
 def test_the_report_objects_glued_symbols_are_named_by_rule_unverified_claims():
     """The cause of the review lens's report-object rows: the STEM parser reads "The speed is 15 km/h. 👍" as ONE claim whose
     words are the report's claim's words; rule unverified-claims compares the claim's whole text (``non_material.claim_key``),
-    so the parser's claim is held by no journaled claim and is named by its id."""
-    for glued in (" 👍", " 💯", " 🆗", " ★★★★★", "🇻\u200c🇪\u200c🇷", " 🎉👌"):
-        reasons = _physics_report(PHYS + glued).receipt.formal.reasons
+    so the parser's claim is held by no journaled claim and is named by its id.
+
+    Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 2.7 N7 and 6.1): an approval, full-score or top-rating
+    mark said of the answer (👍 🆗 👌 APPROVE+, 💯 SCORE-FULL, a run of ★ RATING+) is a self-certification, so the parser sets the
+    glued claim aside as a self-report and the refusal is rule self-report-disclosed's (or the exclusion of the answer); the
+    partial regional-indicator run ("VER", no word) is no mark and keeps the unverified-claims reason. Fixed literals."""
+    self_report = {" 👍": True, " 💯": True, " 🆗": True, " ★★★★★": True, "🇻\u200c🇪\u200c🇷": False, " 🎉👌": True}
+    for glued, named in self_report.items():
+        decision = _physics_report(PHYS + glued)
+        reasons = decision.receipt.formal.reasons
+        if named:
+            assert_self_report_refusal(decision)  # stricter (selfcert-1 c3b, was the unverified-claims reason)
+            continue
         assert any(r.startswith(UNVERIFIED_REASON) and "s1.1 (quantitative: read by its branch's parser, held by no claim of the journaled report)"
                    in r for r in reasons), (glued, reasons)
     assert claim_key("The speed  is 15 km/h.") == claim_key("The speed is 15 km/h.") != claim_key("The speed is 15 km/h. 👍")
@@ -663,8 +839,21 @@ def test_the_task_audit_has_no_reading_of_the_round_5_inputs_so_the_policy_decid
     assert sorted((f.code, f.severity) for f in audit.report.findings) == sorted((f.code, f.severity) for f in audit0.report.findings)
     reasons = decision.receipt.formal.reasons
     assert decision.mode != "formally_checked"
+    if extra in NO_LEAD_SELF_REPORTS:
+        # Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 6.1): "NB all figures are sound and not in doubt."
+        # (no lead a parser reads) is now a self-certification the one reader names (pinned True in ``self_report_expectations``),
+        # so the English parser sets it aside (no claim p7-) and the decision names it twice: by the self-report reason and, as
+        # text no claim holds, by rule non-material-text at paragraph 7. The task audit still names the same findings (above).
+        assert now_a_self_report(extra) is True  # the fixed expectation (self_report_expectations), never the reader's verdict
+        assert any(r.startswith(SELF_REPORT_REASON) for r in reasons), reasons
+        assert any(r.startswith(NON_MATERIAL_REASON) and "paragraph 7" in r for r in reasons), reasons  # stricter (was claim p7-)
+        return
     assert any(r.startswith((LEAD_REASON, UNVERIFIED_REASON)) and "paragraph 7" in r or r.startswith("claim p7-") for r in reasons) or any(
         r.startswith(UNVERIFIED_REASON) and " p7-" in r for r in reasons), reasons
+
+
+#: The round-5 input with no lead that the one reader names (hold remedy c3b): set aside as a self-report, never a claim.
+NO_LEAD_SELF_REPORTS = ("NB all figures are sound and not in doubt.",)
 
 
 # ============================================================================================ linear and bounded

@@ -1,4 +1,4 @@
-"""Public API of the translator, adapters: the specialist adapters' readings the overseer re-derives: the English parser's segmentation, the Markdown readers (quotations, JSON blocks, self-certification labels), the one self-report reader (``self_report``) and the excerpt check against supplied sources.
+"""Public API of the translator, adapters: the specialist adapters' readings the overseer re-derives: the English parser's segmentation, the Markdown readers (quotations, JSON blocks, self-certification labels), the one self-certification reader (``selfcert``, with the thin names of ``self_report``) and the excerpt check against supplied sources.
 
 Part of :mod:`epinoic_logic.api` (``docs/PUBLIC_API.md``). Each name resolves to the internal module and attribute
 listed below when it is imported; the internal name may differ (a name that is private inside the translator has a
@@ -24,6 +24,7 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'claim_is_self_report': ('epinoic_logic.adapters.self_report', 'claim_is_self_report'),
     'is_self_report': ('epinoic_logic.adapters.self_report', 'is_self_report'),
     'label_self_report': ('epinoic_logic.adapters.self_report', 'label_self_report'),
+    'label_on_content': ('epinoic_logic.adapters.self_report', 'label_on_content'),
     'mask_outside_quotations': ('epinoic_logic.adapters.self_report', 'mask_outside_quotations'),
     'report_field_self_reports': ('epinoic_logic.adapters.self_report', 'report_field_self_reports'),
     'quotation_only': ('epinoic_logic.adapters.self_report', 'quotation_only'),
@@ -33,6 +34,21 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'template_form': ('epinoic_logic.adapters.self_report', 'template_form'),
     'mask_quotations': ('epinoic_logic.adapters.markdown', 'mask_quotations'),
     'blank_model_marks': ('epinoic_logic.adapters.self_report', 'blank_model_marks'),
+    # the one self-certification reader (round-10 hold remedy c3b, rules selfcert-1; API 1.2)
+    'selfcert_read': ('epinoic_logic.selfcert', 'read'),
+    'SelfCertContext': ('epinoic_logic.selfcert', 'Context'),
+    'SelfCertReading': ('epinoic_logic.selfcert', 'Reading'),
+    'self_certification_spots': ('epinoic_logic.selfcert', 'text_spots'),
+    'report_self_certification_spots': ('epinoic_logic.selfcert', 'report_spots'),
+    'payload_self_certification_spots': ('epinoic_logic.selfcert', 'payload_spots'),
+    'unread_text_runs': ('epinoic_logic.selfcert', 'unread_text_runs'),
+    'wholly_self_certification': ('epinoic_logic.selfcert', 'wholly_self_certification'),
+    # the reader's fold table (confusables and folds), which the overseer's lead reader shares (round-10 hold remedy c3b; API 1.2)
+    'selfcert_fold_table': ('epinoic_logic.selfcert.normalise', 'fold_table'),
+    'selfcert_context_for': ('epinoic_logic.selfcert', 'context_for'),
+    'SELFCERT_RULES': ('epinoic_logic.selfcert', 'SELFCERT_RULES'),
+    'SELFCERT_UNREAD_RULE': ('epinoic_logic.selfcert', 'UNREAD_RULE'),
+    'selfcert_rules_digest': ('epinoic_logic.selfcert', 'rules_digest'),
     'model_mark_ranges': ('epinoic_logic.adapters.self_report', 'model_mark_ranges'),
     'opens_note_paragraph': ('epinoic_logic.adapters.markdown', 'opens_note_paragraph'),
     'OWN_TEXT_RULE': ('epinoic_logic.adapters.own_text', 'OWN_TEXT_RULE'),

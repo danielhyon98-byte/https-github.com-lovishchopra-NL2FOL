@@ -590,7 +590,7 @@ quotation inside a claim (74 of 74) and every figure or date spelling (53 of 53)
 | FID-002 | A quotation span inside a claim, or a `source_refs[].excerpt`, does not occur in `original_response`. Rule `located-citation` (section 48): on a report the specialist structured itself, a `source_refs` excerpt of a claim that occurs in the response, located in the supplied text the reference names, is not FID-002. |
 | FID-003 | A figure or date of a claim (`ledger.figure_spellings`) occurs in `original_response` under no spelling. |
 | FID-004 | A quotation that occurs in no supplied text has no receipt finding naming that claim (INT-REQ-003, INT-REQ-010 or a branch `-SRC-` rule). |
-| FID-005 | A self-report delivered as content: the branch's own detector flags the claim's TEXT, or (raw-text path) the adapter set `advisory_verification_status` or `advisory_verification_eligibility` yet roled the claim as content; and it is delivered with a role other than `other`, or with materiality `material`, or it counts towards coverage. On a structured report the advisory fields alone are the contract's ignored self-report (INT-HANDOFF-006): FID-009. |
+| FID-005 | A self-report delivered as content: the one self-certification reader (read in the context of the router's journaled request, `selfcert.context_for`: a marking task reads the marks of the student's work as content, as the hub's core pack did) flags the claim's TEXT, or (raw-text path) the adapter set `advisory_verification_status` or `advisory_verification_eligibility` yet roled the claim as content; and it is delivered with a role other than `other`, or with materiality `material`, or it counts towards coverage. On a structured report the advisory fields alone are the contract's ignored self-report (INT-HANDOFF-006): FID-009. Rule label-on-content (round-10 hold remedy c3b): a verification label or mark ON content (`self_report.label_on_content`: "x = 4 ✓", "Verified: <content>") that the receipt names (CORE-SELF-001 or INT-HANDOFF-006 on the claim) keeps its content's role by design and is no FID-005 or FID-009; the self-certification gate refuses the answer by the receipt's code. |
 | FID-006 (warning) | Parse loss: a quoted span or figure in `original_response` that no claim carries and no INT-REQ-013 fold accounts for. |
 | FID-007 (warning) | Quotations checked only against texts the specialist supplied itself (the request carried none). |
 | FID-008 | A supplied text in the report, under a document id the request supplied, differs from the request's text. |
@@ -6388,3 +6388,20 @@ paragraphs the parsers read as notes, unread: fail closed) and `test_c1_handoff_
 each_answer_and_the_audit_agrees` (ps-t14 measures (a) 214 and (b) 209 words, 216 and 211 before: part labels and mark annotations are
 no words of any answer, and the test now pins that the two words each answer lost are exactly its "(a) [6]" / "(b) [6]" line) were
 rewritten to the stricter rule; none was weakened.
+
+**Decision 176 (one self-certification reader by meaning; round-10 hold remedy c3b, POLICY_VERSION 2026.11-v5).** The four held
+push checks asked for the same fix: read any claim in the answer's own scope about checking, verification, review, an engine or
+system result, a proof, an approval, a score or its own correctness by meaning, not by a phrase list. `meta_notes`'s
+`answer_status_claim` and its patterns, `checks/selfcert.py`'s lexicon and the overseer's own confusable table are deleted; every
+gate of the overseer (`meta_notes.self_report_reading`, `self_certifying_sentence(s)`, `claim_self_report`,
+`report_field_refusals`, `payload_self_reports`, `checks.selfcert.flags_self_certification`, FID-005/FID-009) is a thin call into
+the translator's `epinoic_logic.selfcert` (through the public API: `selfcert_read`, `SelfCertContext`, `selfcert_context_for`),
+read with the context of the router's journaled request (`delivery_policy._reading_context`). Receipt code CORE-SELF-002 (text
+the reader cannot read) joins `SELF_CERTIFICATION_CODES` and `SELF_REPORT_RECEIPT_CODES`; the port maps its two refusal
+reasons (rule `unread-text`) to `not_deliverable`. The formal path's closed note allowlist (`assurance_words`,
+`evaluation_words`, rule `note-clauses`) stays as a refusal-only rule. Tests: `test_c3b_selfcert_paths.py` (every path, the
+round-10 sentences and boundary (b) forms), `test_c3b_expectation_tables.py`, and the stricter rewrites named in the test files
+(`self_report_expectations.py`, `test_c2_hold_self_certification_gate.py` literal list, `test_clearance_c2_overseer.py`
+SELF_MEASURES).
+
+**Decision 177 (rule `local-glosses` reads a second quantity only from each side; round-10 leftover R10-K2).** `local_gloss_names` read '2019 number of boats' and '2019 number of boats (Table 1)' apart because the figure sets {2019} and {2019, 1} differ, so the pooled-only re-run lost a real contradiction, OVS-JOINT-003 named it as pooling-only and an agent's false_conflict accusation was confirmed. Two glosses now name two quantities only when each states a function or a figure the other lacks, as the channel's rule same-gloss decides (`cross_check.gloss_difference`); a label number only one gloss writes reads no second quantity. Tests: `test_clearance_c3_overseer.py::test_local_glosses_read_a_quantity_apart_only_by_a_figure_or_function_on_each_side` and `::test_a_false_conflict_accusation_of_one_quantity_glossed_with_a_table_reference_is_refuted`.

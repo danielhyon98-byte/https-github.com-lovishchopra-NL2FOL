@@ -29,9 +29,11 @@ API_MAJOR = 1
 
 REQUIRED_API: dict[str, tuple[str, ...]] = {
     'adapters': (
-        'BARE_NOTE_LEAD_RE', 'MAX_CLAIM_TEXT_CHARS', 'META_NARRATION_RE', 'PARAGRAPH_SPLIT_RE', 'TAIL_CLAIM_ID', 'blank_model_marks', 'check_excerpt',
-        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_certification', 'label_self_report', 'mask_outside_quotations', 'mask_quotations', 'model_mark_ranges', 'not_a_self_report',
+        'BARE_NOTE_LEAD_RE', 'MAX_CLAIM_TEXT_CHARS', 'META_NARRATION_RE', 'PARAGRAPH_SPLIT_RE', 'TAIL_CLAIM_ID', 'check_excerpt',
+        'find_json_spans', 'find_quotation_spans', 'is_json_block', 'is_meta_sentence', 'is_self_report', 'label_on_content', 'mask_outside_quotations', 'mask_quotations', 'model_mark_ranges', 'not_a_self_report',
         'OWN_TEXT_RULE', 'opens_note_paragraph', 'own_model_spans', 'own_text_spans', 'quotation_only', 'reading_form', 'report_field_self_reports', 'segment', 'self_cert_vocabulary', 'self_report_spots', 'split_sentences',
+        'selfcert_read', 'SelfCertContext', 'selfcert_context_for', 'SELFCERT_UNREAD_RULE', 'selfcert_fold_table',
+        'payload_self_certification_spots',
         'template_form', 'verification_label',
     ),
     'branches': (

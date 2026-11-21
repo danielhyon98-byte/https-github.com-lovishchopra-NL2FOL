@@ -104,7 +104,8 @@ What the STEM branches do:
 
 - **Route.** Physics, Chemistry, Biology, ESS, SEHS, Design Technology and general science go to
   `sciences`; Mathematics AA, AI and an unspecified course to `mathematics`; Computer Science to
-  `computer_science`. An unrecognised subject still goes to `generic`.
+  `computer_science`. Geography goes to `geography`; Language B and ab initio courses to `language_b` (Spanish
+  readers; decision D35). An unrecognised subject still goes to `generic`.
 - **Read, never evaluate.** A deterministic front end (a single-pass lexer and a bounded Pratt
   parser over a closed grammar) reads the answer into one shared document: statements,
   formulas, symbol bindings with their source, and every relation stated. No agent text is

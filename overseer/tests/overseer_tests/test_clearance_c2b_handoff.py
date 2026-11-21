@@ -355,6 +355,34 @@ def test_a_counterexample_with_a_coverage_warning_is_unassessed_never_a_refutati
             run.close()
 
 
+def test_the_formal_path_reads_a_counterexample_with_a_coverage_warning_as_unresolved_never_refuted(tmp_path_factory):
+    """Round-9 leftover R9-W110: the formal path recorded a COUNTEREXAMPLE carrying W110/W111 as outcome 'refuted' while the accuracy
+    assessment of the same result read it unassessed (rule coverage-gap). On the formal path it is now 'unresolved' with the coverage
+    note; a counterexample with no coverage warning stays 'refuted' (control)."""
+    from epinoic_overseer import load_pack
+    from epinoic_overseer.delivery_policy import DeliveryPolicy
+    from epinoic_overseer.export import export_pack
+    from .delivery_support import ESSAY, ESSAY_QUESTION, Agents, FakeClock, Verifier, essay_report, refuted_outcome, silent
+    from .delivery_support import run_task as run_delivery_task
+    pack = load_pack(export_pack(tmp_path_factory.mktemp("export"), zip_archive=True).zip_path)
+    for outcome, expected in ((_gap_outcome, "unresolved"), (refuted_outcome, "refuted")):
+        clock = FakeClock()
+        policy = DeliveryPolicy(clock=clock, pack=pack, provider_factory=Agents(clock, silent))
+        answers = [("writer-1", essay_report("writer-1", "rep-writer-1", 12, prefix="w1", refuted=[7]))]
+        run = run_delivery_task(policy, answers, verify=Verifier(clock, outcomes={"w1.7": outcome}), question=ESSAY_QUESTION, ids=ESSAY)
+        try:
+            formal = [x for x in run.receipt.formal.claims if x.claim_id == "w1.7"]
+            assert len(formal) == 1, [x.claim_id for x in run.receipt.formal.claims]
+            assert formal[0].outcome == expected, (formal[0].outcome, formal[0].reasons)
+            gap = [r for r in formal[0].reasons if "rule coverage-gap" in r]
+            if expected == "unresolved":
+                assert len(gap) == 1 and "W111" in gap[0] and "does not refute the claim" in gap[0], formal[0].reasons
+            else:
+                assert gap == [], formal[0].reasons
+        finally:
+            run.close()
+
+
 def test_the_recount_reads_thousands_of_faults_in_one_pass():
     """R2's recount compared every re-derived error with every finding of the receipt (quadratic in the faults); the receipt's
     error-level structural findings and INT-SUBJ-003 messages are indexed by their claims once now, with the same verdict:

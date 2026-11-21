@@ -114,10 +114,11 @@ from ..adapters.history_specialist.parser import is_source_caveat
 from ..adapters.markdown import (JUDGEMENT_LABEL_RE, 
     BARE_NOTE_LEAD_RE, NOTE_WORD_LEAD_RE, is_note_continuation, meta_note_form, note_word_body, task_assumption_frame,
     NOTE_LEAD_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_answer_note, is_framing_remark, is_note_sentence,
-    is_self_certification, mask_quotations,
+    is_question_back, is_self_certification, mask_quotations, opens_set_questions,
     parser_quotation_spans,
     split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
+from ..adapters.self_report import self_report_note
 from ..adapters.sources import attribute_excerpt, strip_trailing_punctuation
 from ..ir.schema import SourceRef
 from ..stem.layout import ANNOTATION_RUN_CONTINUATION_RE, JoinedLine, strip_trailing_annotations, trailing_annotation_span
@@ -127,7 +128,7 @@ from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, s
 #: ``]`` closing a pasted JSON fragment, before a capital, a digit, an opening mark or an opening bracket. The stop of the
 #: citation abbreviations "et al." and "cf." ends no sentence ("Halvorsen et al. (2019) found ...", "cf. Smith"): split there, a
 #: study's authors and its year fell into two claims and no study attribution was read.
-_SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))(?<!\bet\sal\.)(?<!\bcf\.)\s+(?=[A-Z0-9\"'(“‘«„{\[])")
+_SENT_RE = re.compile(r"(?:(?<=[.?!\]}])|(?<=[.?!][\"”»’]))(?<!\bet\sal\.)(?<!\bcf\.)\s+(?=[A-Z0-9\"'(“‘«„{\[¿¡ÁÉÍÓÚÑÜ#\u2190-\u2bff\U0001f000-\U0001fbff])")
 _NUM_RE = re.compile(r"\d")
 _LETTER_RE = re.compile(r"[^\W\d_]")
 _MIN_QUOTE_CHARS = 4
@@ -562,7 +563,37 @@ _LABEL_VALUE_RE = re.compile(r":[ \t]{0,3}[+\-−]?\d")
 _QUESTION_HEADING_RE = re.compile(r"(?:why|how|what|which|when|where)\b", re.IGNORECASE)
 
 
-def _line_heading(body: str, has_following: bool) -> bool:
+#: The opening of a working line that cites the law, method or step it applies ('Using a = (v − u)/t:', 'Substitute into C(t) = ...:',
+#: 'Differentiating:'): the line states that law or step, a claim of its own, never a label over the lines after it.
+_METHOD_LEAD_RE = re.compile(r"(?:using|use|by|from|apply(?:ing)?|substitut\w*|differentiat\w*|integrat\w*|solv\w*|rearrang\w*|"
+                             r"expand\w*|factori[sz]\w*|simplif\w*|let|take|taking|assume|assuming|since|as)\b", re.IGNORECASE)
+
+
+#: The relation signs that split a line of working into the sides of its relations (:func:`_relates_two_values`).
+_SIDE_SPLIT_RE = re.compile(r"[=≈]")
+
+
+def _relates_two_values(body: str) -> bool:
+    """Whether a relation of ``body`` holds a written value on BOTH of its sides ('x = 2.0 cm = 2.0 × 10⁻² m', '3 × 5 = 15'): a
+    conversion or a computation the engine can check, a claim of its own. A symbol given a value ('r = 3.2 cm') or defined by an
+    expression ('Sign of f′(x) = 3(x − 3)(x + 1)') relates a name to a value: one side only holds figures. Bounded (400 characters)."""
+    sides = _SIDE_SPLIT_RE.split(body[:400])
+    return any(any(c.isdigit() for c in a) and any(c.isdigit() for c in b) for a, b in zip(sides, sides[1:]))
+
+
+def stem_colon_label(masked: str) -> bool:
+    """Round-10 leftover R10-STEM-H1-ROLES: a STEM line of working closing on a colon that labels the lines after it ('Sign of f′(x) =
+    3(x − 3)(x + 1):', 'For the current cans, r = 3.2 cm:'): at most 16 words, opening with no method or step word
+    (:data:`_METHOD_LEAD_RE`: 'Using a = (v − u)/t:' states the law it applies), holding no statement verb (:data:`_COPULA_RE`:
+    'Acceleration is the derivative of velocity:' states a relation) and no relation between two written values
+    (:func:`_relates_two_values`: 'With x = 2.0 cm = 2.0 × 10⁻² m:' states a unit conversion the engine checks, a claim with its
+    relation; stabilisation c3b, ph-p8b paragraph 7). ``masked`` is the line with its quotations masked."""
+    body = masked.strip()
+    return (body.endswith(":") and len(body.split()) <= 16 and _METHOD_LEAD_RE.match(body) is None
+            and _COPULA_RE.search(body) is None and not _relates_two_values(body))
+
+
+def _line_heading(body: str, has_following: bool, stem: bool = False) -> bool:
     """A heading line: a short line closing on a colon ("Working for (b):"), or a short title over the lines it heads
     ("2024 (no tax)", "2025"); a line that states a value after a colon is no title (:data:`_LABEL_VALUE_RE`). Sentence-level
     headings ("Measure: ..." stating no working, "Diagram 1: ...") are read by :func:`_classify` on the sentence that carries
@@ -570,6 +601,11 @@ def _line_heading(body: str, has_following: bool) -> bool:
     masked = mask_quotations(body).strip()
     words = masked.split()
     if masked.endswith(":") and len(words) <= 8 and not _is_working(masked):
+        return True
+    if stem and has_following and stem_colon_label(masked):
+        # on the STEM branches (``stem``), a label line of working closing on a colon over the lines it introduces ("Sign of f′(x) =
+        # 3(x − 3)(x + 1):"; round-10 leftover R10-STEM-H1-ROLES, maa-t16 m3.6): it heads them, no claim of its own. The general
+        # branches keep their reading (a prose line closing on a colon may state the value it lists)
         return True
     if (has_following and len(words) <= 12 and _QUESTION_HEADING_RE.match(masked) and not _TERMINAL_PUNCT_RE.search(masked)
             and not _is_working(masked) and not find_quotation_spans(body)):
@@ -583,14 +619,24 @@ def _split_outside_quotations(piece: str) -> list[str]:
     stays in the sentence that attributes it, as the English and History parsers keep it (second remedy of the round-9 hold,
     round 2: 'The advert's tagline, "Tested. Approved. Trusted.", borrows ...' was cut into the bare labels "Approved." and
     "Trusted.", each read as a self-report on the Economics, Business, Psychology and generic branches only)."""
-    spans = find_quotation_spans(piece) if any(q in piece for q in "\"“”«»") else []
-    spans = [(a, b) for a, b, _i in spans if b - a > 2]
+    spans = find_quotation_spans(piece, min_single_words=1) if any(q in piece for q in "\"“”«»'‘’") else []
+    spans = sorted((a, b) for a, b, _i in spans if b - a > 2)
     if not spans:
         return _SENT_RE.split(piece)
+    # (single quotation marks too: "The slogan 'Tested. Trusted. Proven.' uses a tricolon" stays one sentence; the spans are searched
+    # by bisection, never every span per mark)
+    from bisect import bisect_left
+    starts = [a for a, _b in spans]
+    reach: list[int] = []
+    best = -1
+    for _a, b in spans:
+        best = max(best, b)
+        reach.append(best)
     out: list[str] = []
     cursor = 0
     for m in _SENT_RE.finditer(piece):
-        if any(a < m.start() < b - 1 for a, b in spans):
+        j = bisect_left(starts, m.start()) - 1
+        if j >= 0 and m.start() < reach[j] - 1:
             continue
         out.append(piece[cursor:m.start()])
         cursor = m.end()
@@ -881,6 +927,7 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
     unresolved: list[str] = []
     index = 0
     para_ranges: list[tuple[int, int]] = []
+    set_open = False  # questions the answer sets the student are open: "To test your design, answer these from your own plan:" and its items
     for pi, units in enumerate(para_units):
         start = index
         index += len(units)
@@ -889,8 +936,22 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
             continue
         sents = [u.text for u in units]
         cores = [split_note_clauses(s)[0] for s in sents]
-        reports = [k for k, s in enumerate(sents) if is_self_certification(s)]
+        # a self-certification is a note; a verification label ON content keeps the content's role and is named all the same
+        # (CORE-SELF-001 and the advisory status read the text, not this role: design 3.13)
+        reports = [k for k, s in enumerate(sents) if self_report_note(s)]
         notes_flags = [GenericTextParser._is_note(units[k], cores[k], k in reports) for k in range(len(units))]
+        # round-10 leftover R10-COMB-H3 (combinator pack 1.4 rule 6): a question the answer sets the student, after a lead that tells the
+        # student to answer the questions after it, is content of the answer on every branch, never a note (the English parsers read
+        # the same lead, ``markdown.opens_set_questions``); the lead closes at the first paragraph that holds no question
+        set_question = [False] * len(units)
+        if set_open and not any(u.lead == "question" for u in units):
+            set_open = False
+        for k, u in enumerate(units):
+            if opens_set_questions(u.text):
+                set_open = True
+            elif set_open and u.lead == "question" and k not in reports and not is_question_back(u.text):
+                set_question[k] = True
+                notes_flags[k] = False
         note_paragraph = (all(notes_flags) or units[0].lead == "bare_note"
                           or (units[0].lead == "word_note" and all(notes_flags[k] or is_note_continuation(units[k].text) for k in range(1, len(units)))))
         demoted = [f"sentence {k + 1} ('{sents[k][:80]}')" for k in reports]
@@ -910,6 +971,10 @@ def assign_roles(para_units: list[list[_Unit]], quoted: list[bool]) -> RoleAssig
             opening_command = u.opening and (k == 0 or units[k - 1].line != u.line)  # "(b) Hence, ...": the question's command term
             consequence[i] = not opening_command and _is_consequence(mask_quotations(core or sent))
             caveat[i] = bool(_CAVEAT_RE.match(mask_quotations(core or sent)))
+            if set_question[k]:
+                roles[i] = "analysis"
+                material[i] = True  # a synthesis that drops it is named (ledger rule framing-content)
+                continue
             if consequence[i] or (any(kw in low for kw in _JUDGE) and not opening_command) or JUDGEMENT_LABEL_RE.match(core or sent):
                 roles[i] = "judgement"
             elif quoted[i]:

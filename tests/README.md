@@ -767,10 +767,10 @@ harness rates of the second layer have not dropped.
      pinned, decision D29) and one strict xfail, the open finding that floor/1 adopts an N_FOLD context bound below 65,536
      bytes which the pool's floor (pool-2) refuses (`integration/PROTOCOL.md` section 7a.4): holding the bound exactly is a
      new floor version, which needs the founder's decision (D29) and a re-tested website patch set.
-   - Flash router 0.4.0 (`flash-router/tests/flash_router_tests/`, 158 tests since round-9 clearance c2b, 94 before, 79 before
-     that): `test_data.py` pins `rules-4.json`
-     and `cost-data-4.json` and holds the current cost data to pack 2.1's system text exactly (the 0.3.0 assertions kept on
-     0.3.0's files, which never change), and plans the finding's dossier of 525,000 characters `over_budget` (201,514
+   - Flash router 0.5.0 (`flash-router/tests/flash_router_tests/`, 159 tests since the round-10 hold remedy c3b, 158 since
+     round-9 clearance c2b, 94 before, 79 before that): `test_data.py` pins `rules-5.json` (rules/4 re-released) and
+     `cost-data-5.json` and holds the current cost data to pack 2.2's system text exactly (the 0.4.0 assertions, pack 2.1's
+     sizes, kept on 0.4.0's files and the 0.3.0 assertions on 0.3.0's, which never change), and plans the finding's dossier of 525,000 characters `over_budget` (201,514
      tokens; `in_depth_cheapest` at 198,174 under the 0.3.0 data); `test_decision.py` decides the service's combined answer
      by the fit rule (three 150,000-character sources: the merged review recorded `over_budget`, the plan's numbers the
      record's, a property test over generated combined requests), refuses a repeated transfer key at once and decides
@@ -1449,6 +1449,149 @@ eight cases of those tests pass (1.4 s; 7.7 s). The sixth was this pass's own ov
 above the sub-project; it now reads a verbatim copy in `overseer/tests/overseer_tests/data/` and passes with the layout test.
 `scripts/arena/test_arena_rules.py` (run by path): 113 passed.
 
+
+## Round-10 hold remedy c3b: cross-owner fixes of round 10's open items
+
+Each test pins its expected values literally; none is loosened. Files:
+
+- `overseer/tests/overseer_tests/test_clearance_c3_overseer.py` (R10-K2): rule `local-glosses` reads two quantities only from a
+  function or figure on each side ('2019 number of boats' and '2019 number of boats (Table 1)' are one quantity); an agent's
+  false_conflict accusation of the real contradiction is refuted.
+- `overseer/tests/overseer_tests/test_clearance_c2b_handoff.py` (R9-W110): on the formal path a COUNTEREXAMPLE carrying W110/W111 is
+  `unresolved` with the coverage note, never `refuted`.
+- `tests/channel/test_c3b_own_text_one_reader.py` (R10-OWN-TEXT-ONE-READER): one reader (`own_text.own_text_kinds`) for the
+  channel, the packs and the auditor; a suggested topic, a 'Better:' rewrite and an arrow's correction draw no INT-REQ-003 or
+  ES-SRC-001; a topic label over a supplied text's sentence with one word changed is still an altered quotation (INV-Q1).
+- `tests/channel/test_c3_handoff_channel.py::test_a_scenario_sentence_before_the_labelled_parts_is_no_item` (R10-PARSERS-7).
+- `tests/branches/test_c3b_set_questions.py` (R10-COMB-H3): the questions an answer sets the student are content on every branch.
+- `tests/stem/test_c3b_stem_roles.py` (R10-STEM-H1 in part, R10-STEM-H5, R9-STEM-NAMED-UNDECIDED G-plain): section titles and
+  colon label lines are headings, never a line citing its method ('Using a = (v − u)/t:') or stating a relation ('Acceleration is the
+  derivative of velocity:'), so the round-7 STEM reading still equals the generic one; an option's number is a label; a request
+  statement id is named as the request's; a restated constant whose written value differs from the request's is ST-SCOPE-002 at
+  warning, never a bare variable the request evaluates at. (Deciding 'k = 2.0 × 40⁻¹' at its exact value was tried and withdrawn:
+  `tests/stem/test_clearance_c2b_stem.py` pins ST-UNDEC-002 naming the written expression there.)
+- `tests/translate/test_c3b_evidence.py` (R10-CORE-BUG1 in part, R10-STEM-H4 wording), `tests/translate/test_c3b_supposition.py`
+  (R10-CORE-MAA-T15-M5.3), `tests/translate/test_c3b_introduced.py` (R10-CORE-INTRODUCED-FIGURES),
+  `tests/engine/test_argument_rerun_repairs.py::test_an_equation_derived_from_an_earlier_line_is_working_not_a_circle`
+  (R10-ARG-CIRC-002), `tests/translate/test_repair_round5_translate.py::test_a_closing_pattern_summary_after_the_provisional_total_answers_no_part`
+  (R10-ARG-BARE).
+- `scripts/arena/test_arena_rules.py::test_a_fixture_is_bound_to_its_supporting_claims_and_refused_as_stale_when_one_changes`
+  (R10-HARNESS-FIXTURE-SUPPORTING).
+
+## Round-10 hold remedy c3b: attack round 1
+
+Each test pins its expected values literally; none is loosened.
+
+- `tests/selfcert/test_attack_round1.py`: every phrasing the round delivered is refused bare, after an answer and a blank line, and
+  inline (the sentence meaning layer `selfcert.meaning`: a sentence that says nothing but an assessment of an answer, with its
+  polarity by negators and defect words and Spanish negative concord; the answer or a stated part of it as the subject of a check,
+  outcome or quality; a product or model name credited with a check of this; a counterfactual denial; a score, level or high
+  confidence label; a data value of a key; reversed text under a bidi override as a hidden run; every check mark the Unicode
+  database names); every boundary input it found gated is free (negated or uncertain, double negation with a negative meaning,
+  instructions, worked checks showing their content, generic and definitional statements, mentioned or analysed quotations,
+  agreement with a named reference, check marks as symbols, a non-success status, and the subject's own uses of assessment words in
+  the recorded answers); the writer's own marking in a marking task; `text_spots` bounded per hit.
+- `tests/branches/test_c3b_attack1_branches.py`: `log2(1024) = 10`; an elasticity whose changes are named after their figures; Spanish
+  thousands with a point; a Spanish question after the answer is a claim of its own; Geography compound growth over more than twelve
+  years, the critical value read after "critical value of", a list of row labels, and the case-figure anchor linear.
+- Word count (`'Word count: about 513 ...'`, sp-t15) stays gated: decision D7 and `SELF_MEASURES` pin it (not reopened here).
+
+## Round-10 hold remedy c3b: attack round 2
+
+Each test pins its expected values literally; none is loosened.
+
+- `tests/selfcert/test_attack_round2.py`: every phrasing the round delivered, and fresh variants of each class the fixes widened, is
+  refused bare, after an answer and a blank line, and inline: confidence and stake claims, collective review, a solver's or an audit's
+  outcome, replication and agreement of recomputations, scores written "n out of n" and awarded with a verb, the highest degree
+  ("Couldn't be more correct", "Could not be improved upon"), idioms, double negation with a positive meaning, a hedge over a verdict at
+  the top of its scale, hedged hearsay, future-perfect checks, counterfactuals, superscript footnote marks, headline re-checks, agents
+  credited by subject, Spanish negative concord and superlatives in -ísimo, Spanish relay frames, unattributed quotations of the
+  answer's own parts, a quotation that closes after its own stop, verdict words in stylised or look-alike letters glued before content.
+  Every boundary input it found gated is free: negated assessments in coordinated clauses and neither/nor, requests, pending conditions,
+  quoted slogans, ticking as a study's procedure, an analysed source's quoted words, statistical and measurement labels, the correct
+  option stated as the answer, coordinated Spanish instructions, generic statements about tools, a compiler at work on a program, the
+  subject's evidence for a content clause, a third party's scores. Also: superscript footnote marks blanked (exponents kept), the
+  -ísimo superlative, the sentence split after a closing quotation, and a report's claims read by `claim_text`.
+- `tests/branches/test_c3b_attack2_branches.py`: a claim the reader cannot read never shows a success status on the outcome display;
+  `label_on_content` linear; the Geography and Language B builds cached by the content they read (a changed supplied table gives its
+  own verdict); a Language B address-form example must occur in the production; the Language B pack linear in the answer; every
+  Language B and ab initio label (English B, Arabic B, Español B, Lengua B, Language acquisition, French ab initio) routes to
+  `language_b`; capitalised Spanish number words read at their place ("Once" stays English); a denary result of decimal arithmetic
+  beside a binary numeral draws no false error, a wrong one still does.
+- Rewritten to a stricter rule (each says so beside the pin): `overseer/tests/overseer_tests/self_report_expectations.py` "This is
+  a model answer." True (the same pin as `test_attack_round1.py`, was False); `test_c1_push_check_meta_note.py` "Note: no quotation is
+  out of place." named by the shared reader (was the allowlist's bare-negator); `tests/branches/test_d9d10_recorded.py` c2/ge-p9c gains
+  the ENTAILED fold-word check `geography-fold-1`. The expectation table's red pins of the earlier run now hold ("not in doubt", "not
+  without foundation", "No quotation deviates from the extract", "this flawless one", "as accurate as the extract", "Note All
+  figures ...", a score label in a marking task).
+- Not reopened: the writer's own word count and length lines ("Word count: 742", "Words: 498", "Length: 3 pages", "Recuento de
+  palabras: 520") stay gated under decision D7 (its positive pins are not weakened); the round's Geography and Language B
+  subject-matter misses (year-keyed tables, request data, result lines, speaker attribution, counts of listed items) are open items
+  of the branches, recorded in the round's report.
+
+## Round-10 hold remedy c3b: attack round 7
+
+Each test pins its expected values literally; none is loosened.
+
+- `tests/selfcert/test_attack_round7.py`: every phrasing the round delivered is refused bare, after an answer and a blank line, and
+  inline: a "without"/"sin" adjunct negates only its own complement (`meaning.inert_complement`); a word broken by one blank, tab,
+  line break, no-break, thin or ideographic space, or a hyphen and a blank is read as the word when the joined letters are a family
+  word and one part is no lexicon word (`normalise._pass_split_words`); failure verbs under a negated quantifier, a search that came
+  up empty, testing, accounting, approval and marking idioms, "what precedes", stakes without a possessive, a score awarded as "the
+  maximum" or "full", a passive compliance with the question's requirements, an imperative verdict, assessors credited with a
+  hypothetical verdict, Spanish reviewer role nouns, Grade 1 Braille letters (other cells named unread), "a11 g00d", and an ASCII-art
+  banner after thousands of lines (every line is read). Every boundary input it found gated is free: worked checks with a spaced
+  minus or an en dash (round 6's held-out rows 96 and 104), quoted words as lexical items, an analysed review's verdict, a
+  philosopher's quoted conclusion, results confirming a hypothesis, a purpose of avoiding a zero error, agreement with a named model
+  after a parenthetical, a third party's audit of a firm, generic statements about assessment, a case study's report.
+- `tests/branches/test_c3b_attack7_selfcert_hub.py`: the same reader through the hub on every registered branch (Geography and
+  Language B included): the round's self-certifications named, its boundary (b) forms never.
+- `tests/branches/test_c3b_attack7_branches.py`: a figure stated with its working in brackets is decided whatever stands between
+  them (units in superscripts, words, a year, nested brackets, a percentage of a figure); a bracket on the next line or one that more
+  working operates on is no stated figure's parts (this also closes a false reading of a Biology percentage-change line); a stated
+  count of listed connectors read with words before the list; the Geography case-figure anchor linear on one long sentence.
+- Not done in this round, with reasons in the round's report: encoded spellings (Morse, base64, reversed text) await the owner's
+  decision on whether the class covers encodings; most of the round's Geography and Language B subject-matter misses.
+
+## D9/D10: the Geography and Language B branches (decision D35)
+
+Measured results only; not committed by this step. Geography now routes to `geography` and every Language B and ab initio course
+to `language_b` (`src/epinoic_logic/branches/README.md`, section "Geography and Language B branches"; `integration/DECISIONS.md`,
+D35). New tests under `tests/branches/`:
+
+- `test_d9d10_routing.py`: labels to branches (Geography, Geography HL, IB Geography: Paper 1, Language B: Spanish, Spanish B HL,
+  language-b-spanish, French B, Spanish ab initio, Mandarin B; Philosophy, Visual Arts, TOK, an unknown label and no label to
+  `generic`), the packs `(CorePack, GeographyPack)` and `(CorePack, LanguageBPack)` with no hub hooks, every branch's first pack
+  the shared core pack and no other pack with a self-certification reader, and an AST scan of the three new modules.
+- `test_d9d10_parity.py`: on the eight recorded answers the parse equals the generic branch's (`model_dump()`, ids included), the
+  core findings are identical, every generic formal check is kept (renamed `geography-worked-N` / `language-b-worked-N`, same
+  problem) and the receipt equals the generic routing's apart from the added checks; the shared gate names the same sentences on
+  both routings for every phrasing set of the round-9 hold, inside a model article, in its meta paragraph and in the report's
+  fields; an answer that obeys the note planted in the sp-t14 article gets the same findings on both routings.
+- `test_d9d10_geography.py` and `test_d9d10_language_b.py`: each kind correct and faulty, the faulty variants of the recorded
+  answers through the hub (design section 11), approximation words, bounds, unit conversions, questions skipped, undecided
+  naming without double naming, Spanish detection, numeral readings, model regions, address markers, and no Spanish reader on
+  a French B answer.
+- `test_d9d10_recorded.py`: the eight recorded answers pinned (status, error and warning codes, constraints, coverage, every
+  formal check and its status); the new branches add only ENTAILED checks and no INT-SUBJ-001/-003/-004.
+- `test_d9d10_linear.py`: every new entry point and the full parse plus packs over the hostile inputs, the joined word runs and
+  long Spanish and Geography shapes, with a 20,000 to 80,000 character growth check (ratio under 8).
+
+Rewritten (equivalent or stricter): `c2_hold_texts.BRANCH_OF` (Geography to `geography`, Spanish B to `language_b`; the
+registry's 11 keys covered), `test_r7_quant_packs.py::test_ge_t13_dependency_ratio_is_named_undecided` (the `geography-worked`
+prefix, plus no `generic-worked` check on a Geography receipt), `test_c2b_clearance_parsers.py` (parametrize labels only).
+
+Harness on copies of rounds c1, c2 and c3 (the recorded rounds are never written): transport c1 203/203, c2 188/188, c3 164/176,
+equal to the line before the change; every Geography and Language B record (genuine and every mutation variant) keeps its
+status, functional verdict, error and warning codes, constraints, coverage, claims, translation outcomes and fixtures served,
+and every earlier formal check with its status; the only additions are ENTAILED checks (sp-t14: three supplied figures; sp-t15:
+two word counts and a range claim; sp-t16: a word count, a range claim, two address-form checks and a listed count). The c3
+shortfall is unchanged: the planned `ge-p10c` exchange was never answered.
+
+`tests/branches`: 8,753 passed. `tests/integration` on the shared tree fails at KIT-HS-010 until the kit's generated copies are
+regenerated for the new map (the cross-owner step); on a scratch copy regenerated with the kit's own tools (`generate.py`,
+`vectors.py`, `manifest.py`, with the `subject_map` pin set to the new map) it gives 1,472 passed and one failure, the website
+patch set M's `RESULT.sha256` record of the two changed data copies (re-run or record as not re-run).
 
 ## What runs next
 
@@ -2631,3 +2774,12 @@ Bugs fixed in this round: 108. Fix commit `03a30212`, verified.
   accusations; 26 answers green-lit, of which independent judges found 20 inaccurate (each confirmed by a second judge).
 - The handoff report for the round-8 upload was refreshed and published on the main repository's handoff branch, with
   rounds 9 and 10 listed as done but held by their push checks.
+
+### Progress, 08:00 UTC (21 November)
+- A second "Fix the c3 clearance findings" commit is verified: the full suite has 42,725 passed, 1 skipped, 1 xfailed
+  and 0 failed of 42,727 collected; the harness replays every recorded round as before (r1 30/30, r1-adv 150/151,
+  r2 to r6 46/46, r7 177/177, c1 203/203, c2 188/188, c3 164/176).
+- It adds Geography and Language B (Spanish) subject branches, one shared self-certification reader that every release
+  path consults, and the policy-version bump for eligibility rule 0. Eight adversarial rounds ran before the commit;
+  the last still reproduced 75 items (fresh self-certifying phrasings missed: 14 of 83; correct sentences gated: 1 of 20).
+- Its push check over the four held commits is running; nothing is uploaded until a push check clears.

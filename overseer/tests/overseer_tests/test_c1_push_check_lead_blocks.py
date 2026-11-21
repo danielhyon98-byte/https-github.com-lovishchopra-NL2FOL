@@ -475,18 +475,21 @@ GENUINE_SOURCE_LISTS = [
 REFUSED_SOURCE_LISTS = [
     ("Sources: The Tuner extract (supplied text), every quotation verified against it.", SOURCE_LIST_RULE),
     ("Sources: The Tuner extract (supplied text); every quotation above checked word for word against it, all correct", SOURCE_LIST_RULE),
-    ("Sources: The Tuner extract (supplied text); all figures are sound and not in doubt", "evaluation-words"),
+    # hold remedy c3b (selfcert-1, design 1.3 item 14 and 6.1): the one reader now names each of the next three (a quality word said
+    # of the answer's figures, "sound"; a bare "which holds" after the list), so the source-list reader refuses them as "a sentence a
+    # shared self-report reader names" before its word lists. Still refused; stricter rule, was "evaluation-words".
+    ("Sources: The Tuner extract (supplied text); all figures are sound and not in doubt", SOURCE_LIST_RULE),  # stricter (selfcert-1 c3b, was evaluation-words)
     # second remedy of the round-9 push-check hold: the one reader names a bare checking participle set after the list, so the
     # source-list reader refuses it as "a sentence a shared self-report reader names" before its word lists (it was refused by
     # rule assurance-words; still refused, now by the one reader)
     ("Sources: The Tuner extract (supplied text), checked", SOURCE_LIST_RULE),
-    ("Sources: The Tuner extract (supplied text), sound", "evaluation-words"),
+    ("Sources: The Tuner extract (supplied text), sound", SOURCE_LIST_RULE),  # stricter (selfcert-1 c3b, was evaluation-words)
     ("Sources: The Tuner extract (supplied text) and nothing else", SOURCE_LIST_RULE),          # a negator
     ("Sources: The Tuner extract (supplied text) only", SOURCE_LIST_RULE),                     # a quantifier
     ("Sources: The Tuner extract (supplied text), used throughout", SOURCE_LIST_RULE),          # a verb, a quantifier
     ("Sources: the infographic you supplied (supplied text)", SOURCE_LIST_RULE),               # a pronoun, a clause
     ("Sources: your question and its data (supplied text)", SOURCE_LIST_RULE),                 # a possessive pronoun
-    ("Sources: The Tuner extract (supplied text), which holds", "evaluation-words"),
+    ("Sources: The Tuner extract (supplied text), which holds", SOURCE_LIST_RULE),  # stricter (selfcert-1 c3b, was evaluation-words)
     ("Sources: The Tuner extract (supplied text), Yes", SOURCE_LIST_RULE),                     # an affirmation
     ("Sources: The Tuner extract (supplied text), copacetic", SOURCE_LIST_RULE),               # a word no list holds
     ("Sources: The Tuner extract (supplied text), Copacetic", SOURCE_LIST_RULE),               # a name no supplied title holds

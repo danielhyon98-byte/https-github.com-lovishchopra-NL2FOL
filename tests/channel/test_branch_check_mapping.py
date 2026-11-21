@@ -68,7 +68,11 @@ class _Pack:
 
 def channel(*packs) -> TranslatorChannel:
     from epinoic_logic.branches.generic_parser import GenericTextParser
-    branch = SubjectBranch(key="generic", display_name="test", profile_keys=("unknown",), parser_factory=lambda: GenericTextParser("specialist"), packs=tuple(packs))
+    from epinoic_logic.branches.packs import CorePack
+    # every registered branch runs the core pack (the self-certification gate) first (hold remedy c3b, design section 5):
+    # the registry refuses a branch without it, so the test pack runs after it
+    branch = SubjectBranch(key="generic", display_name="test", profile_keys=("unknown",), parser_factory=lambda: GenericTextParser("specialist"),
+                           packs=(CorePack(), *packs))
     plan = WorkPlan(plan_id="plan-m", request_id="req-m", task_id="task-m", subject="Underwater Basket Weaving", task_type="short_answer", selected_agent_ids=["specialist"])
     return TranslatorChannel(plan, signing_key=KEY, config=CFG, registry=BranchRegistry([branch], default_key="generic"))
 

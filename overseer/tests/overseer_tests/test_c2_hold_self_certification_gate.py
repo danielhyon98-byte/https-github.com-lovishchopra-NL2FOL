@@ -249,18 +249,43 @@ def test_the_gate_names_no_control(sentence):
     assert not self_certifying_sentence(sentence) and self_certifying_sentences("Body text.\n\n" + sentence) == []
 
 
+#: ``(text name, paragraph, sentence index)`` of every sentence of the recorded round-8 texts (``c1_texts``) the one reader names,
+#: computed once with rules ``selfcert-1`` (hold remedy c3b) and reviewed. The ``_Q`` texts are the students' requests (the gate
+#: never reads a request; "the course first assessed in 2025" and the request's own word count are read here as text only); the
+#: answers had one entry, BM_T14 6.1 (a "For checking:" label), removed after review in attack round 3 (below).
+#: Reviewed in stabilisation round 1 of hold remedy c3b: the list first also held GE_T14 5.0 ("The table below is invented for practice
+#: (Larkmoor Square is a fictional place).", a place name holding a family word) and GE_T14 15.0 ("Examiners stop reading at 2,500
+#: words, and that limit covers the whole report.", advice about the limit), both recorded there as false positives of the reader.
+#: Neither says anything about checking, or about the answer's correctness, quality or compliance (boundary (b)); the reader's fix
+#: frees them, and they are removed from the list after that review (the gate never refuses a correct sentence).
+#: Reviewed in attack round 3 of hold remedy c3b: BM_T14 6.1 ("(For checking: March, $4,100.)", the check value of a practice task the
+#: answer sets the student) offers a value to check against; it claims no check of the answer and nothing about its correctness
+#: (boundary (b)). ``tests/selfcert/test_attack_round1.py`` pins it as a sentence the reader must not name, so the two lists disagreed;
+#: it is removed here after that review, and the answer still has no other named sentence.
+NAMED_ON_THE_RECORDED_TEXTS = [
+    ("BI_P8D_Q", 1, 0), ("BM_T14_Q", 1, 0), ("EC_P8A_Q", 1, 0), ("ESS_T14_Q", 1, 0),
+    ("GE_T14_Q", 1, 0), ("GE_T14_Q", 1, 3), ("HI_T14_Q", 1, 0), ("LL_T14_Q", 1, 0),
+]
+
+
 def test_every_sentence_the_translator_names_the_overseer_names_on_the_recorded_answers():
-    """The superset property on the recorded round-8 answers (every text of ``c1_texts``) and the phrasings: the overseer's gate
-    reader names at least every sentence the translator's shared reader names."""
-    texts = [v for k, v in vars(c1_texts).items() if k.isupper() and isinstance(v, str)] + REPORTED + MORE
-    seen = 0
-    for text in texts:
-        for para in text.split("\n\n"):
-            for s in split_sentences(para):
+    """Rewritten for hold remedy c3b (design 6.2 item 1): the expected value was computed from the reader under test (a circular
+    assert). It is now a literal list (:data:`NAMED_ON_THE_RECORDED_TEXTS`) and both thin names, the translator's
+    ``is_self_certification`` and the overseer's ``self_certifying_sentence`` / ``self_report_reading``, must return exactly it
+    (equality, not a superset); every phrasing of ``REPORTED`` and ``MORE`` is named by both."""
+    texts = [(k, v) for k, v in sorted(vars(c1_texts).items()) if k.isupper() and isinstance(v, str)]
+    by_translator, by_overseer = [], []
+    for name, text in texts:
+        for p, para in enumerate(text.split("\n\n"), start=1):
+            for k, s in enumerate(split_sentences(para)):
                 if is_self_certification(mask_quotations(s)):
-                    seen += 1
-                    assert self_report_reading(s) is not None and self_certifying_sentence(s), s
-    assert seen >= len(REPORTED + MORE)
+                    by_translator.append((name, p, k))
+                if self_certifying_sentence(mask_quotations(s)) and self_report_reading(mask_quotations(s)) is not None:
+                    by_overseer.append((name, p, k))
+    assert by_translator == NAMED_ON_THE_RECORDED_TEXTS
+    assert by_overseer == NAMED_ON_THE_RECORDED_TEXTS
+    for s in REPORTED + MORE:
+        assert is_self_certification(s) and self_certifying_sentence(s) and self_report_reading(s) is not None, s
 
 
 def test_a_claim_of_any_role_and_a_self_reported_status_are_read():
@@ -283,9 +308,11 @@ def test_a_claim_of_any_role_and_a_self_reported_status_are_read():
 def test_the_gate_fails_closed_when_the_shared_reader_raises(monkeypatch):
     import epinoic_logic.api.adapters as api
 
-    def boom(_s):
+    def boom(*_a, **_k):
         raise RuntimeError("reader fault")
-    monkeypatch.setattr(api, "is_self_certification", boom)
+    # rewritten for hold remedy c3b (older API): the gate now consults the one reader through ``selfcert_read`` (design 1.3), so the
+    # fault is injected there; rule unchanged: a sentence the reader cannot read is refused (fail closed), both asserts kept
+    monkeypatch.setattr(api, "selfcert_read", boom)
     assert self_certifying_sentence("The treaty was signed in 1919.")  # a sentence that cannot be read is a self-report
     assert self_certifying_sentences("The treaty was signed in 1919.") == ["paragraph 1"]
 

@@ -1,17 +1,19 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.5 (2026-10-31). Version 0.1 described commit
+- **Contract version:** 0.6 (2026-11-16). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
   HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
   integration protocol on top of 0.3 (section 9a); 0.5 adds the argument diagnosis (rules
   `argdiag-2`): the two signed result fields `named_diagnostics` and `argument_rules`, and release
-  rules 8 and 9 (section 5a; see section 11 for what changed). The component versions are unchanged
+  rules 8 and 9 (section 5a); 0.6 comes with policy `2026.11-v5`: eligibility rule 0 reads the one
+  self-certification reader (rules `selfcert-1`), the policy identity binds those rules, and receipt code
+  CORE-SELF-002 names text the reader cannot read (see section 11 for what changed). The component versions are unchanged
   by 0.3, 0.4 and 0.5.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
-  - policy `2026.10-v4`
+  - policy `2026.11-v5`
   - translator `0.4.0`
 
   These come from `src/epinoic_logic/version.py`, beside the argument rules `argdiag-2`
@@ -568,6 +570,13 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.5 to 0.6** (policy 2026.11-v5; round-10 hold remedy c3b): eligibility rule 0 reads `selfcert-1`
+(`selfcert.wholly_self_certification`: a claim that is nothing but a self-report of a check, an engine or system result, a
+review, an approval, a score or the answer's own correctness is NOT_ELIGIBLE_OTHER and never reaches the solver); the policy
+identity binds the self-certification rules (`engine.identity.policy_manifest` "eligibility_self_certification": the rules
+version and the digest of the lexicon and fold table); receipt code CORE-SELF-002 (warning: text the self-certification reader
+cannot read, never delivered unread; not frozen, section 9). Results signed under policy 2026.10-v4 are stale.
 
 **0.4 to 0.5** (component versions unchanged; the build and policy identities change with the source):
 - the argument diagnosis, rules `argdiag-2` (section 5a; `docs/ARGUMENT_DIAGNOSTICS.md`): two signed

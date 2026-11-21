@@ -642,7 +642,9 @@ the service host (an external auditor, or a sidecar overseer on another host).
   - Keeping the map as built avoids a new map version, digest and kit tag for a route that has no specialist.
 - **What the kit changes:** none to `subject-map.json` (version 2026-10-17.2, unchanged digest): its English row already
   reads `"environments": ["sim"]`. The row stays `provisional: true` until an English specialist exists in the runtime.
-  `DECISIONS.md` marks D9/D10 decided.
+  `DECISIONS.md` marks D9/D10 decided. Amended by D35 (16 November 2026) for the `branch` column only: the Geography and
+  Spanish rows now name the translator branches `geography` and `language_b` (map version 2026-11-16.1); their routes,
+  environments and provisional flags are as above ([record](#d35-translator-branches-for-geography-and-language-b)).
 - **Who acts, when:** nobody: the kit implements it. Bruno decides when W7 happens, and its migration is his.
 - **How to reverse:** a new subject-map version (a new digest and a new kit tag) that adds environments to a row.
 - **Authority:** the kit named Bruno with Daniel. This is the programme's decision of record; Bruno may override it for
@@ -1589,3 +1591,47 @@ the kit).
   delivered answers' counts by summary in the `chat_check` events equal the D22 summary's verdict counts for the same
   weeks; and measured latency and refusal rates in the D22 summary. It also needs the student-data terms recorded
   (D15) and production caps decided. No production key or call exists before then.
+
+## Appendix: D35, translator branches for Geography and Language B (decided 16 November 2026)
+
+D35 follows D9/D10. It decides how the translator serves two subjects the subject map already carries as service-only
+rows; it decides nothing about the website. It is not a row of the table above, which holds the kit's decisions D1 to D33.
+
+- **Changed since (round-10 hold remedy c3b, POLICY_VERSION 2026.11-v5, contract 0.6):** the self-certification half of
+  option (a) is read by MEANING on every path: one reader, `epinoic_logic.selfcert` (rules `selfcert-1`, its lexicon and fold
+  table bound into the policy identity), replaces the phrase lists of the translator, the overseer and the channel; every
+  gate (the hub's CORE-SELF-001, the parsers' advisory status, eligibility rule 0, the outcome display, the fallback, the
+  router's decision, the combined answer's release, the port and the turn check through it) calls it with the context of the
+  router's journaled request. Text the reader cannot read is refused too (CORE-SELF-002, rule `unread-text`). The kit's
+  decision table, the test double and G-FAULT's expectation are still unchanged and the invented-quotation half (CORE-SRC-003)
+  is still open, so D34 stays open; the simulation was not re-run for this change. The kit's compatibility record accepts only
+  policy 2026.11-v5 and contract 0.6 (decision D8 of the c3b design); its generated copies and vectors are regenerated with the
+  kit's own tooling by the cross-owner step that follows the D9/D10 subject-map change.
+
+### D35. Translator branches for Geography and Language B
+
+- **Decision:**
+  - **Branches:** the translator routes Geography to its own branch, `geography`, and every Language B and ab initio
+    course to `language_b`, instead of `generic`. Each branch runs the shared core pack first (with the shared
+    self-certification gate) and its own subject pack; both keep the generic parser, so claim ids and roles are
+    unchanged.
+  - **Subject map:** the `branch` field of the rows `geography`, `spanish-b` and `language-b-spanish` follows the
+    routing (`geography`, `language_b`, `language_b`); map version 2026-11-16.1. Routes stay null, environments stay
+    `["service"]`, the rows stay provisional. No website route is added.
+  - **Kit tag:** none created or moved; the first published tag carries this map.
+  - **What the branches check:** the engine decides the subjects' own arithmetic (Geography: population, density,
+    rates per 1,000, natural increase, growth and doubling time, per-capita figures, fieldwork means and samples,
+    figures read from supplied tables; Language B: the word counts, ranges, quoted forms, address forms and listed
+    items an answer states about a production, figures read from the supplied text). Register, linguistic accuracy
+    and text-type fit are not judged by the translator.
+- **Why:** D9/D10 kept the two subjects service-only; their answers crossed the hub on the generic branch, where a
+  stated density, rate or doubling time, a misread site figure and a wrong word-count claim passed with no finding
+  (round 10, finding #18). The website route question is unchanged.
+- **What the kit changes:** `integration/subject-map.json` (three `branch` values and the version), the generated
+  copies (`compat.py`, `compat.js`, `subject-map.js`), the `subject_map` pin in `COMPATIBILITY.json`, the handshake
+  vectors and the MANIFEST; the website patch set M's `RESULT.sha256` lines for the two data copies (re-run, or recorded
+  as not re-run).
+- **Who acts, when:** nobody beyond this change; Bruno's W7 decides any website route later, as D9/D10 says.
+- **How to reverse:** route the two profiles back to `generic` and restore the three `branch` values under a new map
+  version.
+- **Authority:** Daniel's instruction of 16 November 2026 to do D9 and D10.

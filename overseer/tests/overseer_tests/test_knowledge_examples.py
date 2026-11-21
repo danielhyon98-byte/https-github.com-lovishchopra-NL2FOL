@@ -514,7 +514,8 @@ MUTATIONS = {
     "header": ('"dossier_sha256": "07d0d0', '"dossier_sha256": "07d0d1'),
     "engine_statement": ('"asserted_status": "COUNTEREXAMPLE"', '"asserted_status": "ENTAILED"'),
     "table_kind": ("| 9 | tampered | response receipt | `receipt_status_wrong` |", "| 9 | tampered | response receipt | `receipt_altered` |"),
-    "u2_notes": ("this agent is configured with overseer-knowledge-docs 2.1. Not reviewed.", "this agent is configured with overseer-knowledge-docs 2.2. Not reviewed."),
+    # the installed pack is 2.2 since the round-10 hold remedy c3b (CORE-SELF-002 listed): the same one-byte rule on its own version
+    "u2_notes": ("this agent is configured with overseer-knowledge-docs 2.2. Not reviewed.", "this agent is configured with overseer-knowledge-docs 2.3. Not reviewed."),
     "table_type": ("| 7 | tampered | router forward |", "| 7 | faulty | router forward |"),
     "schema": ('"claimed_severity": "warning",\n      "message_ids": ["m-0002"]', '"claimed_severity": "Warning",\n      "message_ids": ["m-0002"]'),
 }

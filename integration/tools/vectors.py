@@ -47,6 +47,16 @@ ANSWER = ("SYNTHETIC answer. The treaty was signed in 1919. The hyperinflation p
 _BIDI_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
 
 
+
+
+def _service_versions() -> dict[str, str]:
+    """The component versions of the synthetic verdicts, read from the translator (a generator never carries its own copy;
+    round-10 hold remedy c3b)."""
+    from epinoic_logic.integration.protocol import INTEGRATION_CONTRACT_VERSION
+    from epinoic_logic.version import ENGINE_VERSION, IR_VERSION, POLICY_VERSION, TRANSLATOR_VERSION
+    return {"ir": IR_VERSION, "engine": ENGINE_VERSION, "policy": POLICY_VERSION, "translator": TRANSLATOR_VERSION, "z3": "5.1.0",
+            "contract": INTEGRATION_CONTRACT_VERSION}
+
 def _dump(obj) -> str:
     text = json.dumps(obj, indent=2, sort_keys=True, ensure_ascii=False)
     return _BIDI_RE.sub(lambda m: "\\u%04x" % ord(m.group(0)), text) + "\n"
@@ -233,7 +243,7 @@ def synthetic_verdict(claims: list[dict], *, answer: str = ANSWER, user_text: st
         "schema": "epinoic.integration.turn-verdict.v1", "protocol": PROTOCOL, "verdict_id": f"vd_{ATTEMPT}", "issued_at": "2026-10-17T00:00:00.000Z",
         "ids": {"task_id": TASK, "request_id": ATTEMPT, "plan_id": f"plan-{ATTEMPT}", "channel_uid": "ch-synthetic"},
         "bound": {"user_text_sha256": sha256_text(user_text), "policy": policy, "mode": mode, "answers": answers},
-        "service": {"service_env": "sim", "versions": {"ir": "1.0", "engine": "0.4.0", "policy": "2026.10-v4", "translator": "0.4.0", "z3": "5.1.0", "contract": "0.5"},
+        "service": {"service_env": "sim", "versions": _service_versions(),
                     "build": {"build_id": "b0" * 32, "schema_id": "b1" * 32, "policy_id": "b2" * 32}, "subject_map_sha256": "b5" * 32},
         "delivery": {"decision": decision, "deliverable": ({"agent_id": "history", "answer_sha256": sha256_text(answer), "message_id": "m-answer"} if decision == "deliver" else None),
                      "reasons": reasons, "consolidation": {"id": "cons-synthetic", "status": consolidation_status, "basis": "single"}, "synthesis": None},

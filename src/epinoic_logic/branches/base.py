@@ -157,10 +157,22 @@ def _pack_failure(pack: object, exc: BaseException, stage: str) -> StructuralFin
                              rule_source="branch infrastructure: a pack failure is named, never silent")
 
 
+class BranchRegistryError(ValueError):
+    """A registry built with a branch that would not run the shared self-certification gate first."""
+
+
 class BranchRegistry:
-    """Resolves a subject label to its branch; falls back to the generic branch."""
+    """Resolves a subject label to its branch; falls back to the generic branch.
+
+    Invariant (hold remedy c3b, design section 5): every branch runs the core pack (``CorePack``, which carries the one
+    self-certification reader's CORE-SELF-001 and CORE-SELF-002) as its FIRST pack, so no branch, however it is registered, reaches
+    the router without the gate."""
 
     def __init__(self, branches: list[SubjectBranch], default_key: str = "generic") -> None:
+        from .packs import CorePack
+        for b in branches:
+            if not b.packs or not isinstance(b.packs[0], CorePack):
+                raise BranchRegistryError(f"branch {b.key!r} must run the core pack (the self-certification gate) as its first pack")
         self._by_key = {b.key: b for b in branches}
         self._by_profile: dict[str, SubjectBranch] = {}
         for b in branches:

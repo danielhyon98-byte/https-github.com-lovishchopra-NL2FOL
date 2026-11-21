@@ -7,11 +7,11 @@ answer, each source reviewed on its own and the combinator's output reviewed aga
 for the overseer pool: which overseer instances review which dossiers, and which dossiers go to independent duplicates.
 
 Its first decision, for every response it is asked about, is the **flash decision maker** (`decision.py`, rules D1 to D7
-since 0.3.0, of `rules-4.json` since 0.4.0): reading the user's request record and each specialist output as features only, it
+since 0.3.0, of `rules-4.json` since 0.4.0 and of `rules-5.json`, the same rules re-released, since 0.5.0): reading the user's request record and each specialist output as features only, it
 decides between the **in-depth examination method** (one cheapest-tier overseer instance examines the whole response,
 `IN_DEPTH`) and the **duplication method** (the work split across several cheapest-tier instances in parallel: `SPLIT`
 parts of one output, `N_FOLD` for a combined answer; with independent duplicate reviews, `DUPLICATE`, where risk calls for
-agreement), choosing **the cheapest that keeps accuracy** from the recorded cost data (`cost-data-4.json`): agreement (the
+agreement), choosing **the cheapest that keeps accuracy** from the recorded cost data (`cost-data-5.json`): agreement (the
 reviews risk calls for; risk signals only raise them), fit (one instance must read the pack's system text its content
 needs, what it examines and the output budget within the instance budget) and cost (tokens, then agent-seconds, then
 calls). The decision is code, deterministic and instant: no model decides duplication, and the overseer's optional
@@ -19,15 +19,16 @@ escalation advisor can only add escalations. Every decision is recorded with the
 priced (whether it keeps accuracy, and why it was or was not chosen) and its reasons, closed codes and integers only.
 What cannot be divided and does not fit one instance is disclosed (`over_budget`), never shortened: a pool dossier, and
 a combined answer's merged review, which reads the synthesis and every source whole (since 0.4.0 at the service's port
-too, as in the pool). The system text priced is the one the overseer sends: `cost-data-4.json` records the sizes of the
-overseer's pack 2.1 (0.3.0's cost data recorded pack 2.0's, 13,360 characters smaller in every composition, so a dossier
-whose need lay within about 3,340 tokens under the budget was recorded as fitting when it did not).
+too, as in the pool). The system text priced is the one the overseer sends: `cost-data-5.json` records the sizes of the
+overseer's pack 2.2 (0.5.0; pack 2.2 lists the receipt code CORE-SELF-002 and is 194 characters larger in every composition
+than pack 2.1, whose sizes 0.4.0's cost data recorded; 0.3.0's cost data recorded pack 2.0's, 13,360 characters smaller than
+2.1's, so a dossier whose need lay within about 3,340 tokens under the budget was recorded as fitting when it did not).
 
 It is **not the translator's `RouterHub`** (which carries the messages between agents through the translator channel),
 and not the website's subject routing (which picks a specialist). It plans reviews; it never carries, checks, delivers
 or decides anything about an answer.
 
-It is a **separate, independent agent** in a sub-project of its own: its own `pyproject.toml` and version (0.4.0),
+It is a **separate, independent agent** in a sub-project of its own: its own `pyproject.toml` and version (0.5.0),
 this README, `docs/DESIGN.md`, its rules and cost data as **versioned data files with digests**, a runner, and its own
 tests. It needs nothing but the Python standard library at run time and never imports the translator, the engine, Z3,
 the STEM support or the overseer, so it is edited, re-tuned and released without touching any of them. It talks to them
@@ -122,8 +123,10 @@ own code read as bad data or as bad input. A command line `argparse` cannot read
 | File | What it holds |
 |---|---|
 | `data/MANIFEST.json` | the current rules and cost-data files, and every data file's version, release and digest |
-| `rules-4.json` (current, 0.4.0) | rules/4 in words: the flash decision maker (D1 to D7), the port rules 1 to 7 and the pool rules P1 to P8; the parameters (`max_parts` 16, `max_reviews` 4, `hard_max_instances` 64, `context_max_bytes` 65,536); the pool's thresholds (`escalated_reviewers` 2, `baseline_reviewers` 1, `record_weight` 2, `batch_size` null, `source_reviewers` 1, `merged_reviewers` 1); the decision section (its two approaches, the criterion, the order of the choice, the methods each caller can run); the agreement signals; the features each planner reads; the method table. It is rules/3 with the port's N_FOLD fit-checked: D4 names the pack the system text sizes are of and the merged review no caller divides, D6 and port rule 5 decide the merged review by D4 and D5 and record each part, D7 says where a transfer the service's plan cannot disclose is disclosed |
-| `cost-data-4.json` (current, 0.4.0) | the decision maker's prices: 4 characters a token, an output budget of 8,000 tokens, an instance budget of 200,000 tokens, 30 agent-seconds a call and the dossier estimate (planning estimates, not measurements); the system text of every composition of the overseer's knowledge pack 2.1, the pack the overseer sends, as its loader builds it (the core 249,054 characters, with the STEM module 461,507, with the translations module 345,025, with both 557,478) and the dossiers' recorded sizes; no price, no latency, no model |
+| `rules-5.json` (current, 0.5.0) | rules/4 re-released as rules/5 with this release: word for word rules-4's rules, sections and parameters, but the name line |
+| `cost-data-5.json` (current, 0.5.0) | cost data 4's prices with the system text of every composition of the overseer's knowledge pack 2.2, the pack the overseer sends (the receipt code CORE-SELF-002 listed), as its loader builds it: the core 249,248 characters, with the STEM module 461,701, with the translations module 345,219, with both 557,672 (194 more than pack 2.1 in each); no price, no latency, no model |
+| `rules-4.json` (0.4.0) | rules/4 in words: the flash decision maker (D1 to D7), the port rules 1 to 7 and the pool rules P1 to P8; the parameters (`max_parts` 16, `max_reviews` 4, `hard_max_instances` 64, `context_max_bytes` 65,536); the pool's thresholds (`escalated_reviewers` 2, `baseline_reviewers` 1, `record_weight` 2, `batch_size` null, `source_reviewers` 1, `merged_reviewers` 1); the decision section (its two approaches, the criterion, the order of the choice, the methods each caller can run); the agreement signals; the features each planner reads; the method table. It is rules/3 with the port's N_FOLD fit-checked: D4 names the pack the system text sizes are of and the merged review no caller divides, D6 and port rule 5 decide the merged review by D4 and D5 and record each part, D7 says where a transfer the service's plan cannot disclose is disclosed |
+| `cost-data-4.json` (0.4.0) | the decision maker's prices: 4 characters a token, an output budget of 8,000 tokens, an instance budget of 200,000 tokens, 30 agent-seconds a call and the dossier estimate (planning estimates, not measurements); the system text of every composition of the overseer's knowledge pack 2.1, the pack the overseer sends, as its loader builds it (the core 249,054 characters, with the STEM module 461,507, with the translations module 345,025, with both 557,478) and the dossiers' recorded sizes; no price, no latency, no model |
 | `rules-3.json`, `cost-data-3.json` | 0.3.0's rules and prices (the system text of pack 2.0: the core 235,694 characters, with the STEM module 448,147, with the translations module 331,665, with both 544,118), kept byte for byte their 0.3.0 digests |
 | `rules-2.json`, `cost-data-2.json` | 0.2.0's rules (with `split_words` 900, the word threshold the fit replaced) and planning estimates, kept byte for byte their 0.2.0 digests |
 | `rules-1.json`, `cost-data-1.json` | 0.1.0's rules and cost model, kept byte for byte their 0.1.0 digests |
@@ -149,7 +152,7 @@ When the overseer releases a knowledge pack whose system text differs, the cost 
 pack's sizes and names it (`recorded.system_text_pack`): the decision prices every call with the system text the overseer
 actually sends, and a pack release that leaves the cost data behind makes a decision record say a dossier fits when it
 does not (0.3.0's cost data kept pack 2.0's sizes after pack 2.1, 13,360 characters larger, was installed; 0.4.0
-corrected it). This router never imports the overseer, so the comparison of the two belongs to the overseer's tests.
+corrected it; 0.5.0 released pack 2.2's sizes with the pack). This router never imports the overseer, so the comparison of the two belongs to the overseer's tests.
 
 A weakened file (fewer reviewers for an escalated dossier) loads and plans, and the overseer refuses its plans below
 the floor (`KIT-RT-020`); the overseer's tests show it on a scratch copy.
@@ -167,8 +170,8 @@ directory. The suite shows the router port's conformance items over the router-p
 generator, never this copy) and over generated requests, validated with the translator's own
 `epinoic_logic.integration.router_port` and `router_pool` (pydantic and the standard library: no engine, no Z3, no
 overseer); the pool plans; the data files, their manifest and pinned digests, and the current cost data held to the
-system text of pack 2.1 (the dossier of 525,000 characters that cost data 3 recorded as fitting is disclosed
-`over_budget`); the runner, its named exit statuses and never a traceback (a request nested 200,000 deep, a number out
+system text of pack 2.2 (the dossier of 525,000 characters that cost data 3 recorded as fitting is disclosed
+`over_budget` under cost data 4 and 5); the runner, its named exit statuses and never a traceback (a request nested 200,000 deep, a number out
 of range, a zero quota, a repeated transfer key: exit 3 with the router's own reason; a data file nested too deep: exit
 2; a fault of the router's own code: exit 4, never 2 or 3, for nine exception types raised while planning a request it
 reads (`ValueError` among them) and seven while loading its data or writing a hello, and for a real fault edited into a

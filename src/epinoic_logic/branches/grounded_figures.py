@@ -73,6 +73,8 @@ _LOCATOR_BEFORE_RE = re.compile(r"\b(?:tables?|figures?|figs?|sources?|paragraph
                                 re.IGNORECASE)
 _YEAR_AFTER_RE = re.compile(r"\s*+(?:in|for|of|during|at\s+the\s+end\s+of)?\s*+\(?\s*+(1[0-9]{3}|20[0-9]{2})\b")
 _RESULT_BEFORE_RE = re.compile(r"[=≈]\s*+$")
+#: A from-to pair of figures with no year between them ("coal down from 46% to 28%").
+_FROM_TO_FIG_RE = re.compile(r"\bfrom\s++(?P<a>\d[\d,.]*+)\s*+(?:%|per\s?cent)?\s++to\s++(?P<b>\d[\d,.]*+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -197,6 +199,15 @@ def _table(document_id: str, title: str, header: list[str], rows: list[list[str]
                     entities[entity] = words
     if not cells or not entities:
         return None
+    # rows whose first two content words are the same ("Total primary energy supply" and "Share of primary energy supply that is
+    # imported") are named by a word only they hold, the longest ("imported"); a row with none keeps its two (attack round 3)
+    full = {e: set(_content_words(e)) for e in entities}
+    for e, words in list(entities.items()):
+        if any(o != e and entities[o] == words for o in entities):
+            others = set().union(*(full[o] for o in entities if o != e and entities[o] == words))
+            own = sorted(full[e] - others, key=lambda w: (-len(w), w))
+            if own:
+                entities[e] = frozenset(words | {own[0]})
     return SuppliedTable(document_id, title, tuple(cells), tuple(entities.items()))
 
 
@@ -242,7 +253,17 @@ def _figures(clause: str) -> list[_Figure]:
 def _clauses(text: str) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     pos = 0
+    depth_at = []  # bracket depth before each offset, one pass ("(hydroelectric, wind and solar, and nuclear power)" is one list)
+    d = 0
+    for ch in text:
+        depth_at.append(d)
+        if ch == "(":
+            d += 1
+        elif ch == ")" and d:
+            d -= 1
     for m in _CLAUSE_SPLIT_RE.finditer(text):
+        if m.group(0).startswith(",") and depth_at[m.start()] > 0:
+            continue  # a comma inside brackets lists the bracket's items: no clause boundary (attack round 5)
         out.append((pos, text[pos:m.start()]))
         pos = m.end()
     out.append((pos, text[pos:]))
@@ -252,7 +273,10 @@ def _clauses(text: str) -> list[tuple[int, str]]:
 def _word_positions(clause: str) -> dict[str, list[int]]:
     where: dict[str, list[int]] = {}
     for m in _WORD_RE.finditer(clause):
-        where.setdefault(m.group(0).lower().strip("'’-"), []).append(m.start())
+        w = m.group(0).lower().strip("'’-")
+        where.setdefault(w, []).append(m.start())
+        if w.endswith(("'s", "’s")):
+            where.setdefault(w[:-2], []).append(m.start())  # a possessive names its word ("hydroelectric power's share", attack round 3)
     return where
 
 
@@ -267,9 +291,38 @@ def _entity_at(table: SuppliedTable, where: dict[str, list[int]], at: int) -> tu
     if not named:
         return None, 0
     best = max(named)
-    if sum(1 for pos, _e in named if pos == best[0]) > 1:
+    tied = [e for pos, e in named if pos == best[0]]
+    if len(tied) > 1:
+        # the row named by more of the clause's words, when one holds every word of the others ("primary energy supply ... imported")
+        size = {e: len(dict(table.entities)[e]) for e in tied}
+        top = max(size.values())
+        widest = [e for e in tied if size[e] == top]
+        if len(widest) == 1 and all(dict(table.entities)[e] <= dict(table.entities)[widest[0]] for e in tied):
+            return widest[0], len(named)
         return None, len(named)  # two rows named by the same words ('primary energy' of two rows): no one row
     return (best[1] if best[0] >= 0 or len(named) == 1 else None), len(named)
+
+
+_TOGETHER_RE = re.compile(r"\b(?:together|combined|altogether|jointly|between\s+them|in\s+total|in\s+all|sources|both)\b", re.IGNORECASE)
+
+
+def _group_figure(table: SuppliedTable, where: dict[str, list[int]], clause: str, f: _Figure, figures: list) -> bool:
+    """Whether the figure ``f`` is stated for a group of the table's rows: two or more rows named before it with no other figure between
+    the first of them and it, and a word of a total ("together", "combined", "in total") or a list of the rows ("oil and natural gas",
+    "hydroelectric, wind and solar, and nuclear power")."""
+    firsts = []
+    for _entity, words in table.entities:
+        if all(w in where for w in words):
+            before = [p for w in words for p in where[w] if p < f.start]
+            if before:
+                firsts.append(min(before))
+    if len(firsts) < 2:
+        return False
+    lo = min(firsts)
+    if any(lo < g.start < f.start for g in figures if g is not f):
+        return False  # a figure of its own between the rows ("coal 28% and oil 27%"): each row has its own
+    span = clause[lo:f.start]
+    return _TOGETHER_RE.search(clause) is not None or " and " in span or "," in span
 
 
 def _year_of(clause: str, f: _Figure, alike: int) -> Optional[int]:
@@ -293,14 +346,19 @@ def _units_agree(f: _Figure, cell: SuppliedCell) -> bool:
     if f.unit in ("$", "£", "€", "¥") or cell.unit in ("$", "£", "€", "¥"):
         return f.unit == cell.unit or (f.unit != "" and f.unit in cell.unit)
     if f.scale != 1:
-        return any(w in cell.unit.split() for w, s in _SCALES.items() if s == f.scale)
+        return any(w in _unit_words(cell.unit) for w, s in _SCALES.items() if s == f.scale)
     return True
+
+
+def _unit_words(unit: str) -> set:
+    """The words of a unit, singular ("Population (millions)" states "million")."""
+    return {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in re.split(r"[\s,;/]+", unit.lower()) if w}
 
 
 def _value_in_cell_unit(f: _Figure, cell: SuppliedCell) -> Fraction:
     """The figure in the cell's unit: a scale word the cell's unit also states is the cell's own ('45.6 billion' of a table in billion
     dalers); one the cell's unit does not state multiplies the figure."""
-    if f.scale == 1 or any(w in cell.unit.split() for w, s in _SCALES.items() if s == f.scale):
+    if f.scale == 1 or any(w in _unit_words(cell.unit) for w, s in _SCALES.items() if s == f.scale):
         return f.value
     return f.value * f.scale
 
@@ -318,6 +376,21 @@ class _Finding:
     kind: str = "table"     # 'table' (a cell of a supplied table) or 'text' (a figure of a supplied text's prose)
 
 
+#: After a figure: (a year and) its parts in brackets joined by + or −, "(28 + 27 + 22)", "in 2005 (100 − 38)".
+_PARTS_AFTER_RE = re.compile(r"\s*+%?\s*+(?:(?:of\s+[a-z ]{1,30}\s+)?(?:in|for|by)\s++(?:1[0-9]{3}|20[0-9]{2})\s*+)?"
+                             r"\(\s*+[\d.,]{1,12}(?:\s*+[+−-]\s*+[\d.,]{1,12}){1,11}\s*+\)", re.IGNORECASE)
+# (only a bracket of parts and nothing else: "(13 − 1 = 12)" after a cell is the working of another figure, and the cell is still read)
+
+
+#: A figure after the change it measures ("fell by about 39%", "an increase of about 47%", "a fall of 18%"): derived from two cells
+#: (the from-to and change checks decide it), never a cell of the table (attack round 6).
+_DERIVED_FIG_BEFORE_RE = re.compile(r"\b(?:an?\s++)?(?:fall|rise|drop|decrease|increase|decline|change|reduction|gain|loss|difference|"
+                                    r"growth)\s++of\s++(?:(?:about|around|roughly|approximately|nearly|almost|some|just\s+over|"
+                                    r"just\s+under)\s++)?\(?\s*+$|\b(?:fell|falls|fall|rose|rises|rise|dropped|drops|declined|declines|"
+                                    r"decreased|decreases|increased|increases|grew|grows)\s++by\s++(?:(?:about|around|roughly|"
+                                    r"approximately|nearly|almost)\s++)?$", re.IGNORECASE)
+
+
 def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> list[_Finding]:
     out: list[_Finding] = []
     for offset, clause in _clauses(text):
@@ -326,14 +399,30 @@ def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> li
             continue
         credit = _TABLE_CREDIT_RE.search(clause)
         where = _word_positions(clause)
+        # "from A to B" with no year written: A is the row's earlier year and B its later one, when the row has exactly two (attack round 3)
+        ends: dict[int, str] = {}
+        for pm in _FROM_TO_FIG_RE.finditer(clause):
+            ends[pm.start("a")] = "first"
+            ends[pm.start("b")] = "last"
         for f in figures:
             if f.unit == "pp" or _RESULT_BEFORE_RE.search(clause[max(0, f.start - 4):f.start]):
                 continue  # a gap in points, or a result after '=': no figure of a cell
+            if _DERIVED_FIG_BEFORE_RE.search(clause[max(0, f.start - 48):f.start]):
+                continue  # "fell by about 39% (46% to 28%)", "an increase of about 47%": a change derived from two cells, no cell
+            if _PARTS_AFTER_RE.match(clause, f.end):
+                continue  # "77% in 2025 (28 + 27 + 22)": a total worked from its parts in brackets, no cell (attack round 4)
             credited = credit is not None and credit.start() < f.start
             alike = sum(1 for g in figures if (g.unit, g.scale) == (f.unit, f.scale))
             for table in tables:
                 entity, count = _entity_at(table, where, f.start)
+                if count > 1 and _group_figure(table, where, clause, f, figures):
+                    continue  # a figure stated for two or more named rows together ("oil and natural gas together supplied 49%",
+                    # "Low-carbon sources (hydroelectric, wind and solar, and nuclear power) rose ... to 23%": attack round 5)
                 year = _year_of(clause, f, alike)
+                if year is None and entity and f.start in ends and not _YEAR_AFTER_RE.match(clause, f.end):
+                    years = sorted({c.year for c in table.cells if c.entity == entity and c.year is not None})
+                    if len(years) == 2:
+                        year = years[0] if ends[f.start] == "first" else years[1]
                 same = [c for c in table.cells if c.entity == entity and (year is None or c.year == year)] if entity else []
                 if entity and year is not None and len(same) == 1:
                     cell = same[0]
@@ -476,12 +565,14 @@ def _ratio_check(report: SpecialistReport, prefix: str, n: int, r: _Ratio) -> Fo
 
 
 # ------------------------------------------------------------------------------------------------- figures of a supplied text in prose
-_TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*|\d+(?:[.,]\d+)*")
+_TOKEN_RE = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*|\d{1,3}(?:[ \u00a0\u202f]\d{3})++(?![\d,.]?\d)|\d+(?:[.,]\d+)*")
+#: A number written with blanks between its groups of thousands ("1 250", the Spanish, French and SI style): one number.
+_GROUP_BLANKS_RE = re.compile(r"(?<=\d)[ \u00a0\u202f](?=\d{3})")
 
 
 @lru_cache(maxsize=64)
 def _tokens(text: str) -> tuple[tuple[str, ...], dict[str, tuple[int, ...]]]:
-    toks = tuple(t.lower().replace(",", "").replace("’", "'") for t in _TOKEN_RE.findall(text[:200_000]))
+    toks = tuple(_GROUP_BLANKS_RE.sub("", t.lower().replace(",", "").replace("’", "'")) for t in _TOKEN_RE.findall(text[:200_000]))
     where: dict[str, list[int]] = {}
     for i, t in enumerate(toks):
         where.setdefault(t, []).append(i)
@@ -506,6 +597,9 @@ def _prose_findings(claim_id: str, text: str, docs: list[SuppliedText]) -> list[
         before, after = claim_tokens[i - 3:i], claim_tokens[i + 1]
         if any(_is_number(t) for t in (*before, after)):
             continue
+        nxt = [t.lower() for t in claim_tokens[i + 1:i + 5]]
+        if any(t in ("más", "mas", "menos", "more", "fewer", "less") for t in nxt) and any(t in ("que", "than") for t in nxt):
+            continue  # a difference the answer works out ("56 personas más que en 2015", "56 more people than in 2015": attack round 5)
         for doc in docs:
             toks, where = _tokens(doc.text or "")
             if tok in where:

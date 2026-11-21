@@ -15,6 +15,7 @@ interpreter's site packages), where an overseer is "installed" only through a ``
 install puts a package on the path; the kits are minimal trees holding what G1 reads."""
 from __future__ import annotations
 
+from epinoic_logic.integration.protocol import INTEGRATION_CONTRACT_VERSION  # the pin moves with the contract (c3b: 0.5 to 0.6)
 import importlib.util
 import json
 import os
@@ -32,7 +33,7 @@ PACKAGE_MARK = "(connected in phase 2: the rebuilt overseer and its port adapter
 ADAPTER_MARK = " (connected in phase 2: the overseer port adapter)"
 
 
-def _kit(root: Path, *, contract: Optional[str] = "0.5", named: bool = True, subproject: Optional[str] = None) -> Path:
+def _kit(root: Path, *, contract: Optional[str] = INTEGRATION_CONTRACT_VERSION, named: bool = True, subproject: Optional[str] = None) -> Path:
     """A kit tree with what G1 reads: the contract line (``None``: a contract without one), the engine's named policies
     (or none), the STEM branches and the protocol. ``subproject``: ``"port"`` puts the overseer sub-project with its port
     adapter at ``overseer/src/epinoic_overseer/``, ``"package"`` the package without the adapter, ``None`` no overseer."""
@@ -131,7 +132,7 @@ def test_g1_on_a_0_5_kit_without_any_overseer_names_a_defect_never_the_pre_build
     python = _python(tmp_path / "bare")
     code, rows, out = _g1(python, _kit(tmp_path / "kit"), tmp_path)
     assert code == 1, out
-    assert "  BLOCKER  " in rows["G1 overseer package"] and "a defect of this commit: its contract line is 0.5" in rows["G1 overseer package"], out
+    assert "  BLOCKER  " in rows["G1 overseer package"] and f"a defect of this commit: its contract line is {INTEGRATION_CONTRACT_VERSION}" in rows["G1 overseer package"], out
     assert "neither overseer/src/epinoic_overseer/ nor an installed package" in rows["G1 overseer package"], out
     assert [name for name, line in rows.items() if "  BLOCKER  " in line] == ["G1 overseer package"], out
     assert MARK not in out, out
@@ -139,7 +140,7 @@ def test_g1_on_a_0_5_kit_without_any_overseer_names_a_defect_never_the_pre_build
     assert code == 1 and "  BLOCKER  " in rows["G1 named policies (contract 0.3)"] and "absent (a defect of this commit" in rows["G1 named policies (contract 0.3)"], out
     assert MARK not in out, out
     code, rows, out = _g1(python, _kit(tmp_path / "kit-no-line", contract=None, named=False), tmp_path)
-    assert code == 1 and "contract absent" in rows["G1 contract 0.5"], out
+    assert code == 1 and "contract absent" in rows[f"G1 contract {INTEGRATION_CONTRACT_VERSION}"], out
     assert MARK not in out, out
 
 
@@ -151,12 +152,12 @@ def test_a_kit_that_predates_phase_2_keeps_its_marks(tmp_path):
     code, rows, out = _g1(python, _kit(tmp_path / "kit-04", contract="0.4"), tmp_path)
     assert code == 1 and "  BLOCKER  " in rows["G1 overseer package"] and PACKAGE_MARK in rows["G1 overseer package"], out
     # after the contract 0.3 merge an older contract line is a defect (unchanged): the line's row carries no mark
-    assert [name for name, line in rows.items() if "  BLOCKER  " in line] == ["G1 contract 0.5", "G1 overseer package"], out
-    assert MARK not in rows["G1 contract 0.5"], out
+    assert [name for name, line in rows.items() if "  BLOCKER  " in line] == [f"G1 contract {INTEGRATION_CONTRACT_VERSION}", "G1 overseer package"], out
+    assert MARK not in rows[f"G1 contract {INTEGRATION_CONTRACT_VERSION}"], out
     code, rows, out = _g1(python, _kit(tmp_path / "kit-02", contract="0.2", named=False), tmp_path)
     blockers = [line for line in rows.values() if "  BLOCKER  " in line]
     assert code == 1 and len(blockers) == 3 and all(f"({MARK}: " in line for line in blockers), out
-    assert "contract 0.2 (connected in phase 2: contract 0.3 merge, then the line says 0.5)" in rows["G1 contract 0.5"], out
+    assert f"contract 0.2 (connected in phase 2: contract 0.3 merge, then the line says {INTEGRATION_CONTRACT_VERSION})" in rows[f"G1 contract {INTEGRATION_CONTRACT_VERSION}"], out
     installed = _python(tmp_path / "with-overseer", installed=_overseer(tmp_path / "site"))
     code, rows, out = _g1(installed, _kit(tmp_path / "kit-04-installed", contract="0.4"), tmp_path)
     assert "  PASS  " in rows["G1 overseer package"] and "installed: epinoic-overseer 9.9.9" in rows["G1 overseer package"], out

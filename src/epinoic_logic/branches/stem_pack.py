@@ -23,7 +23,8 @@ id with a STEM branch's letter (raw text through ``StemTextParser``: ``s1.2``, `
 ``c1.2``), else the claims whose text is an offset substring overlapping the statement, else
 the claims that mention the statement's text (the shared two-way substring rule). Descriptions
 and messages name the report's own claim ids: the ``[claims s1.2]`` of a description and the
-statement ids of a front-end message are rewritten to the claims they map to. An internal failure of the pack is ST-INTERNAL-001 (warning), never an exception and
+statement ids of a front-end message are rewritten to the claims they map to; a statement id the answer's document does not
+hold is the request's and is named so ('[claims m2.1; the request (s1.2)]', round-10 leftover R10-STEM-H5). An internal failure of the pack is ST-INTERNAL-001 (warning), never an exception and
 never a silent pass. When the failure leaves the report with no STEM checks at all (the pack raised, or the front end
 failed internally and returned an empty document), the hub's PACK-INTERNAL-001 (error, as ``SubjectBranch.run_packs``
 raises it for a pack that raises) stands beside it, so an emptied STEM document can never read as a pass: the receipt
@@ -53,6 +54,8 @@ _MAX_CLAIMS_NAMED = 8
 _CACHE_ENTRIES = 32
 #: a statement id inside a message or a description ('s1.2', 's.tail')
 _SID_RE = re.compile(r"(?<![\w.])s(?:\d+\.\d+|\.tail)(?![\w.])")
+#: A check description's claim list ("[claims s2.1, s1.2]", ``stem.checks``): bounded.
+_CLAIM_LIST_RE = re.compile(r"\[claims ([^\[\]]{1,400})\]")
 
 
 class StemPack:
@@ -200,14 +203,28 @@ class _ClaimMap:
         return out
 
     def relabel(self, text: str) -> str:
-        """``text`` with every statement id of this document that maps to exactly one other claim id renamed to it."""
+        """``text`` with every statement id of this document that maps to exactly one other claim id renamed to it. In a claim list
+        ("[claims m2.1, s1.2]") a statement id the answer's document does not hold is a statement of the request the check also
+        reads, never a claim of the report: it is named as the request's ("[claims m2.1; the request (s1.2)]"; round-10 leftover
+        R10-STEM-H5-REQUEST-IDS, c3 maa-t16)."""
         def sub(m: "re.Match[str]") -> str:
             sid = m.group(0)
             if self.doc.statement(sid) is None:
                 return sid
             mapped = self.statement(sid)
             return mapped[0] if len(mapped) == 1 else sid
-        return _SID_RE.sub(sub, text) if "s" in text else text
+
+        def claim_list(m: "re.Match[str]") -> str:
+            ids = [x.strip() for x in m.group(1).split(",") if x.strip()]
+            request = [x for x in ids if _SID_RE.fullmatch(x) and self.doc.statement(x) is None]
+            own = [_SID_RE.sub(sub, x) for x in ids if x not in request]
+            if not request:
+                return f"[claims {', '.join(own)}]"
+            req = f"the request ({', '.join(request)})"
+            return f"[claims {', '.join(own)}; {req}]" if own else f"[{req}]"
+        if "s" not in text:
+            return text
+        return _SID_RE.sub(sub, _CLAIM_LIST_RE.sub(claim_list, text))
 
     def ids(self, statement_ids, limit: Optional[int] = _MAX_CLAIMS_NAMED) -> list[str]:
         out: list[str] = []

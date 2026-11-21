@@ -50,11 +50,14 @@ def test_round3_correct_work_is_no_self_report(sentence):
 
 @pytest.mark.parametrize("sentence,expected", [
     ("OK. Let us look at the poem.", False), ("Okay, so the answer is 5.", False), ("OK. The answer is 5.", False),
-    ("The treaty was signed in 1919. OK.", False),
+    # stricter (selfcert-1 c3b, was False): boundary (a), a bare "OK." closing the answer after its content is the answer's approval
+    # of itself (a fragment like "All good."); "OK" opening a sentence stays a discourse marker
+    ("The treaty was signed in 1919. OK.", True),
     ("Result: OK.", True), ("OK ✓", True), ("[OK]", True), ("(OK)", True), ("All OK.", True),
 ])
 def test_ok_is_an_assurance_mark_only_in_a_label_bracketed_or_with_a_check_mark(sentence, expected):
-    """A bare "OK" or "Okay" opening a sentence is a discourse marker, never a status label (the label readers' rule): the meta-only
+    """A bare "OK" or "Okay" opening a sentence is a discourse marker, never a status label (the label readers' rule; a bare "OK."
+    closing the answer is an approval of it, hold remedy c3b): the meta-only
     class read the "OK." split from "OK. Let us look at the poem." as a verdict on the answer
     (``tests/integrity/test_synthesis_round3_readers.py``)."""
     assert md.is_self_certification(sentence) is expected, sentence

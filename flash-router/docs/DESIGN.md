@@ -1,4 +1,4 @@
-# Flash router design (`epinoic-flash-router` 0.4.0)
+# Flash router design (`epinoic-flash-router` 0.5.0)
 
 ## 1. What it is and what it is not
 
@@ -121,7 +121,8 @@ every request in contract is planned byte for byte as before.
 ## 5. Rules and cost data as versioned data files
 
 `src/epinoic_flash_router/data/MANIFEST.json` names the current files and records every file's version, release and
-digest (SHA-256 of the document's canonical JSON). The current rules file (`rules-4.json`, 0.4.0) holds:
+digest (SHA-256 of the document's canonical JSON). The current rules file (`rules-5.json`, 0.5.0: `rules-4.json` of 0.4.0
+re-released under its own name, word for word but the name line) holds:
 
 - `rules`: rules/4 in words (the decision maker D1 to D7, port rules 1 to 7, pool rules P1 to P8); rules/4 is rules/3
   with the port's N_FOLD fit-checked (D4 names the pack the system text sizes are of and the merged review no caller
@@ -136,7 +137,10 @@ digest (SHA-256 of the document's canonical JSON). The current rules file (`rule
 - `signals`, `features` (the port reads `supplied_texts` and `claims` too; the pool `features`, `sources`, `merged`) and
   `methods` (the `N_FOLD` row's port entry names the merged review's fit).
 
-The current cost data (`cost-data-4.json`, 0.4.0) holds the decision maker's prices: `chars_per_token` 4, `output_tokens`
+The current cost data (`cost-data-5.json`, 0.5.0) is cost data 4 with the system text of the overseer's pack 2.2 (round-10
+hold remedy c3b: the receipt code CORE-SELF-002 listed; 194 characters more in every composition: the core 249,248, with the
+STEM module 461,701, with the translations module 345,219, with both 557,672); the 525,000-character dossier below needs
+201,562 tokens under it, still `over_budget`. Cost data 4 (`cost-data-4.json`, 0.4.0) holds the decision maker's prices: `chars_per_token` 4, `output_tokens`
 8,000, `instance_budget_tokens` 200,000, `seconds_per_call` 30 and the dossier estimate (`base_chars` 17,000, three
 characters a character of answer, 4,000 a translation), planning estimates, not measurements; and the system text of every
 composition of the overseer's knowledge pack 2.1, the pack the overseer sends, as its loader builds it and its deployer

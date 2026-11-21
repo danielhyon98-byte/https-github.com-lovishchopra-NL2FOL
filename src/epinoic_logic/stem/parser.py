@@ -107,6 +107,7 @@ _MAX_SCAN = 4000
 
 
 @dataclass(frozen=True)
+
 class ParseIssue:
     code: str
     message: str
@@ -543,6 +544,15 @@ class _Parser:
                 self.i += 1
                 right = self.unary(d)
                 op = "/" if tok.text in ("/", "÷") else "*"
+                if op == "/" and tok.text == "/":
+                    # a divisor written as one glued product with a Greek letter ('ω/2π', '10/2π', 'h/2πr'): the full product is the
+                    # divisor, as physics writes it (f = ω/2π is ω/(2π); attack round 6 read 10/2π as 5π and named correct work)
+                    while True:
+                        nxt = self.peek()
+                        if nxt is None or nxt.space or not _greek_ident(nxt) or not self._juxtaposable(nxt, right):
+                            break
+                        factor = self.power(d)
+                        right = self._count(BinOp("*", right, factor, _start(right), _end(factor), written="", implicit=True))
                 left = self._count(BinOp(op, left, right, _start(left), _end(right), written=tok.text))
                 continue
             if tok.kind == "LPAR" and tok.text == "(" and tok.space and _is_value_node(left) and self._alternative_form_at(self.i):
@@ -2127,3 +2137,9 @@ def _unit_reading_count(node: Node) -> int:
         if isinstance(n, (Quantity, WithUnit)):
             count *= max(1, len(n.unit.readings))
     return count
+
+
+def _greek_ident(tok) -> bool:
+    """A one-letter Greek identifier or the constant pi ('π', 'ω', 'μ')."""
+    t = getattr(tok, "text", "") or ""
+    return getattr(tok, "kind", "") in ("IDENT", "CONST", "NUM") and len(t) == 1 and ("\u0370" <= t <= "\u03ff" or t == "π")

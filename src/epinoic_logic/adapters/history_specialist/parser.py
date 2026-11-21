@@ -78,6 +78,7 @@ from ...ir.schema import SourceRef
 from ...translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
 from ..base import AdapterError
 from ..english_specialist.parser import documents_named
+from ..self_report import is_self_report, self_report_note
 from ..markdown import (MEMORY_LABEL_RE, dangling_quote_offset, find_quotation_spans, hedged_certainty, in_quotation_task, is_memory_label,  # noqa: F401
                         is_self_certification, parser_quotation_spans, split_list_items, split_note_clauses, strip_markup, truncate_claim_text,
                         undelimited_quote_span)
@@ -305,20 +306,16 @@ def has_dated_item(sentence: str) -> bool:
     return bool(_DATE_RE.search(sentence) or _FIGURE_RE.search(sentence) or _DAY_MONTH_RE.search(sentence))
 
 
-def is_self_report(sentence: str) -> bool:
-    """Verification-status language, a receipt-shaped fragment, or a sentence whose subject
-    is the answer itself with a checking/accuracy predicate (``markdown.is_self_certification``)."""
-    return is_self_certification(sentence)
-
-
 def is_note_sentence(sentence: str) -> bool:
     """A sentence that is nothing but a label about the text: a self-report, a sentence opened by a
     bare note lead ('Note:', 'Limit:', 'Confidence:', :func:`has_note_lead`), a caveat about the
     answer's own sources or library (:func:`is_source_caveat`), a sentence whose substance is empty
     once its from-memory / task-note clauses are removed, or a note on how the answer was composed
     (:func:`is_provenance_note`: 'The historical setting is my own addition').
-    A substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`)."""
-    if is_self_report(sentence) or has_note_lead(sentence) or is_source_caveat(sentence):
+    A substantive sentence with an inline label is NOT a note (see :func:`split_note_clauses`), and neither is content with
+    a verification label on it ("Verified: The constitution was adopted in 1919."; ``self_report.label_on_content``): the
+    label is named (CORE-SELF-001, the advisory status) and the content keeps its role (design 3.13)."""
+    if self_report_note(sentence) or has_note_lead(sentence) or is_source_caveat(sentence):
         return True
     core, _notes = split_note_clauses(sentence)
     return not core or is_provenance_note(sentence)
@@ -439,7 +436,7 @@ def classify(sentence: str, index: int, is_body: bool, *, after_counter_case: bo
     of the channel's verdict cues (``VERDICT_CUES``: 'decisive', 'to a large extent', ...) is a
     judgement, so the hub (INT-REQ-008 reads such a sentence as a position on degree) and the parser
     never disagree about what a verdict looks like."""
-    if is_self_report(sentence):
+    if self_report_note(sentence):
         return "other"
     if is_peer_attribution(sentence):
         return "perspective"

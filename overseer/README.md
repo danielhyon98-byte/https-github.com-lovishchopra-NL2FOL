@@ -96,8 +96,8 @@ keeps equal to the originals): inside the repository they use it; a standalone c
 
 ### The knowledge pack and its exporter
 
-`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.1 since
-integration step 2, specialist feedback; 2.0 since architecture step 3; 1.0 to 2.0 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
+`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.2 since
+the round-10 hold remedy c3b, which lists the receipt code CORE-SELF-002; 2.1 since integration step 2, specialist feedback; 2.0 since architecture step 3; 1.0 to 2.1 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
 pack: every pinned digest and the exported zip are the ones recorded before the move
 (`tests/overseer_tests/test_subproject_layout.py`). The packs' own text predates the move: where it names the module
 path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that text changes only with a new pack version
@@ -686,7 +686,8 @@ receipt showing it ENTAILED still is); the writer's own words in quotation marks
 line of inquiry, a gloss, a dictionary or recommended form, an invented example) quote no text (rule `own-text`, OVS-FID-004); the gate
 names an answer-scope claim of a check, a review, a proof or a tool's result beside the translator's one reader (rule `answer-status`);
 the pooled-only re-run reads apart one symbol name a claim glosses by its own statement, another function or other figures (rule
-`local-glosses`, OVS-JOINT-003) and a false-conflict accusation resting on such a name is never refuted; feedback holds back a quotation
+`local-glosses`, OVS-JOINT-003; since the round-10 hold remedy c3b only a function or a figure on each side counts, as the channel's
+rule same-gloss reads it, so a table label one gloss adds reads no second quantity: Decision 177) and a false-conflict accusation resting on such a name is never refuted; feedback holds back a quotation
 flaw on the writer's own words, "appears unanswered" for a part its own label answers, and a structural flaw on a closing note or source
 list; an auditor OVS-FID-004 is scored gold only when a reviewed reference adjudicates it (rule `adjudicated-quotations`); and the
 same-quantity occurrence reader is linear (rule `linear-context`: an index built once per text; a sentence over 2,000 characters or 32
@@ -775,7 +776,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Intake | `intake.py` | `VerdictIntake`: issues dossiers under accepted packs, parses replies strictly, signs accepted verdicts under the intake key |
 | Validation | `validate.py` | `validate_overseer_verdict`: each accusation confirmed, refuted, unverifiable or unresolved by checks and signed results |
 | Combination | `combine.py` | `combine_verdicts`: several agents' verdicts grouped without voting on facts; a human review queue |
-| Knowledge pack | `knowledge/overseer-knowledge-docs-2.1/` | the agent's whole configuration (below); 1.0 to 2.0 stay beside it, pinned |
+| Knowledge pack | `knowledge/overseer-knowledge-docs-2.2/` | the agent's whole configuration (below); 1.0 to 2.1 stay beside it, pinned |
 | Emitted codes | `emitted.py` | everything the translator and the channel emit, as the overseer knows it: every receipt code with its severities and labels, every named diagnostic, the 28 labels, every status and engine code, every release refusal (rules 1 to 9, `release-v1`), the named policies and rejections; `risk_reading` (the risk signals and records a task carries) |
 | Pack loader | `pack.py` | `load_pack`, `installed_pack`, `KnowledgePack`, `PACK_DIGESTS` (the trust anchor), schema and manifest generation |
 | Exporter | `export.py` | `python -m epinoic_overseer.export --out DIR [--zip]`, `--verify PATH`, `--refresh-source` (maintainers) |
@@ -798,7 +799,7 @@ feedback `request_revision`, `revision_outcome`, `revisions`, `record_verdicts`)
 
 ## The knowledge pack
 
-`src/epinoic_overseer/knowledge/overseer-knowledge-docs-2.1/` is the overseer agent's whole configuration, laid out like the specialists'
+`src/epinoic_overseer/knowledge/overseer-knowledge-docs-2.2/` is the overseer agent's whole configuration, laid out like the specialists'
 knowledge documents: `master_prompt.txt` (read first), the numbered documents `01-role-and-trust.md` to
 `09-when-unsure.md` (role and trust rule, the dossier, what to inspect per transfer type and per translation, the
 evidence rule, the verdict format, the kinds and codes, 41 worked examples, what never to do, what to do when unsure,
@@ -816,8 +817,9 @@ of a name the supplied case states; since pack 2.0, a MAJOR version, the review 
 `review` and `temporary_context`, a source review and a merged review, and the kind `synthesis_carries_fault`: the master
 prompt's COMBINED ANSWERS section, T15, D38 to D40, I100 to I104, K9, N15, U12 and Example 41; since pack 2.1, the review
 of a revision request and of the revised answer that replies to it: the master prompt's REVISION REQUESTS section, T16, D41,
-I105 to I109, N16 and the code table's INT-HANDOFF-018, INT-REV-001 and INT-REV-002, and I102's report condition; 1.0 to 2.0
-stay pinned),
+I105 to I109, N16 and the code table's INT-HANDOFF-018, INT-REV-001 and INT-REV-002, and I102's report condition; since
+pack 2.2, a MINOR version, the receipt code CORE-SELF-002 (text the self-certification reader cannot read, never delivered
+unread) in Kinds and codes §5 and §8; 1.0 to 2.1 stay pinned),
 the generated
 `verdict.schema.json` and `dossier.schema.json`, and `manifest.json` (every file's SHA-256, the system order and digest,
 the pack digest). No instruction text for agents lives in code, scripts or `docs/`; `docs/OVERSEER_AGENT_BRIEF.md` is
@@ -828,7 +830,7 @@ only a pointer to the pack.
   reason) and never executes anything from a pack.
 - **Exporter** (`export.py`): writes the pack out as a self-contained directory (and a deterministic zip) and loads the
   written copy back to the same identity.
-- **Deployer README**: `knowledge/overseer-knowledge-docs-2.1/README.md`, exported with the pack. It tells whoever
+- **Deployer README**: `knowledge/overseer-knowledge-docs-2.2/README.md`, exported with the pack. It tells whoever
   deploys the pack how to configure any model with it (`master_prompt.txt` plus the documents as the system
   configuration, one dossier JSON in, one verdict JSON out, validated by this code) and is never sent to a model.
 - **Runner** (`runner.py`): builds the system text from a loaded pack by the manifest's fixed rule and the user text
@@ -913,8 +915,8 @@ The tests that attach the router find it beside this sub-project in the translat
 standalone copy without it skips them with that reason.
 
 **The flash decision maker and the twofold mode (architecture step 3, design section 52).** The router's first decision
-for every dossier is now explicit: its flash decision maker (rules D1 to D7 of `rules-4.json`, priced from
-`cost-data-4.json`, flash router 0.4.0; deterministic and instant, code, never a model; the optional escalation advisor only adds
+for every dossier is now explicit: its flash decision maker (rules D1 to D7 of `rules-5.json`, priced from
+`cost-data-5.json`, flash router 0.5.0; deterministic and instant, code, never a model; the optional escalation advisor only adds
 escalations) chooses between the in-depth examination method (one instance examines the whole dossier, `IN_DEPTH`) and the
 duplication method (the work split across instances in parallel, with independent duplicates where risk calls for
 agreement: `DUPLICATE`, and `N_FOLD` for a combined answer), the cheapest that keeps accuracy. At pool port 1.2 every

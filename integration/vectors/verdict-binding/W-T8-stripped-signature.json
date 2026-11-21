@@ -133,10 +133,10 @@
       "service_env": "sim",
       "subject_map_sha256": "b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5",
       "versions": {
-        "contract": "0.5",
+        "contract": "0.6",
         "engine": "0.4.0",
         "ir": "1.0",
-        "policy": "2026.10-v4",
+        "policy": "2026.11-v5",
         "translator": "0.4.0",
         "z3": "5.1.0"
       }

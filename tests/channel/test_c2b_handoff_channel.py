@@ -84,7 +84,11 @@ def test_sp_t15_genuine_meets_its_bound_and_addresses_both_tasks():
     hub.close()
     assert not by_code(rc.findings, "INT-REQ-004") and not by_code(rc.findings, "INT-REQ-005"), [(f.code, f.message[:160]) for f in rc.findings]
     words = [c for c in rc.constraint_results if c.constraint_id in ("c1", "c2")]
-    assert words and all(c.satisfied is True for c in words) and "measured 552 words" in words[0].detail
+    # stricter (selfcert c3b, was "measured 552 words"): decision D7 reads the answer's own note "Word count: about 513 including
+    # headline and byline (about 499 in the body), inside the 450–600 range." as a self-measure (a self-report, never evidence), so
+    # its 18 words are excluded with the other note lines (66 words excluded); the measured 534 still meets the bound min_words 450
+    assert words and all(c.satisfied is True for c in words) and "measured 534 words" in words[0].detail
+    assert "66 words of note or meta-text blocks excluded" in words[0].detail and "bound min_words 450" in words[0].detail
 
 
 def test_sp_t15_a_text_too_short_for_the_bound_is_named():

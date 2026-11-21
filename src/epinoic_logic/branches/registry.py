@@ -9,13 +9,20 @@ core pack in SI reading first (``CORE_SI = CorePack(reading=SI_READING)``, still
 * ``mathematics``: Mathematics AA, AI and an unspecified mathematics course;
 * ``computer_science``: Computer Science.
 
-``generic`` stays the default for an unrecognised subject.
+Geography and every Language B and ab initio course have their own branches since D9/D10 (decision D35): ``geography`` and
+``language_b`` keep the generic parser (claim ids, roles and materiality as on the generic branch), run the shared core pack first
+(with the shared self-certification gate) and add their own subject pack (:mod:`.geography`, :mod:`.language_b`).
+
+``generic`` stays the default for an unrecognised subject (and serves Philosophy, Social and Cultural Anthropology, World Religions,
+the arts, TOK and the Extended Essay).
 """
 from __future__ import annotations
 
 from ..stem.hub_hooks import STEM_HOOKS
 from ..stem.si_reading import SI_READING
 from .base import BranchRegistry, SubjectBranch
+from .geography import GeographyPack
+from .language_b import LanguageBPack
 from .packs import BusinessPack, CorePack, EconomicsPack, EnglishPack, GenericPack, HistoryPack, PsychologyPack
 from .stem_pack import StemPack
 
@@ -81,6 +88,15 @@ BRANCHES = [
                   parser_factory=_generic_parser("economics-specialist"), packs=(CORE, EconomicsPack()), notes="Define-Model-Mechanism-Apply-Evaluate; elasticity and percentage arithmetic decided by the engine."),
     SubjectBranch(key="business_management", display_name="Business Management", profile_keys=("business_management",),
                   parser_factory=_generic_parser("business-specialist"), packs=(CORE, BusinessPack()), notes="Define-Apply-Analyse-Evaluate; ratios and margins decided by the engine."),
+    SubjectBranch(key="geography", display_name="Geography", profile_keys=("geography",),
+                  parser_factory=_generic_parser("geography-specialist"), packs=(CORE, GeographyPack()),
+                  notes="Data-Calculation-Explanation-Case study; population, density, rates per 1,000, change, growth and doubling time, per-capita figures, "
+                        "fieldwork means and samples, and figures read from supplied tables decided by the engine; worked equations as on the generic branch."),
+    SubjectBranch(key="language_b", display_name="Language B and ab initio (Spanish readers)", profile_keys=("language_b",),
+                  parser_factory=_generic_parser("language-b-spanish-specialist"), packs=(CORE, LanguageBPack()),
+                  notes="Text type-Register-Message; the specialist's claims about a production (its word count, its range, the forms and connectors it quotes, "
+                        "the address forms it names, the items it lists) checked against that production; Spanish numerals, number words and credits read; "
+                        "worked equations as on the generic branch."),
     SubjectBranch(key="sciences", display_name="Sciences (Physics, Chemistry, Biology, ESS, SEHS, Design Technology)",
                   profile_keys=("physics", "chemistry", "biology", "ess", "sports_science", "design_technology", "stem"),
                   parser_factory=_stem_parser("science-specialist", "sciences"), packs=(CORE_SI, StemPack("sciences")), hub_hooks=STEM_HOOKS,

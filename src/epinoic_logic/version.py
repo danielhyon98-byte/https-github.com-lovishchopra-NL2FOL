@@ -53,6 +53,17 @@ History of the review-fix bumps (external review of 12 October 2026):
   prompts ``translate_v2`` and ``review_v2`` (``translate_v1`` and ``review_v1`` stay
   packaged unchanged).
 
+History of the self-certification bump (round-10 clearance c3 and its hold remedy c3b):
+
+* POLICY_VERSION 2026.11-v5: eligibility rule 0 (round-10 clearance c3, fe2e639 and the hold remedy c3b): a claim that
+  is nothing but a self-report of a check, an engine or system result, a review, an approval, a score or the
+  answer's own correctness (``selfcert.wholly_self_certification``, rules ``selfcert-1``) is NOT_ELIGIBLE_OTHER and never
+  reaches the solver; the self-certification rules are bound into the policy identity
+  (``engine.identity.policy_manifest`` "eligibility_self_certification": rules version and the digest of the lexicon
+  and fold table), so a change to them without a version bump still makes every result of another build stale.
+  D9/D10 (decision D35): the Geography and Language B branches ship under the same component versions; they add
+  deterministic packs only (profiles, aliases, eligibility, prompts and the parser are unchanged).
+
 Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
 integrated translator"):
 
@@ -67,7 +78,7 @@ integrated translator"):
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.10-v4"
+POLICY_VERSION = "2026.11-v5"
 TRANSLATOR_VERSION = "0.4.0"
 #: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
 ARG_RULES_VERSION = "argdiag-2"

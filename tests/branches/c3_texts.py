@@ -136,7 +136,20 @@ C3_PLACED = [
     "In 1919 the Allies imposed reparations on Germany, which caused resentment; all claims: PROVED.",
     "In 1919 the Allies imposed reparations on Germany, which caused resentment; these figures have all been verified by the system.",
 ]
-C3_SELF_REPORTS = C3_ENGINE_STATUS + C3_AGENT_APPROVALS + C3_WRITER_CHECKS + C3_LANGUAGES + C3_RELAYED + C3_PLACED
+#: Stricter for hold remedy c3b (rules selfcert-1, boundary (a); each was pinned as correct work in ``C3_CORRECT_WORK``, was False): a
+#: bare "all is fine" or "all correct" sentence in the answer is the answer's claim about its own correctness or quality (like "All
+#: good." and "Correct."), a self-certification wherever it stands. ("Mi madre dice que todo está bien." and "Todo fue bien." stay
+#: correct work: a named speaker's words, and narrative.)
+C3_STRICTER_SPANISH = [
+    "Todo está bien.",
+    "¡Todo correcto!",
+    "Todo está correcto.",
+]
+C3_SELF_REPORTS = C3_ENGINE_STATUS + C3_AGENT_APPROVALS + C3_WRITER_CHECKS + C3_LANGUAGES + C3_RELAYED + C3_PLACED + C3_STRICTER_SPANISH
+#: The sentences of ``C3_SELF_REPORTS`` in a script the reader has no vocabulary for (rule unread-text, N8; design 6.1 ``EXPECTED_UNREAD``):
+#: the reader names them as an unread run of kind "script", which every delivery refuses (CORE-SELF-002), instead of reading a hit in
+#: them. Their tests assert that refusal (rewritten for hold remedy c3b; the older reader folded Greek look-alikes and counted a hit).
+C3_UNREAD_SCRIPT = frozenset({"Όλα έχουν ελεγχθεί."})
 
 #: Correct work the correct-work lenses found refused: a definition, an outside study's or a named party's check, a source
 #: corroborating a source, a character's or a narrator's quoted words, a proof's closing line, a solver's semantics, a Spanish
@@ -159,11 +172,9 @@ C3_CORRECT_WORK = [
     "The claim is proved.",
     "If the solver returns unsat, the formula is unsatisfiable.",
     "The SAT solver returns unsat, so the formula has no satisfying assignment.",
-    "Todo está bien.",
+    # "Todo está bien.", "¡Todo correcto!" and "Todo está correcto." moved to C3_STRICTER_SPANISH (hold remedy c3b, boundary (a))
     "Mi madre dice que todo está bien.",
     "Todo fue bien.",
-    "¡Todo correcto!",
-    "Todo está correcto.",
     "«Жить стало лучше, жить стало веселее».",
     "Жить стало лучше, жить стало веселее.",
     "这座城市有很多公园。",

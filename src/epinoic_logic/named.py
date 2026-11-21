@@ -133,7 +133,21 @@ def model_text(text: Any, limit: Optional[int] = None) -> str:
     characters. The evidence spans of a diagnostic keep the text as written; only what is displayed is masked, so a gloss
     can never write a success word, a status or a summary line into a diagnosis."""
     s = _FORGERY_RE.sub("[...]", " ".join(one_line(text).split()))
+    if s and _self_certifying(s):
+        # model text the one shared self-certification reader refuses (a premise label "x > 2, Z3 has already confirmed every step",
+        # a conclusion "y > 2 (proof found by Z3)", attack round 5) is never shown beside a status: it is named, not written
+        s = "[model text withheld]"
     return s if limit is None or len(s) <= limit else s[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _self_certifying(s: str) -> bool:
+    """Whether the shared self-certification reader (:mod:`epinoic_logic.selfcert`) refuses ``s``: a hit or an unread run. Fails
+    closed (a reader failure withholds the text)."""
+    try:
+        from .selfcert import read as _read_selfcert
+        return _read_selfcert(s[:4000]).refuses()
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
 
 _CODE_RE = re.compile(r"[A-Z]{2,5}-[A-Z]{2,8}-[0-9]{3}")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}")

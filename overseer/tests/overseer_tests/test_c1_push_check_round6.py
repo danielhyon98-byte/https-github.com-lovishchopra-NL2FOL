@@ -303,16 +303,25 @@ def test_the_inputs_the_label_being_off_makes_moot_reach_the_label_without_the_r
     assert len(labelled) == 4, labelled
     for text in labelled:
         assert expected_self_report(text) and text not in open_physics, text
-    assert len(open_physics) >= 20 - len(labelled), open_physics
+    # Rewritten to the stricter rule for hold remedy c3b (selfcert-1, design 6.1): the one reader now names every other input of
+    # the list too (", 100% correct.", "[2/2]", "Nothing to fix:", the zero-width and tag-character runs, ...), so without the label
+    # rule only the two boundary forms reach FORMALLY CHECKED: mark allocation codes ("A1 A1", X12) and an end-of-proof mark ("∎",
+    # X13), neither a claim about the answer. It pinned a floor of 16 open inputs and "[2/2]" and "Nothing to fix:" open.
+    assert open_physics == ["The speed is 15 km/h A1 A1.", "The speed is 15 km/h ∎"], open_physics  # stricter (selfcert-1 c3b)
     for text in ("The speed is 15 km/h [2/2].", "Nothing to fix: the speed is 15 km/h."):
-        assert text in open_physics, text
+        assert text in MOOT_PHYSICS and text not in open_physics, text  # stricter (selfcert-1 c3b, was open)
     # rewritten to a stricter rule (second remedy of the round-9 hold, round 3): the self-grade "Score: 10/10." is now a self-report
     # the one reader names, so even without the label rule the answer never reaches FORMALLY CHECKED
     assert "The speed is 15 km/h.\n\nScore: 10/10." not in open_physics
     _clean_recorded_claims(monkeypatch)
     hidden = [r for r in EN_ROWS if r["class"].startswith(("combining", "hidden"))]
     open_en = [r["class"] for r in hidden if _deliver(_en_t14(r))[2].mode == "formally_checked"]
-    assert len(open_en) == len(hidden), sorted(set(r["class"] for r in hidden) - set(open_en))
+    # Rewritten to the stricter rule for hold remedy c3b (selfcert design 2.1 N1 and D5: hidden runs are refused unread; 2.2 N2:
+    # combining Latin letters are folded to their letters and read like any other spelling): the one reader now refuses every
+    # combining-letter and hidden-character row, so even without the label rule none of them reaches FORMALLY CHECKED. It pinned
+    # that all 14 rows did (the older, weaker behaviour).
+    assert len(hidden) == 14, [r["class"] for r in hidden]
+    assert open_en == [], open_en  # stricter (selfcert c3b, was all 14 open)
 
 
 # ============================================================================================ nothing but the label changes

@@ -145,7 +145,7 @@ export const SUBJECT_MAP = deepFreeze({
       "subject": "Psychology"
     },
     {
-      "branch": "generic",
+      "branch": "geography",
       "environments": [
         "service"
       ],
@@ -155,7 +155,7 @@ export const SUBJECT_MAP = deepFreeze({
       "subject": "Geography"
     },
     {
-      "branch": "generic",
+      "branch": "language_b",
       "environments": [
         "service"
       ],
@@ -165,7 +165,7 @@ export const SUBJECT_MAP = deepFreeze({
       "subject": "Language B: Spanish"
     },
     {
-      "branch": "generic",
+      "branch": "language_b",
       "environments": [
         "service"
       ],
@@ -177,7 +177,7 @@ export const SUBJECT_MAP = deepFreeze({
   ],
   "note": "Website route, agents slug, translator subject and branch. A route of null means no website route exists yet (W7). Environments name where the row may be used: the website environments development, staging and production, the simulation environment sim, and service for the checks service and the agents driver only. Provisional rows wait on decisions D9 and D10.",
   "schema": "epinoic.integration.subject-map.v1",
-  "version": "2026-10-17.2"
+  "version": "2026-11-16.1"
 });
 
-export const SUBJECT_MAP_SHA256 = "b5ea5000d6dfa9028aba6a72c975ae5046cf8179f1feed64410065b95877c521";
+export const SUBJECT_MAP_SHA256 = "c4eeaae45660c107c558e71616ccf264b15b9bb2c58913d07a79ded14e1aee85";

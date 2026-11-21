@@ -112,10 +112,21 @@ def test_a_label_on_content_says_the_content_is_still_accounted_for_and_a_whole_
 @pytest.mark.parametrize("text", [
     _BARE + " (not verified).", _BARE + ", as confirmed by the treaty's own text.", _BARE + ", as later confirmed in the Reichstag.",
     "The Treaty of Versailles was, in 1919, checked by no one in Germany.", "Unverified: " + FACT.claim_text,
-    _BARE + " (verified by the History specialist).", _BARE + " (not source-checked).", _BARE + " (accuracy not confirmed).", "✗ " + FACT.claim_text,
+    _BARE + " (not source-checked).", _BARE + " (accuracy not confirmed).", "✗ " + FACT.claim_text,
 ])
 def test_a_disclaimer_or_a_check_credited_to_a_source_is_no_label_in_a_synthesis(text):
+    # rewritten for hold remedy c3b (design 6.3): "(verified by the History specialist)" left this list for the stricter test below
     assert _self_reports(_synthesis([SynthesizedClaim(claim_id="y1", text=text, source_claim_ids=["h1.1"], transformation="paraphrased")])) == []
+
+
+def test_a_check_of_the_synthesis_credited_to_an_agent_is_a_label_in_a_synthesis():
+    """Stricter rule for hold remedy c3b (selfcert-1, design 3.5 and 6.3; it was pinned as no label above): in the combinator's
+    synthesis a check credited to an agent (a specialist, the hub, a panel) is the answer's own check claimed, whoever is credited, so
+    the label on the claim's content is named (INT-LEDGER-029, warning) and the content stays accounted for."""
+    claim = SynthesizedClaim(claim_id="y1", text=_BARE + " (verified by the History specialist).", source_claim_ids=["h1.1"], transformation="paraphrased")
+    [f] = _self_reports(_synthesis([claim]))  # stricter (selfcert-1 c3b, was [])
+    assert f.severity == "warning" and f.claim_ids == ["y1", "h1.1"] and f.agent_ids == ["combinator"], f
+    assert "carries a verification-status label on its content" in f.message and "still accounted for" in f.message, f.message
 
 
 # ------------------------------------------------------------------- the synthesis certifying itself (round 2, V2-M1)
@@ -145,8 +156,24 @@ def test_a_synthesis_text_that_certifies_the_synthesis_is_named():
     assert f.claim_ids == ["syn"] and "self-report" in f.message
 
 
-@pytest.mark.parametrize("text", ["The synthesis has not been verified.", "The synthesis was checked by the History specialist.",
+@pytest.mark.parametrize("text", ["The synthesis has not been verified.",
                                   "The synthesis should be checked against the sources.", "The synthesis of ammonia was confirmed in 1909."])
 def test_a_synthesis_disclaiming_a_check_or_crediting_another_agent_is_no_self_report(text):
+    # rewritten for hold remedy c3b (design 6.3): "The synthesis was checked by the History specialist." left this list for the
+    # stricter test below (a check of the synthesis credited to an agent is a self-report of the combinator's answer)
     claims = [FAITHFUL, SynthesizedClaim(claim_id="y2", text=text, source_claim_ids=["h1.1"], transformation="generalized")]
     assert _self_reports(_synthesis(claims)) == []
+
+
+def test_a_check_of_the_synthesis_credited_to_another_agent_is_a_self_report():
+    """Stricter rule for hold remedy c3b (selfcert-1, design 3.5 and 6.3; it was pinned as no self-report above): for the combinator
+    (writer "combinator") a check of the synthesis credited to an agent ("The synthesis was checked by the History specialist.") is a
+    claim that the answer was checked, whoever is credited: INT-LEDGER-029 names it as a whole self-report. On a specialist's
+    branch the same words speak of another agent's product (the synthesis is not the specialist's answer) and stay free."""
+    from epinoic_logic.api.adapters import SelfCertContext, selfcert_read
+    text = "The synthesis was checked by the History specialist."
+    claims = [FAITHFUL, SynthesizedClaim(claim_id="y2", text=text, source_claim_ids=["h1.1"], transformation="generalized")]
+    [f] = _self_reports(_synthesis(claims))  # stricter (selfcert-1 c3b, was [])
+    assert f.severity == "warning" and f.claim_ids == ["y2", "h1.1"] and "states a verification status of the answer" in f.message, f.message
+    assert selfcert_read(text, SelfCertContext(writer="combinator")).refuses() is True
+    assert selfcert_read(text, SelfCertContext()).refuses() is False  # a specialist's branch: kept free

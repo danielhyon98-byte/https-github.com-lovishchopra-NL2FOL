@@ -205,8 +205,11 @@ def test_ge_t13_dependency_ratio_is_named_undecided():
     assert not any(f.code == "CORE-QNT-001" and "31 ÷ 69 × 100 = 54.9" in f.message for f in rc.structural_findings)
     _reply, ok = through_hub(GE_T13, GE_T13_Q, subject="Geography", agent="geography-specialist")
     assert not [f for f in errors(ok) if "worked_arithmetic" in f.message]
-    assert [fc.formal_status for fc in ok.formal_checks if fc.constraint_id.startswith("generic-worked")] and \
-        all(fc.formal_status == "ENTAILED" for fc in ok.formal_checks if fc.constraint_id.startswith("generic-worked"))
+    # rewritten for D9/D10 (decision D35): Geography has its own branch, whose pack decides the same worked equations under the
+    # 'geography-worked' prefix; stricter: no 'generic-worked' check remains on a Geography receipt
+    assert [fc.formal_status for fc in ok.formal_checks if fc.constraint_id.startswith("geography-worked")] and \
+        all(fc.formal_status == "ENTAILED" for fc in ok.formal_checks if fc.constraint_id.startswith("geography-worked"))
+    assert ok.branch == "geography" and not [fc for fc in ok.formal_checks if fc.constraint_id.startswith("generic-worked")]
 
 
 # ------------------------------------------------------------------ elasticity: PED/YED/XED/PES, Unicode minus, worked divisions

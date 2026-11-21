@@ -178,7 +178,10 @@ def test_a_status_label_on_content_is_a_label_and_a_proof_verdict_only_in_a_synt
     assert verification_label("The treaty was signed in 1919 [OK].").position == "after"
     assert verification_label("[OK] The treaty was signed in 1919.").position == "before"
     assert verification_label("The treaty was signed in 1919 (Z3: proved).").position == "after"
-    assert verification_label("The identity holds (proven).") is None, "a specialist's proof may close on 'proven'"
+    # Rewritten to the stricter rule for hold remedy c3b (boundary (a) and THE CLASS: a claim about the answer's own proof or
+    # correctness in parentheses is a self-assessment on every branch): "(proven)" closing the answer's own statement is a status
+    # label after its content for a specialist too; a proof credited to someone (Euler, below) stays free. It pinned None.
+    assert verification_label("The identity holds (proven).").position == "after"  # stricter (selfcert-1 c3b, was None)
     assert synthesis_label("The identity holds (proven).").position == "after"
     assert synthesis_label("(proven)").position == "whole"
     assert synthesis_label("The theorem (proven by Euler) is used.") is None, "a proof credited to someone is no label"

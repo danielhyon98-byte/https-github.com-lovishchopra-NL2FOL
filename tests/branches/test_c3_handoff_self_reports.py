@@ -122,7 +122,11 @@ def test_an_internal_checkers_decision_and_bug_23s_phrasings_are_self_reports(te
 @pytest.mark.parametrize("text", ["The court decided every case above on its merits.", "The engine has not decided every relation above.",
                                   "Whether the hub has decided every relation above is not stated here."])
 def test_controls_an_outside_decider_or_a_negated_decision_is_no_self_report(text):
-    assert not SR._c3_internal_decision(SR.reading_form(text)), text
+    # Rewritten for hold remedy c3b (rules selfcert-1): the private internal-decision reader of the deleted self_report internals is
+    # gone; the one reader is asserted instead, on the whole sentence (stricter: no other reading of the sentence may gate it either).
+    # Rule: a decision credited to an outside decider (a court), or a negated or questioned one, is no claim that the answer's items
+    # were decided (boundary (b)).
+    assert is_self_certification(text) is False and SR.claims_a_check(text) is False, text
 
 
 CASES = {"History": ("history-specialist", "Explain why the Treaty of Versailles angered Germans.",
@@ -186,8 +190,10 @@ def test_the_new_readers_are_linear_on_hostile_input(shape):
         yield "model marks (ticks)", lambda: SR.blank_model_marks("Model: " + text.replace("x", "✔"))
         yield "label", lambda: SR.label_self_report("Model: " + text[:3990])
         yield "claims a check", lambda: SR.claims_a_check(text[:3990])
-        yield "internal decision", lambda: SR._c3_internal_decision("The hub has decided " + text)
-        yield "double negation", lambda: SR._double_negated_check("None of the figures " + text)
+        # rewritten for hold remedy c3b: the private internal-decision and double-negation readers are deleted; the one reader reads
+        # the same inputs, whole and uncut (stricter: every reading of the text, not one pattern)
+        yield "internal decision", lambda: is_self_certification("The hub has decided " + text)
+        yield "double negation", lambda: is_self_certification("None of the figures " + text)
         yield "domain terms", lambda: is_self_certification("Cross-validation " + text[:3990])
 
     assert not sweep(entries, texts=one(shape)), shape

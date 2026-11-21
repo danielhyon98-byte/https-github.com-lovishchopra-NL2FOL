@@ -309,7 +309,8 @@ def _e_exponent(s: str, i: int, n: int) -> tuple[int, Optional[str]]:
 
 
 def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Optional[str] = None, decimal_comma: bool = False,
-                thousands_comma: bool = True, scientific: bool = True, build: bool = True) -> Optional[NumberScan]:
+                thousands_comma: bool = True, scientific: bool = True, build: bool = True,
+                thousands_point: bool = False) -> Optional[NumberScan]:
     """Read one numeral of ``s`` starting at ``i`` (an ASCII digit, or a point followed by a digit).
     Returns None when no numeral starts at ``i``.
 
@@ -341,7 +342,8 @@ def scan_number(s: str, i: int, *, limits: StemLimits = DEFAULT_LIMITS, orig: Op
                 sep = s[k]
                 thin = orig is not None and k < len(orig) and orig[k] in _THIN_SPACES
                 latex_thin = sep == "\\" and k + 1 < n and s[k + 1] == ","
-                kind = "," if (sep == "," and thousands_comma) else ("thin" if thin else ("latex" if latex_thin else ""))
+                kind = "," if (sep == "," and thousands_comma) else ("thin" if thin else ("latex" if latex_thin else (
+                    "." if (sep == "." and thousands_point) else "")))
                 if not kind or (sep_kind and kind != sep_kind):
                     break
                 first = k + (2 if kind == "latex" else 1)

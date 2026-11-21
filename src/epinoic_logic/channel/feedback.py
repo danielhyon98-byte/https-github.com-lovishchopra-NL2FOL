@@ -139,6 +139,10 @@ FEEDBACK_RULES: Mapping[str, FeedbackRule] = {
     "self.certification": FeedbackRule("fidelity", True, (
         "This passage states that the answer is checked, verified or correct, or reports a check of it. That is not content: remove it, and never "
         "say that the answer is checked or verified.")),
+    # CORE-SELF-002 (round-10 hold remedy c3b): text the self-certification reader cannot read
+    "self.unread_text": FeedbackRule("fidelity", True, (
+        "Write the line in plain letters; symbols that only look like letters, and hidden characters, are not read and keep the answer from "
+        "delivery.")),
     "src.text_altered": FeedbackRule("fidelity", False, (
         "A text you were given appears in the answer in an altered form. Use the supplied text exactly as it was given."), needs_claims=False),
     # ------------------------------------------------------------------ correctness (engine-decided, or the STEM front end's readings)
@@ -211,6 +215,7 @@ CODE_RULES: Mapping[str, tuple[str, tuple[str, ...]]] = {
     "PS-SRC-001": ("channel", ("src.unsourced_attribution",)),
     "HI-SRC-003": ("channel", ("src.unsourced_attribution",)),
     "CORE-SELF-001": ("channel", ("self.certification",)),
+    "CORE-SELF-002": ("channel", ("self.unread_text",)),
     "ES-META-001": ("channel", ("self.certification",)),
     "OVS-FID-005": ("audit", ("self.certification",)),
     "OVS-FID-008": ("audit", ("src.text_altered",)),
@@ -229,7 +234,7 @@ CODE_RULES: Mapping[str, tuple[str, tuple[str, ...]]] = {
     "OVS-AGENT-004": ("advisory", tuple(ADVISORY_KINDS.values())),
 }
 #: The source of each code's findings: the receipt's findings, its structural (branch) findings, or the task audit.
-_STRUCTURAL = frozenset({"CORE-SRC-001", "ES-SRC-001", "HI-SRC-001", "GEN-SRC-001", "PS-SRC-001", "HI-SRC-003", "CORE-SELF-001", "ES-META-001",
+_STRUCTURAL = frozenset({"CORE-SRC-001", "ES-SRC-001", "HI-SRC-001", "GEN-SRC-001", "PS-SRC-001", "HI-SRC-003", "CORE-SELF-001", "CORE-SELF-002", "ES-META-001",
                          "ST-DIM-001", "ST-DIM-002", "ST-ALG-001", "HI-STR-001", "ES-STR-001"})
 _AUDIT = frozenset({"OVS-FID-004", "OVS-FID-005", "OVS-FID-008"})
 #: The branch packs' quotation rules: an excerpt not found (error) or found in another form (warning).
@@ -494,6 +499,7 @@ def _from_structural(sf: Any, receipt: Any, report: SpecialistReport, request: T
     if sev != "warning":
         return None
     rule = {"PS-SRC-001": "src.unsourced_attribution", "HI-SRC-003": "src.unsourced_attribution", "CORE-SELF-001": "self.certification",
+            "CORE-SELF-002": "self.unread_text",
             "ES-META-001": "self.certification", "ST-DIM-001": "calc.units", "ST-DIM-002": "calc.units", "ST-ALG-001": "calc.root",
             "HI-STR-001": "cov.judgement_move", "ES-STR-001": "cov.strands"}[code]
     if code == "ES-STR-001" and not request.supplied_texts:

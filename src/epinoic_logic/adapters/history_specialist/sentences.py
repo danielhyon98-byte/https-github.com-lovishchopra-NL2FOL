@@ -60,7 +60,8 @@ _END_RE = re.compile(rf"(?<![.?!])[.?!]++[{_CLOSERS}]*+(?=\s++\S)")
 #: The clause reading's sentence end (:func:`split_clauses`): a semicolon ends a clause too; read the same way, in linear time.
 _CLAUSE_END_RE = re.compile(rf"(?<![.?!;])[.?!;]++[{_CLOSERS}]*+(?=\s++\S)")
 _JSON_END_RE = re.compile(r"[}\]](?=\s+[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9])")
-_STARTS_SENTENCE_RE = re.compile(r"[A-ZÀ-ÖØ-Þ0-9\"'(“‘«„\[{]")
+#: (also a mark or a heading sign: "... in the 1920s. ✅✅ all steps" ends a sentence before the mark, attack round 5)
+_STARTS_SENTENCE_RE = re.compile(r"[A-ZÀ-ÖØ-Þ0-9\"'(“‘«„\[{#\u2190-\u2bff\U0001f000-\U0001fbff]")
 _WS_RE = re.compile(r"\s+")
 
 

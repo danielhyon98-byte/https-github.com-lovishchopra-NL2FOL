@@ -584,9 +584,23 @@ A candidate may be delivered only if it passes the **integrity gates**:
   audit, a clearance that did not pass, or a repeated fault (`OVS-REP-001`). The consolidation's own rule says an
   excluded answer is never delivered.
 - The router may act on its clearance at the moment of selection.
-- It carries no self-certification (rule `self-certification-gate`, round-9 clearance): CORE-SELF-001 or INT-REQ-014 on its
-  receipt, or OVS-FID-005 or OVS-FID-009 in the task audit, at any severity; and no self-report that no code names on its
-  own. An ES-META-001 paragraph or sentence, a claim the parser sets aside (role `other`) and a block a note lead opens (a
+- It carries no self-certification (rule `self-certification-gate`, round-9 clearance): CORE-SELF-001, CORE-SELF-002 or
+  INT-REQ-014 on its receipt, or OVS-FID-005 or OVS-FID-009 in the task audit, at any severity; and no self-report that no
+  code names on its own. **Since the round-10 hold remedy c3b (POLICY_VERSION 2026.11-v5, rules `selfcert-1`)** every reading
+  of the class on every path is ONE call into the translator's reader by meaning, `epinoic_logic.selfcert` (theme and scope,
+  evaluator, polarity, mood and frame over closed classes of words; normalisation of enclosed, negative-squared, fullwidth,
+  small-capital, superscript, mathematical and regional-indicator letters, letter-spaced runs, combining marks and look-alikes),
+  read with the context the ROUTER's journaled request gives (`selfcert.context_for`: marking only from the router's plan task
+  type, the supplied texts as known sources; missing or unreadable, the strict default). Text that reader cannot read (a run of
+  letter-like symbols it does not map, hidden characters, a script with no vocabulary) is refused as well, rule `unread-text`
+  (receipt code CORE-SELF-002, feedback rule `self.unread_text`): it is never delivered unread. The fallback, the not-checked
+  mode, the router's documented decision (`consolidate.self_report_at_delivery`), the combined answer's release
+  (`policy.release_decision`, writer `combinator`), the port (`not_deliverable`) and the service's turn check (through the
+  port) apply the same reading; no status line is added to any answer and nothing in a delivered payload is edited. The
+  boundary the owner decided once: the answer's claim about its OWN correctness, quality or confidence is gated; a negated,
+  questioned or uncertain assessment, an imperative method step, a worked check that shows its computation, a named outside
+  source's check, a third party's check that is the subject matter, a quotation in an analysed source that does not refer to
+  this answer, and agreement with a named subject-matter reference are not. An ES-META-001 paragraph or sentence, a claim the parser sets aside (role `other`) and a block a note lead opens (a
   note-word lead such as "Final note:" or "One note:" included, whatever the parser made of the block: since round 9 the
   parsers keep an assurance under such a lead as a claim of the answer; second fix pass, design decision 147) are
   read by the shared self-report readers (narration, self-certification vocabulary, a verification label, a JSON object), a
@@ -734,7 +748,7 @@ receipt records each material claim with one assessment and its evidence:
 
 | Assessment | When |
 | --- | --- |
-| `inaccurate` | A signed engine result refutes the claim. Either its display status is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE, re-derived and authentic, or an error-level check names it and cites a signed, definitive result. A COUNTEREXAMPLE carrying the engine's coverage warning W110 or W111 (it only reassigns a figure or a conclusion symbol no premise constrains: perhaps a gap of the translation) does not make its claim inaccurate: it neither refutes nor confirms the claim, which is `unassessed` with the warning named as its evidence, never `refuted_by_signed_result` (rule `coverage-gap`, read since the round-9 clearance's second fix pass, when the translator's arena test that pinned such a counterexample as "the refuted answer" was given a genuine refutation; the round-10 clearance corrected this row, which still said the counterexample refuted its claim). A claim is also inaccurate when a deterministic check faults it: an error-level receipt or task-audit finding (a translation fault excepted: rule `translation-faults`), or an agent's accusation that a check confirmed. |
+| `inaccurate` | A signed engine result refutes the claim. Either its display status is COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE, re-derived and authentic, or an error-level check names it and cites a signed, definitive result. A COUNTEREXAMPLE carrying the engine's coverage warning W110 or W111 (it only reassigns a figure or a conclusion symbol no premise constrains: perhaps a gap of the translation) does not make its claim inaccurate: it neither refutes nor confirms the claim, which is `unassessed` with the warning named as its evidence, never `refuted_by_signed_result` (rule `coverage-gap`, read since the round-9 clearance's second fix pass, when the translator's arena test that pinned such a counterexample as "the refuted answer" was given a genuine refutation; the round-10 clearance corrected this row, which still said the counterexample refuted its claim; on the formal path the same claim is `unresolved` with the coverage note, never `refuted`, since the round-10 hold remedy c3b). A claim is also inaccurate when a deterministic check faults it: an error-level receipt or task-audit finding (a translation fault excepted: rule `translation-faults`), or an agent's accusation that a check confirmed. |
 | `contested` | A counted verdict accuses the claim and the accusation stays unresolved or unverifiable. |
 | `unassessed` | No counted verdict examined the claim's transfer, a verdict whose own notes declare its review incomplete ("Not completed: ...", "Partial review ...") counting as none (rule `declared-incomplete`, the round-9 clearance's second pass: such a verdict certifies nothing by its silence; its accusations and engine statements still count); or the receipt names the claim's working unchecked (the formal path's unchecked-working codes: ST-PARSE-*, ST-UNDEC-*, INT-SUBJ-002, ...) and no counted verdict states an engine result for it (rule `unchecked-working`, round-9 clearance: a verdict's silence assesses no unchecked working). A supporting claim so named is scored with the material claims. |
 | `accurate` | At least one counted verdict examined the transfer (`transfers_reviewed`). No fault is pinned on the claim, no check names it in an error, and no signed result refutes it. |

@@ -20,8 +20,11 @@ pound' is the price of one pound in the quoted currency (the franc), so a fall o
 The reference corpus of the general reading (``tests/branches/data/quant_general_reference.json``): the gate-3 self-certification
 rule (``adapters.markdown.self_cert_vocabulary``, finding 2) changes CORE-SELF-001 on six of its 570 texts, which only mention
 self-certification or hold capital status words in a table of fixtures. They carry their earlier digest as
-``sha256_before_gate3``; with the earlier vocabulary rule restored, every text of the corpus reproduces its earlier digest byte
-for byte, so the re-referenced digests differ from the earlier ones by that rule alone.
+``sha256_before_gate3``. Hold remedy c3b (the one self-certification reader, rules ``selfcert-1``) re-referenced 29 texts
+(``sha256_before_c3b``); with their CORE-SELF findings removed, they reproduce the digest the code before c3b gave them with its
+CORE-SELF findings removed, so the re-referenced digests differ from the earlier ones by the self-certification rule alone.
+The stabilisation of c3b re-referenced four of them again (``sha256_before_stab2``); three of the four read again as they
+read before c3b.
 """
 from __future__ import annotations
 
@@ -206,39 +209,79 @@ def test_the_exchange_rate_reader_is_linear_on_long_heads(make):
 
 # --------------------------------------------------------------------------- the reference corpus: six texts re-referenced
 
-#: The vocabulary rule before integration gate 3 (``adapters.markdown.SELF_CERT_RE`` at the gate's base), every word in every frame.
-_EARLIER_SELF_CERT_RE = re.compile(
-    r"\b(?:VERIFIED|ACCEPTED_WITH_FINDINGS|ACCEPTED|REJECTED|ENTAILED|COUNTEREXAMPLE|INCONSISTENT_PREMISES)\b"
-    r"|(?i:\ball (?:claims|dates|figures|facts|quotations)(?: and (?:figures|dates|quotations))?(?: (?:have been|were|are|was|is))? ?(?:checked|verified|confirmed|validated)\b"
-    r"|\b(?:verified|checked|confirmed|validated|proved|proven|accepted|certified|approved) by (?:the )?(?:(?:verification|logic|formal|z3) )?(?:z3|engine|solver|verifier|translator|overseer|hub)\b"
-    r"|\bfact[- ]?checked\b|\bself[- ]?certif\w*|\bverification (?:complete|passed|status)\b|\bchecked and confirmed\b"
-    r"|\bdouble[- ]checked\b|\bcross[- ]checked\b|\bcompared (?:with|against) the supplied\b|\bmatch(?:es|ed)? (?:it|them) exactly\b"
-    r"|\bno findings\b|\bfindings:\s*none\b|\btransmission (?:accepted|rejected)\b|\bvia branch \w+\b|\bstatus:\s*(?:entailed|accepted|rejected|verified|ok)\b"
-    r"|(?:\"|\b)(?:status|receipt_id|transmission_id|formal_checks|structural_findings|findings|codes)\"\s*:"
-    rf"|\b{md._ANSWER_ITSELF}(?: (?:is|are|was|were|has been|have been)|,? (?:which|and) (?:is|are|has been|have been))\s+(?:all\s+|fully\s+|carefully\s+|now\s+)?{md._CHECK_WORDS}\b"
-    rf"|\b{md._EVERY_ITEM}\s+{md._COPULA}{md._CHECK_WORDS}\b)")
+def _digest_without_self_certification(text: str) -> str:
+    """The reference digest of ``text`` with every CORE-SELF finding of ``CorePack().checks`` removed (the same outputs as
+    :func:`tests.branches.test_quant_si_reading._digest`, which the reference was computed with)."""
+    import hashlib
+    import json
 
+    from epinoic_logic.branches.generic_parser import GenericTextParser
 
-def _clear_reader_caches() -> None:
-    for module in (md, packs):
-        for value in vars(module).values():
-            if hasattr(value, "cache_clear"):
-                value.cache_clear()
-    empty_caches()
-
-
-def test_the_re_referenced_corpus_texts_differ_by_the_self_certification_rule_alone(monkeypatch):
-    changed = [item for item in REFERENCE["items"] if "sha256_before_gate3" in item]
-    assert len(changed) == 6 and all(item["sha256_before_gate3"] != item["sha256"] for item in changed)
-    earlier = lambda sentence: (m.group(0) if (m := _EARLIER_SELF_CERT_RE.search(sentence)) else None)  # noqa: E731
-    monkeypatch.setattr(md, "self_cert_vocabulary", earlier)
-    monkeypatch.setattr(packs, "self_cert_vocabulary", earlier)
-    _clear_reader_caches()
+    out: dict = {}
+    qc = extract_quant_checks(text, request_id="req", claim_id="rep:core")
+    out["quant"] = [[q.check_id, q.kind, q.sentence, q.problem.model_dump(mode="json"), q.rule, q.basis, q.expected_if_consistent] for q in qc]
+    out["undecided"] = [[u.paragraph, u.sentence, u.sentence_text, u.phrase, u.reason] for u in undecided_quant_statements(text)]
     try:
-        mismatched = [item["text"][:80] for item in REFERENCE["items"] if _digest(item["text"]) != item.get("sha256_before_gate3", item["sha256"])]
-    finally:
-        monkeypatch.undo()
-        _clear_reader_caches()
-    assert mismatched == []
-    # and with the gate-3 rule every one of the six gets its new digest (the reference test checks all 570)
+        rep = GenericTextParser("specialist").parse_response(text, request_id="req", task_id="task", report_id="rep", subject="History", task_type="essay")
+    except Exception as exc:  # noqa: BLE001 - the reference records the exception's name
+        out["core"] = repr(type(exc).__name__)
+        return hashlib.sha256(json.dumps(out, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    pack = packs.CorePack()
+    out["core_checks"] = [f.model_dump(mode="json") for f in pack.checks(rep, "Explain the figures.") if not f.code.startswith("CORE-SELF")]
+    out["core_formal"] = [[fc.check_id, fc.kind, fc.description, fc.problem.model_dump(mode="json"), fc.expected_if_sound] for fc in pack.formal_checks(rep)]
+    return hashlib.sha256(json.dumps(out, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def test_the_re_referenced_corpus_texts_differ_by_the_self_certification_rule_alone():
+    """Rewritten for hold remedy c3b (one self-certification reader, rules selfcert-1; stricter, never weaker).
+
+    Before c3b this test restored the vocabulary rule of the gate's base (``markdown.SELF_CERT_RE`` and the private fragments it
+    was built from, all deleted by c3b) and showed every text reproduced its digest before gate 3. CorePack no longer consults
+    that vocabulary, so the history cannot be replayed; the six gate-3 texts keep their recorded earlier digests, and the c3b
+    re-reference is pinned by a stronger check over every re-referenced text: with its CORE-SELF findings removed, each text
+    reproduces byte for byte the digest the code before c3b gave it with its CORE-SELF findings removed (recorded as
+    ``sha256_c3b_without_self_certification``), so nothing but the self-certification rule changed."""
+    gate3 = [item for item in REFERENCE["items"] if "sha256_before_gate3" in item]
+    # (one of the six reads under c3b as it read before gate 3, so its current digest equals its gate-3 "before" digest again;
+    # the record of the six is kept as data)
+    assert len(gate3) == 6 and all(len(item["sha256_before_gate3"]) == 64 for item in gate3)
+    # (rewritten for attack round 3 of c3b, stricter: that one, the fixture docstring of the translator's subjects, now names the bare
+    # engine status of its table of expected displays again, so it is compared through its digest before attack round 3)
+    assert sum(item["sha256_before_gate3"] == item.get("sha256_before_attack3", item["sha256"]) for item in gate3) == 1
+    assert sum(item["sha256_before_gate3"] == item["sha256"] for item in gate3) == 0
+    changed = [item for item in REFERENCE["items"] if "sha256_before_c3b" in item]
+    assert len(changed) == 29
+    # Rewritten for the stabilisation of c3b (the reader settled by meaning; stricter on status labels, never weaker): four of
+    # the 29 were re-referenced again and carry their c3b digest as ``sha256_before_stab2``. Rule: a description of channel
+    # behaviour is no self-certification, and a status word inside an identifier is read with the identifier's words (the bare
+    # engine statuses beside it stay named), so exactly these three read again as they read before c3b and their digest equals
+    # ``sha256_before_c3b``; every other c3b text, the fourth ('Expected: INCONSISTENT_PREMISES', now a status label) included,
+    # still differs from its digest before c3b.
+    restab = [item for item in REFERENCE["items"] if "sha256_before_stab2" in item]
+    assert len(restab) == 4 and all("sha256_before_c3b" in item and item["sha256_before_stab2"] != item["sha256"] for item in restab)
+    as_before_c3b = sorted(item["text"][:60] for item in changed if item["sha256_before_c3b"] == item["sha256"])
+    # Rewritten for attack round 1 of c3b (stricter: the list names every text, one more by name): the docstring on two-claim
+    # contradictions draws no self-certification under the sentence meaning layer and reads again as it read before c3b; it carries
+    # its stabilised digest as ``sha256_before_attack1``.
+    # Rewritten for attack round 3 of c3b (stricter: the fixture docstring of Example 1 now names its bare engine statuses again, the
+    # 'FAITHFUL_CHAIN ... ENTAILED' rows, so it no longer reads as before c3b; it carries that earlier digest as
+    # ``sha256_before_attack3``, and still differs by its CORE-SELF findings alone, checked below).
+    # The History sentence quoting the minister reads again as before c3b: its quotation ('a parliament that could only say no ...') is
+    # the subject matter's (boundary (b)), no self-certification; it carries its c3b digest as ``sha256_before_attack3``.
+    assert as_before_c3b == sorted([
+        " The minister called it «a parliament that could only say no",
+        "A claim consistent on its own (its own distance gives its ow",
+        "Channel behaviour found wanting by the round-4 arena oversee",
+        "End to end through the hub, round 4: a correct quotation wri",
+    ])
+    attack3 = [item for item in changed if "sha256_before_attack3" in item]
+    assert sorted(item["text"][:60] for item in attack3 if item["sha256_before_attack3"] == item["sha256_before_c3b"]) == [
+        "Fixtures built from Example 1 of the English specialist's kn"]
+    assert all("sha256_before_stab2" in item or "sha256_before_attack1" in item or "sha256_before_attack3" in item
+               for item in changed if item["sha256_before_c3b"] == item["sha256"])
+    assert [item["text"][:60] for item in REFERENCE["items"] if "sha256_before_attack1" in item] == [
+        "A claim consistent on its own (its own distance gives its ow"]
+    assert [item["text"][:80] for item in changed
+            if _digest_without_self_certification(item["text"]) != item["sha256_c3b_without_self_certification"]] == []
+    # and with the c3b rule every one of them gets its new digest (the reference test checks all 570)
     assert [item["text"][:80] for item in changed if _digest(item["text"]) != item["sha256"]] == []

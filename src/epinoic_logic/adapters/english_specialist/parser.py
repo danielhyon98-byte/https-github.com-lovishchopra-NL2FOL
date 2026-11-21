@@ -74,9 +74,9 @@ Segmentation rules
 
 Role rules (body paragraphs)
 ----------------------------
-* a sentence that certifies the answer's own checking (``SELF_CERT_RE``, including
-  the semantic rule of :func:`~epinoic_logic.adapters.markdown.is_self_certification`),
-  narrates an internal step (``META_NARRATION_RE``) or is JSON-shaped -> ``other``
+* a sentence that certifies the answer's own checking (the one self-certification reader,
+  :func:`~epinoic_logic.adapters.markdown.is_self_certification` over ``epinoic_logic.selfcert``),
+  speaks as an AI (``META_NARRATION_RE``) or is JSON-shaped -> ``other``
   with no source reference, wherever it stands, first sentence or not, quotation
   marks or not; the self-report travels in ``advisory_verification_status``;
 * a sentence that is nothing but a note about the text (a from-memory label, a disclaimer,
@@ -181,6 +181,7 @@ from ..markdown import (
     is_sources_block, is_self_certification, mask_json_spans, meta_note_form, note_word_paragraph, parser_quotation_spans, split_note_clauses, undelimited_quote_span,
     undelimited_quote_spans,
 )
+from ..self_report import answered_self_question, claim_is_self_report, self_report_note
 from ..sources import OWN_EXAMPLE_NOTE, attribute_excerpt, check_excerpt, specialist_names, strip_trailing_punctuation, word_count
 
 __all__ = [
@@ -236,7 +237,7 @@ _ALPHA_RE = re.compile(r"[^\W\d_]")
 #: whitespace the lookahead needs, and a match starting inside a run ends where the run's own match ends, so these are the
 #: matches of ``(?:[.!?]+[closers]*|[}\]])(?=\s+...)``. Without the anchor a run of n stops that no whitespace and capital
 #: follow ('x = 9!!!...!') was read again from each of its stops, n² steps (integration gate 2: 6.9 s at 20,000 characters).
-_BOUNDARY_RE = re.compile(r"(?:(?<![.!?])[.!?]++[\"”’')\]»]*+|[}\]])(?=\s++(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9]|[{\[]\s*\"))")
+_BOUNDARY_RE = re.compile(r"(?:(?<![.!?])[.!?]++[\"”’')\]»]*+|[}\]])(?=\s++(?:[\"“‘(\[«„]?[A-ZÀ-ÖØ-Þ0-9#\u2190-\u2bff\U0001f000-\U0001fbff]|[{\[]\s*\"))")
 _TERMINAL_RE = re.compile(r"[.!?][\"”’')\]»]*$")
 _LAST_WORD_RE = re.compile(r"([A-Za-zÀ-ÿ]+)\.?$")
 _ABBREVIATIONS = frozenset({
@@ -250,13 +251,9 @@ META_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 _ALLCAPS_LABEL_RE = re.compile(r"^[A-Z][A-Z0-9 /&'-]{2,}:")
-#: Narration of internal steps or of an assurance the writer cannot give.
-META_NARRATION_RE = re.compile(
-    r"\b(?:as an? (?:ai|language model|assistant)|i have (?:checked|verified|confirmed|validated|fact[- ]checked)|"
-    r"all claims (?:have been |were |are )?(?:checked|verified|confirmed|validated)|fact[- ]checked|self[- ]check(?:ed)?|"
-    r"verification complete|checked and confirmed)\b",
-    re.IGNORECASE,
-)
+#: The writer speaking as an AI ("as an AI", "as a language model", "as an assistant"). Its check phrasings are the one
+#: self-certification reader's classes (``epinoic_logic.selfcert``; round-10 hold remedy c3b).
+META_NARRATION_RE = re.compile(r"\bas an? (?:ai|language model|assistant)\b", re.IGNORECASE)
 _BULLET_RE = re.compile(r"^\s*(?:[-*•–]|\d+[.)])\s+")
 _HEADING_RE = re.compile(r"^\*\*[^*\n]+\*\*\s*$|^#{1,6}\s")
 #: Generic ways a sentence names the one literary text supplied (never a relayed peer report), read over the whole sentence by
@@ -565,24 +562,13 @@ def _block_quotations(block: str) -> int:
 
 
 def is_meta_sentence(sentence: str) -> bool:
-    """True for a sentence that is never part of the argument wherever it stands: it
-    certifies the answer's own checking (``SELF_CERT_RE`` and the semantic rule), narrates
-    an internal step (``META_NARRATION_RE``) or has the shape of JSON. The vocabulary is
-    searched with the sentence's quotations masked, so quoting a colleague's label is not
-    the quoter's self-report; the JSON shape is judged on the full text."""
-    if is_json_shaped(sentence):
-        return True
-    plain = strip_quotations(sentence)
-    # the one self-report reader masks a quotation itself, only where the sentence attributes or analyses it (hold-fix round 2): an
-    # unattributed quoted sentence or a scare quote is the writer's own words
-    if is_self_certification(sentence):
-        return True
-    # the narration rule held to the one reader's vetoes (hold-fix round 3): "The census results were checked and confirmed by the
-    # statistics office." reports an outside party's check as evidence, never the writer's narration
-    if META_NARRATION_RE.search(plain) is None:
-        return False
-    from ..self_report import not_a_self_report, reading_form
-    return not not_a_self_report(reading_form(sentence))
+    """True for a sentence that is never part of the argument wherever it stands: it is a
+    self-certification (the one reader, ``epinoic_logic.selfcert``, which reads quotations by
+    attribution), it speaks as an AI (``META_NARRATION_RE``, quotations masked) or it has the
+    shape of JSON (judged on the full text). A verification label on content ("Verified: <content>",
+    "**Word count: 348** <content>"; ``self_report.label_on_content``) is no meta sentence: the label is
+    named (CORE-SELF-001, the advisory status) and the content stays a claim (design 3.13)."""
+    return is_json_shaped(sentence) or self_report_note(sentence) or META_NARRATION_RE.search(strip_quotations(sentence)) is not None
 
 
 def is_note_only(sentence: str) -> bool:
@@ -614,8 +600,7 @@ _FIXES_LEAD_RE = re.compile(r"^\W*(?:fix\s+it|fixes|how\s+to\s+improve|to\s+impr
 _LABEL_LINE_RE = re.compile(r"^\W*[A-Z][\w’' ]{0,30}:\s")
 #: A lead that tells the student to answer the questions after it: "To test a direction, answer these from the adverts themselves:",
 #: "Ask yourself these questions:", "Work through the following:" (closing on a colon).
-_ANSWER_THESE_LEAD_RE = re.compile(r"\b(?:answer|ask\s+yourself|consider|work\s+through|think\s+about|respond\s+to|try|use)\s+(?:these|the\s+following|each\s+of\s+these)"
-                                   r"(?:\s+(?:questions?|prompts?))?\b[^:]{0,80}:\s*$", re.IGNORECASE)
+from ..markdown import ANSWER_THESE_LEAD_RE as _ANSWER_THESE_LEAD_RE  # noqa: E402 (one lead reader for every branch: R10-COMB-H3)
 #: A line that opens a numbered item ("1. ", "2) "): a body block is split there, so an item is never read with the lead before it.
 _NUMBERED_LINE_SPLIT_RE = re.compile(r"\n(?=[ \t]*\(?\d{1,2}[.)][ \t]+\S)")
 
@@ -709,11 +694,11 @@ def is_meta_block(block: str) -> bool:
         return False
     if META_LABEL_RE.match(s) or _ALLCAPS_LABEL_RE.match(s):
         return True
-    if META_NARRATION_RE.search(s) is None:
-        return False
-    # held to the one reader's vetoes, as in :func:`is_meta_sentence` (hold-fix round 3): an outside party's check is evidence
-    from ..self_report import not_a_self_report, reading_form
-    return not all(not_a_self_report(reading_form(x)) for x in (sentences or [s]))
+    # the writer speaking as an AI, or a self-certification the one reader names
+    # (a self-certification sentence beside content sentences is its own self-report piece: the content stays claims, attack round 5)
+    return META_NARRATION_RE.search(strip_quotations(s)) is not None or (
+        any(self_report_note(x) for x in (sentences or [s])) and (len(sentences) <= 1 or all(
+            self_report_note(x) or is_meta_sentence(x) or is_note_only(x) for x in sentences)))
 
 
 def is_list_block(block: str) -> bool:
@@ -822,11 +807,18 @@ def segment(text: str) -> tuple[Paragraph, ...]:
         # a quotation-free block opened by a bare note lead ("Confidence: lowered. This is one paragraph, so ..."): what
         # follows the lead explains the note, so every sentence is a note; the block is not meta-text (no ES-META-001)
         note_led = kind in ("thesis", "body", "conclusion") and bool(_BARE_NOTE_BLOCK_RE.match(block.strip())) and not _block_quotations(block)
+        # an answered self-question ("What needs fixing here? Nothing."): read together, the question and its answer are one
+        # self-report (design 3.7 G8), so both are set aside, never the question left as a claim
+        self_answered: set[int] = set()
+        if kind in ("thesis", "body", "conclusion"):
+            for j in range(1, len(raw_sentences)):
+                if answered_self_question(raw_sentences[j - 1], raw_sentences[j]):
+                    self_answered.update((j, j + 1))
         for j, s in enumerate(raw_sentences, start=1):
             notes: tuple[str, ...] = ()
             if note_led or kind == "sources":
                 role: ClaimRole = "other"
-            elif kind in ("thesis", "body", "conclusion") and is_meta_sentence(s):
+            elif kind in ("thesis", "body", "conclusion") and (is_meta_sentence(s) or j in self_answered):
                 role = "other"
             elif kind in ("thesis", "body", "conclusion") and (is_note_only(s) or is_feedback_label(s)):
                 role = "other"  # a label about the text is never the point, wherever it stands
@@ -1172,7 +1164,12 @@ def parse_response(
     undelimited_paragraphs: list[int] = []
 
     def add(claim_id: str, claim_text: str, role: ClaimRole, *, at: Optional[int] = None, **fields: object) -> ClaimRecord:
-        """Append (or insert at ``at``) one claim record built from the report identifiers."""
+        """Append (or insert at ``at``) one claim record built from the report identifiers. A claim that holds a
+        self-certification carries the advisory status whatever its role (design 4.1: a label on content keeps its
+        role and is still named; ``self_report.claim_is_self_report`` leaves a claim that is nothing but a quotation to
+        its sentence)."""
+        if "advisory_verification_status" not in fields and claim_is_self_report(claim_text):
+            fields["advisory_verification_status"] = _SELF_REPORT
         claim = ClaimRecord(**ids, claim_id=claim_id, claim_text=_claim_text(claim_text), claim_role=role, **fields)  # type: ignore[arg-type]
         if at is None:
             claims.append(claim)

@@ -6,9 +6,9 @@
   "components": {
     "ir": ["1.0"],
     "engine": ["0.4.0"],
-    "policy": ["2026.10-v4"],
+    "policy": ["2026.11-v5"],
     "translator": ["0.4.0"],
-    "contract": ["0.5"],
+    "contract": ["0.6"],
     "z3_solver": {"min": "5.1.0", "below": "5.2"}
   },
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
@@ -29,7 +29,7 @@
   },
   "overseer": {"replay_mode": "process", "inline_final_release": false, "max_pending_wait_ms": 250, "modes": ["embedded"]},
   "router": {"required": false, "floor": "minimum-oversight-floor/1", "methods": ["DUPLICATE", "IN_DEPTH", "N_FOLD", "SPLIT"], "tier": "cheapest"},
-  "subject_map": {"version": "2026-10-17.2", "sha256": "b5ea5000d6dfa9028aba6a72c975ae5046cf8179f1feed64410065b95877c521"},
+  "subject_map": {"version": "2026-11-16.1", "sha256": "c4eeaae45660c107c558e71616ccf264b15b9bb2c58913d07a79ded14e1aee85"},
   "limits": {
     "service_max_body_bytes": 1000000,
     "worker_max_request_bytes": 262144,

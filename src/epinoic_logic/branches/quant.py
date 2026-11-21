@@ -303,6 +303,12 @@ _POINTS_CHANGE_RE = re.compile(
     re.IGNORECASE)
 _FRAC = r"((?:a|one)\s+(?:half|third|quarter|fifth|tenth)|two[- ]thirds|three[- ]quarters|two[- ]fifths|three[- ]fifths|four[- ]fifths|half)"
 _FRACTION_CHANGE_RE = re.compile(rf"(?:an?\s+)?{_DIR_NOUN}\s+of\s+(?:({_QUAL})\s+)?{_FRAC}\b|{_DIR_VERB}\s+by\s+(?:({_QUAL})\s+)?{_FRAC}\b", re.IGNORECASE)
+#: A fall TO a fraction of the earlier level ('a fall to about one third', 'fell to a quarter of its 2019 level'; round-10 leftover
+#: R10-STEM-REC6-14, c3 bi-t16's prose fold): the new value over the old is that fraction, a fold change below one.
+_FRACTION_LEVEL_RE = re.compile(
+    rf"(?:\ban?\s+)?\b(?:fall|drop|decline|decrease|reduction|cut)\s+to\s+(?:({_QUAL})\s+)?{_FRAC}\b(?!\s+(?:per\s*cent|percent|%))"
+    rf"|\b(?:fell|dropped|declined|decreased|shrank|was\s+cut|were\s+cut)\s+to\s+(?:({_QUAL})\s+)?{_FRAC}\b(?!\s+(?:per\s*cent|percent|%))",
+    re.IGNORECASE)
 _FRACTION_WORDS = {"half": Fraction(1, 2), "third": Fraction(1, 3), "quarter": Fraction(1, 4), "fifth": Fraction(1, 5), "tenth": Fraction(1, 10),
                    "two thirds": Fraction(2, 3), "three quarters": Fraction(3, 4), "two fifths": Fraction(2, 5), "three fifths": Fraction(3, 5), "four fifths": Fraction(4, 5)}
 _FOLD_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
@@ -939,6 +945,13 @@ def _derived_phrases(clause: str, si: bool = False) -> list[_Derived]:
         word, qual, frac = (m.group(1), m.group(2), m.group(3)) if m.group(1) else (m.group(4), m.group(5), m.group(6))
         key = re.sub(r"^(?:a|one)\s+", "", frac.lower()).replace("-", " ")
         out.append(_Derived(m.start(), m.end(), "fraction_change", frac, _direction(word), _FRACTION_WORDS[key], _side(qual)))
+    for m in (_FRACTION_LEVEL_RE.finditer(clause) if _FRACTION_HINT_RE.search(low) else ()):
+        qual, frac = (m.group(1), m.group(2)) if m.group(2) else (m.group(3), m.group(4))
+        if frac is None:
+            continue
+        key = re.sub(r"^(?:a|one)\s+", "", frac.lower()).replace("-", " ")
+        if key in _FRACTION_WORDS:
+            out.append(_Derived(m.start(), m.end(), "fold_change", m.group(0).strip(), None, _FRACTION_WORDS[key], _side(qual)))
     for m in (_FOLD_RE.finditer(clause) if _FOLD_HINT_RE.search(low) else ()):
         word = m.group(2).lower()
         factor = next((f for stem, f in _FOLD_STEMS.items() if word.startswith(stem)), None)
@@ -2208,7 +2221,8 @@ def _no_pair_reason(clause: str, d: Optional[_Derived]) -> str:
 #: An arithmetic operator between two figures of written working ('+', '−', '×', '÷', '/', '*', '^', '·', or a spaced hyphen or dash), up to
 #: two unit words between the first figure and the operator ('105 million litres ×', '2.4 Ω +'); a figure with a letter attached ('6t') is a term
 #: of algebra, not a figure, and the end of a range label ('aged 15–64 × 100') is no operand.
-_OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:[A-Z]{1,3}\$|[$£€¥])?[ \t]?[-−]?[ \t]?\({0,3}(?:[A-Z]{1,3}\$|[$£€¥])?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
+#: (a power written with superscript digits after a figure, "10³ − 10", "2³", is an operation too: attack round 5)
+_OPERATOR_BETWEEN_RE = re.compile(r"(?<![\d.,])(?<!\d[–-])\d[\d,.]*[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2}(?![\d⁰¹²³⁴⁵⁶⁷⁸⁹])|(?<![\d.,])(?<!\d[–-])\d[\d,.]*[ \t]?%?(?:[ \t][A-Za-zΩµμ°³²⁻¹]{1,12}\.?){0,2}[ \t]?\){0,3}[ \t]?(?:[+×÷*/^·]|[ \t][-–][ \t]|−)[ \t]?\({0,3}[ \t]?(?:[A-Z]{1,3}\$|[$£€¥])?[ \t]?[-−]?[ \t]?\({0,3}(?:[A-Z]{1,3}\$|[$£€¥])?\d[\d,.]*(?![\d,.A-Za-zα-ω])")
 #: A restatement in brackets inside a line of working: an '=' and a word of three letters, and no arithmetic operator ('(762 thousand =
 #: 0.762 million)', '(1 tonne = 1,000 kg)'). Bounded: at most 120 characters inside the brackets, each lookahead too.
 _EQ_COMMENT_RE = re.compile(r"\((?=[^()\n]{0,120}?=)(?=[^()\n]{0,120}?[A-Za-z]{3})[^()\n+×÷*/−–^\-]{1,120}\)")

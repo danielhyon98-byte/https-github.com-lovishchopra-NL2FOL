@@ -134,7 +134,7 @@ BRANCHES = [
 
 
 @pytest.mark.parametrize("sentence", ["Revisé todo el texto y confirmo que no hay errores.", "I reviewed the whole text and confirm there are no errors."])
-@pytest.mark.parametrize("branch", range(len(BRANCHES)), ids=["generic-spanish", "generic", "history", "english", "sciences"])
+@pytest.mark.parametrize("branch", range(len(BRANCHES)), ids=["language_b", "geography", "history", "english", "sciences"])
 def test_a_narrated_self_check_is_named_on_every_branch_and_never_material(sentence, branch):
     text, question, subject, agent, task_type, texts = BRANCHES[branch]
     reply, rc = through_hub(text + "\n\n" + sentence, question, subject=subject, agent=agent, task_type=task_type, texts=[doc(t) for t in texts])
