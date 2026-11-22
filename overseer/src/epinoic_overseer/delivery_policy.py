@@ -129,7 +129,7 @@ from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_de
 from .keys import DELIVERY_KEY_ID, KeyRing
 from .meta_notes import (
     LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, claim_self_report, glued_note_lead, self_certifying_meta, self_certifying_sentence, self_certifying_sentences,
-    self_report_findings,
+    self_report_findings, SELF_REPORT_AUDIT_CODES as _SELF_REPORT_AUDIT_CODES,
     self_reported_statuses, report_field_refusals, self_reporting_note_blocks, self_reporting_notes, source_list_grounding, unread_lead_blocks,
 )
 from .non_material import NON_MATERIAL_RULE, claim_key, held_claims, parser_claims, parser_units, unread_non_material_blocks
@@ -783,7 +783,7 @@ NOT_CHECKED_CODES: frozenset = frozenset({"ST-PARSE-001", "ST-PARSE-002", "ST-UN
 #: mark and the lead's own emphasis before a lead), and rule ``unverified-claims`` (:func:`_unverified_claim_refusals`, beside
 #: this rule) refuses an assurance the parser reads as a claim: every claim must carry a positive signed engine outcome.
 SELF_REPORT_CODES: frozenset = frozenset({"CORE-SELF-001", "ES-META-001", "INT-REQ-014"})
-SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+SELF_REPORT_AUDIT_CODES: frozenset = _SELF_REPORT_AUDIT_CODES  # one set for every release path (meta_notes.audit_self_reports)
 #: Rule ``translation-faults`` (round-9 clearance c2, the c2 lenses: 9 of 22 answers were excluded by the task audit, five of them
 #: only because the audit named a translation of one of their claims): the transfer audit's findings about a TRANSLATION of a claim
 #: (``OVS-TRN-*``: the translator's product, not the specialist's answer nor its transfer) withdraw that claim's formal outcome (its

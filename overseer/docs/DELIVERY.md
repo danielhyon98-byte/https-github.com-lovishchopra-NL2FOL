@@ -646,7 +646,14 @@ A candidate may be delivered only if it passes the **integrity gates**:
   severity, or whose journaled payload holds a self-report in a synthesized claim or in the student-facing text) and the overseer
   port's consolidated delivery, which the service's turn check reads (`port.deliver` in single and duplicate mode through
   `consolidate.self_report_at_delivery`: the deliverable answer's receipt codes, its answer as written and its claims' advisory
-  statuses). NOT CHECKED is a fallback mode and is refused the same.
+  statuses). NOT CHECKED is a fallback mode and is refused the same. **Since the c3d follow-up** every release path also reads the
+  task audit it releases on the same way the fallback does: OVS-FID-005 and OVS-FID-009 naming the deliverable answer (or the
+  synthesis), at any severity (`meta_notes.audit_self_reports`, one code set, `meta_notes.SELF_REPORT_AUDIT_CODES`, which
+  `delivery_policy.SELF_REPORT_AUDIT_CODES` is). The c3c run found the router's documented decision allowing an answer the
+  fallback withheld by OVS-FID-009 (tab-separated letters); the same split held for a structured report whose content claim
+  carries the contract's advisory self-report fields. The router refuses it ("the task audit names a self-report the deliverable
+  answer carries as content (...)"), `policy.release_decision` refuses a synthesis so named, both map to `not_deliverable`, and a
+  task audit that cannot be found or read is a refusal (fail closed).
   Hold-fix round 3 made the gate ONE reader everywhere and widened that reader by class, not by phrasing. The gate's reading
   (`meta_notes.self_report_reading`) now defers to the translator's one reader, read on the text and on each of its sentences, lines
   and table cells, so it names exactly what that reader names whatever the branch, the parser's role or the layout (its own word

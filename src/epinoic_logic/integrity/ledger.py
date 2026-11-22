@@ -4839,8 +4839,11 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
     proved)", "Z3: unsat"), a bracketed status mark ("[OK]") and a bracketed proof verdict ("(proven)") included. One linear
     split."""
     from ..adapters.markdown import is_synthesis_self_certification, synthesis_label
+    from ..selfcert.reader import plain_tick_bullets
     out: list[str] = []
-    for sentence in _split_outside_quotations(text or ""):
+    # (the ticks of a pros-and-cons list are its bullets, read with the whole list before it is cut into lines: check round 10 of
+    # c3d)
+    for sentence in _split_outside_quotations(plain_tick_bullets(text or "")):
         s = sentence.strip()
         if not s:
             continue
@@ -4945,13 +4948,22 @@ def _self_report_findings(synthesis: Synthesis, sources: Optional[dict[str, Clai
     combinator's instructions): a decline or a deferral of the requested work the channel reads (``withheld_deliverable``:
     "I cannot answer the second part of the question.") carried word for word, alone, as ``carried`` is a note for the
     student (:func:`_carries_withheld_work`); any other form of it is still named."""
+    from ..selfcert.reader import plain_tick_bullets
     f: list[IntegrityFinding] = []
     named: set[str] = set()
     sources, notes, flagged = sources or {}, notes or {}, flagged or {}
+    plain_text = plain_tick_bullets(synthesis.text or "")
     for sc in synthesis.claims:
         labels: list[str] = []
         content: list[str] = []
-        found = _self_report_sentences(sc.text, labels, content)
+        claim_text = sc.text
+        if plain_text != synthesis.text and claim_text and claim_text.lstrip()[:1] in "✔✓☑✅":
+            # a claim that is one tick-bulleted line of the synthesis's pros-and-cons list: read as the list reads it (c3d)
+            st = claim_text.lstrip()
+            plain = "-" + st[1:]
+            if plain.strip() in plain_text:
+                claim_text = plain
+        found = _self_report_sentences(claim_text, labels, content)
         parts: list[str] = []
         if found:
             named.update(found)

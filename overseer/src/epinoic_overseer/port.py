@@ -158,6 +158,9 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^rule self-certification-gate could not read the deliverable answer \(\w+\)$", "not_deliverable"),
     (r"^the deliverable answer certifies its own checking, read on the answer as written \(.*\): a delivered answer never contains a claim "
      r"that it was checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    # c3d: the task audit's OVS-FID-005 / OVS-FID-009, read by every release path (meta_notes.audit_self_reports)
+    (r"^the task audit names a self-report the deliverable answer carries as content \(.*\): a delivered answer never contains a claim "
+     r"that it was checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
     # rule unread-text (round-10 hold remedy c3b): text the self-certification reader cannot read is never delivered unread
     (r"^the deliverable answer carries text the self-certification reader cannot read \(rule unread-text\)$", "not_deliverable"),
     (r"^rule unread-text could not read the deliverable answer \(\w+\)$", "not_deliverable"),
@@ -190,6 +193,9 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^the synthesis carries a self-report named on its receipt \(.*\): a released answer never contains a claim that it was checked or "
      r"verified \(rule self-certification-gate\)$", "not_deliverable"),
     (r"^the synthesis certifies its own checking, read on the payload as written \(.*\): a released answer never contains a claim that it was "
+     r"checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    (r"^the task audit cannot be read for rule self-certification-gate$", "not_deliverable"),
+    (r"^the task audit names a self-report the synthesis carries as content \(.*\): a released answer never contains a claim that it was "
      r"checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
     # policy._journal_covers (through release_decision)
     (r"^the audit names no journal head$", "final_audit_not_passed"),

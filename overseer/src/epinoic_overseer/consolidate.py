@@ -389,11 +389,16 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
     ``target`` of ``resp`` may not be delivered, or None. The deliverable answer's receipt naming a
     self-report (:data:`.meta_notes.SELF_REPORT_RECEIPT_CODES`, any severity), or its journaled report holding a sentence the
     translator's one reader names, a claim the gate's claim reading names or a claim with an advisory verification status
-    (:func:`.meta_notes.payload_self_reports`), is never delivered. Read from the journal; an answer the journal cannot show is refused (fail closed)."""
-    from .meta_notes import SELF_REPORT_RECEIPT_CODES, payload_self_reports
+    (:func:`.meta_notes.payload_self_reports`), is never delivered; nor is one the task audit the consolidation was decided on names
+    for a self-report the channel let through as content (OVS-FID-005, OVS-FID-009 at any severity, :func:`.meta_notes.audit_self_reports`:
+    the c3c run found this decision allowing an answer the delivery policy's fallback withheld by OVS-FID-009, so every release path
+    now reads the same self-report). Read from the journal and the auditor; an answer the journal cannot show, or a task audit the
+    auditor cannot show, is refused (fail closed)."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_self_reports, payload_self_reports
     try:
         import json
-        event = next((e for e in hub._require_auditor().journal(resp.channel_uid).events() if e.message_id == target), None)
+        auditor = hub._require_auditor()
+        event = next((e for e in auditor.journal(resp.channel_uid).events() if e.message_id == target), None)
         if event is None:
             return "the deliverable answer is not journaled, so rule self-certification-gate cannot read it"
         receipt = json.loads(event.receipt_json) if event.receipt_json else {}
@@ -404,6 +409,13 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
         if codes:
             return (f"the deliverable answer carries a self-report named on its receipt ({', '.join(codes)}): a delivered answer never contains a "
                     "claim that it was checked or verified (rule self-certification-gate)")
+        audit = next((a for a in auditor.audits(resp.channel_uid) if a.scope == "task" and a.audit_id == resp.task_audit_id), None)
+        if audit is None:
+            raise LookupError("the consolidation's task audit")
+        named_by_audit = audit_self_reports(audit, target)
+        if named_by_audit:
+            return (f"the task audit names a self-report the deliverable answer carries as content ({'; '.join(named_by_audit[:8])}): a delivered "
+                    "answer never contains a claim that it was checked or verified (rule self-certification-gate)")
         payload = json.loads(event.envelope_json)["payload"] if event.envelope_json else None
     except Exception as exc:  # noqa: BLE001 - fail closed
         return f"rule self-certification-gate could not read the deliverable answer ({type(exc).__name__})"

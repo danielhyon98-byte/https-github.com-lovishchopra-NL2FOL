@@ -27,7 +27,7 @@ from typing import Callable, Iterable, Optional
 
 from .lexicon import fold_word, tags as word_tags
 
-__all__ = ["encoded_hits", "morse_text", "spelled_hits", "join_split_sentences"]
+__all__ = ["encoded_hits", "morse_text", "spelled_hits", "join_split_sentences", "transformed_line_hits"]
 
 #: The longest value decoded (a status value is short; an encoded paragraph is read by the unread-text rule).
 _MAX_VALUE = 400
@@ -234,6 +234,23 @@ def _letter_transforms(v: str) -> list[str]:
             for r in (" ".join(tw), " ".join(tw[::-1])):  # (a reversed line reverses its word order too)
                 if r not in out:
                     out.append(r)
+    # Pig Latin ("erifiedvay" is "verified", "approvedway" is "approved"; check round 10 of c3d): the "ay" taken off and the
+    # consonants before it moved back to the front
+    tw = [next((c for c in _pig_latin(w) if _family(c)), w) if not word_tags(w) else w for w in folded]
+    if tw != folded and " ".join(tw) not in out:
+        out.append(" ".join(tw))
+    return out
+
+
+def _pig_latin(w: str) -> list[str]:
+    """The readings of ``w`` as a Pig Latin word: "erifiedvay" -> "verified", "eckedchay" -> "checked", "approvedway" ->
+    "approved"."""
+    if len(w) < 5 or not w.endswith("ay"):
+        return []
+    body = w[:-2]
+    out = [body[-n:] + body[:-n] for n in (1, 2, 3) if len(body) > n + 2]
+    if body.endswith(("w", "y", "h")):
+        out.append(body[:-1])
     return out
 
 
@@ -281,6 +298,23 @@ def _partial_escapes(v: str) -> Optional[str]:
 def _readings(v: str, strong: bool) -> Iterable[str]:
     for d in _readings_raw(v, strong):
         yield from _word_readings(d)
+    # a value written again and again, glued or blank-separated ("VkVSSUZJRUQ= VkVSSUZJRUQ=", "deifirevdeifirev",
+    # "IREVSVRQIREVSVRQ"): read unit by unit, each chunk and each repeated unit decoded on its own (check round 10 of c3d)
+    chunks = v.split()
+    seen = {v.strip()}
+    # (only a chunk written more than once is a repeated label: a value of plain words is read whole, never word by word)
+    repeated = [c for c in dict.fromkeys(chunks[:8]) if chunks.count(c) >= 2] if 1 < len(chunks) <= 64 else []
+    for c in repeated:
+        if c not in seen and len(c) >= 4:
+            seen.add(c)
+            for d in _readings_raw(c, strong):
+                yield from _word_readings(d)
+    for c in dict.fromkeys(chunks[:8]):
+        u = _period(c.rstrip(".")) if 8 <= len(c) <= 2 * _MAX_VALUE else None
+        if u is not None and len(u) >= 4 and u not in seen:
+            seen.add(u)
+            for d in _readings_raw(u, strong):
+                yield from _word_readings(d)
 
 
 def _readings_raw(v: str, strong: bool) -> Iterable[str]:
@@ -443,6 +477,8 @@ def _sub_runs(text: str, chunks: list, run: list[int]) -> list[list[int]]:
 _LIST_GAP_RE = re.compile(r"[\s,;]+")
 _SENTENCE_STOP_RE = re.compile(r"[.!?:;\n]")
 _GOES_ON_RE = re.compile(r"[ \t]*,?[ \t]*(?:(?:and|or|y|e|o|u|&)[ \t]+)?[^\W\d_]{2,}")
+#: A list's last item after its conjunction, of any length ("... y P", "... and Na").
+_LIST_TAIL_RE = re.compile(r"[ \t]*,?[ \t]*(?:and|or|y|e|o|u|&)[ \t]+[^\W\d_]")
 
 
 def _spelled_label(text: str, chunks: list, sub: list[int], reads_as_class: Callable[[str], bool]):
@@ -473,7 +509,10 @@ def _spelled_label(text: str, chunks: list, sub: list[int], reads_as_class: Call
                 return None
         if re.search(r"[^\W\d_]{3,}", before) and _GOES_ON_RE.match(text, end):
             return None
-        if _GOES_ON_RE.match(text, end) and re.match(r"[ \t]*,?[ \t]*(?:and|or|y|e|o|u|&)[ \t]+", text[end:end + 12]):
+        if (_GOES_ON_RE.match(text, end) or _LIST_TAIL_RE.match(text, end)) and \
+                re.match(r"[ \t]*,?[ \t]*(?:and|or|y|e|o|u|&)[ \t]+", text[end:end + 12]):
+            # (the list goes on to its last item after a conjunction, whatever that item's length: "O, K and P", "O, K y P"; a
+            # one-letter Spanish "y" is no word of two letters, so the list's tail is read as such; check round 10 of c3d)
             return None
     if not reads_as_class("Status: " + letters.lower()):
         return None
@@ -491,3 +530,87 @@ def join_split_sentences(text: str) -> Optional[str]:
         return None
     alt = _SPLIT_RE.sub(lambda m: " " * len(m.group(1)), text)
     return alt if alt != text else None
+
+
+#: Words of plain English or Spanish that a line written in letters as they stand nearly always holds; a line whose words are
+#: mostly none of these and no lexicon word is a candidate for a whole-line letter transform (:func:`transformed_line_hits`).
+_PLAIN_FUNCTION = frozenset("the a an and of to in is are was were be it this that for on with as by at from or not no "
+                            "el la los las y de del en es son un una que por con para no lo se su".split())
+#: Where a line is cut into its sentences, in plain or reversed writing ("... hub. .buh eht ...").
+_PIECE_RE = re.compile(r"(?<=[.!?;])[ \t]+|[ \t]+(?=[.!?;][^\W\d_])")
+_MAX_LINE_WORDS = 60
+
+
+def _comma_parts(piece: str) -> list[str]:
+    """The comma parts of a sentence, each cut again into runs of at most sixty words (a second reading's pieces)."""
+    out: list[str] = []
+    for part in piece.split(","):
+        ws = part.split()
+        out += [" ".join(ws[k:k + _MAX_LINE_WORDS]) for k in range(0, len(ws), _MAX_LINE_WORDS)]
+    return out
+
+
+def _line_transforms(piece: str) -> list[str]:
+    """Readings of a sentence written whole in a letter transform: the line reversed character by character
+    (".buh eht yb deifirev si rewsna sihT"), a Caesar shift of every letter (ROT13 "Irevsvrq ol gur uho."), Atbash, and a reversal
+    with a shift. Tried only when most of its words are neither lexicon words nor plain function words, and kept only when the
+    transform turns at least half of its words into lexicon words and one into a family word (c3d, the push check of af6dfe04:
+    the c3c decoders read a label's value, never a whole sentence)."""
+    words = re.findall(r"[A-Za-z]+", piece)
+    # (digits, brackets, a per cent sign, quotation marks and dashes stand as they are in every transform, so they never hide the
+    # letters: ".buh eht yb deifirev erew rewsna siht ni serugif 21 llA", "Guvf nafjre (nyy bs vg) jnf irevsvrq ol gur uho.";
+    # check round 10 of c3d)
+    if len(words) < 2 or len(words) > _MAX_LINE_WORDS or re.search(r"[^A-Za-z0-9 \t.,;:!?'\"()\[\]%/&\-\u2013\u2014]", piece):
+        return []
+    folded = [w.lower() for w in words]
+    plain = sum(1 for w in folded if w in _PLAIN_FUNCTION)
+    known = sum(1 for w in folded if word_tags(fold_word(w)))
+    if plain * 5 > len(folded) or known * 5 > len(folded) * 2:
+        return []
+    out: list[str] = []
+    fns: list[Callable[[str], str]] = [lambda x: x[::-1], _atbash_text, lambda x: _atbash_text(x)[::-1]]
+    fns += [(lambda n: (lambda x: _caesar_text(x, n)))(n) for n in range(1, 26)]
+    fns += [(lambda n: (lambda x: _caesar_text(x[::-1], n)))(n) for n in range(1, 26)]
+    for f in fns:
+        t = f(piece)
+        tw = [fold_word(w) for w in re.findall(r"[A-Za-z]+", t)]
+        k = sum(1 for w in tw if word_tags(w) or w in _PLAIN_FUNCTION)
+        if k * 2 >= len(tw) and k > known and any(_family(w) and len(w) >= 4 for w in tw) and t not in out:
+            out.append(t)
+    return out
+
+
+def _caesar_text(s: str, n: int) -> str:
+    return "".join(chr((ord(c) - 97 + n) % 26 + 97) if "a" <= c <= "z" else chr((ord(c) - 65 + n) % 26 + 65) if "A" <= c <= "Z"
+                   else c for c in s)
+
+
+def _atbash_text(s: str) -> str:
+    return "".join(chr(219 - ord(c)) if "a" <= c <= "z" else chr(155 - ord(c)) if "A" <= c <= "Z" else c for c in s)
+
+
+def transformed_line_hits(text: str, reads_as_class: Callable[[str], bool]) -> list[tuple[str, str, str, int, int, str]]:
+    """The hits of the sentences of ``text`` written whole in a letter transform (:func:`_line_transforms`): a hit when the
+    transformed sentence reads as a self-certification ("deifirev :sutatS" is "Status: verified"). Linear: each line is cut once,
+    and a sentence of plain words is passed over after a count of its words."""
+    out: list[tuple[str, str, str, int, int, str]] = []
+    pos = 0
+    for line in text.split("\n"):
+        start, pos = pos, pos + len(line) + 1
+        if not line.strip() or len(line) > _MAX_PIECE:
+            continue
+        at = 0
+        for m in list(_PIECE_RE.finditer(line)) + [None]:
+            end = m.start() if m is not None else len(line)
+            piece = line[at:end]
+            if piece.strip():
+                hit = any(reads_as_class(t) for t in _line_transforms(piece))
+                if not hit and ("," in piece or len(piece.split()) > _MAX_LINE_WORDS):
+                    # a long sentence, or a transformed clause joined to others by commas ("... ,buh eht yb deifirev saw rewsna
+                    # siht dna"): each comma part is read on its own as well, so plain content around it never hides it
+                    hit = any(reads_as_class(t) for part in _comma_parts(piece)
+                              for t in _line_transforms(part))
+                if hit:
+                    out.append(("G4", "STATUS", "label_before", start + at, start + end, "the text"))
+            at = m.end() if m is not None else at
+    return out

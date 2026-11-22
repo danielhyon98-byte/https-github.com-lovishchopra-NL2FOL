@@ -10,7 +10,9 @@ pieces, sentences, clauses, labels and quotations (:mod:`.pieces`), and every as
 its evaluator, its polarity and its mood or frame (:mod:`.reader`) against closed classes of words (:mod:`.lexicon`,
 ``lexicon.json``). An encoded check label (reversed, shifted, Base64, hexadecimal, binary, Morse) and a word spelled out letter by
 letter with any separators are decoded and read as a status value (:mod:`.encoded`, rule N10), and a sentence split by a blank
-line is read as one as well. Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
+line is read as one as well. A sentence written whole in a letter transform (reversed, ROT13) is read decoded, a quotation mark
+that opens or closes no quotation is read as the stray mark it is, and a misspelt check word is read by edit distance inside a
+check frame about the answer (:mod:`.misspelt`, rule N9 (b); c3d). Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
 script with no vocabulary) is never delivered silently: :meth:`Reading.refuses` names it (receipt code CORE-SELF-002).
 
 What is NOT a self-certification and is never gated: a negated, questioned or uncertain assessment; an instruction ("verify by

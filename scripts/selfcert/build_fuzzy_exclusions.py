@@ -12,8 +12,10 @@ committed inputs, that word source and the rest of ``lexicon.json``:
     fuzzy_excluded = sorted(variant for variant in candidates(lexicon without exemptions) if variant in word source)
 
 No other text is scanned (no repository corpus, no standard library, no site-packages or dist-packages): a misspelling found in
-some corpus is a misspelling, never a word. ``tests/selfcert/test_c3c_fuzzy_and_labels.py`` checks that the committed list
-equals this builder's output and that every entry is in the word source.
+some corpus is a misspelling, never a word.
+``tests/selfcert/test_c3c_holds.py::test_the_committed_exclusions_equal_the_builders_output`` checks that the committed list equals
+this builder's output, and ``test_every_exclusion_is_a_word_of_the_committed_cited_source`` there that every entry is in the word
+source.
 
 Usage (repository root, the venv's Python)::
 

@@ -268,13 +268,14 @@ def test_a_receipt_showing_a_withheld_self_report_entailed_is_still_a_forged_res
     try:
         o = next(x for x in rc.outcomes if x.claim_id == "p1.1")
         assert o.verification is not None and o.verification.status is VerificationStatus.ENTAILED
-        withheld = o.display_status is VerificationStatus.NOT_ELIGIBLE
+        # c3d (push check on af6dfe04): this was an unlabelled skip that depended on the code under test ("if not withheld"); rewritten
+        # to the stricter rule. "I have double-checked every figure in this answer" is a boundary (a) self-certification, so the composer
+        # must withhold the claim's display; a reader that stopped reading it would be a miss of the class, never a reason to skip.
+        assert o.display_status is VerificationStatus.NOT_ELIGIBLE, (o.display_status, o.display_reason if hasattr(o, "display_reason") else None)
         audit = hub.audit(plan.task_id)
         assert not _codes_on(audit, ["p1.1"], {"OVS-RES-009", "OVS-TRN-007"}), [f.message[:200] for f in audit.report.findings]
     finally:
         hub.close()
-    if not withheld:
-        pytest.skip("the shared self-report reader no longer reads this claim as claiming a check: the composer withholds nothing")
 
     def forge(out, claim, report):
         return out.model_copy(update={"display_status": VerificationStatus.ENTAILED}) if out.display_status is VerificationStatus.NOT_ELIGIBLE else out

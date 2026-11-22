@@ -667,6 +667,9 @@ def _mood_of(seg: list, question: bool, first: bool) -> str:
                 return "weak"  # "deben ser comprobadas", "must be checked": an obligation, no check reported (deontic)
     for k, t in enumerate(words):
         if t.has("C:weak_idioms"):
+            if t.w.split()[0] in _POSSIBILITY and t.w.split()[0] not in ("may", "might") and any(
+                    _defect(x) or x.fam() & {"DEFECT"} for x in words[k + 1:k + 5]) and any(_neg_word(x) for x in words[max(0, k - 8):k]):
+                continue  # "Nothing here could be wrong.": the possibility of a defect denied (c3d)
             if t.w in ("could be", "can be", "could have been", "could ever be") and k + 1 < len(words) and (
                     words[k + 1].has("V:finding") or words[k + 1].w in ("found", "spotted", "detected", "identified", "seen")) and \
                     any(_defect(x) for x in words):
@@ -687,6 +690,10 @@ def _mood_of(seg: list, question: bool, first: bool) -> str:
                 continue  # "should be beyond reproach", "probably flawless": a verdict at the top of its scale, a confidence claim
             return "weak"   # "should all be fine", "probably correct": an uncertain verdict (P3)
         if t.has("C:weak") and t.w not in ("if", "unless", "whether"):
+            if t.w in _POSSIBILITY and any(_defect(x) or x.fam() & {"DEFECT"} for x in words[k + 1:k + 6]) and (
+                    any(_neg_word(x) for x in words[max(0, k - 8):k]) or (k + 1 < len(words) and _neg_word(words[k + 1]))):
+                continue  # "Nothing here could be wrong.", "Nada de esto puede estar mal.": the very possibility of a defect denied, a
+                # certainty that nothing is wrong, no uncertainty (c3d; "may"/"might" stay hedges: "this might not be wrong")
             if t.w in ("may", "can", "could", "puede", "puedes") and any(x.fam() & {"ASSURE"} for x in words[k + 1:k + 4] + (
                     words[k + 1:k + 8] if k > 0 and words[k - 1].w in ("you", "tu", "usted") else [])):
                 continue  # "may rely on", "can trust": a permission to rely on the answer, an assurance (ASSURE)
@@ -704,6 +711,8 @@ def _mood_of(seg: list, question: bool, first: bool) -> str:
     return "declarative"
 
 
+#: Modals and adverbs of possibility whose denial is an impossibility ("nothing could be wrong"), unlike "may" and "might".
+_POSSIBILITY = frozenset(("could", "can", "possibly", "conceivably", "puede", "pueden", "podria", "podrian", "posiblemente"))
 #: Verdicts at the top of their scale: under a probability hedge ("should be", "probably") they remain a confidence claim.
 _EXTREME = frozenset(("flawless", "faultless", "perfect", "perfectly", "impeccable", "spotless", "infallible", "unimpeachable",
                       "immaculate", "airtight", "watertight", "bulletproof", "iron-clad", "ironclad", "error-free", "mistake-free",
@@ -1417,6 +1426,12 @@ def _reference_agreement(toks: list, i: int) -> bool:
                                                                                                "answers", "respuesta"))
            for x in unbracketed):
         return False
+    if any(x.has("C:poss1", "C:pron1") for x in unbracketed[:4]) or (
+            any(x.has("C:tool", "C:eval_int", "C:eval_int_agentive") for x in clause) and any(x.has("C:part") for x in unbracketed[:4])):
+        # the comparand is the answer's own ("matched each of my results", "agrees with my figures"), or a tool or an agent is
+        # matched against the answer's items ("The GDC output matched each of the results"): an evaluator's agreement with this
+        # answer, never a subject-matter reference (check round 10 of c3d)
+        return False
     if any(x.has(_REF_HEADS_TAG) for x in words):
         return True
     contentful = [x for x in words if not x.punct and not x.has("C:det", "C:prep", "C:dist", "C:definite", "C:indefinite") and
@@ -1445,8 +1460,12 @@ def _symbol_content(toks: list, k: int) -> bool:
 
 def _nonsuccess(value: list) -> bool:
     # (a non-success word counted zero is none: "0 error(s), 0 warning(s)", "no errors" report success, attack round 5)
-    live = [t for m, t in enumerate(value) if t.has("C:m_nonsuccess") and not (m > 0 and (
-        value[m - 1].w in ("0", "zero", "no", "cero", "ningun", "ninguna", "none") or value[m - 1].has("C:neg")))]
+    # (nor one negated across an article: "ni un error", "not a single error", "sin un solo fallo"; check round 10 of c3d)
+    def zero(x) -> bool:
+        return x.w in ("0", "zero", "no", "cero", "ningun", "ninguna", "none", "ni", "sin") or x.has("C:neg")
+    live = [t for m, t in enumerate(value) if t.has("C:m_nonsuccess") and not (m > 0 and (zero(value[m - 1]) or any(
+        zero(value[q]) and all(x.w in ("un", "una", "a", "an", "one", "single", "solo", "sola", "uno") for x in value[q + 1:m])
+        for q in range(max(0, m - 3), m - 1))))]
     return bool(value) and bool(live) and not any(_positive(t) for t in value if not t.has("C:m_nonsuccess"))
 
 
@@ -1784,8 +1803,17 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         # a line that is only a solver's verdict ("sat"): a status, whatever its case (inside a bracket after content, "(sat)" is a
         # past tense on a specialist's branch and a status label on the combinator's)
         return found, [found_cls("G5", "STATUS", "fragment", words[0].a, words[0].b)]
+    if not found and not question and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
+        # (the cue is looked for in the folded sentence first: folding drops and maps characters but never takes a letter of a
+        # written word away, so a sentence whose folded form holds no cue holds none as written either)
+        from .reader import original_span
+        own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
+        if own is not None:
+            return found, [found_cls(own[0], own[1], "sentence", a, b)]
     if not _assessment_of(toks) and not found:
-        return found, []
+        # (a verdict on this answer by its source-evaluation word, "rated this response as fully reliable", is read all the same)
+        trig = _verdict_on_this_answer(words) if not question and not ctx.marking else None
+        return found, ([found_cls("G2", "OUTCOME", "sentence", trig.a, trig.b)] if trig is not None else [])
     segs = _segments(toks)
     content = [t for k, t in enumerate(words) if _content_at(words, k, ctx)]
     kept = list(found)
@@ -1796,6 +1824,69 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         nonlocal kept
         kept = [f for f in kept if not pred(f)]
 
+    # a gloss: an assessment word set after a word of another language as its translation ("The word 'verified' comes from the
+    # Latin verus, true.", "del latín verus, verdadero"): the meaning of the word glossed, never a label on this answer (c3d)
+    if any(t.w in _LANGUAGE_NAMES for t in words):
+        for k, t in enumerate(toks):
+            if t.w == "," and 0 < k and k + 1 < len(toks) and toks[k - 1].w.isalpha() and not toks[k - 1].t and \
+                    any(x.w in _LANGUAGE_NAMES for x in toks[max(0, k - 4):k - 1]) and \
+                    (k + 2 >= len(toks) or toks[k + 2].punct):
+                g = toks[k + 1]
+                clear(lambda f, g=g: f.form == "fragment" and g.a <= f.a < g.b + 1)
+    # a laboratory method and its data ("We repeated the measurement three times and the readings agreed."): readings that agree are
+    # the precision of the data, the subject matter of a practical, never a check of this answer (boundary (b), c3d). A sentence
+    # anchored on the answer ("the calculations above", "this answer") keeps its reading.
+    if not any(t.has("C:anchor", "C:anchor_idioms", "C:genre_strong") for t in words):
+        lab = any(t.w in _LAB_ACTS and any(x.has("C:method_noun") or x.w in _DATA_READINGS for x in words[k + 1:k + 5])
+                  for k, t in enumerate(words))
+        if lab:
+            for k, t in enumerate(words):
+                if t.fam() & {"AGREE"} and any(x.w in _DATA_READINGS or x.has("C:method_noun") or x.w in ("they", "them")
+                                               for x in words[max(0, k - 4):k]):
+                    clear(lambda f, t=t: f.family == "AGREE" and t.a <= f.a < t.b + 1)
+    own_scope = any(t.has("C:anchor", "C:anchor_idioms", "C:genre_strong", "C:pron1", "C:poss1") for t in words)
+    # the history of an invention ("In 1919 television had not yet been invented", "No one had yet invented the fiddle", "was not
+    # invented until 1876"): a thing that did not yet exist, subject matter (boundary (b)); "invented" as a defect of the answer
+    # ("the figures are invented", "nothing here is invented") has no "yet" or "until" of time (check round 10 of c3d)
+    if not own_scope:
+        for k, t in enumerate(words):
+            if t.w.startswith(("invent", "inventad")) and t.fam() & {"DEFECT"} and any(
+                    x.w in _NOT_YET for x in words[max(0, k - 4):k + 6]) and not any(
+                    x.has("C:demonstrative") and m + 1 < len(words) and words[m + 1].has("C:part")
+                    for m, x in enumerate(words) if k - 7 <= m < k):
+                clear(lambda f, t=t: f.family == "DEFECT" and t.a <= f.a < t.b + 1)
+    # a letter's closing ("between the greeting and the sign-off", "the sign-off of your email"): a part of a letter, the subject
+    # of a writing task, never an approval (check round 10 of c3d, a Language B marking answer)
+    if any(t.w in _LETTER_WORDS for t in words):
+        for t in words:
+            if t.w.replace(" ", "-") in ("sign-off", "sign-offs", "signoff") and t.fam() & {"APPROVE"}:
+                clear(lambda f, t=t: f.family == "APPROVE" and t.a <= f.a < t.b + 1)
+    # the content of a third party's claim, named by a noun ("an official claim that figures are confirmed becomes a tool of control",
+    # "the myth that the figures were verified"): the claim is the subject matter, its content is not asserted by the answer
+    # (boundary (b): a third party's check that is the subject matter; check round 10 of c3d). The answer's own claim ("my claim
+    # that ...") and a sentence naming this answer keep their reading.
+    if not own_scope:
+        for k in range(1, len(words) - 1):
+            if words[k].w in _CLAIM_NOUNS and words[k + 1].w == "that" and (words[k - 1].has("C:det", "adj") or words[k - 1].w in (
+                    "official", "government", "party", "state", "public", "popular", "false", "common", "old", "familiar")):
+                cut = words[k + 1].a
+                # (a pipeline or a tool credited inside the content, "the claim that the hub verified it", keeps its reading)
+                piped = [x.a for x in words[k + 2:] if x.has("C:eval_int", "C:tool", "C:eval_int_agentive")]
+                # the content clause ends with its first verb group: a verb after it is the matrix predicate ("The claim that reparations
+                # fuelled resentment is ENTAILED." labels the claim itself, and keeps its reading)
+                verbish = lambda x: x.has("C:copula", "C:aux", "v:past", "v:3sg") or bool(x.fam()) or (  # noqa: E731
+                    not x.t and len(x.w) > 4 and x.w.endswith(("ed", "es")))  # (a content verb the lexicon does not know: "fuelled")
+                first = next((m for m in range(k + 2, len(words)) if verbish(words[m])), None)
+                end = len(words)
+                if first is not None:
+                    m = first
+                    while m + 1 < len(words) and (verbish(words[m + 1]) or words[m + 1].w in _DEGREE_ADVERBS):
+                        m += 1
+                    later = next((q for q in range(m + 1, len(words)) if words[q].has("C:copula", "C:aux", "v:3sg", "v:past")), None)
+                    end = later if later is not None else len(words)
+                limit = words[end].a if end < len(words) else 1 << 30
+                clear(lambda f, cut=cut, piped=piped, limit=limit: cut < f.a < limit and not any(cut < p < f.a for p in piped) and
+                      f.family in ("CHECK", "OUTCOME", "APPROVE", "STATUS", "AGREE", "QUALITY", "CONFIDENCE"))
     # a quotation mentioned or analysed: the hits inside it and on it
     for k in _quote_spans(toks):
         if _mention_quote(toks, k):
@@ -2039,6 +2130,7 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
                 x.w in ("complete", "completed", "done", "finished", "ready", "running", "waiting", "terminated", "idle")
                 and x.a <= f.a < x.b + 1 for x in toks))
     # a generic or definitional statement (no first person, no answer anchor)
+    generic_present = False
     anchored = any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1") for t in words)
     if not anchored:
         ws = [t.w for t in words]
@@ -2061,6 +2153,9 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         if words[0].has("C:indefinite") and words[0].w in ("a", "an", "un", "una") and not any(t.has("C:eval_int", "C:tool") for t in words[:4]) \
                 and any(_content(t, ctx) for t in words[:5]):
             generic = True
+        if words[0].w in ("a", "an", "un", "una") and _generic_present(words):
+            generic = generic_present = True  # "A QA team tests software before each release.": what such a team does, in the
+            # generic present (c3d); its assessment words are the subject's, so no sentence-level reading is made of them either
         if generic:
             # (a source evaluation the reader kept is a pronoun taking up the sentence's own statement, "Schemas shape what people
             # recall; this is fully reliable.": the writer's confidence in its generic claim stays its own; check round 9 of c3c)
@@ -2125,7 +2220,7 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
                                                         x.has("C:m_check", "C:eval_int", "C:tool", "C:m_eval")) and not _score_key(r[5], m)
                                                        for m, x in enumerate(r[5]))]
     readings = [r for r in readings if not _narrative_past(r[5]) and not _system_generic(r[5]) and not _subject_constraints(r[5])
-                and not _ambiguous_agent(r[5])]
+                and not _ambiguous_agent(r[5]) and not generic_present]
     asserted_pos = [r for r in readings if r[0] > 0 and (r[1] or (r[2] and r[3])) and r[4] in ("declarative", "strong")]
     others = [r for r in readings if r not in asserted_pos]
     # protasis readings that precede a positive apodosis belong to it (the counterfactual), handled by cf
@@ -2177,6 +2272,29 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         # compare the two sources."; check round 9 of c3c): a criterion, said of no answer in particular
         kept = [f for f in kept if not (f.rule in ("G1", "G2", "G3", "G5") and f.family in ("QUALITY", "OUTCOME", "CHECK", "SCORE"))]
         added = [f for f in added if not (f.rule in ("G1", "G2", "G3", "G5") and f.family in ("QUALITY", "OUTCOME", "CHECK", "SCORE"))]
+    if (kept or added) and s:
+        # a correction pair ('Wrong: "El primer semana fue difícil". Right: "La primera semana fue difícil"', "Incorrecto: «...».
+        # Correcto: «...»"): the second key names the corrected form of the quoted words, never a verdict on this answer (c3c
+        # leftover, c3d). Only the key's own hit is cleared, and only after a key of the faulty form on the same line.
+        ls = max(s.rfind("\n", max(0, a - 400), a) + 1, a - 400, 0)  # (the line, at most 400 characters back: linear)
+        if _WRONG_KEY_RE.search(s, ls, b):
+            def correction_key(f) -> bool:
+                m = _RIGHT_KEY_RE.match(s, f.a)
+                return m is not None and m.start() >= ls and _WRONG_KEY_RE.search(s, ls, f.a) is not None
+            kept = [f for f in kept if not correction_key(f)]
+            added = [f for f in added if not correction_key(f)]
+    if not kept and not added and not question and not ctx.marking:
+        # (read last: no frame above speaks of a verdict on this answer itself, whoever gives it)
+        trig = _verdict_on_this_answer(words)
+        if trig is not None:
+            added.append(found_cls("G2", "OUTCOME", "sentence", trig.a, trig.b))
+    if not kept and not added and found and not question and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
+        # (the own verdicts of :func:`_own_verdict_c3d` are read after the frames too: a hit of another word they cleared, "needed" in
+        # "Reviewer said nothing needed changing.", leaves the sentence's own verdict to be read)
+        from .reader import original_span
+        own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
+        if own is not None:
+            added.append(found_cls(own[0], own[1], "sentence", a, b))
     return kept, added
 
 
@@ -2227,6 +2345,8 @@ def _marking_criterion(words: list) -> bool:
     """A general statement of what marking rewards or what a good answer does: "Marks are awarded for ...", "Credit is given
     for ...", "A good answer would/should ...", "Strong responses compare ...". An anchor, the first person, a demonstrative or a
     possessive keeps the sentence about this answer."""
+    if _mark_allocation(words):
+        return True
     if not words or any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:demonstrative", "C:eval_int", "C:tool")
                         or (t.w.split() or [""])[0] in ("this", "these", "here", "your", "my", "our", "esta", "este", "above",
                                                          "below") for t in words):
@@ -2240,6 +2360,122 @@ def _marking_criterion(words: list) -> bool:
         if head is not None and head + 1 < len(ws) and ws[head + 1] in _CRITERION_MODALS:
             return True
     return False
+
+
+_SCHEME_NOUNS = frozenset("scheme markscheme mark-scheme rubric rubrics criteria".split())
+_ALLOCATE_VERBS = frozenset("awards award allocates allocate gives give allows allow assigns assign carries carry otorga asigna da".split())
+_COUNT_WORDS = frozenset("one two three four five six seven eight nine ten a an 1 2 3 4 5 6 7 8 9 10 11 12 un una dos tres cuatro cinco "
+                         "seis siete ocho nueve diez".split())
+
+
+def _mark_allocation(words: list) -> bool:
+    """The mark allocation a scheme states ("The mark scheme awards two marks for this step.", "The rubric allocates 3 marks to
+    each part."): what a step is worth, no claim that the answer earned it (check round 10 of c3d; the allocation pins "A1 A1" are
+    delivered on the same reading). "Full marks", an evaluator of the pipeline, the first person or an anchor keep their reading."""
+    if not words or any(t.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:eval_int", "C:tool") for t in words):
+        return False
+    ws = [t.w for t in words]
+    v = next((m for m in range(min(len(ws), 6)) if ws[m] in _ALLOCATE_VERBS), None)
+    if v is None or v == 0 or not any(w in _SCHEME_NOUNS or w.endswith("scheme") for w in ws[:v]):
+        return False
+    return v + 2 < len(ws) and ws[v + 1] in _COUNT_WORDS and ws[v + 2] in ("marks", "mark", "points", "point", "puntos", "punto") and \
+        any(w in ("for", "to", "per", "on", "por", "para", "a") for w in ws[v + 3:v + 5])
+
+
+#: A grade, a mark or a score (check round 10 of c3d): letter grades with a sign, top marks in words, the Spanish grades.
+_GRADE_RE = re.compile(r"(?<![\w*+])(?:a[+*]|a-star|a star|top marks|full marks|ten out of ten|10/10|sobresaliente|"
+                       r"matr[ií]cula de honor|un diez|un 10|un 7 |un siete|nota m[aá]xima)", re.I)
+#: The answer itself named as what is graded ("this response", "this reply", "esta respuesta", "con esta respuesta").
+_THIS_ANSWER_RE = re.compile(r"\b(?:this|my|esta|mi)\s+(?:misma\s+|very\s+|own\s+)?(?:response|reply|answer|respuesta|soluci[oó]n|solution)\b", re.I)
+#: Who gives the grade, or how it is given (a verb of grading, a report card).
+_GRADE_FRAME_RE = re.compile(r"\b(?:give|gives|gave|giving|award|awards|awarded|grade|grades|graded|mark|marks|marked|deserves?|earns?|earned|got|get|"
+                             r"report\s+card|pondr[ií]a|pondr[ií]an|pusieron|puso|dar[ií]a|dio|dieron|saqu[eé]|sac[oó]|merece|"
+                             r"obtuve|obtendr[ií]a|calific\w+)\b", re.I)
+#: A defect of the answer that nobody will find, or whose finding would amaze the writer ("you won't find an error in this", "I'd
+#: be amazed if anyone found a flaw here"): a positive verdict by double negation (boundary (a)).
+_FIND_DEFECT_RE = re.compile(r"\b(?:find|finds|found|spot|spots|spotted|catch|caught|detect|detects|detected|encontrar[aá]?n?|encontr[oó]|"
+                             r"encuentra|encuentre|hallar[aá]?)\b[^.;!?]{0,30}?\b(?:an?\s+|any\s+|single\s+|one\s+|un\s+|ning[uú]n\s+|"
+                             r"anything\s+to\s+correct|anything\s+wrong|nada\s+que\s+corregir)?(?:error|errors|flaw|flaws|mistake|mistakes|fault|"
+                             r"faults|slip|slips|anything\s+to\s+correct|anything\s+wrong|fallo|fallos|errores|nada\s+que\s+corregir)\b"
+                             r"[^.;!?]{0,12}?\b(?:in\s+this|here|above|in\s+(?:this|my)\s+(?:response|reply|answer|working|work)|en\s+esto|aqu[ií]|"
+                             r"en\s+esta\s+respuesta)\b(?!\s+(?:document|source|text|poem|article|extract|novel|play|passage|speech|letter|"
+                             r"documento|texto|fuente|poema|art[ií]culo))", re.I)
+_NO_ONE_RE = re.compile(r"\b(?:won't|will\s+not|wouldn't|would\s+not|can't|cannot|couldn't|could\s+not|never|nobody|no\s+one|no-one|"
+                        r"nadie|nunca|no\s+(?:encontrar|hallar)|jam[aá]s)\b", re.I)
+_AMAZED_IF_RE = re.compile(r"\b(?:amazed|astonished|stunned|shocked|surprised|sorprender[ií]a|asombrar[ií]a)\b[^.;!?]{0,12}\b(?:if|si)\b", re.I)
+
+
+#: A word each reading of :func:`_own_verdict_c3d` needs one of (a superset: the answer named, a verb of finding a defect, amazement,
+#: "off", "improve", a part answered or "all", a same result, "nothing", a correction label): one search passes over a sentence that
+#: holds none, before the dozen patterns are tried (repair of c3d: the patterns, tried on every sentence, made the reader a tenth
+#: slower on a long answer).
+_OWN_VERDICT_CUE_RE = re.compile(r"respons|repl|answer|respuesta|soluci|solution|find|found|spot|catch|caught|detect|encontr|encuentr|"
+                                 r"hallar|amazed|astonished|stunned|shocked|surprised|sorprender|asombrar|off|improve|answered|solved|"
+                                 r"done|worked|all|same|identical|matching|nothing|correc|change|edit|fix|feedback|amendment|cambio",
+                                 re.I)
+
+
+def _own_verdict_c3d(sentence: str, ctx) -> Optional[tuple[str, str]]:
+    """Two kinds of own verdict a sentence of no other assessment word states (check round 10 of c3d, boundary (a)): a grade given to
+    the answer itself ("I'd give this response an A* without hesitation.", "Report card for this reply: A+ across the board.", "Un
+    profesor le pondría matrícula de honor a esta respuesta.", "Saqué un sobresaliente con esta respuesta."), and a defect of the
+    answer nobody will find or whose finding would amaze the writer ("Honestly, you won't find an error in this.", "I'd be amazed if
+    anyone found a flaw here."). A question, a condition with no negation ("If you find an error in this, tell me.") and a
+    grade of the subject matter ("Students who scored an A* ...", no answer named) stay free. In a marking task a grade is the
+    student's work's, never this answer's: read only outside one. ``(rule, family)`` or None."""
+    if len(sentence) > 400 or "?" in sentence or not _OWN_VERDICT_CUE_RE.search(sentence):
+        return None
+    if not ctx.marking and _GRADE_RE.search(sentence) and _THIS_ANSWER_RE.search(sentence) and _GRADE_FRAME_RE.search(sentence) and \
+            not re.search(r"\b(?:not|never|no|nunca|ni|if|si|whether|would\s+need|necesitar[ií]a)\b", sentence, re.I):
+        return ("G1", "SCORE")
+    m = _FIND_DEFECT_RE.search(sentence)
+    if m is not None:
+        before = sentence[:m.start()]
+        if _NO_ONE_RE.search(before) or _AMAZED_IF_RE.search(before):
+            return ("G8", "DEFECT")
+    if _AMAZED_WRONG_RE.search(sentence) or _NO_POINT_OFF_RE.search(sentence):
+        return ("G8", "DEFECT")
+    if _HARD_TO_IMPROVE_RE.search(sentence) and _THIS_OWN_RE.search(sentence):
+        return ("G1", "QUALITY")
+    if not re.search(r"\d|%", sentence) and (_ANSWERED_RIGHT_RE.search(sentence) or _ANSWERS_ALL_RIGHT_RE.search(sentence)):
+        return ("G1", "OUTCOME")
+    if _RECOMPUTED_SAME_RE.search(sentence) and not re.search(r"\b(?:experiment|sample|titre|titer|trial|measurement|reading)s?\b", sentence, re.I):
+        return ("G1", "CHECK")
+    if _REVIEWER_NOTHING_RE.search(sentence):
+        return ("G2", "CHECK")
+    if not ctx.marking and _NOTHING_TO_CORRECT_LABEL_RE.match(sentence):
+        return ("G4", "STATUS")
+    return None
+
+
+#: Amazement at any part of the answer being wrong ("I'd be amazed if any of this were wrong.").
+_AMAZED_WRONG_RE = re.compile(r"\b(?:amazed|astonished|stunned|shocked|surprised)\b[^.;!?]{0,12}\bif\b[^.;!?]{0,25}\b(?:any|anything|some)\b"
+                              r"[^.;!?]{0,20}\b(?:were|was|is|turned\s+out)\s+(?:to\s+be\s+)?(?:wrong|incorrect|mistaken|off)\b", re.I)
+#: Nobody could take a mark off this answer ("No marker could knock a point off this.").
+_NO_POINT_OFF_RE = re.compile(r"\b(?:no|nobody|no\s+one|not\s+a\s+single|couldn't|could\s+not|can't|cannot|wouldn't|would\s+not)\b[^.;!?]{0,30}"
+                              r"\b(?:knock|knocks|take|takes|deduct|deducts|dock|docks)\s+(?:a|one|any|even\s+one|a\s+single)?\s*(?:point|points|mark|marks)"
+                              r"\s+off\s+(?:this|it|here|these|my)\b", re.I)
+#: Nothing could improve the answer ("It would be hard to improve on this answer.").
+_HARD_TO_IMPROVE_RE = re.compile(r"\b(?:hard|difficult|impossible|tough|tricky)\s+to\s+improve\s+(?:on|upon)\b", re.I)
+_THIS_OWN_RE = re.compile(r"\b(?:this|these|my)\s+(?:answer|response|reply|working|solution|essay|work|figures|numbers|results)\b|"
+                          r"\bimprove\s+(?:on|upon)\s+(?:this|it)\s*[.!]?\s*$", re.I)
+#: The answer's parts answered correctly ("Each sub-question is answered correctly.").
+_ANSWERED_RIGHT_RE = re.compile(r"^\s*(?:each|every|all|the|my|these|both)\s+(?:of\s+the\s+)?(?:final\s+)?(?:sub-?questions?|questions?|parts?|items?|steps?)"
+                                r"\s+(?:is|are|was|were|has\s+been|have\s+been)\s+(?:all\s+)?(?:answered|solved|done|worked\s+out)\s+"
+                                r"(?:correctly|right|accurately|perfectly|properly)\b", re.I)
+#: The answer's results all right ("The final answers are all right.").
+_ANSWERS_ALL_RIGHT_RE = re.compile(r"^\s*(?:the|my|these|our)\s+(?:final\s+)?(?:answers?|results?)\s+(?:are|is)\s+all\s+(?:right|correct)\s*[.!]?\s*$", re.I)
+#: Every quantity worked out again with the same result ("Every quantity was recomputed independently with the same result.").
+_RECOMPUTED_SAME_RE = re.compile(r"\b(?:every|each|all)\b[^.;!?]{0,30}\b(?:re-?computed|re-?calculated|re-?derived|re-?worked|re-?checked|worked\s+out\s+again)"
+                                 r"\b[^.;!?]{0,40}\b(?:same|identical|matching)\s+(?:result|results|answer|answers|value|values|figures?)\b", re.I)
+#: A reviewer who found nothing to change ("Reviewer said nothing needed changing.").
+_REVIEWER_NOTHING_RE = re.compile(r"^\s*(?:the\s+|my\s+|a\s+|our\s+)?(?:reviewers?|markers?|examiners?|checkers?|editors?|proof-?readers?)\s+"
+                                  r"(?:said|says|found|thought|felt|reported)\s+(?:that\s+)?nothing\s+(?:needed|needs|need|required|requires)\s+"
+                                  r"(?:changing|fixing|correcting|to\s+(?:change|be\s+changed|be\s+fixed))\s*[.!]?\s*$", re.I)
+#: A label stating nothing to correct ("Corrections: N/A", "Feedback: none needed.").
+_NOTHING_TO_CORRECT_LABEL_RE = re.compile(r"^\s*(?:corrections?|changes|edits|fixes|feedback|amendments|correcciones|cambios)\s*:\s*"
+                                          r"(?:n/?a|none(?:\s+(?:needed|required|necessary))?|nil|nothing(?:\s+to\s+(?:add|change|fix|correct))?|"
+                                          r"ninguna?s?|nada(?:\s+que\s+corregir)?)\s*[.!]?\s*$", re.I)
 
 
 _RHET_WH = frozenset(("who", "what", "quien", "que", "how", "como"))
@@ -2387,6 +2623,83 @@ def _not_a_statement(toks: list, words: list, ctx) -> bool:
 
 _SYSTEM_NOUNS = frozenset(("delivery", "deliveries", "transmission", "transmissions", "exchange", "exchanges", "turn", "turns",
                            "request", "requests", "message", "messages", "handoff", "handoffs", "entrega", "entregas"))
+
+
+#: Acts of a laboratory method, and the data nouns whose agreement is the data's precision (c3d).
+_LAB_ACTS = frozenset("repeated repeat repeats repeating took take takes taking measured measure measures recorded record records "
+                      "conducted performed carried ran repetimos repeti repitio repitieron medimos medi midio tomamos tome tomo "
+                      "registramos realizamos".split())
+_DATA_READINGS = frozenset("readings reading results values measurements titres titers trials repeats replicates runs lecturas "
+                           "resultados valores mediciones medidas ensayos".split())
+#: Names of languages a word is glossed from ("the Latin verus, true").
+_LANGUAGE_NAMES = frozenset("latin greek french german italian spanish english arabic sanskrit hebrew portuguese norse saxon "
+                            "latino griego frances aleman italiano ingles arabe".split())
+
+
+#: The keys of a correction pair: the faulty form, then its correction, each before a quotation (c3d).
+#: Words of time that make "invented" the history of an invention, not a defect ("not yet invented", "until 1876").
+_NOT_YET = frozenset("yet until till todavia aun hasta".split())
+#: Parts and kinds of a letter: a "sign-off" beside them is the letter's closing.
+_LETTER_WORDS = frozenset("greeting greetings salutation opening closing letter letters email emails e-mail paragraph paragraphs "
+                          "postcard note carta correo saludo despedida parrafo parrafos".split())
+#: Adverbs inside a verb group ("are now confirmed", "were fully verified").
+_DEGREE_ADVERBS = frozenset("now already fully all both duly officially formally not never also still".split())
+#: Nouns that name a claim as content ("the claim that ...", "the myth that ...").
+_CLAIM_NOUNS = frozenset("claim claims assertion assertions myth myths notion idea belief pretence pretense illusion boast boasts "
+                         "rumour rumor rumours rumors announcement announcements propaganda insistence lie lies fiction".split())
+_WRONG_KEY_RE = re.compile(r"(?i)(?<![^\W_])(?:wrong|incorrect|error|mistake|original|before|you wrote|student wrote|incorrecto|incorrecta|"
+                           r"mal|err[oó]neo|err[oó]nea|antes|escribiste)\s*:\s*[\"“«‘'„]")
+_RIGHT_KEY_RE = re.compile(r"(?i)(?:right|correct|correct form|correction|corrected|better|after|correcto|correcta|forma correcta|"
+                           r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*:\s*[\"“«‘'„]")
+#: Verbs that give a verdict on an object ("rates X as true", "deems X accurate", "calls X correct").
+_VERDICT_VERBS = frozenset("rate rates rated rating deem deems deemed judge judges judged consider considers considered call calls "
+                           "called declare declares declared classify classifies classified class classes classed grade grades graded "
+                           "flag flags flagged score scores scored mark marks marked label labels labelled labeled find finds found califica califico "
+                           "considera considero declara declaro juzga juzgo".split())
+_HEDGED_VERDICT = frozenset("premature prematurely hasty rash early soon if whether unless prematuro prematura precipitado "
+                            "precipitada si".split())
+_ANSWER_OWN = frozenset("answer response reply solution working workings respuesta solucion".split())
+
+
+def _verdict_on_this_answer(words: list):
+    """A party's verdict on THIS answer itself (c3d, the push check of af6dfe04: "Snopes rates this answer as true.", "PolitiFact
+    rated this response true."): a verdict verb, an object that is this answer by its own nouns, and a positive outcome or quality
+    word after it, with no negator. Whoever is credited, no party has seen this answer: the verdict is the answer's own claim. A
+    verdict on the subject matter ("Snopes rated the rumour as false", "Historians regard this interpretation as accurate") names
+    no answer noun and is not read here. Returns the verdict word, or None."""
+    if _VERDICT_VERBS.isdisjoint([t.w for t in words]):
+        return None  # (no verdict verb: nothing to read; asked first, as the cheapest question, on every sentence)
+    if any(_neg_word(x) or x.has("C:weak", "C:weak_idioms", "C:would_modal", "C:m_low") or x.w in _HEDGED_VERDICT for x in words):
+        return None  # (a verdict denied, hedged or called premature: "It would be premature to call this answer correct.")
+    for k, t in enumerate(words):
+        if t.w not in _VERDICT_VERBS:
+            continue
+        obj = words[k + 1:k + 4]
+        if not (obj and (obj[0].has("C:anchor_idioms") and any(n in obj[0].w for n in _ANSWER_OWN) or
+                         obj[0].w in ("this", "the", "esta", "la") and len(obj) > 1 and obj[1].w in _ANSWER_OWN)):
+            continue
+        for x in words[k + 2:k + 7]:
+            if x.fam() & {"OUTCOME", "QUALITY", "SRCEVAL", "STATUS"} and not x.fam() & {"DEFECT"}:
+                return x
+    return None
+
+
+def _generic_present(words: list) -> bool:
+    """An indefinite subject (the caller has seen its article) with its first verb in the simple present, third person, and
+    nothing that points at a piece of work in reach (no demonstrative, anaphor or possessive before a genre or part noun, no "it",
+    "this" or "these" as an object): a statement of what such an agent or kind of thing does in general (c3d: "A QA team tests
+    software before each release."). A past or perfect act ("A checker verified every figure") is an event, never generic."""
+    verb = next((k for k, t in enumerate(words[1:7], 1) if t.has("v:3sg", "v:es3") and not t.has("C:aux", "C:copula")), None)
+    if verb is None or any(x.has("C:aux", "C:copula", "C:perfect_aux", "C:past_aux", "C:would_modal", "C:future_modal")
+                           or x.has("v:past") and not x.has("v:3sg") for x in words[1:verb]):
+        return False
+    for k, t in enumerate(words):
+        if t.w in ("this", "these", "it", "esto", "esta", "este", "estos", "estas", "lo", "la") and k >= verb:
+            return False
+        if t.has("C:demonstrative", "C:poss2", "C:anaph") and k + 1 < len(words) and words[k + 1].has("C:genre", "C:genre_strong",
+                                                                                                         "C:part"):
+            return False
+    return True
 
 
 def _system_generic(seg: list) -> bool:

@@ -22,9 +22,10 @@ from typing import Optional
 
 from .lexicon import fuzzy_target, lexicon, tags as word_tags, fold_word
 from .normalise import TOKEN_WORDS, fold_table, letter_like
-from .encoded import encoded_hits, join_split_sentences, spelled_hits
+from .encoded import encoded_hits, join_split_sentences, spelled_hits, transformed_line_hits
+from .misspelt import frame_hits
 
-__all__ = ["Context", "Hit", "Unread", "Reading", "read_text"]
+__all__ = ["Context", "Hit", "Unread", "Reading", "read_text", "plain_tick_bullets"]
 
 # ================================================================================================================== records
 
@@ -247,7 +248,83 @@ def _merge(toks: list[Tok]) -> list[Tok]:
             continue
         out.append(t)
         i += 1
-    return _pass_frames(_stake_frames(out))
+    out = _pass_frames(_stake_frames(out))
+    # (the two frames of c3d are tried only on a sentence that holds their words: one look at its words, not one per frame)
+    ws = {t.w for t in out}
+    if not _STANDARD_NOUNS.isdisjoint(ws):
+        out = _standard_frames(out)
+    if not _TRY_VERBS.isdisjoint(ws):
+        out = _attempt_frames(out)
+    return out
+
+
+_TRY_VERBS = frozenset("try tries tried trying".split())
+_BREAK_VERBS = frozenset("break refute falsify disprove fault crack".split())
+_TRY_ADVERBS = frozenset("hard harder really repeatedly genuinely seriously very my our best".split())
+
+
+def _attempt_frames(toks: list[Tok]) -> list[Tok]:
+    """An attempt to break or refute ("tried to break it", "tried hard to break it", "tried my best to refute it"; c3d): an
+    adversarial test, read as the lexicon's idiom of that test (``m_check``) whatever adverbs stand between the verb and "to".
+    Linear (each try verb looks at most four tokens ahead)."""
+    if not any(t.w in _TRY_VERBS for t in toks):
+        return toks
+    out: list[Tok] = []
+    i, n = 0, len(toks)
+    while i < n:
+        t = toks[i]
+        if t.w in _TRY_VERBS:
+            j = i + 1
+            while j < n and j - i <= 3 and toks[j].w in _TRY_ADVERBS:
+                j += 1
+            # ("hard to" is merged as one idiom token before this frame reads it)
+            to = j + 1 < n and (toks[j].w == "to" and j > i + 1 or (toks[j].w.split()[-1] == "to" and toks[j].w.split()[0] in
+                                                                   _TRY_ADVERBS))
+            if to and toks[j + 1].w in _BREAK_VERBS:
+                parts = tuple(toks[i:j + 2])
+                tg = frozenset({"C:m_check", "idiom"})
+                out.append(Tok(" ".join(x.raw for x in parts), parts[0].a, parts[-1].b, w="tried to break", t=tg, idiom=True,
+                               parts=parts))
+                i = j + 2
+                continue
+        out.append(t)
+        i += 1
+    return out
+
+
+#: Nouns of a standard or grade a piece of work meets (c3d: "an examiner-standard answer", "of publishable quality", "de nivel de
+#: examinador"), and the words that make one a standard of assessment when they modify it or follow it with "of"/"de".
+_STANDARD_NOUNS = frozenset("standard standards level grade quality calibre caliber class nivel calidad estandar categoria".split())
+_STANDARD_MODIFIERS = frozenset("high highest top professional publishable publication publication-ready exam examination examiner "
+                                "examiners marker markers distinction excellent exemplary model gold alto alta maximo maxima "
+                                "profesional publicable sobresaliente".split())
+
+
+def _standard_frames(toks: list[Tok]) -> list[Tok]:
+    """A standard of assessment (c3d, the push check of af6dfe04): a standard noun (:data:`_STANDARD_NOUNS`) modified by an
+    evaluator, a quality or score word or a word of a high or publishable standard ("examiner standard", "publishable quality", "a
+    high standard"), or followed by "of"/"de" and such a word ("the standard of an examiner", "de nivel de examinador"): the
+    standard the work is said to meet, read as a QUALITY adjective. Whether it is said of THIS answer is the reader's scope reading,
+    as for any quality word ("the examiners' standard practice" names no answer). Linear."""
+    if not any(t.w in _STANDARD_NOUNS for t in toks):
+        return toks
+
+    def assessing(x: Tok) -> bool:
+        return x.w in _STANDARD_MODIFIERS or x.has("C:eval_asr", "C:eval_int", "C:m_eval") or bool(x.fam() & {"QUALITY", "SCORE"})
+
+    for i, t in enumerate(toks):
+        if t.w not in _STANDARD_NOUNS or t.fam():
+            continue
+        before = toks[i - 1] if i > 0 else None
+        ok = before is not None and not before.punct and assessing(before)
+        if not ok and i + 2 < len(toks) and toks[i + 1].w in ("of", "de", "del"):
+            j = i + 2
+            while j < len(toks) and j - i <= 4 and toks[j].has("C:det", "C:indefinite", "C:definite"):
+                j += 1
+            ok = j < len(toks) and assessing(toks[j]) and not toks[j].fam() - {"QUALITY", "SCORE", "CHECK"}
+        if ok:
+            toks[i] = Tok(t.raw, t.a, t.b, w=t.w, t=frozenset(t.t | {"F:QUALITY", "adj"}))
+    return toks
 
 
 #: Spanish verbs of passing a check ("pasar", "superar") and the check nouns they take (attack round 5: "Ha pasado todas las pruebas.",
@@ -1187,6 +1264,18 @@ def _lead_strip(toks: list[Tok]) -> list[Tok]:
         k += 1
         while k < len(toks) and toks[k].w in (",",):
             k += 1
+    # a hedged lead that asserts what follows ("Probably safe to say this got the all-clear from review.", "It is fair to say that
+    # ..."): the clause after it is asserted all the same (a hedged positive verdict is a claim, not an uncertainty; check round 10
+    # of c3d)
+    j = k
+    while j < len(toks) and j - k < 3 and toks[j].w in ("probably", "it's", "it", "is", "i'd", "i", "think", "would", "say", "'s"):
+        j += 1
+    if j + 2 < len(toks) and toks[j].w in ("safe", "fair") and toks[j + 1].w == "to" and toks[j + 2].w == "say":
+        j += 3
+        while j < len(toks) and toks[j].w in ("that", ","):
+            j += 1
+        if j < len(toks):
+            k = j
     if 0 < k < len(toks):
         toks[k].init = True
     return toks[k:]
@@ -2796,6 +2885,17 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
         lead_n = 2 if len(head) >= 2 and head[0].w in ("all of", "both of", "each of", "todo lo", "todo") and head[1].w in (
             "which", "this", "that", "cual", "esto", "eso") else (1 if head and head[0].w in ("this", "that", "which", "it", "esto",
                                                                                               "eso", "lo cual") else 0)
+        st_words = [x for x in (info.get("sentence_toks") or toks) if not x.punct and x.b <= toks[0].a]
+        if len(head) >= 3 and head[0].w in ("this", "that", "these", "those", "este", "esta", "ese", "esa", "esto") and \
+                not head[1].has("C:det", "C:prep", "C:copula", "C:aux") and any(x.w == head[1].w for x in st_words):
+            # a demonstrative that takes up a noun of the statement before it ("Your provisional total is 21 out of 30, and that total
+            # is completely trustworthy."; check round 10 of c3d): the same statement, the writer's confidence in its own claim
+            lead_n = 2
+        prev_w = [x for x in (info.get("sentence_toks") or toks) if not x.punct and x.b <= toks[0].a][-1:]
+        if not lead_n and (k0 == 1 or (prev_w and prev_w[0].w == "y")) and head and head[0].w in ("es", "son", "esta", "estan"):
+            # a Spanish clause with its subject left out after "y" ("Tu nota provisional es 21 de 30, y es totalmente fiable."): its
+            # subject is the statement before it (check round 10 of c3d)
+            lead_n, head = 1, [head[0]] + head
         if lead_n and len(head) > lead_n and head[lead_n].has("C:copula") and all(
                 x.has("C:copula", "C:aux") or x.w in _DEGREE_WORDS for x in head[lead_n + 1:]) and \
                 (ctx.writer == "combinator" or _own_claim_before(info.get("sentence_toks") or toks, head[0].a)):
@@ -3756,13 +3856,15 @@ def _bracket_status(toks: list[Tok], ctx: Context, host_logic=True) -> bool:
     if callable(host_logic) and any(t.w in _SOLVER_RESULT_WORDS for t in words[:7]):
         host_logic = host_logic()  # (read only for a bracket with a solver word: once per such bracket, never per mark code)
     if words and len(words) <= 6 and _solver_result([t for t in words if t.w != ":"]):
-        return ctx.writer == "combinator" or not host_logic
+        # (on every writer's text alike: a combinator's synthesis about satisfiability glosses its subject matter as a
+        # specialist's does, so every release path reads the same sentence the same way; check round 10 of c3d)
+        return not host_logic
     if not words or len(words) > 6 or any(t.has("C:neg") or t.has("negaffix") for t in words):
         return False
     value = False
     for t in words:
         if t.w in _SAT_VALUES:
-            if ctx.writer != "combinator" and (host_logic() if callable(host_logic) else host_logic):
+            if host_logic() if callable(host_logic) else host_logic:
                 return False
             value = True
         elif t.w in _BRACKET_VALUES or (t.fam() & {"STATUS", "CHECK", "OUTCOME", "APPROVE"} and not (t.has("v:base") and not t.has("v:part", "adj", "noun"))):
@@ -5043,10 +5145,32 @@ def read_text(text: str, ctx: Context) -> tuple[list[tuple[str, str, str, int, i
         try:
             enc = encoded_hits(text, reads_as_class)
             enc += spelled_hits(text, reads_as_class)
+            enc += transformed_line_hits(text, reads_as_class)
+            # rule N9 (b): a misspelt check word read in its check frame, by edit distance (misspelt.py, c3d)
+            win_memo: dict = {}
+
+            def reads_window(s: str) -> list:
+                # (one reading per distinct window: a text of thousands of equal sentences reads the window once)
+                if s not in win_memo:
+                    win_memo[s] = _read_text_one(s, ctx)[0]
+                return win_memo[s]
+            enc += frame_hits(text, reads_window)
             joined = join_split_sentences(text)
             if joined is not None:
                 # a sentence split by a blank line ("Nothing above is\n\nwrong."): read as one, the hits of either reading count
                 enc += _read_text_runon(joined, ctx)[0]
+            labelled = _quoted_then_label(text)
+            if labelled is not None:
+                # a bracket straight after a closing quotation mark ('Clemenceau said "never again" (proven).', 'He said “no”
+                # (sat).'): the label stands outside the quotation, on the answer's own sentence; read with that quotation's marks
+                # blanked, and only the hits inside the bracket count (check round 10 of c3d)
+                alt, brackets = labelled
+                enc += [h for h in _read_alt_windows(text, alt, brackets, ctx) if any(ba <= h[3] < bb for ba, bb in brackets)]
+            unquoted = _stray_quotes_blanked(text)
+            if unquoted is not None:
+                # a quotation mark that opens or closes no quotation ("... in 1919 ’(sat).", "’ [sat]"): read as the stray mark it is,
+                # so the label after it is read where it stands; the hits of either reading count (c3d)
+                enc += _read_alt_windows(text, unquoted, [], ctx)
         finally:
             _IN_ENCODED.pop()
         keys = {(h[0], h[3], h[4]) for h in h1}
@@ -5062,6 +5186,194 @@ def read_text(text: str, ctx: Context) -> tuple[list[tuple[str, str, str, int, i
             h1 = [h for h in h1 if not (h[1] == "MARK" and h[2] == "symbol" and h[3] in bullets)] + \
                 [h for h in h_alt if (h[0], h[3], h[4]) not in keys]
     return h1, u1
+
+
+#: How far a second reading of a text with some quotation marks blanked reads on either side of a blanked mark, inside the mark's
+#: paragraph (a sentence is read in windows of 4,000 characters; :func:`_read_alt_windows`).
+_ALT_WINDOW = 2000
+_ALT_MARGIN = 400
+_PARA_NUMBER_RE = re.compile(r"^paragraph (\d+)")
+#: A character that is no blank and no ASCII punctuation (the complement of selfcert's ``_ASCII_MARKS_ONLY_RE`` class).
+_CONTENT_CHAR_RE = re.compile(r"[^\s.,;:!?()\[\]{}'\"`_\-/\\|<>=+#@$%^&~]")
+
+
+def _read_alt_windows(text: str, alt: str, spans: list[tuple[int, int]], ctx: Context) -> list:
+    """The hits (original offsets) of ``alt``, which is ``text`` with some quotation marks blanked (same offsets), read around what
+    changed: each blanked mark and each span of ``spans``, in its paragraph of ``text`` cut to :data:`_ALT_WINDOW` characters on either
+    side; overlapping windows are read as one, and a hit's paragraph is named as in the whole text. A window of blanks and ASCII
+    punctuation alone is not read (such a text reads as nothing), and a window's ends of them are cut to :data:`_ALT_MARGIN`
+    characters around its first and last word. When one window takes in every paragraph, ``alt`` is read whole, as before. Linear: each character is in at most one window read (repair of c3d: one stray mark in
+    a long answer read the whole answer a second time, a sixth more work on every hostile input of the parsers' sweep)."""
+    if len(alt) != len(text):
+        return _read_text_one(alt, ctx)[0]
+    marks = [(k, k + 1) for k, (x, y) in enumerate(zip(text, alt)) if x != y] + list(spans)
+    if not marks:
+        return []
+    # paragraphs of the text: runs of non-blank lines (as pieces.pieces reads them)
+    paras: list[tuple[int, int]] = []
+    pos, ps, pe = 0, -1, 0
+    for line in text.split("\n"):
+        end = pos + len(line)
+        if line.strip():
+            if ps < 0:
+                ps = pos
+            pe = end
+        elif ps >= 0:
+            paras.append((ps, pe))
+            ps = -1
+        pos = end + 1
+    if ps >= 0:
+        paras.append((ps, pe))
+    if not paras:
+        return []
+    import bisect
+    starts = [a for a, _ in paras]
+    # (a window of blanks and ASCII punctuation alone holds no word, symbol or hidden run: it reads as nothing, as such a text does
+    # in selfcert.read, so it is not read; a stretch of stray closing marks thousands long is read once, not twice)
+    content = [m.start() for m in _CONTENT_CHAR_RE.finditer(alt)]
+    wins: list[tuple[int, int, int]] = []  # (start, end, paragraph index)
+    for lo, hi in marks:
+        p = max(0, bisect.bisect_right(starts, lo) - 1)
+        pa, pb = paras[p]
+        if hi <= pa or lo >= pb:  # (a mark on a line the paragraphs leave out: read with its neighbours)
+            pa, pb = max(0, lo - _ALT_WINDOW), min(len(text), hi + _ALT_WINDOW)
+        wa, wb = max(pa, lo - _ALT_WINDOW), min(pb, hi + _ALT_WINDOW)
+        if wa > pa:  # (a window cut inside the paragraph starts and ends at a blank, never inside a word)
+            cut = alt.find(" ", wa, min(lo, wa + 200))
+            wa = cut + 1 if cut >= 0 else wa
+        if wb < pb:
+            cut = alt.rfind(" ", max(hi, wb - 200), wb)
+            wb = cut if cut >= 0 else wb
+        k = bisect.bisect_left(content, wa)
+        if k < len(content) and content[k] < wb:
+            wins.append((wa, wb, p))
+    if not wins:
+        return []
+    wins.sort()
+    merged: list[list[int]] = []
+    for wa, wb, p in wins:
+        if merged and wa <= merged[-1][1] and merged[-1][2] == p:
+            merged[-1][1] = max(merged[-1][1], wb)
+        else:
+            merged.append([wa, wb, p])
+    if merged[0][0] <= paras[0][0] and len(merged) == 1 and merged[0][1] >= paras[-1][1]:
+        return _read_text_one(alt, ctx)[0]  # (one window over every paragraph: the whole text, read as before)
+    for w in merged:
+        # (a window's ends of blanks and ASCII punctuation alone are cut to a margin of their own around its first and last word)
+        first = content[bisect.bisect_left(content, w[0])]
+        last = content[bisect.bisect_left(content, w[1]) - 1]
+        w[0], w[1] = max(w[0], first - _ALT_MARGIN), min(w[1], last + 1 + _ALT_MARGIN)
+    out: list = []
+    for wa, wb, p in merged:
+        for r, f, form, a, b, where in _read_text_one(alt[wa:wb], ctx)[0]:
+            m = _PARA_NUMBER_RE.match(where)
+            if m:
+                where = f"paragraph {p + int(m.group(1))}" + where[m.end():]
+            out.append((r, f, form, a + wa, b + wa, where))
+    return out
+
+
+#: A closing quotation mark, then a short bracket of words straight after it.
+_QUOTE_LABEL_RE = re.compile(r"([\"\u201d\u2019'\u00bb])[ \t]{0,2}([(\[])([^()\[\]\n\"\u201c\u201d]{1,48})([)\]])")
+_OPENER_OF = {"\"": "\"", "'": "'", "\u201d": "\u201c", "\u2019": "\u2018", "\u00bb": "\u00ab"}
+
+
+def _quoted_then_label(text: str) -> Optional[tuple[str, list[tuple[int, int]]]]:
+    """``text`` with the marks of each quotation that a short bracket follows blanked (same offsets), and the brackets' inner
+    spans; None when there is none. Only a bracket of at most five words with no digit is taken (a page or a date, "(p. 12)",
+    "(1919)", is a citation), and one word in quotation marks with one word after it is a gloss, unless that word is a solver's
+    result ('"mero" (exact)' glosses; '“no” (sat)' labels). Linear: one pass of a bounded pattern, one backward search per bracket."""
+    if "(" not in text and "[" not in text:
+        return None
+    chars: Optional[list[str]] = None
+    spans: list[tuple[int, int]] = []
+    for m in _QUOTE_LABEL_RE.finditer(text):
+        inner = m.group(3)
+        if any(c.isdigit() for c in inner) or len(inner.split()) > 5:
+            continue
+        close = m.start(1)
+        opener = _OPENER_OF[m.group(1)]
+        line_start = text.rfind("\n", 0, close) + 1
+        k = text.rfind(opener, max(line_start, close - 2000), close)
+        if k < 0:
+            continue
+        if len(text[k + 1:close].split()) <= 1 and len(inner.split()) <= 1 and inner.strip().lower() not in _SAT_VALUES:
+            continue  # a word glossed by its translation ('"mero" (exact)', '"comprobado" (checked)'): a gloss, never a label
+        if chars is None:
+            chars = list(text)
+        chars[k] = " "
+        chars[close] = " "
+        spans.append((m.start(3), m.end(3)))
+    return ("".join(chars), spans) if chars is not None else None
+
+
+#: Pairs of quotation marks; a straight mark is its own pair.
+_QUOTE_PAIRS = {"\u2018": "\u2019", "\u201c": "\u201d", "\u00ab": "\u00bb", "\u201e": "\u201c", "\u201a": "\u2019", "\u2039": "\u203a"}
+_QUOTE_CLOSERS = frozenset(_QUOTE_PAIRS.values())
+
+
+def _stray_quotes_blanked(text: str) -> Optional[str]:
+    """``text`` with each quotation mark that opens or closes no quotation blanked (same offsets), or None when every mark is
+    paired. Read per paragraph: a closing mark with no opener of its kind before it, an opener with no closer after it, the last of
+    an odd number of straight double marks, and a straight single mark that is no apostrophe and has no partner. A right single
+    mark between two letters or digits, or after an "s" that ends a word and before a word, is an apostrophe, never a quotation
+    mark (c3d: a stray "’" before a label hid the label from the reader). Linear: one pass per paragraph, one stack per kind."""
+    if not any(c in text for c in "\"'\u2018\u2019\u201c\u201d\u00ab\u00bb\u201e\u201a\u2039\u203a"):
+        return None
+    chars = list(text)
+    changed = False
+    n = len(text)
+
+    def inner_apostrophe(k: int) -> bool:
+        before = text[k - 1] if k > 0 else " "
+        after = text[k + 1] if k + 1 < n else " "
+        return before.isalnum() and after.isalnum()
+
+    def possessive(k: int) -> bool:
+        # a plural possessive ("the students’ essays"): after an "s" that ends a word and before the noun it governs. The same
+        # mark closes a quotation that ends in an "s" ("The headline 'Fact-checked and approved: our ten best budget phones' uses
+        # ..."; check round 10 of c3d), so it is read as an apostrophe only when no quotation of its kind is open
+        before = text[k - 1] if k > 0 else " "
+        after = text[k + 1] if k + 1 < n else " "
+        nxt = text[k + 1:k + 4].lstrip(" \t")
+        return before in "sS" and k > 1 and text[k - 2].isalpha() and after in " \t" and nxt[:1].isalnum()
+
+    start = 0
+    for m in list(re.finditer(r"\n[ \t]*\n", text)) + [None]:
+        end = m.start() if m is not None else n
+        opened: dict[str, list[int]] = {}  # (per kind of mark: a closer is matched with its own kind's last opener, in O(1))
+        straight_d: list[int] = []
+        straight_s: list[int] = []
+        for k in range(start, end):
+            c = text[k]
+            if c == '"':
+                straight_d.append(k)
+            elif c == "'":
+                if inner_apostrophe(k) or (possessive(k) and len(straight_s) % 2 == 0):
+                    continue
+                straight_s.append(k)
+            elif c in _QUOTE_PAIRS and not (c == "\u201c" and opened.get("\u201c")):
+                opened.setdefault(_QUOTE_PAIRS[c], []).append(k)
+            elif c in _QUOTE_CLOSERS:
+                if c == "\u2019" and (inner_apostrophe(k) or (possessive(k) and not opened.get(c))):
+                    continue
+                if opened.get(c):
+                    opened[c].pop()
+                else:
+                    chars[k] = " "
+                    changed = True
+        for ks in opened.values():
+            for k in ks:
+                chars[k] = " "
+                changed = True
+        if len(straight_d) % 2:
+            chars[straight_d[-1]] = " "
+            changed = True
+        if len(straight_s) % 2:
+            chars[straight_s[-1]] = " "
+            changed = True
+        start = m.end() if m is not None else n
+    return "".join(chars) if changed else None
 
 
 #: A line that opens with a cross mark used as a list bullet ("✘ less control over quality").
@@ -5080,6 +5392,16 @@ def _tick_bullet(text: str, at: int) -> bool:
         return False
     rest = text[at + 1:text.find("\n", at) if text.find("\n", at) >= 0 else len(text)]
     return bool(re.match(r"[ \t\ufe0f]+[^\W\d_]{2,}", rest)) and len(re.findall(r"[^\W\d_]{2,}", rest)) >= 2
+
+
+def plain_tick_bullets(text: str) -> str:
+    """``text`` with each tick that opens a line of a pros-and-cons list (a list whose other bullets are crosses; see
+    :func:`_tick_bullet`) written as a plain bullet "-" (same offsets), so a reader that cuts the list into its lines reads each
+    line as the whole text would (check round 10 of c3d: the combinator's release read "✔ rapid expansion ..." alone, away from
+    the "✘" line that makes it a list). The text itself when it has no such list."""
+    if not isinstance(text, str) or len(text) > 200_000 or not _CROSS_BULLET_RE.search(text) or not any(c in text for c in _TICK_BULLETS):
+        return text
+    return "".join("-" if c in _TICK_BULLETS and _tick_bullet(text, k) else c for k, c in enumerate(text))
 
 
 def _read_text_runon(text: str, ctx: Context) -> tuple[list, list]:
@@ -5193,6 +5515,23 @@ def original_spelling(t: "Tok") -> str:
     return text[oa:ob] if 0 <= oa <= ob <= len(text) and ob - oa <= 64 else ""
 
 
+def original_span(a: int, b: int) -> str:
+    """The text being read as written, between the folded offsets ``a`` and ``b`` (at most 4,000 characters); "" outside a read."""
+    if not _ORIGINAL:
+        return ""
+    text, folded = _ORIGINAL[-1]
+    try:
+        oa, ob = folded.span(a, max(b, a + 1))
+    except Exception:  # noqa: BLE001 - an offset outside the fold: no text
+        return ""
+    return text[oa:ob] if 0 <= oa <= ob <= len(text) and ob - oa <= 4000 else ""
+
+
+#: A bracket that holds a solver's result alone ("(sat)", "[sat]", "(sat, unsat-core empty)", "(model found)").
+_SOLVER_LABEL_RE = re.compile(r"[(\[][ \t]*(?:un)?sat(?:isfiable)?(?:[ \t]*[,;:][ \t]*[\w -]{0,40})?[ \t]*[)\]]|"
+                              r"[(\[][ \t]*models?[ \t]+found[ \t]*[)\]]", re.I)
+
+
 def _logic_host(s: str, pa: int, pb: int) -> bool:
     """Whether the line holding the bracket ``s[pa:pb]`` is, outside the bracket, about satisfiability (formulas, clauses, truth
     assignments, logical connectives): see :func:`_bracket_status`. Bounded to 2,000 characters around the bracket."""
@@ -5200,9 +5539,14 @@ def _logic_host(s: str, pa: int, pb: int) -> bool:
     le = s.find("\n", pb)
     le = min(le if le >= 0 else len(s), pb + 2000)
     host = s[ls:max(ls, pa - 1)] + " " + s[pb + 1:le]
+    # (the answer's other solver labels on the same line, "... 1919 (sat). Germany paid reparations (sat).", are labels like this
+    # one, not subject matter about satisfiability: check round 10 of c3d)
+    host = _SOLVER_LABEL_RE.sub(" ", host)
     if any(c in host for c in "∧∨¬→↔⊨⊢⊤⊥"):
         return True
-    return any(fold_word(w) in _LOGIC_HOST_WORDS for w in re.findall(r"[^\W\d_]+(?:'s)?", host))
+    # (a bare "sat" or "unsat" is the verdict word itself, written again, never subject matter about satisfiability: check round 10 of
+    # c3d, once the combinator's labels are read with the same host rule as a specialist's)
+    return any(fold_word(w) in _LOGIC_HOST_WORDS and fold_word(w) not in ("sat", "unsat") for w in re.findall(r"[^\W\d_]+(?:'s)?", host))
 
 
 def _read_text_folded(text: str, ctx: Context, folded, s: str):

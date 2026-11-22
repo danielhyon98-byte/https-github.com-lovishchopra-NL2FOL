@@ -369,6 +369,10 @@ def tags(word: str) -> frozenset[str]:
                                                                                              "system", "gdc", "machine", "computer"):
                 return frozenset(t | {"evalcompound"})
             return frozenset(t | {"compound"})
+        if last in _STANDARD_LASTS and lex.words.get(head, set()) & {"C:eval_asr", "C:eval_int", "C:m_eval"}:
+            # an evaluator's standard or level ("examiner-standard", "marker-level", "examiner-proof", "teacher-ready"): the standard
+            # the work is said to meet, a quality word (c3d)
+            return frozenset({"F:QUALITY", "adj", "evalcompound"})
         if last == "free":
             t = lex.words.get(head, set())
             if "F:DEFECT" in t:
@@ -399,6 +403,10 @@ def tags(word: str) -> frozenset[str]:
     if fz is not None:
         return frozenset(tags(fz) | {"fuzzy"})
     return frozenset()
+
+
+#: The last parts of an evaluator's compound that name a standard the work meets (:func:`tags`).
+_STANDARD_LASTS = frozenset("standard level grade quality calibre caliber class proof ready worthy".split())
 
 
 _TRIPLED_RE = re.compile(r"([a-z])\1{2,}")

@@ -511,9 +511,12 @@ def test_every_synthesis_label_the_deleted_patterns_found_is_a_self_certificatio
     ``_SYNTH_VERDICT_LABEL_RE`` with the patterns before integration gate 2, match for match, over random texts. c3b deletes those
     patterns (design section 1.3); the equivalence has no subject left. The property they served is kept and made stricter: over
     the same random texts, every text in which the old proof or verdict label patterns found a label is a self-certification of the
-    combinator's synthesis for the one reader (writer ``combinator``), and the reader's verdict is the same whatever the order of
-    reading. Texts whose label stands inside an unclosed quotation mark or across a blank line are left out: the reader reads a
-    quotation and a paragraph as their own pieces (3.6), where the old patterns read the characters."""
+    combinator's synthesis for the one reader (writer ``combinator``).
+
+    Stricter (c3d, the push check of af6dfe04): no text is left out. The c3b rewrite skipped every text holding a double quotation
+    mark, a right single quotation mark or a blank line, and on this seed 4 of the 69 skipped texts were not refused: a stray
+    closing mark before a label ("... in 1919 ’(sat).") hid the label. The reader now reads a quotation mark that opens or closes no
+    quotation as the stray mark it is, so every text the old patterns found a label in is read, and the count read is fixed."""
     from epinoic_logic import selfcert
 
     ctx = selfcert.Context(writer="combinator")
@@ -523,13 +526,11 @@ def test_every_synthesis_label_the_deleted_patterns_found_is_a_self_certificatio
     for text in _random_texts(alphabet, 34, 60000, longest=10):
         if not (OLD_SYNTH_PROOF_LABEL_RE.search(text) or OLD_SYNTH_VERDICT_LABEL_RE.search(text)):
             continue
-        if '"' in text or "’" in text or "\n\n" in text:
-            continue
         read += 1
         if not selfcert.read(text, ctx).refuses():
             missed += 1
             assert False, repr(text)
-    assert read > 150 and missed == 0
+    assert read == 257 and missed == 0  # (257 on this seed: the 188 read before c3d and the 69 it skipped)
 
 
 @pytest.mark.parametrize("lead", ["This synthesis is faithful", "(proven", "(signed engine result", "(sat", "My reading is exact", "The figures are accurate"])

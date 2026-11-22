@@ -169,7 +169,10 @@
     "verificador",
     "revisor",
     "corrector",
-    "examinador"
+    "examinador",
+    "revisores",
+    "revisoras",
+    "revisora"
    ],
    "es_verbs": [
     "verificar:ar",
@@ -454,7 +457,11 @@
     "las cuentas cuadran",
     "cuadran las cuentas",
     "las cuentas dan",
-    "cuentas salen"
+    "cuentas salen",
+    "se cumple",
+    "se cumplen",
+    "se verifica",
+    "se verifican"
    ]
   },
   "AGREE": {
@@ -551,7 +558,15 @@
     "tied back",
     "ties out",
     "tie out",
-    "tied out"
+    "tied out",
+    "the same totals",
+    "same totals",
+    "the same results",
+    "the same values",
+    "got the same",
+    "get the same",
+    "obtained the same",
+    "reached the same"
    ]
   },
   "QUALITY": {
@@ -597,7 +612,13 @@
     "ironclad",
     "unassailable",
     "bankable",
-    "kosher"
+    "kosher",
+    "publishable",
+    "publication-ready",
+    "submission-ready",
+    "exam-ready",
+    "print-ready",
+    "camera-ready"
    ],
    "es_adjectives": [
     "solido:a4",
@@ -605,7 +626,8 @@
     "completo:a4",
     "excelente:a2",
     "impecable:a2",
-    "intachable:a2"
+    "intachable:a2",
+    "publicable:a2"
    ],
    "idioms": [
     "rock solid",
@@ -816,7 +838,17 @@
     "banda 7",
     "top markband",
     "top mark band",
-    "highest markband"
+    "highest markband",
+    "la maxima nota",
+    "la maxima calificacion",
+    "maxima calificacion",
+    "la calificacion maxima",
+    "calificacion maxima",
+    "ten out of ten",
+    "a ten out of ten",
+    "twenty out of twenty",
+    "seven out of seven",
+    "full score"
    ],
    "verbs": [
     "earn:r",
@@ -865,7 +897,11 @@
     "unsatisfiable",
     "settled",
     "backed",
-    "established"
+    "established",
+    "qc'd",
+    "qa'd",
+    "qced",
+    "qaed"
    ],
    "upper_only": [
     "SAT",
@@ -941,7 +977,9 @@
     "lgtm",
     "imprimatur",
     "go-ahead",
-    "nod"
+    "nod",
+    "backing",
+    "blessing"
    ],
    "es_verbs": [
     "aprobar:ar|apruebo,aprueba,aprueban,apruebe",
@@ -1059,7 +1097,46 @@
     "don't bother checking",
     "no hace falta comprobar",
     "no hace falta revisar",
-    "no hace falta verificar"
+    "no hace falta verificar",
+    "tal cual",
+    "tal como esta",
+    "tal y como esta",
+    "entregar esto",
+    "entregarlo",
+    "entregalo",
+    "entregala",
+    "presentar esto",
+    "presentarlo",
+    "ready to publish",
+    "ready for publication",
+    "fit to publish",
+    "fit for publication",
+    "safe to publish",
+    "publish as is",
+    "publish this",
+    "publish it",
+    "listo para publicar",
+    "lista para publicar",
+    "listo para presentar",
+    "lista para presentar",
+    "enviar tal cual",
+    "ready to print",
+    "ready for print",
+    "signed them off",
+    "sign them off",
+    "signs them off",
+    "signing them off",
+    "signed these off",
+    "signed those off",
+    "signed everything off",
+    "signed all of it off",
+    "signed all this off",
+    "nothing to say about",
+    "had nothing to say",
+    "has nothing to say",
+    "nothing to object",
+    "all-clear",
+    "the all-clear"
    ]
   },
   "ASSURE": {
@@ -1116,7 +1193,11 @@
     "lo firmo",
     "lo firmaria",
     "lo suscribo",
-    "yo lo firmo"
+    "yo lo firmo",
+    "banked on",
+    "cash a cheque on",
+    "cash a check on",
+    "take them to the bank"
    ]
   },
   "COMPLY": {
@@ -1167,7 +1248,11 @@
     "hit every",
     "hits all",
     "hits each",
-    "hitting every"
+    "hitting every",
+    "fully compliant",
+    "entirely compliant",
+    "completely compliant",
+    "fully conformant"
    ],
    "verbs": [
     "comply:y"
@@ -1329,7 +1414,13 @@
     "contradiccion",
     "contradicciones",
     "slip-up",
-    "slip-ups"
+    "slip-ups",
+    "counter-model",
+    "counter-models",
+    "countermodel",
+    "countermodels",
+    "contramodelo",
+    "contramodelos"
    ],
    "adjectives": [
     "wrong",
@@ -2823,7 +2914,9 @@
    "isabelle",
    "wolfram alpha",
    "wolfram|alpha",
-   "ensemble"
+   "ensemble",
+   "solucionador",
+   "solucionadores"
   ],
   "eval_int_agentive": [
    "agent",
@@ -2901,7 +2994,9 @@
    "examiners' report",
    "marker's report",
    "moderator's report",
-   "teacher's report"
+   "teacher's report",
+   "revisores",
+   "revisoras"
   ],
   "eval_out": [
    "office",
@@ -3427,7 +3522,9 @@
    "directora",
    "eslogan",
    "memoria",
-   "memoirs"
+   "memoirs",
+   "magazine",
+   "magazines"
   ],
   "analysis": [
    "contradicts",
@@ -4764,7 +4861,9 @@
    "resenas",
    "blurb",
    "testimonial",
-   "testimonials"
+   "testimonials",
+   "magazine",
+   "magazines"
   ],
   "kin": [
    "mother",
@@ -5296,7 +5395,35 @@
    "set out",
    "thrown",
    "layer",
-   "layers"
+   "layers",
+   "chance",
+   "chances",
+   "possibility",
+   "likelihood",
+   "odds",
+   "posibilidad",
+   "probabilidad",
+   "entregar",
+   "entregarse",
+   "entregarlo",
+   "entregado",
+   "entregada",
+   "publicar",
+   "publicarse",
+   "publicado",
+   "publicada",
+   "publish",
+   "gate",
+   "gates",
+   "quality gate",
+   "ortografia",
+   "spelling",
+   "gramatica",
+   "grammar",
+   "algo de esto",
+   "algo de lo anterior",
+   "algo de lo de arriba",
+   "algo aqui"
   ],
   "m_pos": [
    "iron-clad",
@@ -5420,7 +5547,16 @@
    "aguanta",
    "aguantaria",
    "sobrevive",
-   "sobreviviria"
+   "sobreviviria",
+   "could not be improved",
+   "cannot be improved",
+   "can't be improved",
+   "couldn't be improved",
+   "could not be bettered",
+   "cannot be bettered",
+   "no se puede mejorar",
+   "no podria mejorarse",
+   "imposible de mejorar"
   ],
   "m_def": [
    "wanting",
@@ -5532,7 +5668,23 @@
    "objetar",
    "mark off",
    "marks off",
-   "a mark off"
+   "a mark off",
+   "mal",
+   "slipped past",
+   "slip past",
+   "slips past",
+   "slipping past",
+   "slipped through",
+   "slip through",
+   "slips through",
+   "poke a hole",
+   "poke holes",
+   "poked a hole",
+   "poked holes",
+   "pick holes",
+   "picked holes",
+   "pick a hole",
+   "a hole in it"
   ],
   "m_neg": [
    "impossible",
@@ -5737,7 +5889,20 @@
    "proof-read",
    "leyo",
    "leido",
-   "lo leyo"
+   "lo leyo",
+   "through the mill",
+   "through the wringer",
+   "been through the mill",
+   "been through the wringer",
+   "tried to break",
+   "try to break",
+   "trying to break",
+   "tried to falsify",
+   "tried to refute",
+   "reproduced",
+   "reproduce",
+   "reproduces",
+   "reproducible"
   ],
   "m_score_verb": [
    "puso",
