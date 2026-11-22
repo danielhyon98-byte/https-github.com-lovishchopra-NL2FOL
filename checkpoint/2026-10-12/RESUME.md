@@ -633,3 +633,16 @@ Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing i
   pushcheck-c3d.js; six held commits incl. 2ff70224 + af6dfe04; probes under wf/phase2/c3d/push-check). Launch with
   Workflow({scriptPath: S/wf-scripts/pushcheck-c3d.js, args: {sha: "<c3d commit full sha>"}}) when fix-c3d commits
   (a remote-head watch like 19:0x: until origin dev head != 82774fc4...).
+
+## 22 Nov 06:2x — fix-c3e running; its push check and handoff refresh are READY
+- fix-c3e: wf_1fbfc32b-415 (task w9lap5ua2), script wf-scripts/fix-c3e.js; fixers write progress to wf/phase2/c3e/progress-c3e-*.md.
+  If interrupted: Workflow({scriptPath: S/wf-scripts/fix-c3e.js, resumeFromRunId: "wf_1fbfc32b-415"}).
+- Push check READY: wf-scripts/pushcheck-c3e.js (make_pushcheck_c3e.py fix-c3c.js pushcheck-c3e.js): seven held commits
+  incl. 2be42c48; five lenses (readings-diff added); the judge and challenger get every lens's critical_open IN FULL (the c3d
+  judge's 40,000-character slice dropped the Geography lead; see 04-PROCEDURES) and the judge fills `accounted`.
+  Launch with Workflow({scriptPath: S/wf-scripts/pushcheck-c3e.js, args: {sha: "<c3e commit full sha>"}}) when fix-c3e commits.
+  After it: check result push_check.accounted == push_check.lens_items.
+- Handoff refresh READY: wf-scripts/handoff-c3e.js, args {sha, date: "22 November"}; PUB filled-22nov -> HDIR handoff/refresh-c3e;
+  then bash S/handoff/push_handoff.sh S/handoff/refresh-c3e 1c2fb5cd0b64dafdea25ce9471d533afbbbde08b --dry-run, then without
+  --dry-run; copy to handoff/filled-c3e.
+- Next-round candidate (02-PRIORITIES): replay worker orphaned when its parent is killed.
