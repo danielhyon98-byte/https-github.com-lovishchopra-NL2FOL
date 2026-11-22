@@ -2864,3 +2864,15 @@ Measured results only.
   reproduced 72 items.
 - Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
   pending the owner's decision on a meaning check.
+
+### Progress, 05:00 UTC (22 November)
+- A second follow-up "Fix the c3 clearance findings" commit (`2be42c48`) is verified: the full suite has 45,120
+  passed, 1 skipped, 1 xfailed and 0 failed of 45,122 collected; the harness replays every recorded round as before
+  (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203, c2 188/188, c3 164/176).
+- It fixes the holds of the previous commit's push check that need no owner decision (five named own-quality claims,
+  near variants of fixed items, a test exclusion that hid texts with quotation marks, a regression in the channel's
+  own-wording quotation check, over-blocks of correct work, an unlabelled overseer skip) and open branch and own-text
+  items. The check round after the fixes measured 3 of 65 fresh self-certifying phrasings missed (4.6%), 0 of 20
+  correct sentences gated, and 0 misses and 0 false positives on the held-out sets.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.
