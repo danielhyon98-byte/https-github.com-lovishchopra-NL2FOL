@@ -646,3 +646,13 @@ Read STANDING_INSTRUCTIONS.md (in tools.tar.xz) first; it holds every standing i
   then bash S/handoff/push_handoff.sh S/handoff/refresh-c3e 1c2fb5cd0b64dafdea25ce9471d533afbbbde08b --dry-run, then without
   --dry-run; copy to handoff/filled-c3e.
 - Next-round candidate (02-PRIORITIES): replay worker orphaned when its parent is killed.
+
+## 22 Nov 16:0x — fix-c3e verification keeps failing on wall-clock bounds; stabilisation planned
+- fix-c3e = wf_1fbfc32b-415 (task wrtssw69x, r2 script). Verify 1 and 2 failed only on timing (History hostile 117.5 s alone
+  vs 120 s timeout; physics hub 21.3 s vs 20; stem median 51 vs 50 ms; port cold clearance 300 vs 250 ms window; selfcert
+  'repeated not' ratio). Repair 2 judged them load-induced ("no change").
+- PLAN: watcher bppvaet12 fires when repair 2 returns -> TaskStop wrtssw69x at once -> run
+  Workflow({scriptPath: S/wf-scripts/stabilize-c3e.js}) (stabilizer snapshots the tree to wf/phase2/c3e/stab/before-src,
+  speeds up hot paths with no reading changed, checker re-measures under two-process load + readings diff on all recorded
+  rounds) -> then resume Workflow({scriptPath: S/wf-scripts/fix-c3e.js, resumeFromRunId: "wf_1fbfc32b-415"}) (cached up to
+  repair 2; the verify after repair 2 runs live on the stabilised tree) -> commit -> pushcheck-c3e (ready) -> handoff-c3e.
