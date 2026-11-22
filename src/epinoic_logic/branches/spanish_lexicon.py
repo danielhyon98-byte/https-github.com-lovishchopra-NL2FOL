@@ -330,6 +330,12 @@ _CONCEPTS = {
     "hour": "hour hours hora horas",
     "night": "night nights noche noches",
     "family": "family families familia familias",
+    # events a task sets a length for (c3d: 'tres semanas de intercambio' against 'The exchange lasted two weeks')
+    "exchange": "exchange exchanges intercambio intercambios",
+    "trip": "trip trips journey journeys viaje viajes",
+    "visit": "visit visits visita visitas",
+    "holiday": "holiday holidays vacation vacations vacaciones",
+    "course": "course courses curso cursos",
     "translator": "translator translators traductor traductores",
     "close": "closed close shut cerrada cerrado cerró cerro closure cierre",
     "arrive": "arrived arrive came llegó llego llegaron llegada",

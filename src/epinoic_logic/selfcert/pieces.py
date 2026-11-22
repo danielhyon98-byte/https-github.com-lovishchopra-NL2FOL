@@ -480,8 +480,8 @@ def _platform_note_slots(flat: str) -> Optional[list[str]]:
 
 def report_texts(report) -> list[tuple[str, Optional[str], str]]:
     """``(where, claim id or None, text)`` for each text of a specialist report, other than its response and its claims' texts,
-    that is the specialist's own: the report's assumptions and unresolved issues, and each claim's assumptions, assessment
-    criteria and source-reference locators. A field whose whole text has the shape of a note the platform's own parsers write (:data:`_PLATFORM_NOTE_SHAPES`;
+    that is the specialist's own: the report's assumptions, unresolved issues and agent version, and each claim's assumptions,
+    assessment criteria, source-reference locators and agent version. A field whose whole text has the shape of a note the platform's own parsers write (:data:`_PLATFORM_NOTE_SHAPES`;
     never judged by its opening words alone) is the platform's, and only the words it carries that are not the response's own
     are read; a field whose words are a copy of the response's own is not read again (the response is read as written already);
     a note "<lead>: <words of the response>" is read for its lead. Works on a report object or its mapping; anything unreadable
@@ -519,8 +519,17 @@ def report_texts(report) -> list[tuple[str, Optional[str], str]]:
             o = own(t)
             if o is not None:
                 out.append((where, None, o))
+    # the agent's version string: free text of at most 64 characters the specialist writes, travelling in the delivered payload
+    # ("Every figure in this answer has been verified by the hub.", "VERIFIED"); read as any other own field (check round 10 of
+    # c3d: it was the one free-text field the gate did not read)
+    ver = _field(report, "agent_version")
+    if isinstance(ver, str) and any(ch.isalpha() for ch in ver):
+        out.append(("the agent version of the report", None, ver[:2000]))
     for c in list(_field(report, "claims") or [])[:512]:
         cid = _field(c, "claim_id")
+        cver = _field(c, "agent_version")
+        if isinstance(cver, str) and any(ch.isalpha() for ch in cver):
+            out.append(("the agent version of claim", str(cid) if cid is not None else None, cver[:2000]))
         for name, where in (("assumptions", "an assumption of claim"), ("assessment_criteria", "an assessment criterion of claim")):
             for t in list(_field(c, name) or [])[:64]:
                 o = own(t)

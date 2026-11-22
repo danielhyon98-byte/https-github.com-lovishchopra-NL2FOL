@@ -596,6 +596,27 @@ _WORD_RUN_RE = re.compile(r"\w+")
 _ABSORB_CANDIDATES = 512
 
 
+def _not_own_wording(text: str, spans, quoted: list[str]) -> list[str]:
+    """``quoted`` without the quotations that quote the answer's OWN earlier wording (``own_text.quotes_own_wording`` read at the
+    quotation's first span in ``text``; the answer's unquoted voice computed once). A quotation with no span of its own (an excerpt a
+    parser recorded) is kept."""
+    from ..adapters.own_text import quotes_own_wording, unquoted_text
+    first: dict[str, int] = {}
+    for start, _end, inner in spans:
+        first.setdefault(inner.strip(), start)
+    voice: list[str] = []
+    out = []
+    for q in quoted:
+        at = first.get(q.strip())
+        if at is not None:
+            if not voice:
+                voice.append(unquoted_text(text))
+            if quotes_own_wording(voice[0], text, at, q):
+                continue
+        out.append(q)
+    return out
+
+
 def _absorbed_quotation_keys(keys: list[str]) -> set[str]:
     """The quotation keys that occur as whole words inside another key (a word quoted from a quotation the answer already
     gives: 'the verb "killed"' after '"We killed him openly"'). Exactly what searching every key in every other key gave,
@@ -1451,6 +1472,14 @@ class CorePack:
                and any((OWN_MODEL_NOTE in c.assumptions or OWN_EXAMPLE_NOTE in c.assumptions) and q in c.claim_text for c in report.claims)}
         if own:
             quoted = [q for q in quoted if _quote_key(q) not in own]
+        # the answer quoting its OWN earlier wording ('Owners sold quotas and the fleet got smaller over time. In short, "the fleet got
+        # smaller over time".'): the words stand unquoted in the answer's own voice, so the quotation has no source to verify. The one
+        # reader of the channel decides it (``own_text.quotes_own_wording``: four words or more, held exactly by the answer's unquoted
+        # text, and not presented as the reader's, the task's or a text's words); the channel already keeps such a quotation off
+        # INT-REQ-003, and the core pack charged it CORE-SRC-003 on every branch with texts supplied (c3d, ec-t16). A bare quotation of
+        # words the answer never writes in its own voice stays unverifiable.
+        if quoted:
+            quoted = _not_own_wording(text, spans, quoted)
         # a word quoted from a quotation the answer already gives ('the verb "killed"' after '"We killed him openly"') is that quotation's
         keys = [_quote_key(q) for q in quoted]
         absorbed = _absorbed_quotation_keys(keys)

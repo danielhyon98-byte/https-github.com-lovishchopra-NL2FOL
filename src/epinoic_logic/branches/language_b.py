@@ -12,7 +12,8 @@ kind                       statement read                                       
 =========================  =====================================================================  ===================================
 ``lb_word_count``          a word count stated about a production ("Word count: about 513")        INT-SUBJ-001 (unique production);
                                                                                                   INT-SUBJ-004 (a disjunction)
-``lb_word_range_claim``    a production said to lie inside (or outside) a range                    INT-SUBJ-001
+``lb_word_range_claim``    a production said to lie inside (or outside) a range or a limit, and    INT-SUBJ-001
+                           a word range the answer credits to the task
 ``lb_course_word_range``   a convention: an SL / HL Paper 1 model with no bound in the request     INT-SUBJ-004
 ``lb_quoted_form``         a form the answer says the model (or an inline model) contains          INT-SUBJ-004
 ``lb_address_form``        the address form (tú, vos, usted, vosotros, ustedes) a production uses  INT-SUBJ-004
@@ -23,6 +24,8 @@ kind                       statement read                                       
 ``lb_structure_count``     a count of a text's paragraphs, stanzas or lines                        INT-SUBJ-004
 ``lb_occurrence_count``    how often a quoted form occurs in a text ('three times in a row')       INT-SUBJ-004
 ``lb_quote_speaker``       the speaker of a quotation, of unquoted words or of a paraphrase        INT-SUBJ-001 credited; INT-SUBJ-004
+                           (by kin word or by name; a text's speaker named after the words or by
+                           a description it sets a name beside)
 ``worked_arithmetic``      every worked equation, as on the generic branch                         as there
 =========================  =====================================================================  ===================================
 
@@ -31,6 +34,12 @@ with", "says", the byline and a paraphrase located at a line; ``lb_listed_count`
 (their own count or their ordinals) and of the answer's corrections by category; ``supplied_figure`` reads a count across languages (the
 closed bilingual gloss :func:`.spanish_lexicon.concept`), a duration with a quoted form and an event's year stated in English or with no
 credit (a warning).
+
+The c3d follow-up widened them again: ``lb_quoted_form`` reads a reporting verb of the model ('The model proposes that ... "..."') and
+what the byline is said to state with no name first (its capitalised words and figures: 'a student in 1.º de Bachillerato'); the word
+count reads the answer's own notes ('These notes are about 400 words') and a one-sided limit ('within the 250-word limit'); the
+cross-language counts read the scenario a writing or marking task sets in the target language ('tres semanas de intercambio'; a
+reading task's request sets statements to judge, never facts).
 
 Measured counts are premises grounded in the answer or the supplied text as written (a deterministic measurement, as the channel's own
 word-bound problems are). Words are counted with the channel's own counter (``request_parser.count_words``), so pack and channel never
@@ -43,6 +52,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
+from functools import lru_cache
 from typing import Optional
 
 from ..translate.contracts import SpecialistReport, StructuralFinding
@@ -288,8 +298,10 @@ _WC_NUMBER_RE = re.compile(r"(?:(?P<approx>" + _APPROX_WORDS + r")\s+)?(?<![\d.,
                             r"(?P<after>[^,;()\n]{0,60})", re.IGNORECASE)
 _PROD = (r"(?P<prod>your\s+(?:email|e-mail|text|draft|composition|essay|letter|article|piece|answer|writing|redacción|correo|blog(?:\s+post)?|speech|diary\s+entry)"
          r"|(?:the|this|my)\s+(?:model(?:\s+(?:text|article|answer|email|letter))?|text|article|email|e-mail|letter|speech|blog(?:\s+post)?|piece|draft|composition|answer)"
-         r"|tu\s+(?:texto|correo|redacción|carta|artículo)|el\s+(?:texto|modelo|correo|artículo))")
-_PROD_COUNT_RE = re.compile(_PROD + r"\s+(?:is|was|has|comes\s+to|runs\s+to|contains|tiene|es\s+de)\s+(?:(?P<approx>" + _APPROX_WORDS + r")\s+)?(?P<n>\d{1,5})\s+(?:words|palabras)\b",
+         r"|tu\s+(?:texto|correo|redacción|carta|artículo)|el\s+(?:texto|modelo|correo|artículo)"
+         # the answer's own notes or reply (c3d, sp-p10d: "These notes are about 400 words, within the 250-word limit.")
+         r"|(?:these|the|my|our)\s+notes|this\s+(?:response|reply)|estas\s+notas)")
+_PROD_COUNT_RE = re.compile(_PROD + r"\s+(?:is|was|are|were|has|have|comes\s+to|come\s+to|runs?\s+to|contains?|tiene|tienen|es\s+de|son)\s+(?:(?P<approx>" + _APPROX_WORDS + r")\s+)?(?P<n>\d{1,5})\s+(?:words|palabras)\b",
                             re.IGNORECASE)
 _PAREN_COUNT_RE = re.compile(r"\((?:(?P<approx>" + _APPROX_WORDS + r"|aprox\.)\s+)?(?P<n>\d{1,5})\s+(?:words|palabras)\)", re.IGNORECASE)
 _WHOLE_RE = re.compile(r"\b(?:including|with|incl\.?|counting)\s+(?:the\s+)?(?:headline|title|byline|heading|greeting|signature)|\bincluyendo\s+(?:el\s+)?t[ií]tulo", re.IGNORECASE)
@@ -300,10 +312,12 @@ _RANGE_RE = re.compile(r"(?<![\d.,])(?P<lo>\d{2,4})\s*+(?:[–—-]|to)\s*+(?P<h
 #: limits of a range, never a stated count (attack round 6: the lower bound was read as the count).
 _BOUND_BEFORE_RE = re.compile(r"\b(?:de|del|entre|between|from)\s*+$", re.IGNORECASE)
 _RANGE_WORDS_RE = re.compile(r"\s*+(?:-?\s*+word|words|palabras|range|limit|band)\b", re.IGNORECASE)
-_IN_RANGE_RE = re.compile(r"\b(?:inside|within)\s+(?:the\s+)?(?:\d{2,4}\s*+[–—-]\s*+\d{2,4}|range|limit|band|bounds?|word\s+(?:range|limit))"
+_IN_RANGE_RE = re.compile(r"\b(?:inside|within)\s+(?:the\s+|your\s+|a\s+)?(?:\d{2,4}\s*+[–—-]\s*+\d{2,4}|\d{2,4}(?:-|\s)word\s+(?:limit|maximum|cap)|range|limit|band|bounds?|word\s+(?:range|limit))"
                           r"|\b(?:is|are|lies|falls|sits|stays|comes\s+in)\s+(?:well\s+|comfortably\s+|safely\s+|just\s+)?(?:inside|within)\b"
                           r"|\b(?:the\s+)?length\s+is\s+(?:right|fine|correct|appropriate|ok|okay|good|spot\s+on)\b"
                           r"|\b(?:est[aá]|queda)\s+dentro\s+del?\s+(?:l[ií]mite|rango)", re.IGNORECASE)
+#: A one-sided word limit a statement states ("within the 250-word limit", "a 250-word maximum"): the range 0 to the limit (c3d).
+_WORD_CAP_RE = re.compile(r"(?<![\d.,–—-])(?P<n>\d{2,4})(?:-|\s)word\s+(?:limit|maximum|cap)\b", re.IGNORECASE)
 _OUT_RANGE_RE = re.compile(r"\b(?:outside|exceeds?|too\s+long|too\s+short|over\s+the\s+(?:limit|maximum)|under\s+the\s+minimum|below\s+the\s+minimum|fuera\s+del?\s+l[ií]mite)\b",
                            re.IGNORECASE)
 _LEVEL_RE = re.compile(r"\b(?P<l>SL|HL|NM|NS)\b|\b(?P<w>standard|higher)\s+level\b|\bnivel\s+(?P<e>medio|superior)\b", re.IGNORECASE)
@@ -516,7 +530,8 @@ def _word_checks(ctx: _Ctx, statements: list[_Stmt]) -> None:
         for rm in _RANGE_RE.finditer(st.text):
             if rm.group("lo") is None or (in_range and abs(rm.start() - in_range.start()) < 40) or _RANGE_WORDS_RE.match(st.text, rm.end()):
                 near = rm
-        rng = _range_for(ctx, st, near)
+        cap = _WORD_CAP_RE.search(st.text)
+        rng = (0, int(cap.group("n")), "the limit the statement states") if near is None and cap is not None else _range_for(ctx, st, near)
         if rng is None:
             continue
         lo, hi, where = rng
@@ -535,6 +550,75 @@ def _word_checks(ctx: _Ctx, statements: list[_Stmt]) -> None:
                            label=f"{' or '.join(nm for nm, _ in measured)} {'outside' if negated else 'inside'} {lo}-{hi} words ({where})",
                            description=f"{st.text[:220]} [a production said to lie {'outside' if negated else 'inside'} a word range: {lo}-{hi}, {where}]",
                            claim_ids=ctx.claims(st.text, phrase), severity="error" if unique else "warning", defect="invented_figure"))
+
+
+#: A word bound the answer credits to the task ("The task asks for between 250 and 400 words", "La consigna pide entre 450 y 600 palabras",
+#: "your task sets a 450–600-word range"): c3d, sp-t15.
+_TASK_WORDS_RE = re.compile(r"\b(?:the|your|this|tu|la|el)\s+(?:task|question|request|brief|prompt|instructions?|assignment|consigna|tarea|enunciado)\s+"
+                            r"(?:asks\s+for|asked\s+for|requires?|required|sets?|wants?|wanted|calls?\s+for|specifies|specified|says|said|gives?|pide|exige|marca)\s+"
+                            r"(?:an?\s+|a\s+range\s+of\s+|a\s+length\s+of\s+)?(?:between\s+(?P<a>\d{2,4})\s+and\s+(?P<b>\d{2,4})|entre\s+(?P<c>\d{2,4})\s+y\s+(?P<d>\d{2,4})|"
+                            r"(?:from\s+)?(?P<e>\d{2,4})\s*+(?:[–—-]|to|a)\s*+(?P<f>\d{2,4}))(?:-|\s+)(?:words?|palabras)\b", re.IGNORECASE)
+
+
+def _task_word_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    """c3d (sp-t15): a word range the answer credits to the task is the range the request sets (its min_words and max_words, or a range
+    it writes before 'words' / 'palabras'); a request with no bound leaves it unread."""
+    from ..channel.request_parser import extract_constraints
+    req = ctx.request_text or ""
+    cs = extract_constraints(req) if req else []
+    mins = [int(c.value) for c in cs if c.kind == "min_words" and c.value]
+    maxs = [int(c.value) for c in cs if c.kind == "max_words" and c.value]
+    if not (mins and maxs):
+        r = next((m for m in _RANGE_RE.finditer(req) if m.group("lo") is None or _RANGE_WORDS_RE.match(req, m.end())), None)
+        if r is None:
+            return
+        lo_r, hi_r = _range_values(r)
+    else:
+        lo_r, hi_r = min(mins), max(maxs)
+    for st in statements:
+        for m in _TASK_WORDS_RE.finditer(st.text):
+            ga, gb = next((a, b) for a, b in (("a", "b"), ("c", "d"), ("e", "f")) if m.group(a))
+            lo, hi = int(m.group(ga)), int(m.group(gb))
+            ctx.add("lb_word_range_claim", lambda cid, lo=lo, hi=hi, m=m, st=st: make_check(
+                ctx.report, check_id=cid, kind="lb_word_range_claim", inputs=[("lo", Fraction(lo), f"the lower bound credited to the task ({lo})"),
+                                                                              ("hi", Fraction(hi), f"the upper bound credited to the task ({hi})")],
+                conclusion={"op": "and", "args": [{"op": "eq", "left": _var("lo"), "right": _real(Fraction(lo_r))},
+                                                  {"op": "eq", "left": _var("hi"), "right": _real(Fraction(hi_r))}]},
+                label=f"the task's range {lo}-{hi} words against the request's {lo_r}-{hi_r}",
+                description=f"{st.text[:220]} [a word range credited to the task is the range the request sets ({lo_r}-{hi_r} words)]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="error", defect="source_mismatch"))
+
+
+def _task_word_bounds(ctx: _Ctx, statements: list[_Stmt]) -> None:
+    """Check round 10 of c3d (sp-p10d): a single word figure the answer credits to the task or the teacher ("Your teacher set a limit of
+    350 words." where the request says "Write no more than 250 words.") is one of the request's own word figures (its min_words and
+    max_words, or a figure it writes before "words" / "palabras"); a request with no word figure leaves it unread."""
+    from ..channel.request_parser import extract_constraints
+    from .geography import REQ_WORDS_CREDIT, _REQ_WORDS_RE
+    req = ctx.request_text or ""
+    if not req:
+        return
+    asked = {int(c.value) for c in extract_constraints(req) if c.kind in ("min_words", "max_words") and c.value}
+    for r in list(_REQ_WORDS_RE.finditer(req[:20_000]))[:16]:
+        asked.add(int(r.group("a").replace(",", "")))
+        if r.group("b"):
+            asked.add(int(r.group("b").replace(",", "")))
+    if not asked:
+        return
+    credit = re.compile(REQ_WORDS_CREDIT, re.IGNORECASE)
+    shown = ", ".join(str(x) for x in sorted(asked))
+    for st in statements:
+        for m in credit.finditer(st.text):
+            n = int(m.group("p").replace(",", ""))
+            if any(abs(n - x) <= max(5, x // 50) for x in asked):
+                continue
+            options = [{"op": "eq", "left": _var("stated"), "right": _real(Fraction(x))} for x in sorted(asked)]
+            ctx.add("lb_word_range_claim", lambda cid, n=n, m=m, st=st, options=options: make_check(
+                ctx.report, check_id=cid, kind="lb_word_range_claim", inputs=[("stated", Fraction(n), f"the word figure credited to the task ({n})")],
+                conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
+                label=f"{n} words credited to the task against the request's {shown} words",
+                description=f"{st.text[:220]} [a word figure credited to the task is one the request states ({shown} words)]",
+                claim_ids=ctx.claims(st.text, m.group(0)), severity="error", defect="source_mismatch"))
 
 
 def _course_range(ctx: _Ctx) -> None:
@@ -562,7 +646,11 @@ def _course_range(ctx: _Ctx) -> None:
 _MODEL_REF_RE = re.compile(r"\b(?:the|my|this|our)\s+(?:model(?:\s+(?:text|article|answer|email|letter|sentence))?|article|sample(?:\s+text)?|"
                            r"(?:opening|closing|first|last|final)\s+(?:line|sentence|question|paragraph)|headline|title|writer|author)\s+"
                            r"(?:uses?|used|includes?|included|contains?|has|writes?|wrote|shows?|employs?|features?|address(?:es)?|addressed|"
-                           r"says?|said|states?|stated|reads?|asks?|asked|puts?\s+it|(?P<pos>opens?|begins?|starts?|ends?|closes?|finishes?)\s+with|opened\s+with|"
+                           r"says?|said|states?|stated|reads?|asks?|asked|puts?\s+it|"
+                           # a reporting verb of what the model proposes or argues ("The model proposes that terraces close "..."": c3d)
+                           r"propos(?:es|ed|e)|suggest(?:s|ed)?|argu(?:es|ed|e)|recommend(?:s|ed)?|claim(?:s|ed)?|mention(?:s|ed)?|calls?\s+for|called\s+for|"
+                           r"describ(?:es|ed|e)|explain(?:s|ed)?|not(?:es|ed)|insist(?:s|ed)?|warn(?:s|ed)?|urg(?:es|ed)|demand(?:s|ed)?|"
+                           r"(?P<pos>opens?|begins?|starts?|ends?|closes?|finishes?)\s+with|opened\s+with|"
                            r"began\s+with|ended\s+with|closed\s+with)\b"
                            r"|\b(?:el\s+(?:modelo|texto\s+modelo|art[ií]culo))\s+(?:usa|utiliza|emplea|incluye|contiene|tiene)\b", re.IGNORECASE)
 _ITALIC_FORM_RE = re.compile(r"(?<![*\w])\*(?!\*)([^*\n]{1,80})\*(?!\*)")
@@ -776,7 +864,8 @@ _ES_FROM_TO_RE = re.compile(r"\b(?:pas(?:ó|a|aron|an)|ha\s+pasado|(?:ha|han)\s+
                             r"disminuy(?:ó|eron)|se\s+redujo|se\s+redujeron|se\s+duplic(?:ó|aron)|se\s+triplic(?:ó|aron)|"
                             # (the present too, "Si un alquiler sube de 500 € a 650 €, sube un 20 %": check round 9 of c3c)
                             r"sube|suben|baja|bajan|cae|caen|crece|crecen|aumenta|aumentan|disminuye|disminuyen|desciende|descienden)\s+"
-                            r"(?:(?:[^\W\d_]{1,20}|(?:" + _ES_NUM + r")\s*+(?:%|por\s+ciento)),?\s+){0,4}?de\s+"
+                            # (the pair may stand in brackets after the per cent: "ha crecido un 36 % (de 212 a 268 vecinos)"; check round 10 of c3d)
+                            r"(?:(?:[^\W\d_]{1,20}|(?:" + _ES_NUM + r")\s*+(?:%|por\s+ciento)),?\s+){0,4}?\(?de\s+"
                             r"(?P<a>" + _ES_NUM + r")(?:\s+(?:[^\W\d_]{1,20}|" + _ES_YEAR + r")){0,3}?\s+a\s+(?P<b>" + _ES_NUM + r")(?![\d,.]\d)", re.IGNORECASE)
 #: After a from-to pair: the size of the change ("..., es decir, en 1.138 personas", "..., una caída de 1.038 habitantes").
 _ES_DIFF_AFTER_RE = re.compile(r"(?:\s+[^\W\d_]{1,20}){0,2}\s*+,?\s*+(?:es\s+decir|o\s+sea|en\s+total)?\s*+,?\s*+"
@@ -1869,19 +1958,30 @@ def _category_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
 
 #: A byline claim: "The byline names Marta Ruiz Pérez as the author", "written by ...", "The author is ...".
 _NAME = r"(?P<{g}>[A-ZÁÉÍÓÚÑ][\wáéíóúñ'’-]{{1,30}}+(?:\s[A-ZÁÉÍÓÚÑ][\wáéíóúñ'’-]{{1,30}}+){{0,3}})"
-_BYLINE_CLAIM_RE = re.compile(r"\bbyline\s+(?:names|gives|credits|reads|says|shows|lists)\s+" + _NAME.format(g="a") + r"|\b(?:written|signed)\s+by\s+" + _NAME.format(g="b")
-                              + r"|\bthe\s+(?:author|writer)\s+(?:is|was)\s+" + _NAME.format(g="c"))
+_BYLINE_VERB = r"(?:names|gives|credits|reads|says|shows|lists|identifies|describes|presents|attributes\s+it\s+to|puts)"
+_BYLINE_CLAIM_RE = re.compile(r"\bbyline\s+" + _BYLINE_VERB + r"\s+" + _NAME.format(g="a") + r"|\b(?:written|signed)\s+by\s+" + _NAME.format(g="b")
+                              + r"|\bthe\s+(?:author|writer)\s+(?:is|was)\s+" + _NAME.format(g="c")
+                              # what else the byline is said to state, with no name first ("The byline credits a student in 1.º de Bachillerato": c3d):
+                              # its capitalised words and its figures (a course year, an ordinal) are the byline's own
+                              + r"|\bbyline\s+" + _BYLINE_VERB + r"\s+(?P<d>(?:an?|the|one)\s[^.;\n]{2,120})")
+_BYLINE_FIGURE_RE = re.compile(r"\d{1,4}")
 
 
 def _byline_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
     byline = ctx.regions.byline
     if not byline:
         return
-    held = {w.casefold() for w in re.findall(r"[^\W\d_]+", byline)}
+    held = {w.casefold() for w in re.findall(r"[^\W\d_]+", byline)} | set(_BYLINE_FIGURE_RE.findall(byline))
     for st in statements:
         for m in _BYLINE_CLAIM_RE.finditer(st.text):
             name = m.group("a") or m.group("b") or m.group("c")
-            words = [w for w in re.findall(r"[^\W\d_]+", name)]
+            if name is None:
+                name = m.group("d").strip()
+                words = [w for w in re.findall(r"[^\W\d_]+", name) if w[:1].isupper()] + _BYLINE_FIGURE_RE.findall(name)
+                if not words:
+                    continue
+            else:
+                words = [w for w in re.findall(r"[^\W\d_]+", name)]
             missing = [w for w in words if w.casefold() not in held]
             ctx.add("lb_quoted_form", lambda cid, missing=missing, name=name, st=st, m=m: make_check(
                 ctx.report, check_id=cid, kind="lb_quoted_form", inputs=[("missing", Fraction(len(missing)), f"words of '{name}' not in the byline ({', '.join(missing) or 'none'})")],
@@ -1891,14 +1991,35 @@ def _byline_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
                 claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="altered_quotation"))
 
 
-#: A speaker named for a paraphrase of a text: "In your email your father says that Tomás can stay at your house."
+#: A speaker named for a paraphrase of a text: "In your email your father says that Tomás can stay at your house.", or by name or title
+#: ("Señora Rojas says that Tomás can stay at your house": c3d, sp-t16).
 _KIN = r"father|dad|mother|mum|mom|grandmother|grandma|granny|grandfather|grandad|grandpa|brother|sister|friend|teacher"
-_PARAPHRASE_RE = re.compile(r"\b(?:your|the\s+(?:student's|writer's|narrator's))\s+(?P<kin>" + _KIN + r")\s+(?:says|said|tells|told|thinks|thought|writes|wrote)"
-                            r"\s+(?:that\s+)?(?P<content>[^.;\n]{3,200})", re.IGNORECASE)
+_TITLE = r"(?:(?:Señora|Señor|Señorita|Sra\.|Sr\.|Srta\.|Mrs\.?|Mr\.?|Ms\.?|Miss|Doña|Don|Dr\.?)\s+)"
+_CAP = r"[A-ZÁÉÍÓÚÑ][\wáéíóúñ]{1,30}+"
+_PARAPHRASE_RE = re.compile(r"(?:\b(?i:(?:your|the\s+(?:student's|writer's|narrator's))\s+(?P<kin>" + _KIN + r"))|(?<![\w'’])(?P<name>" + _TITLE + r"?" + _CAP + r"(?:\s" + _CAP
+                            + r")?))\s+(?i:says|said|tells|told|thinks|thought|writes|wrote)\s+(?i:you\s+|us\s+)?(?i:that\s+)?(?P<content>[^.;\n]{3,200})")
+#: Capitalised words that open a sentence or name no one: never a speaker's name.
+_NOT_A_NAME = frozenset("the this that these those it he she they we you your i in on at as and but so then however also here there what which who when "
+                        "where why how my our his her their its one some all each both every no not if because although while el la los las un una "
+                        "ella él ellos ellas yo tu su mi".split())
 _ES_KIN = r"padre|madre|abuela|abuelo|hermano|hermana|amigo|amiga|profesor|profesora|maestro|maestra|papá|mamá"
-_ES_SPEECH_RE = re.compile(r"\b(?:(?:[Mm]i|[Tt]u|[Ss]u)\s+(?P<kin>" + _ES_KIN + r")|(?P<pron>[ÉE]l|Ella))\s+(?:me\s+|nos\s+|le\s+|les\s+)?(?:dice|dijo|cuenta|contó|piensa|"
-                           r"pensaba|cree|creía|explica|explicó)\s+(?:que\s+)?(?P<content>[^.;\n]{3,200})")
+_ES_SPEECH_RE = re.compile(r"\b(?:(?:[Mm]i|[Tt]u|[Ss]u)\s+(?P<kin>" + _ES_KIN + r")|(?P<pron>[ÉE]l|Ella)|(?:(?:la|el)\s+)?(?P<name>(?:(?:[Ss]eñora|[Ss]eñor|[Dd]oña|[Dd]on)\s+)?"
+                           + _CAP + r"))\s+(?:me\s+|nos\s+|le\s+|les\s+)?(?:dice|dijo|cuenta|contó|piensa|pensaba|cree|creía|explica|explicó)\s+(?:que\s+)?(?P<content>[^.;\n]{3,200})")
 _ES_KIN_RE = re.compile(r"\b(?:mi|tu|su)\s+(?P<kin>" + _ES_KIN + r")\b", re.IGNORECASE)
+_PARAPHRASE_STOP = frozenset(("your", "their", "that", "with", "this"))
+
+
+def _name_key(name: str) -> str:
+    """A named speaker's key: its capitalised words other than a title, case folded ('Señora Rojas' -> 'name:rojas')."""
+    words = [w.casefold() for w in re.findall(r"[^\W\d_]+", name) if w[:1].isupper()]
+    words = [w for w in words if w not in ("señora", "señor", "señorita", "sra", "sr", "srta", "mrs", "mr", "ms", "miss", "doña", "don", "dr")] or words
+    return "name:" + " ".join(sorted(words))
+
+
+def _cognates(text: str) -> set:
+    """The content words of ``text`` as cognate keys: the concept of the closed gloss cut to four letters ('colours' and 'colores' meet as
+    'colo', 'houses' and 'casas' as 'hous'), so a paraphrase across the two languages is matched by its shared stems (c3d)."""
+    return {es.concept(w)[:4] for w in re.findall(r"[^\W\d_]{4,}", text) if w.casefold() not in _PARAPHRASE_STOP}
 
 
 def _paraphrase_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
@@ -1907,31 +2028,53 @@ def _paraphrase_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
         return
     frames = []
     for m in _ES_SPEECH_RE.finditer(text[:MAX_REGION]):
-        kin = m.group("kin")
-        if kin is None:
-            prev = list(_ES_KIN_RE.finditer(text, max(0, m.start() - 300), m.start()))
-            if not prev:
+        if m.group("name"):
+            if m.group("name").split()[-1].casefold() in _NOT_A_NAME:
                 continue
-            kin = prev[-1].group("kin")
-        frames.append((es.concept(kin), {es.concept(w) for w in re.findall(r"[^\W\d_]{4,}", m.group("content"))}))
+            who = _name_key(m.group("name"))
+        else:
+            kin = m.group("kin")
+            if kin is None:
+                prev = list(_ES_KIN_RE.finditer(text, max(0, m.start() - 300), m.start()))
+                if not prev:
+                    continue
+                kin = prev[-1].group("kin")
+            who = "kin:" + es.concept(kin)
+        frames.append((who, _cognates(m.group("content"))))
         if len(frames) >= 64:
             break
     if not frames:
         return
+    # a name the text sets beside a kin word ('mi madre, Ana,' / 'Ana, mi madre'): the same speaker
+    linked: dict[str, set] = {}
+    for x in re.finditer(r"\b(?:mi|tu|su)\s+(?P<kin>" + _ES_KIN + r")\s*+,\s*+(?P<n>" + _TITLE + r"?" + _CAP + r")|(?P<n2>" + _TITLE + r"?" + _CAP
+                         + r")\s*+,\s*+(?:mi|tu|su)\s+(?P<kin2>" + _ES_KIN + r")\b", text[:MAX_REGION], re.IGNORECASE):
+        k = "kin:" + es.concept(x.group("kin") or x.group("kin2"))
+        linked.setdefault(k, set()).add(_name_key(x.group("n") or x.group("n2")))
     for st in statements:
         for m in _PARAPHRASE_RE.finditer(st.text):
-            kin = es.concept(m.group("kin"))
-            mine = {es.concept(w) for w in re.findall(r"[^\W\d_]{4,}", m.group("content"))} - {"your", "their", "that", "with", "this"}
+            if m.group("name"):
+                first = m.group("name").split()[0].casefold()
+                if first in _NOT_A_NAME or m.group("name").split()[-1].casefold() in _NOT_A_NAME:
+                    continue
+                claimed = _name_key(m.group("name"))
+            else:
+                claimed = "kin:" + es.concept(m.group("kin"))
+            mine = _cognates(m.group("content"))
             scored = sorted(((len(mine & c), k) for k, c in frames), reverse=True)
             if not scored or scored[0][0] < 1 or (len(scored) > 1 and scored[1][0] == scored[0][0] and scored[1][1] != scored[0][1]):
                 continue
             said_by = scored[0][1]
-            ctx.add("lb_quote_speaker", lambda cid, kin=kin, said_by=said_by, m=m, st=st: make_check(
-                ctx.report, check_id=cid, kind="lb_quote_speaker", inputs=[("same", Fraction(1 if kin == said_by else 0),
-                                                                            f"whether the speaker named ({m.group('kin')}) is the one the student's text gives ({said_by})")],
+            same = claimed == said_by or claimed in linked.get(said_by, set()) or said_by in linked.get(claimed, set())
+            who = m.group("kin") or m.group("name")
+            shown = said_by.split(":", 1)[1]
+            ctx.add("lb_quote_speaker", lambda cid, same=same, who=who, shown=shown, m=m, st=st: make_check(
+                ctx.report, check_id=cid, kind="lb_quote_speaker", inputs=[("same", Fraction(1 if same else 0),
+                                                                            f"whether the speaker named ({who}) is the one the student's text gives ({shown})")],
                 conclusion={"op": "eq", "left": _var("same"), "right": _real(Fraction(1))},
-                label=f"the paraphrase is credited to the speaker the student's text gives it ({said_by})",
-                description=f"{st.text[:220]} [a paraphrase of the student's text keeps the text's speaker (the reported-speech frame its words match best)]",
+                label=f"the paraphrase is credited to the speaker the student's text gives it ({shown})",
+                description=(f"{st.text[:220]} [a paraphrase of the student's text keeps the text's speaker (the reported-speech frame its words match "
+                             "best, by shared stems across the two languages; a name is that speaker only when the text sets it beside the kin word)]"),
                 claim_ids=ctx.claims(st.text, m.group(0)), severity="warning", defect="source_mismatch"))
 
 
@@ -1940,6 +2083,51 @@ _SAID_BY_CLAIM_RE = re.compile(r"[«\"“](?P<q>[^»\"”\n]{2,120})[»\"”]\s*
                                r"|(?<![\w'’])(?P<who2>[A-ZÁÉÍÓÚÑ][\wáéíóúñ]{1,30}+(?:\s[A-ZÁÉÍÓÚÑ][\wáéíóúñ]{1,30}+){0,2})\s+(?:says|said|shouts|tells\s+(?:him|her|them|the\s+narrator))\s+"
                                r"[«\"“](?P<q2>[^»\"”\n]{2,120})[»\"”]")
 _EN_SAY_RE = re.compile(r"\b(?:said|says|told|tells|shouted|shouts|whispered|called|asked|asks|answered|replied|say)\b", re.IGNORECASE)
+
+
+_SPEAKER_SKIP = frozenset(("I", "On", "For", "When", "The", "And", "But", "Tonight", "Nobody"))
+_SAY_AFTER_FORM_RE = re.compile(r"[\s,.;:!¡?¿»\"”’]*+(?:(?P<pron>he|she|they|it)\s+(?:said|says|told|tells|shouted|shouts|whispered|called|asked|asks|"
+                                r"answered|replied)\b|(?:said|says|told|shouted|whispered|called|asked|answered|replied)\s+(?P<nm>" + _CAP + r"(?:\s" + _CAP + r")?))")
+_NAMED_DESCRIPTION_RE = re.compile(r"\bthe\s+(?P<d>(?:[a-z]{2,20}\s+){0,2}[a-z]{2,20})\s*+,\s*+(?P<n>" + _CAP + r"(?:\s" + _CAP + r")?)\s*+,")
+
+
+@lru_cache(maxsize=16)
+def _appositions(text: str) -> tuple[tuple[str, str], ...]:
+    """``(description, name)`` of every 'the <description>, <Name>,' of a text, read once per text (at most 64)."""
+    return tuple((a.group("d").casefold(), a.group("n")) for a in _NAMED_DESCRIPTION_RE.finditer(text))[:64]
+
+
+def _capitalised(span: str) -> list[str]:
+    return [w for w in re.findall(r"[^\W\d_]+", span) if w[:1].isupper() and w.casefold() not in _WHO_STOP and w not in _SPEAKER_SKIP
+            and w.casefold() not in _NOT_A_NAME]
+
+
+def _text_speaker(text: str, start: int, at: int, end: int) -> set:
+    """The names a text gives the speaker of the words at ``text[at:end]``: the names before the speech verb of their sentence
+    (``text[start:at]``); a speaker the sentence describes ('the grill cook ... says to me, ... échale ganas, mijo') named where the
+    text sets a name beside that description ('the grill cook, Rubén,'); or a speech verb right after the words ('Ya merito, / she told
+    it'), its pronoun the last name before them (c3d, sp-p10d). Empty when the text names none."""
+    span = text[start:at]
+    verbs = list(_EN_SAY_RE.finditer(span))
+    if verbs:
+        names = {w.casefold() for w in _capitalised(span[:verbs[-1].start()])}
+        if names:
+            return names
+        head = span[:verbs[-1].start()].casefold()
+        described = {n for d, n in _appositions(text[:MAX_REGION]) if re.search(r"\bthe\s+" + re.escape(d) + r"\b", head)}
+        if len(described) == 1:
+            return {w.casefold() for w in described.pop().split()}
+        return set()
+    after = _SAY_AFTER_FORM_RE.match(text, end, min(len(text), end + 60))
+    if after is None:
+        return set()
+    if after.group("nm"):
+        return {w.casefold() for w in after.group("nm").split()}
+    if after.group("pron").casefold() == "it":
+        return set()
+    runs = re.findall(r"(?:" + _CAP + r")(?:\s" + _CAP + r")*", text[max(0, at - 300):at])
+    runs = [r for r in runs if _capitalised(r)]
+    return {w.casefold() for w in _capitalised(runs[-1])} if runs else set()
 
 
 def _unquoted_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
@@ -1957,12 +2145,7 @@ def _unquoted_speakers(ctx: _Ctx, statements: list[_Stmt]) -> None:
                 if at < 0:
                     continue
                 start = max(text.rfind(".", 0, at), text.rfind("\n\n", 0, at), text.rfind("!", 0, max(0, at - 1)), at - 300) + 1
-                span = text[start:at]
-                verbs = list(_EN_SAY_RE.finditer(span))
-                if not verbs:
-                    break
-                names = {w.casefold() for w in re.findall(r"[^\W\d_]+", span[:verbs[-1].start()]) if w[:1].isupper() and w.casefold() not in _WHO_STOP
-                         and w not in ("I", "On", "For", "When", "The", "And", "But", "Tonight", "Nobody")}
+                names = _text_speaker(text, start, at, at + len(q.strip(" ¡!¿?.,")))
                 if not names:
                     break
                 same = bool(claimed & names)
@@ -2035,6 +2218,20 @@ def _cc_concepts(text: str) -> set:
     return {es.concept(w) for w in re.findall(r"[^\W\d_]{4,30}", text[:600]) if w.casefold() not in _CC_STOP and w.casefold() not in _CONTEXT_STOP}
 
 
+def _request_task_text(request_text: str) -> str:
+    """The sentences of the request written in Spanish (the task as set: 'Has pasado tres semanas de intercambio con una familia ...'),
+    joined; '' when it writes none."""
+    from ..adapters.history_specialist.sentences import split_sentences
+    out = []
+    for sent in split_sentences((request_text or "")[:MAX_REQUEST]):
+        en_, sp_, _n = es.english_ratio(sent)
+        if sp_ > en_:
+            out.append(sent.strip(" '\"‘’“”"))
+        if len(out) >= 40:
+            break
+    return " ".join(out)
+
+
 def _cross_counts(ctx: _Ctx) -> None:
     """Attack round 8: a count the answer states with its noun against the count a text gives with the same noun, when the answer and the
     text are written in different languages ("three bakeries" against "dos panaderías", "tres palabras" against "two words": the closed
@@ -2042,9 +2239,14 @@ def _cross_counts(ctx: _Ctx) -> None:
     texts). Only a noun the text gives exactly one count for is read; a figure worked out from the text's figures (a difference, a change)
     is not compared."""
     texts = []
-    for name, text in _target_texts(ctx):
-        if name == "the model":
-            continue
+    targets = [(n, t) for n, t in _target_texts(ctx) if n != "the model"]
+    task = _request_task_text(ctx.request_text) if ctx.task in ("writing", "marking") else ""
+    if task:
+        # the scenario a writing or marking task sets in the target language ("Has pasado tres semanas de intercambio ..."): a text the
+        # answer's counts restate too ("The exchange lasted two weeks": c3d, sp-t16). A reading task's request sets statements to judge
+        # ("La escuela volvió a abrir con más de veinte alumnos": a false statement), never facts, so it is not read
+        targets.append(("the request's task", task))
+    for name, text in targets:
         # each count with the concepts of its sentence: a count is compared only with the text's counts of a sentence that shares a
         # content word with the answer's line (attack round 8: "El intercambio duró tres semanas" is no restatement of "Ya hace dos semanas
         # que volví a Inglaterra")
@@ -2185,7 +2387,8 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> tuple[list[
     ctx = _Ctx(report, req, task, regions, text)
     statements = _statements(regions, text)
     failures: list[StructuralFinding] = []
-    for stage, step in (("word counts and ranges", lambda: _word_checks(ctx, statements)), ("course range", lambda: _course_range(ctx)),
+    for stage, step in (("word counts and ranges", lambda: _word_checks(ctx, statements)), ("course range", lambda: _course_range(ctx)), ("task word ranges", lambda: _task_word_claims(ctx, statements)),
+                        ("task word bounds", lambda: _task_word_bounds(ctx, statements)),
                         ("quoted forms", lambda: _quoted_forms(ctx, statements)), ("address forms", lambda: _address_checks(ctx, statements)),
                         ("listed counts", lambda: _listed_counts(ctx, statements)), ("percentage changes", lambda: _percent_changes(ctx)), ("dated changes", lambda: _dated_changes(ctx)), ("durations since a year", lambda: _durations_since(ctx)),
                         ("supplied figures", lambda: _supplied_figures(ctx)), ("event years", lambda: _event_years(ctx)), ("quotation speakers", lambda: _speakers(ctx)),

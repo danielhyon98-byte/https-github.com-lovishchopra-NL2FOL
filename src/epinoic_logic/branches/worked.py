@@ -866,7 +866,8 @@ _LABEL_NOUN = (r"(?i:storms?|sites?|stations?|zones?|areas?|figures?|fig\.|table
                r"grades?|groups?|samples?|quadrats?|transects?|points?|plots?|phases?|stages?|rounds?|trials?|cases?|options?|units?|chapters?|"
                r"lines?|steps?|criteri(?:on|a)|regions?|districts?|routes?|wards?|blocks?|rooms?|events?|wells?|boreholes?|"
                r"tormentas?|sitios?|zonas?|preguntas?|partes?|ejercicios?|criterios?|pasos?|l[ií]neas?|p[aá]rrafos?)")
-_LABEL_FIG = rf"{_LABEL_NOUN}[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d)(?:[ \t]{{1,3}}(?:and|&|to|or|y|a)[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d))?"
+# (a possessive after the label is the label all the same: "higher than Storm 1's (16.2 − 5.4)"; check round 10 of c3d)
+_LABEL_FIG = rf"{_LABEL_NOUN}[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d)(?:[ \t]{{1,3}}(?:and|&|to|or|y|a)[ \t]{{1,3}}\d{{1,3}}(?![\d,.]\d))?(?:['’]s)?"
 #: A figure that is the denominator of a rate or the maximum of a score ("per 10 minutes", "every 100 m", "out of 30", "/30"): it states no
 #: result of the bracket after it (attack round 8).
 _DENOMINATOR_FIG = r"(?:per|every|out[ \t]of|de[ \t]un[ \t]total[ \t]de|sobre)[ \t]{1,3}\d[\d,]{0,8}"

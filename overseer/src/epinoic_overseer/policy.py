@@ -283,20 +283,23 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
             return PolicyDecision(False, f"custody of the synthesis could not be re-checked at release ({type(exc).__name__})", state)
         if faults:
             return PolicyDecision(False, f"custody re-checked at release: {sorted(set(faults))} (the synthesis or a transfer it depends on was altered after the audit)", state)
-    why = _synthesis_self_report(synthesis_receipt, event, message)
+    why = _synthesis_self_report(synthesis_receipt, event, message, task_audit)
     if why is not None:
         return PolicyDecision(False, why, state)
     return PolicyDecision(True, "ok", state)
 
 
-def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any) -> Optional[str]:
+def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, task_audit: Any = None) -> Optional[str]:
     """Rule ``self-certification-gate`` at release (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit: a
     synthesis carrying "All calculations have been verified by the system and are confirmed." was released with its
     INT-LEDGER-029 at warning severity): the same gate, with the same reader, as the delivery policy's fallback. A synthesis whose
     receipt names a self-report (:data:`.meta_notes.SELF_REPORT_RECEIPT_CODES`, any severity), or whose journaled payload (the
     message to be released, else the journaled envelope) holds a sentence the translator's one reader names
-    (:func:`.meta_notes.payload_self_reports`), is never released. A payload that cannot be read is refused (fail closed)."""
-    from .meta_notes import SELF_REPORT_RECEIPT_CODES, payload_self_reports
+    (:func:`.meta_notes.payload_self_reports`), is never released; nor is one the task audit names for a self-report delivered as
+    content (OVS-FID-005, OVS-FID-009 at any severity, :func:`.meta_notes.audit_self_reports`, read as the router's decision and the
+    delivery policy read it: every release path reads the same self-report, c3d). A payload or an audit that cannot be read is
+    refused (fail closed)."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_self_reports, payload_self_reports
     try:
         codes = sorted({f.code for f in synthesis_receipt.findings if f.code in SELF_REPORT_RECEIPT_CODES})
     except (AttributeError, TypeError):
@@ -304,6 +307,13 @@ def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any) -> 
     if codes:
         return (f"the synthesis carries a self-report named on its receipt ({', '.join(codes)}): a released answer never contains a claim that it "
                 "was checked or verified (rule self-certification-gate)")
+    try:
+        named_by_audit = audit_self_reports(task_audit, getattr(synthesis_receipt, "message_id", None) or "")
+    except Exception:  # noqa: BLE001 - fail closed
+        return "the task audit cannot be read for rule self-certification-gate"
+    if named_by_audit:
+        return (f"the task audit names a self-report the synthesis carries as content ({'; '.join(named_by_audit[:8])}): a released answer never "
+                "contains a claim that it was checked or verified (rule self-certification-gate)")
     try:
         if message is not None:
             payload = message.payload

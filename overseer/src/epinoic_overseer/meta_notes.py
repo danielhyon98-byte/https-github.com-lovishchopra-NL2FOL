@@ -210,7 +210,7 @@ __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_
            "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
            "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
            "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "report_field_refusals", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
-           "claim_self_report",
+           "SELF_REPORT_AUDIT_CODES", "audit_self_reports", "claim_self_report",
            "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
            "require_response_limit"]
 
@@ -1667,6 +1667,27 @@ def _status_holds(status: Any, claim_text: Any, written: Any, ctx: Any = None) -
 #: letter-like symbols, hidden characters, a script with no vocabulary; round-10 hold remedy c3b). Any severity: a warning is no less
 #: a self-report. The English pack's ES-META-001 also names notes that certify nothing; the text reader reads the ones that do.
 SELF_REPORT_RECEIPT_CODES: frozenset = frozenset({"CORE-SELF-001", "CORE-SELF-002", "INT-REQ-014", "INT-LEDGER-029"})
+#: Audit codes that name a self-report the channel let through as content (``delivery_policy.SELF_REPORT_AUDIT_CODES`` is this
+#: set): OVS-FID-005 (a self-certification delivered as content) and OVS-FID-009 (the auditor's own detector, a structured report's
+#: advisory self-report fields on a content claim, or a relayed check result no INT-REQ-014 names). Any severity. Every release
+#: path reads them on the task audit it releases on (:func:`audit_self_reports`; rule ``self-certification-gate``): the c3c run
+#: found the router's documented decision allowing an answer the fallback withheld by OVS-FID-009 (tab-separated letters; a
+#: structured claim carrying only an advisory eligibility), so two release paths read two different self-reports.
+SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+
+
+def audit_self_reports(audit: Any, message_id: str) -> list[str]:
+    """Rule ``self-certification-gate`` on the task audit a release path releases on: each finding of ``audit`` with a code of
+    :data:`SELF_REPORT_AUDIT_CODES` (any severity) that names ``message_id``, as 'CODE (claims ...)', sorted. None names nothing
+    (the caller decides whether a missing audit is itself a refusal); an audit that cannot be read raises (the caller fails closed)."""
+    if audit is None:
+        return []
+    out: set[str] = set()
+    for f in audit.report.findings:
+        if f.code in SELF_REPORT_AUDIT_CODES and message_id in f.message_ids:
+            claims = sorted(str(c) for c in (f.claim_ids or []))
+            out.add(f"{f.code} (claims {', '.join(claims)})" if claims else f.code)
+    return sorted(out)
 
 
 def payload_self_reports(payload: Any, ctx: Any = None) -> list[str]:

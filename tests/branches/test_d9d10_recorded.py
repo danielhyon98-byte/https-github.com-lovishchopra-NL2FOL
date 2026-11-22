@@ -17,14 +17,20 @@ EXPECTED = {
                   [("language-b-supplied-figure-1", _E), ("language-b-supplied-figure-2", _E), ("language-b-supplied-figure-3", _E)]),
     # stricter (attack round 2 of c3b): the answer's "threefold increase (16.2 ÷ 5.4 = 3.0)" gains the fold-word check, ENTAILED
     # stricter (attack round 3 of c3b): a change stated "by N" with its pair in the sentence gains the change-by check, ENTAILED
+    # stricter (c3d): the lag times of (a), "Result: lag time of 12 hours for Storm 1 and 4.5 hours for Storm 2", read against the
+    # request's clock times (09:30 to 21:30, 09:30 to 14:00), gain two clock-interval checks, both ENTAILED
     "c2/ge-p9c": ("ACCEPTED_WITH_FINDINGS", [], [], [(f"i{k}", True) for k in range(1, 5)],
-                  [("core-quant-1", _E), ("core-quant-2", _E), ("geography-change-by-1", _E), ("geography-fold-1", _E)]
+                  [("core-quant-1", _E), ("core-quant-2", _E), ("geography-clock-interval-1", _E), ("geography-clock-interval-2", _E),
+                   ("geography-change-by-1", _E), ("geography-fold-1", _E)]
                   + [(f"geography-worked-{k}", _E) for k in range(1, 7)]),
     # (and the year table's from-to pairs with no year, "coal down from 46% to 28%", read against the row's two years: four more
     # core-figure checks; and a change "by 18 percentage points" of a row read against its two cells: two table-change checks)
     "c2/ge-t15": ("ACCEPTED_WITH_FINDINGS", [], [], [(f"i{k}", True) for k in range(1, 5)],
                   [(f"core-quant-{k}", _E) for k in range(1, 6)] + [(f"core-figure-{k}", _E) for k in range(1, 9)]
-                  + [("geography-change-by-1", _E), ("geography-table-change-1", _E), ("geography-change-by-2", _E), ("geography-table-change-2", _E)]
+                  + [("geography-change-by-1", _E), ("geography-table-change-1", _E), ("geography-change-by-2", _E)]
+                  # stricter (c3d): "coal supply fell by 22.1%, from 377.2 PJ in 2005 to 294.0 PJ in 2025" read as the coal share × the
+                  # total for each year: two table-derived checks, both ENTAILED
+                  + [("geography-table-derived-1", _E), ("geography-table-derived-2", _E), ("geography-table-change-2", _E)]
                   # stricter (attack round 4, was range(1, 5)): the products in brackets "311.6 PJ (0.38 × 820 PJ)" and its 2025 twin are
                   # now decided (worked-5, worked-6), both ENTAILED
                   + [(f"geography-worked-{k}", _E) for k in range(1, 7)]),

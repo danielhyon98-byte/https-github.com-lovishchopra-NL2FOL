@@ -30,7 +30,7 @@ from .markdown import _MODAL_FORM_BEFORE_RE as _MD_MODAL_FORM_BEFORE_RE
 from .markdown import _TRIGGER_AFTER_RE as _MD_TRIGGER_AFTER_RE
 from .markdown import find_quotation_spans
 
-__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "correction_originals", "correction_pairs", "own_model_spans", "quotes_own_wording", "unquoted_text", "own_text_kinds",
+__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "correction_originals", "correction_pairs", "credits_own_text", "own_model_spans", "quotes_own_wording", "unquoted_text", "own_text_kinds",
            "own_text_spans"]
 
 #: The two kinds of the writer's own quoted words (:func:`own_text_kinds`; round-10 leftover R10-OWN-TEXT-ONE-READER, one reader for
@@ -62,8 +62,14 @@ _OWN_TEXT_AFTER = 96
 #: The corrected form: a quoted original, an arrow (or "should be", "becomes"), then the span.
 #: (check round 9 of c3c: also a long or plain arrow, "-->", "—>", ">", and a "Right:" or "Correct form:" label after the replaced
 #: wording, '- Wrong: "x". Right: "y"')
+#: (c3d, the c3c leftover 'Wrong: "x". Right: "y"' on a marking answer: the class is a LABELLED correction pair in any language the
+#: specialists write: 'Incorrect: "x". Correct: "y"', 'Before: "x". After: "y"', 'Weak: "x". Stronger: "y"', 'Mal: "x". Bien:
+#: "y"', 'Incorrecto: "x". Correcto: "y"', 'Faux : "x". Juste : "y"'; the label of the correction right after the replaced span)
+_RIGHT_LABELS = (r"right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?|better|stronger|improved|revised|fixed|after|"
+                 r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|despu[eé]s|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
+                 r"juste|corrig[ée]e?|mieux|apr[eè]s")
 _CORRECTION_MARKS = (r"(?:→|-{1,2}>|—>|=>|⇒|⟶|⟹|➔|➜|➝|>|\bshould[ \t]{1,3}be\b[ \t:]{0,3}|\bbecomes\b[ \t:]{0,3}|"
-                     r"[.;,]?[ \t]{0,3}(?:right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?)[ \t]{0,3}:[ \t]{0,3})")
+                     r"[.;,]?[ \t]{0,3}(?:" + _RIGHT_LABELS + r")[ \t]{0,3}:[ \t]{0,3})")
 _CORRECTION_BEFORE_RE = re.compile(r"[\"'”’»][*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
 #: The longest text :data:`_CORRECTION_BEFORE_RE` matches is 44 characters, and it ends at the window's end (``\Z``): the search
 #: starts this many characters before the end (repair 1 after clearance c3c: searching the whole window from every quotation mark
@@ -73,6 +79,9 @@ _CORRECTION_TAIL = 48
 #: follow the label ("Model (one sentence, to show range with your own content; not a replacement for your text):").
 _OWN_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model|rewrite|rewritten|corrected|correction|"
                                   r"improved|revised|alternative|suggested|suggestion|topic|line[ \t]{1,3}of[ \t]{1,3}inquiry|better|stronger|right|correct|"
+                                  # the correction's label in Spanish and French (c3d: 'Mal: "x". Bien: "y"', 'Correcto: "y"', 'Juste : "y"')
+                                  r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
+                                  r"juste|corrig[ée]e?|mieux|"
                                   r"research[ \t]{1,3}question)(?:[ \t]{1,3}(?:answer|sentence|paragraph|response|version|wording|form|"
                                   r"opening|line|thesis|statement|introduction|conclusion|topic[ \t]{1,3}sentence))?[ \t]{0,3}(?:\([^()\n\"“”]{0,200}\))?[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}\Z",
                                   re.IGNORECASE)
@@ -226,16 +235,33 @@ _CORRECTION_GAP_RE = re.compile(r"\A[*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_
 _REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than|not)[ \t:]{0,3}\Z", re.IGNORECASE)
 
 
+#: The label of the wording a correction replaces, at the start of a line or sentence ('- Wrong: "x"', 'Incorrect form: "x"',
+#: 'Weak: "x"', 'Mal: "x"', 'Incorrecto: "x"', 'Faux : "x"'; c3d, the c3c leftover 'Wrong: "x". Right: "y"'): the span after it is the wording
+#: an own correction replaces even when its correction stands in the next sentence, which a parser reading one sentence at a time
+#: does not see. A neutral label ('Before:', 'Original:', 'Antes:', 'Avant :') marks it only with its correction in view
+#: (:data:`_CORRECTION_GAP_RE`: '"x". After: "y"').
+_REPLACED_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:wrong|incorrect|error|mistake|avoid|weak(?:er)?|poor(?:er)?|mal|incorrect[oa]|"
+                                       r"err[oó]ne[oa]|evitar?|d[eé]bil|faux|fausse|incorrecte|erreur|faible|[àa][ \t]{1,3}[ée]viter)"
+                                       r"(?:[ \t]{1,3}(?:form|version|sentence|wording|forma|versi[oó]n|frase))?[ \t]{0,3}"
+                                       r"(?:\([^()\n\"“”]{0,200}\))?[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}\Z", re.IGNORECASE)
+
+
 #: An instruction to write, which credits nothing ('Write "x" -> "y"', 'Instead, write: "x" -> "y"').
 _IMPERATIVE_WRITE_BEFORE_RE = re.compile(r"(?:^|[\n.!?;:(])[ \t*_>#-]{0,8}(?:(?:so|then|instead|now|here|rather|please),?[ \t]{1,3})?write[ \t]{0,3}[,:]?\Z",
                                          re.IGNORECASE)
 
 
+#: The partner :func:`_replaced_partner` gives a replaced span whose correction stands outside the text read.
+_UNSEEN = -1
+
+
 def _replaced_partner(text: str, spans: Sequence[tuple[int, int, str]], kinds: Sequence[Optional[str]], i: int) -> Optional[int]:
     """The index of the correction that replaces span ``i`` (a span :func:`own_text_kinds` read as neither a FORM nor a FRAME), or
-    None: the FRAME right after an arrow, "should be" or "becomes" that follows it ('"x" -> "y"'), or the writer's own form it follows
-    after "rather than", "instead of" or ", not" ('"y" rather than "x"'). A span the sentence credits to a text ('your email says
-    "x" -> "y"', 'the poem reads "x"') is a quotation of that text, never wording the answer's own correction replaces."""
+    None: the FRAME right after an arrow, "should be", "becomes" or a correction's label that follows it ('"x" -> "y"', '"x".
+    Right: "y"'), or the writer's own form it follows after "rather than", "instead of" or ", not" ('"y" rather than "x"');
+    :data:`_UNSEEN` for a span under the label of a replaced wording ('Wrong: "x"', 'Mal: "x"') whose correction is not in the text
+    read (the next sentence). A span the sentence credits to a text ('your email says "x" -> "y"', 'the poem reads "x"') is a
+    quotation of that text, never wording the answer's own correction replaces."""
     start, end, inner = spans[i]
     if not inner.strip() or kinds[i] is not None:
         return None
@@ -248,11 +274,13 @@ def _replaced_partner(text: str, spans: Sequence[tuple[int, int, str]], kinds: S
     if (i > 0 and kinds[i - 1] is not None and spans[i - 1][1] <= start
             and _REPLACED_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE])):
         return i - 1  # '"y" rather than "x"'
+    if _REPLACED_LABEL_BEFORE_RE.search(text, max(0, start - _OWN_TEXT_BEFORE), start):
+        return _UNSEEN  # 'Wrong: "x".' (its 'Right: "y"' in the next sentence)
     return None
 
 
 def correction_pairs(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None,
-                     kinds: Optional[Sequence[Optional[str]]] = None) -> list[tuple[int, int]]:
+                     kinds: Optional[Sequence[Optional[str]]] = None) -> list[tuple[int, Optional[int]]]:
     """The answer's OWN corrections among the quotation spans of ``text`` (``spans``, default :func:`markdown.find_quotation_spans`;
     ``kinds`` as :func:`own_text_kinds` reads them), as ``(replaced, correction)`` span indices (push check of 2ff70224, item
     R10-OWN-TEXT-ONE-READER still partial: in '"x" -> "y"' the reader named "y" the writer's FRAME and left "x" a quotation, which the
@@ -261,15 +289,17 @@ def correction_pairs(text: str, spans: Optional[Sequence[tuple[int, int, str]]] 
     student's or a text's words it corrects. The channel decides it with the sources in view, as it decides a FRAME
     (``sources.own_model_words``: a supplied text that holds its words, altered or not, keeps it a quotation, checked as any other;
     INV-Q1; ``bus._uncredited_quotations`` still reads it against the request), and the transfer auditor keeps it a quotation. A span
-    the sentence credits to a text ('your email says "x" -> "y"') is never part of an own correction. Linear in the spans."""
+    the sentence credits to a text ('your email says "x" -> "y"') is never part of an own correction. A span under the label of a
+    replaced wording ('Wrong: "x"', 'Incorrect: "x"', 'Mal: "x"', :data:`_REPLACED_LABEL_BEFORE_RE`) whose correction stands
+    outside ``text`` (a parser reads 'Wrong: "x".' and 'Right: "y".' as two sentences) pairs with None. Linear in the spans."""
     text = text or ""
     spans = list(find_quotation_spans(text) if spans is None else spans)
     kinds = list(own_text_kinds(text, spans) if kinds is None else kinds)
-    out: list[tuple[int, int]] = []
+    out: list[tuple[int, Optional[int]]] = []
     for i in range(len(spans)):
         j = _replaced_partner(text, spans, kinds, i)
         if j is not None:
-            out.append((i, j))
+            out.append((i, None if j == _UNSEEN else j))
     return out
 
 
@@ -286,10 +316,64 @@ def correction_originals(text: str, spans: Optional[Sequence[tuple[int, int, str
 
 #: Shortest quotation read as the answer quoting its own wording (a shorter span is a phrase any text may share).
 _OWN_WORDING_MIN_WORDS = 4
-#: A quotation its sentence presents as the reader's or the task's words ('your draft says', 'you wrote', 'the task asks for'): the
-#: request's words, never the answer's own.
-_READER_CREDIT_BEFORE_RE = re.compile(r"\b(?:you|your|yours|the[ \t]{1,3}(?:task|request|question|prompt|student|brief))\b"
-                                      r"[^.!?\n\"“”«»]{0,60}\Z", re.IGNORECASE)
+#: How far before a quotation's opening mark its sentence is read for who it credits the words to.
+_CREDIT_WINDOW = 80
+#: A quotation its sentence presents as the reader's, the task's or a text's words, in any language the specialists write ('your
+#: draft says', 'you wrote', 'the task asks for', 'The instructions say', 'The exam paper says', 'La consigna dice', 'El enunciado
+#: pide:', 'Le sujet dit', 'the passage reads'): the request's or a text's words, never the answer's own. Push check of af6dfe04
+#: (reason 5): the English-only 'you/your/the task|request|question|prompt|student|brief' frame let 'La consigna dice "..."', 'The
+#: instructions say "..."' and 'The exam paper says "..."' pass as the answer's own wording once the answer also wrote the altered
+#: words in its own voice. The cue may stand anywhere in the clause before the opening mark (no sentence end or quotation mark
+#: between).
+_READER_CREDIT_BEFORE_RE = re.compile(
+    r"(?<![\w'’])(?:you|your|yours|yourself|"
+    # the task and its parts (English)
+    r"task|tasks|request|question|questions|prompt|student|students|brief|instruction|instructions|rubric|exam|examination|paper|"
+    r"assignment|stimulus|mark[ \t]{1,3}scheme|markscheme|syllabus|"
+    # a text under analysis (English)
+    r"text|texts|source|sources|passage|extract|excerpt|poem|novel|play|transcript|document|"
+    # Spanish
+    r"tu|tus|tuyo|tuya|usted|ustedes|vosotros|vosotras|vuestro|vuestra|vuestros|vuestras|consigna|enunciado|instrucciones|instrucción|"
+    r"tarea|pregunta|preguntas|examen|prueba|alumno|alumna|alumnos|estudiante|estudiantes|texto|textos|fragmento|pasaje|fuente|fuentes|"
+    r"poema|documento|"
+    # French
+    r"ton|ta|tes|votre|vos|vous|consigne|énoncé|sujet|élève|étudiant|étudiante|texte|textes|extrait|poème)"
+    r"(?!\w)[^.!?\n\"“”«»]{0,72}\Z", re.IGNORECASE)
+#: A quotation its sentence credits to the ANSWER'S OWN text: a part or a kind of the answer's own writing ('The article opens with',
+#: 'The model opens with', 'The second sentence, "..."', 'the headline', 'Mi artículo empieza con', 'La primera frase'), a word
+#: that points back into the answer ('as I said above', 'arriba', 'ci-dessus'), a first-person possessive before a noun ('my
+#: closing line', 'mi carta', 'mon article'), or a first-person past verb of writing or saying ('as I wrote', 'I opened with',
+#: 'como escribí'). Only such a frame lets the answer's own wording stand for the source of a quotation the request holds all
+#: but one or two words of: a bare quotation, or one credited to the task in any frame, is checked against the task whatever
+#: the answer writes elsewhere (push check of af6dfe04, reason 5). A cue of :data:`_READER_CREDIT_BEFORE_RE` in the same clause
+#: overrides it ('the first sentence of the task').
+_OWN_TEXT_CREDIT_BEFORE_RE = re.compile(
+    r"(?<![\w'’])(?:"
+    # a part or a kind of the answer's own writing (English)
+    r"article|letter|e-?mail|essay|model|speech|blog|post|entry|review|headline|title|byline|story|report|answer|response|reply|"
+    r"version|piece|paragraph|sentence|line|opening|introduction|conclusion|ending|closing|greeting|sign-off|heading|"
+    # Spanish
+    r"artículo|carta|correo|ensayo|modelo|discurso|entrada|reseña|titular|título|respuesta|versión|párrafo|frase|oración|línea|"
+    r"apertura|introducción|conclusión|cierre|saludo|despedida|"
+    # French
+    r"lettre|courriel|essai|modèle|discours|titre|réponse|paragraphe|phrase|ligne|"
+    # pointing back into the answer
+    r"above|below|earlier|previously|arriba|abajo|anteriormente|ci-dessus|ci-dessous|plus[ \t]{1,3}haut|"
+    # a first-person possessive before a noun, a first-person past verb of writing or saying
+    r"(?:my|our|mi|mis|nuestro|nuestra|nuestros|nuestras|mon|ma|mes|notre|nos)[ \t]{1,3}[^\W\d_]{2,}|"
+    r"(?:i|we)[ \t]{1,3}(?:wrote|said|opened|began|started|ended|closed|put|stated|argued|noted|mentioned|explained|used)|"
+    r"(?:escribí|dije|empecé|comencé|terminé|abrí|cerré|escribimos|dijimos|"
+    r"j['’][ \t]{0,2}ai[ \t]{1,3}(?:écrit|dit|commencé|terminé)))"
+    r"(?!\w)[^.!?\n\"“”«»]{0,72}\Z", re.IGNORECASE)
+
+
+def credits_own_text(sentence: str, span_start: int) -> bool:
+    """Whether ``sentence`` credits the quotation whose opening mark is at ``span_start`` to the answer's OWN text
+    (:data:`_OWN_TEXT_CREDIT_BEFORE_RE`) and to no reader, task or text under analysis (:data:`_READER_CREDIT_BEFORE_RE`): 'The
+    article opens with "..."', 'The second sentence, "...", ...', 'As I said above, "..."'. A bare quotation credits nothing. One
+    bounded window before the opening mark."""
+    before = (sentence or "")[max(0, span_start - _CREDIT_WINDOW):span_start]
+    return bool(_OWN_TEXT_CREDIT_BEFORE_RE.search(before)) and not _READER_CREDIT_BEFORE_RE.search(before)
 
 
 def unquoted_text(text: str) -> str:
@@ -308,20 +392,31 @@ def unquoted_text(text: str) -> str:
     return "".join(parts)
 
 
-def quotes_own_wording(own_unquoted: str, sentence: str, span_start: int, excerpt: str) -> bool:
+def quotes_own_wording(own_unquoted: str, sentence: str, span_start: int, excerpt: str, *, credited: bool = False) -> bool:
     """Whether the quotation ``excerpt`` (its opening mark at ``span_start`` of ``sentence``) is the answer quoting its OWN earlier
     wording (round-8 attack, Language B: 'The article opens with "Cada verano, nuestra ciudad se llena de turistas".' quotes the
     first sentence of the answer's own model article word for word, and the channel charged it INT-REQ-003 as an altered quotation of
     the request): ``own_unquoted`` (:func:`unquoted_text` of the whole answer) holds its words exactly (case and blanks aside), it
-    has at least four words, and its sentence does not present it as the reader's or the task's words ('your draft says', 'you
-    wrote', 'the task asks for'). The caller keeps it checked against the supplied texts (a supplied text that holds it, altered or
-    not, keeps it a quotation of that text: INV-Q1)."""
+    has at least four words, and its sentence does not present it as the reader's, the task's or a text's words in any language
+    (:data:`_READER_CREDIT_BEFORE_RE`: 'your draft says', 'you wrote', 'the task asks for', 'The instructions say', 'La consigna
+    dice'). With ``credited`` the sentence must also credit it to the answer's own text (:func:`credits_own_text`: 'The article
+    opens with', 'The second sentence, "..."'): the channel asks this of a quotation the request holds all but one or two words of,
+    so a bare quotation, or one credited to the task in any frame and language, is checked against the task whatever the answer
+    writes elsewhere (push check of af6dfe04, reason 5). The caller keeps it checked against the supplied texts (a supplied text
+    that holds it, altered or not, keeps it a quotation of that text: INV-Q1)."""
     from ..translate.grounding import locate_excerpt
     if len(re.findall(r"\w+", excerpt or "")) < _OWN_WORDING_MIN_WORDS:
         return False
-    if _READER_CREDIT_BEFORE_RE.search((sentence or "")[max(0, span_start - 80):span_start]):
+    before = (sentence or "")[max(0, span_start - _CREDIT_WINDOW):span_start]
+    if _READER_CREDIT_BEFORE_RE.search(before):
         return False
-    return locate_excerpt(excerpt, own_unquoted or "") is not None
+    if credited and not credits_own_text(sentence, span_start):
+        return False
+    if locate_excerpt(excerpt, own_unquoted or "") is not None:
+        return True
+    # (case aside, as the docstring says: a quotation that lowers the first letter of the sentence it takes up, 'Fix the agreement
+    # first. In short, "fix the agreement first".', quotes the answer's own wording all the same; check round 10 of c3d)
+    return locate_excerpt(excerpt.casefold(), (own_unquoted or "").casefold()) is not None
 
 
 def own_text_spans(text: str) -> list[tuple[int, int, str]]:

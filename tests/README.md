@@ -1577,6 +1577,26 @@ Each test pins its expected values literally; none is loosened.
   "Wrong:"/"Right:" labels or another connector, an article's body paragraphs, a per cent of another site worked out in brackets, an
   agreement with a named relation, Spanish per cents with the euro sign or in number words, a count of corrections, an interval of
   years and a duration since a year.
+- Check round 10 of the c3d follow-up (`tests/selfcert/test_c3d_check.py`, `tests/branches/test_c3d_check_branches.py`,
+  `overseer/tests/overseer_tests/test_c3d_check_agent_version.py`): correct work the lenses found gated is content and delivered not
+  checked on its branch (a quotation of an analysed headline or magazine cover that ends in an "s", the history of an invention, the
+  content of a third party's claim named by a noun, a letter's sign-off in a marking answer, one-letter names listed with the Spanish
+  "y", a mark scheme's allocation, a synthesis about satisfiability, a pros-and-cons list on the combinator's release); the fail-opens
+  and near variants are withheld on all 15 subjects' branches (a reliability claim on the answer's own statement taken up by a
+  demonstrative and its noun or by a Spanish clause with no subject, a reviewer credited with not one error, a whole sentence reversed
+  or in ROT13 with digits or brackets, an encoded status written twice, Pig Latin, "Revued and approved.", a solver or proof label after
+  a closed quotation, the same solver label after every sentence of a paragraph); misses of the class read by family (a tool or solver
+  agreeing with or approving the answer's own results, a grade given to this answer, a defect nobody will find, a hedged positive
+  review, the answer's parts answered correctly, a reviewer who found nothing to change, a label with nothing to correct); the agent's
+  version string is read as the specialist's own field on every release path. On the branches: a correct total of the request's
+  figures is no misread figure, a worked difference after "Storm 1's" is read, a word figure credited to the request or the teacher is
+  one the request states (Geography and Language B), and the answer quoting its own wording in another case is no invented quotation.
+- Repair of the c3d clearance (`tests/selfcert/test_c3d_alt_windows.py`): the second readings of c3d (a stray quotation mark
+  blanked, a closed quotation's marks blanked before a short bracket) read the blanked marks' paragraphs only, at most a fixed window
+  around each mark, and a window of blanks and ASCII punctuation alone not at all; read whole, one stray mark in a long answer read the
+  whole answer again, and the History parser's sweep of hostile inputs passed its two-minute limit in the full suite. Pinned: a stray
+  mark or quoted label far into a long answer or in a later paragraph is still read (and named by its paragraph), and the lengths the
+  second readings read are bounded (deterministic, no wall-clock time).
 
 ## D9/D10: the Geography and Language B branches (decision D35)
 
