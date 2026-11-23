@@ -168,6 +168,10 @@ def _status_tail(tail: str) -> bool:
     return 0 < len(w) <= 24 and w.isalpha() and bool(tags(w) & {"F:STATUS", "F:CHECK", "F:OUTCOME", "F:APPROVE"})
 
 
+#: The characters :func:`sentence_spans` reads beyond the blank test: quotation marks, a line break and the sentence ends.
+_PLAIN_RUN_RE = re.compile("[^\u201c\u00ab\u201d\u00bb\"'\u2018\u2019\n.!?]+")
+
+
 def sentence_spans(s: str, a: int, b: int) -> list[tuple[int, int]]:
     """The sentences of ``s[a:b]`` (rule S2): split at ".", "!", "?" followed by a blank or the end, never inside a number, after
     an abbreviation or an initial, or inside a quotation; a line break inside a piece is a blank. One pass."""
@@ -179,6 +183,14 @@ def sentence_spans(s: str, a: int, b: int) -> list[tuple[int, int]]:
     text_since_start = False  # whether s[start:i] holds a non-blank character (kept as a flag: stripping a growing slice of a run
     # of line breaks was quadratic)
     while i < b:
+        m = _PLAIN_RUN_RE.match(s, i, b)
+        if m is not None:
+            # (a run of characters none of the steps below reads but for the blank test: passed over at once, as the step per
+            # character would pass it; c3e stabilizer)
+            if not text_since_start and not m.group(0).isspace():
+                text_since_start = True
+            i = m.end()
+            continue
         c = s[i]
         if not text_since_start and not c.isspace():
             text_since_start = True

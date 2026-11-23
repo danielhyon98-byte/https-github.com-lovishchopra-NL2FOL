@@ -1,6 +1,6 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.6 (2026-11-16). Version 0.1 described commit
+- **Contract version:** 0.7 (2026-11-22). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
   HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
@@ -8,12 +8,13 @@
   `argdiag-2`): the two signed result fields `named_diagnostics` and `argument_rules`, and release
   rules 8 and 9 (section 5a); 0.6 comes with policy `2026.11-v5`: eligibility rule 0 reads the one
   self-certification reader (rules `selfcert-1`), the policy identity binds those rules, and receipt code
-  CORE-SELF-002 names text the reader cannot read (see section 11 for what changed). The component versions are unchanged
-  by 0.3, 0.4 and 0.5.
+  CORE-SELF-002 names text the reader cannot read; 0.7 comes with policy `2026.11-v6`: eligibility rule 0 reads the
+  self-certification rules `selfcert-2`, and the policy identity binds the reader's code as well as its lexicon and fold table
+  (see section 11 for what changed). The component versions are unchanged by 0.3, 0.4 and 0.5.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
-  - policy `2026.11-v5`
+  - policy `2026.11-v6`
   - translator `0.4.0`
 
   These come from `src/epinoic_logic/version.py`, beside the argument rules `argdiag-2`
@@ -344,7 +345,7 @@ digests and the derived problems' digests change with every build and are elided
                         "derived_problem_digests": ["…", "…", "…"], "rule_version": "argdiag-2",
                         "message": "the proof also needs fact premise(s) that no check established: P1; P2 (…)"}],
  "argument_rules": "argdiag-2",
- "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.10-v4", "z3_version": "5.1.0",
+ "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.11-v6", "z3_version": "5.1.0",
               "build_id": "…", "schema_id": "…", "policy_id": "…"}}
 ```
 
@@ -570,6 +571,13 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.6 to 0.7** (policy 2026.11-v6; c3e, the push check of 2be42c48): eligibility rule 0 reads `selfcert-2` (own verdicts
+read by their frame: a check, an approval or an agreement of THIS answer by any party, a fault nobody would find, a quality an
+assessor would see, a pipeline's success code; misspelt check compounds and status sentences; letter transforms composed with
+misspelling; correction-pair labels, glosses and worked checks stay boundary (b)); `selfcert.rules_digest` binds every module of
+the reader by name and content besides the lexicon and fold table, so a code-only change to rule 0 changes `policy_id`. Results
+signed under policy 2026.11-v5 are stale.
 
 **0.5 to 0.6** (policy 2026.11-v5; round-10 hold remedy c3b): eligibility rule 0 reads `selfcert-1`
 (`selfcert.wholly_self_certification`: a claim that is nothing but a self-report of a check, an engine or system result, a

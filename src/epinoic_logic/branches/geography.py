@@ -60,6 +60,7 @@ from typing import Optional
 
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from .base import FormalCheck
+from .grounded_figures import FUNCTION_WORDS as _FUNCTION_WORDS
 
 __all__ = ["GeographyPack", "decided_statements", "unknown_supports_findings"]
 
@@ -741,7 +742,12 @@ _MAX_COLS = 8
 _MAX_CELL = 80
 _CREDIT_RE = re.compile(r"\b(?:(?:the|your|my|our)\s+(?:data\s+)?table\s+(?:shows?|gives?|has|had|lists?|records?|states?|contains?)|according\s+to\s+(?:the|your|my)\s+"
                         r"(?:data|table|results)|(?:the|your|my|our)\s+data\s+(?:shows?|gives?|records?)|(?:in|from)\s+(?:the|your|my)\s+(?:data\s+)?table)\b", re.IGNORECASE)
-_STOPWORDS = frozenset("the and of in on at for by to from with per out total mean number share data value values use".split())
+_STOPWORDS = frozenset("the and of in on at for by to from with per out total mean number share data value values use".split()) | _FUNCTION_WORDS
+
+
+def _row_words(label: str) -> set[str]:
+    """The words of three or more letters of a row's label that can name it: never a function word."""
+    return {w for w in re.findall(r"[a-z]{3,}", label.lower()) if w not in _FUNCTION_WORDS}
 
 
 @dataclass(frozen=True)
@@ -1297,6 +1303,34 @@ _BY_ALONE_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<ap>about\s+
                           re.IGNORECASE)
 
 
+#: What makes a change an AMOUNT of a share row's item: "energy from oil", "the amount of ...", "natural gas supply", "oil use".
+_AMOUNT_RE = re.compile(r"\b(?:energy|power|electricity|amount|quantity|volume|supply|supplies|supplied|use|used|consumption|production|"
+                        r"produced|output|generation|generated|imports?|exports?)\b", re.IGNORECASE)
+_SHARE_RE = re.compile(r"\b(?:share|shares|proportion|percentage|fraction|part|mix)\b", re.IGNORECASE)
+
+
+def _names_amount(text: str, at: int) -> bool:
+    """Whether the clause before ``at`` (the change verb) names an amount of the row's item and no share of it."""
+    lo = max(text.rfind(".", 0, at), text.rfind(";", 0, at), 0)
+    head = text[lo:at]
+    return _AMOUNT_RE.search(head) is not None and _SHARE_RE.search(head) is None
+
+
+def _yt_total_row(year_tables: list, document_id: str, y1: int, y2: int) -> Optional[tuple]:
+    """The values for ``y1`` and ``y2`` of the one total row of the document's year tables (an amount, not a share), or None."""
+    found = []
+    for t in year_tables:
+        if t.document_id != document_id:
+            continue
+        for entity, words in t.entities:
+            if not re.search(r"\btotal\b", entity, re.IGNORECASE):
+                continue
+            cells = {c.year: c for c in t.cells if c.entity == entity and c.year is not None}
+            if y1 in cells and y2 in cells and cells[y1].unit != "%" and cells[y2].unit != "%":
+                found.append((cells[y1].value, cells[y2].value))
+    return found[0] if len(found) == 1 else None
+
+
 def _table_change_by(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
     """Attack round 3 (ge-t15): a change of a supplied year table's row stated by its size, over a period the sentence names ("grew by 330
     PJ between 2005 and 2025", "grew by 4.5 million between 2005 and 2025") or, in percentage points, over the row's two years ("The coal
@@ -1329,6 +1363,31 @@ def _table_change_by(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
                 continue  # a scale the row does not state: left to the other readers
             n = _num(m.group("n"))
             v1, v2 = cells[y1].value, cells[y2].value
+            if cells[y1].unit == "%" and _names_amount(s.text, m.start()):
+                # a change of an AMOUNT of a share row's item ("Energy from oil fell by about 13% ...", "Natural gas supply rose by
+                # about 88% ..."): the amount is the share × the document's total for each year, never the share itself; with no
+                # total of both years there is no check (check round 11 of c3e: the share's own change had been read)
+                totals = _yt_total_row(year_tables, table.document_id, y1, y2)
+                if totals is None or unit.startswith(("percentage", "point")):
+                    continue
+                v1, v2 = v1 * totals[0] / 100, v2 * totals[1] / 100
+                if not unit.startswith(("%", "per")):
+                    continue  # (an absolute change of the amount is the shared readers' with the amount's unit)
+                rel = abs(v2 - v1) / abs(v1) * 100 if v1 else None
+                if rel is None or not ctx.room("geo_table_change"):
+                    continue
+                rtol = max(_half(m.group("n").replace(",", "")), rel / 100, Fraction(1, 10))
+                rtol = max(rtol, rel / 20) if m.group("ap") else rtol
+                ctx.decided.add(" ".join(s.text.split()))
+                ctx.add("geo_table_change", lambda cid, n=n, rel=rel, rtol=rtol, m=m, entity=entity, y1=y1, y2=y2, table=table, totals=totals: make_check(
+                    ctx.report, check_id=cid, kind="geo_table_change", inputs=[("stated", n, f"the change stated ({m.group('n')})")],
+                    conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(rel)}), "right": _real(rtol)},
+                    label=(f"the change by {m.group('n')} against the amount of '{entity}' of {table.document_id} from {y1} to {y2} "
+                           f"(the share × the total, {_fmt(totals[0])} and {_fmt(totals[1])})"),
+                    description=(f"{_excerpt(s.text)} [a change of an amount of a share row's item is the relative change of the share × the "
+                                 f"total for the two years]"),
+                    claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="error", defect="source_mismatch"))
+                return
             diff = abs(v2 - v1)
             per_cent = unit.startswith(("%", "per")) and not unit.startswith("percentage")
             # the readings of the change stated: a change "by N%" of a row held in an amount (millions, PJ) is relative, (V1 − V0) / V0
@@ -1419,7 +1478,8 @@ _COMPLEMENTS = {"imported": ("domestic", "domestically", "home-produced", "indig
 _YT_AMOUNT_RE = re.compile(r"(?<![\d.,])(?P<n>" + _NUM + r")(?![\d,]\d|\.\d)\s*+(?P<u>[A-Za-z]{1,12})\b")
 _YT_PCT_RE = re.compile(r"(?<![\d.,])(?P<n>" + _NUM + r")(?![\d,]\d|\.\d)\s*+(?:%|per\s*+cent\b|percent\b)", re.IGNORECASE)
 _YT_YEAR_AFTER_RE = re.compile(r"[^.;\d]{0,24}?\b(?:in|for|during|by)?\s*+\(?(?P<y>1[89]\d{2}|20\d{2})\b")
-_PER_PERSON_RE = re.compile(r"\bper\s+(?:person|capita|head|inhabitant|resident)\b|\beach\s+(?:person|inhabitant|resident)\b", re.IGNORECASE)
+_PER_PERSON_RE = re.compile(r"\bper\s+(?:person|capita|head|inhabitant|resident)\b|\beach\s+(?:[A-Z][\w-]{1,20}\s+)?(?:person|inhabitant|resident)\b",
+                            re.IGNORECASE)  # ("each Ostrel resident": a demonym before the noun; c3e)
 _REL_CHANGE_RE = re.compile(r"\b(?:relative|proportional)\s+(?P<dir>rise|increase|growth|gain|fall|decrease|decline|drop|reduction|change)\s++of\s++"
                             r"(?P<ap>(?:about|around|roughly|approximately|nearly|some)\s++)?(?P<n>" + _NUM + r")\s*+(?:%|per\s*+cent\b|percent\b)"
                             r"|(?P<ap2>(?:about|around|roughly|approximately|nearly|some)\s++)?(?P<n2>" + _NUM + r")\s*+(?:%|per\s*+cent\b|percent\b)\s++"
@@ -1462,9 +1522,44 @@ def _yt_rows(table) -> dict:
     return rows
 
 
+#: Where the clause of a figure starts: a comma, a semicolon, a colon, a bracket or a word that opens another clause or a comparison
+#: ("Although population grew, total energy supply showed ...", "..., faster than population").
+_YT_CLAUSE_CUT_RE = re.compile(r"[,;:()]|\b(?:although|though|while|whereas|but|than|because|since)\b", re.IGNORECASE)
+_YT_VERB_START_RE = re.compile(r"\s*(?:was|were|is|are|rose|fell|grew|showed|reached|stood|made|came|amounted|totalled|totaled)\b", re.IGNORECASE)
+
+
 def _yt_named_row(table, text: str, where: dict, at: int) -> Optional[str]:
-    """The row a clause names before ``at``: by all its words (the shared reader's rule), else by the words only that row holds."""
+    """The row the figure at ``at`` belongs to: the row its own clause names (the words after the last clause boundary before it), by
+    all its words (the shared reader's rule), else by the words only that row holds. A clause that opens with its verb after an
+    apposition ("Imported energy, mostly oil and gas, was about 567 PJ") takes the sentence's subject. A row named only in another
+    clause ("Although population grew, ...", "..., faster than population") never takes the figure (check round 11 of c3e)."""
+    marks = list(_YT_CLAUSE_CUT_RE.finditer(text, 0, at))
+    lo = marks[-1].end() if marks else 0
+    got = _yt_named_row_in(table, where, at, lo)
+    if got is not None or not marks:
+        return got
+    if _YT_VERB_START_RE.match(text, lo):
+        hi = marks[0].start()
+        return _yt_named_row_in(table, where, hi, 0)
+    # an apposition after the clause that names the row ("The imported share rose by 16 percentage points, a relative rise of about
+    # 16%"): the clauses before it, back to a contrast or a comparison ("Although population grew, ..."), never past one
+    hi = marks[-1].start()
+    for k in range(len(marks) - 2, -2, -1):
+        start = marks[k].end() if k >= 0 else 0
+        if k >= 0 and marks[k].group(0)[:1].isalpha():
+            return None  # (the clause opens with a contrast or comparison word: its row is not the figure's)
+        if re.match(r"\s*(?:although|though|while|whereas|but|than|because|since)\b", text[start:hi], re.IGNORECASE):
+            return None
+        got = _yt_named_row_in(table, where, hi, start)
+        if got is not None:
+            return got
+        hi = marks[k].start() if k >= 0 else 0
+    return None
+
+
+def _yt_named_row_in(table, where: dict, at: int, lo: int) -> Optional[str]:
     from .grounded_figures import _entity_at
+    where = {w: ps for w, ps in ((w, [p for p in ps if lo <= p < at]) for w, ps in where.items()) if ps}
     entity, _n = _entity_at(table, where, at)
     if entity:
         return entity
@@ -1472,7 +1567,7 @@ def _yt_named_row(table, text: str, where: dict, at: int) -> Optional[str]:
     for _e, words in table.entities:
         for w in words:
             counts[w] = counts.get(w, 0) + 1
-    full = {e: {w for w in re.findall(r"[a-z]{3,}", e.lower())} for e, _w in table.entities}
+    full = {e: _row_words(e) for e, _w in table.entities}
     scores = {e: sum(1 for w in full[e] if w in where and min(where[w]) < at and sum(1 for o in full.values() if w in o) == 1) for e, _w in table.entities}
     best = max(scores.values(), default=0)
     if best == 0 or list(scores.values()).count(best) != 1:
@@ -1583,7 +1678,7 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
         # a share row's complement
         lower = s.text.lower()
         for row in shares:
-            own = [w for w in re.findall(r"[a-z]{3,}", row.lower()) if sum(1 for o in rows if w in o.lower()) == 1]
+            own = [w for w in re.findall(r"[a-z]{3,}", row.lower()) if w not in _FUNCTION_WORDS and sum(1 for o in rows if w in o.lower()) == 1]
             comp = [c for w in own for c in (_COMPLEMENTS.get(w, ()) + (f"non-{w}", f"not {w}"))]
             if not comp or any(re.search(r"(?<![\w-])" + re.escape(w) + r"\b", lower) for w in own):
                 continue
@@ -1677,7 +1772,7 @@ def _bracket_comparison(ctx: _Ctx, s: _Sentence) -> None:
 #: 7.1)", "(130 of 185)", "(10 km vs 5 km)". Up to two unit tokens after each figure; nothing else stands in the bracket.
 _PAIR_SEP = r"against|vs\.?|versus|compared\s+(?:with|to)|to|and|of|out\s+of|÷"
 _PAIR_UNIT = r"(?:\s*+(?!(?:" + _PAIR_SEP + r")\b)[^\d\s(),;:÷]{1,8}){0,2}"
-_BRACKET_PAIR_RE = re.compile(r"\(\s*+(?P<a>" + _NUM + r")(?P<au>" + _PAIR_UNIT + r")\s++(?P<sep>" + _PAIR_SEP + r")\s++(?P<b>" + _NUM + r")(?P<bu>"
+_BRACKET_PAIR_RE = re.compile(r"\(\s*+(?P<from>from\s++)?(?P<a>" + _NUM + r")(?P<au>" + _PAIR_UNIT + r")\s++(?P<sep>" + _PAIR_SEP + r")\s++(?P<b>" + _NUM + r")(?P<bu>"
                               + _PAIR_UNIT + r")\s*+\)", re.IGNORECASE)
 _CMP_WORD = (r"more|less|fewer|smaller|larger|bigger|greater|higher|lower|further|farther|nearer|closer|sooner|later|earlier|deeper|shallower|"
              r"longer|shorter|wider|narrower|heavier|lighter|older|younger|warmer|colder|cooler|faster|slower|stronger|weaker|wetter|drier|"
@@ -1761,7 +1856,7 @@ def _pair_comparison(ctx: _Ctx, s: _Sentence) -> None:
             sh = list(_SHARE_STATED_RE.finditer(pre))
             if sh and b != 0:
                 found = ("share", sh[-1], [a / b * 100], f"{pm.group('a')} / {pm.group('b')} × 100")
-        elif sep not in ("and", "to"):
+        elif sep not in ("and", "to") or (sep == "to" and pm.group("from")):  # "(from 38 mm to 36 mm)": the pair a change compares (c3e)
             fold = list(_FOLD_CMP_RE.finditer(pre))
             pct = list(_PCT_CMP_RE.finditer(pre))
             diff = list(_DIFF_CMP_RE.finditer(pre))
@@ -1830,11 +1925,21 @@ _AREA_M2 = {"mm²": Fraction(1, 10**6), "mm2": Fraction(1, 10**6), "cm²": Fract
 _LEN_U = r"(?:kilomet(?:re|er)s|metres|meters|km|cm|mm|m)(?![\w²³])"
 _AREA_U = r"(?:square\s+kilomet(?:re|er)s|square\s+met(?:re|er)s|km²|km2|cm²|cm2|mm²|mm2|m²|m2|hectares|ha)(?![\w²³])"
 _DIM_WORD = r"(?:wide|deep|long|high|tall|across)"
+#: What introduces the area two dimensions give: the word 'area', a cross-section or surface, or a result verb before an area unit (c3e:
+#: "measures 6.0 m by 1.8 m, giving 12.8 m²", "giving a cross-section of 9.8 m²"; only 'an area of' was read).
+_AREA_RESULT = (r"(?:\barea\b|\bcross[-\s]?section(?:al)?s?\b|\bsurface\b|\bfootprint\b|\b(?:giv(?:ing|es?)|gave|mak(?:ing|es?)|made|produc(?:ing|es?)|"
+                r"yield(?:ing|s)?|hence|thus|so|which\s+(?:is|was|gives?|makes?)|that\s+is|i\.e\.)"
+                # (the area figure is the result's own object, "giving 12.8 m²", "so the area is 10.8 m²", "giving a cross-section of 9.8
+                # m²"; a result verb before any other phrase that holds an area figure binds nothing: "so the catchment of 24 km² drains
+                # ...", "giving a sample of 24 km²", "which is small for a 24 km² catchment"; check round 11 of c3e)
+                r"(?=(?:\s*+,)?\s++(?:(?:(?:a|an|the|its)\s++)?(?:(?:total|cross[-\s]?sectional|surface|channel|plan|wetted)\s++)?"
+                r"(?:area|cross[-\s]?section)\s++(?:(?:of|is|was|=)\s++)?)?(?:(?:about|around|roughly|approximately|nearly)\s++)?(?<![\d.,])(?:"
+                + _NUM + r")(?![\d,]\d|\.\d)\s*+" + _AREA_U + r"))")
 #: Two dimensions with the area they give (c3d, ge-p9c: "The channel was 6.0 m wide and 2.8 m deep, an area of 10.8 m²."): "A m wide and
 #: B m deep", "A m by B m", "A m × B m", then the area within the sentence.
 _DIM_AREA_RE = re.compile(r"(?<![\d.,])(?P<a>" + _NUM + r")\s*+(?P<ua>" + _LEN_U + r")(?:\s++" + _DIM_WORD + r")?\s*+(?:,\s*+)?(?:and|by|×|x|,)\s*+"
                           r"(?:(?:a|an|the)\s+(?:mean\s+|average\s+)?(?:depth|width|length|height)\s+of\s+)?(?<![\d.,])(?P<b>" + _NUM + r")\s*+(?P<ub>" + _LEN_U
-                          + r")(?:\s++" + _DIM_WORD + r")?(?P<mid>[^.;\d=]{0,60}?)\barea\b[^.;\d=]{0,40}?(?P<ap>(?:about|around|roughly|approximately|nearly)\s++)?"
+                          + r")(?:\s++" + _DIM_WORD + r")?(?P<mid>[^.;\d=]{0,60}?)" + _AREA_RESULT + r"[^.;\d=]{0,40}?(?P<ap>(?:about|around|roughly|approximately|nearly)\s++)?"
                           r"(?<![\d.,])(?P<c>" + _NUM + r")(?![\d,]\d|\.\d)\s*+(?P<uc>" + _AREA_U + r")", re.IGNORECASE)
 
 
@@ -1843,7 +1948,7 @@ def _dimension_area(ctx: _Ctx, s: _Sentence) -> None:
     40 m by 25 m, an area of 0.1 ha"): the area equals the product, units converted exactly; half a unit of its last digit and 1% (5%
     after an approximation word), operands as written. A sentence that writes the product as an equation is the worked reader's."""
     from .grounded_figures import _half
-    if "area" not in s.text.lower():
+    if not re.search(r"²|\b(?:m2|km2|cm2|mm2|ha|hectares|square)\b", s.text):
         return
     for m in _DIM_AREA_RE.finditer(s.text):
         fa, fb = _LEN_M.get(m.group("ua").lower()), _LEN_M.get(m.group("ub").lower())
@@ -1870,7 +1975,8 @@ _VOL_SCALE = {"thousand": Fraction(10**3), "million": Fraction(10**6), "billion"
 _DEPTH_VOLUME_RE = re.compile(r"(?<![\d.,])(?P<d>" + _NUM + r")\s*+(?P<ud>mm|cm|m)(?![\w²³])\s++(?:of\s++(?:rain(?:fall)?|water|precipitation|runoff)\s++)?"
                               r"(?:over|on|across|onto|on\s+to|falling\s+on|falling\s+over|spread\s+over)\s++(?:(?:a|an|the|its|whole|entire)\s++){0,2}"
                               r"(?:[a-z]{3,15}\s++){0,2}?(?:of\s++)?(?<![\d.,])(?P<a>" + _NUM + r")\s*+(?P<ua>" + _AREA_U + r")(?P<mid>[^.;=\d]{0,60}?)"
-                              r"(?P<ap>(?:about|around|roughly|approximately|nearly|some)\s++)?(?<![\d.,])(?P<v>" + _NUM + r")(?![\d,]\d|\.\d)\s*+"
+                              r"(?P<ap>(?:about|around|roughly|approximately|nearly|some)\s++)?(?<![\d.,])(?P<v>" + _NUM + r")(?![\d,]\d|\.\d)"
+                              r"(?:\s*+[×x*]\s*+10\s*+(?:\^\s*+(?P<ex>[−-]?\d{1,2})|(?P<sup>[⁻]?[⁰¹²³⁴⁵⁶⁷⁸⁹]{1,2})))?\s*+"
                               r"(?P<sc>thousand|million|billion)?\s*+(?P<uv>m³|m3|cubic\s+met(?:re|er)s|km³|km3|megalit(?:re|er)s|litres|liters|ML|l)(?![\w²³])",
                               re.IGNORECASE)
 
@@ -1887,8 +1993,12 @@ def _depth_volume(ctx: _Ctx, s: _Sentence) -> None:
         if fd is None or fa is None or fv is None or not ctx.room("geo_depth_volume"):
             continue
         scale = _VOL_SCALE.get((m.group("sc") or "").lower(), Fraction(1))
+        # c3e: a volume in powers of ten ("9.12 × 10⁴ m³") is the mantissa times its power, its half-unit scaled with it
+        ex = m.group("ex") or (m.group("sup") or "").translate(str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻", "0123456789-"))
+        power = Fraction(10) ** int(ex.replace("−", "-")) if ex else Fraction(1)
         value = _num(m.group("d")) * fd * _num(m.group("a")) * fa / fv / scale
-        stated = Fig(_num(m.group("v")), m.group("v"), _half(m.group("v").replace(",", "")), bool(m.group("ap")))
+        stated = Fig(_num(m.group("v")) * power, m.group("v") + (f" × 10^{ex}" if ex else ""), _half(m.group("v").replace(",", "")) * power,
+                     bool(m.group("ap")))
         ctx.decided.add(" ".join(s.text.split()))
         ctx.add("geo_depth_volume", lambda cid, value=value, stated=stated, m=m: make_check(
             ctx.report, check_id=cid, kind="geo_depth_volume", inputs=[("stated", stated.value, f"the volume stated ({m.group('v')} {(m.group('sc') or '') + ' ' if m.group('sc') else ''}{m.group('uv')})")],
@@ -2063,6 +2173,10 @@ def _anchor(text: str, at: int, para_before: str, places: Optional[list[tuple[in
     return last
 
 
+#: How far before "of them" its head noun is looked for (characters).
+_OF_THEM_WINDOW = 400
+
+
 def _case_consistency(ctx: _Ctx, sentences: list[_Sentence], text: str) -> None:
     from .packs import _paragraphs
     paras = dict(_paragraphs(text[:MAX_TEXT]))
@@ -2079,7 +2193,9 @@ def _case_consistency(ctx: _Ctx, sentences: list[_Sentence], text: str) -> None:
             found.append((m, m.group("n") or m.group("m"), _HEAD_NOUNS[(m.group("noun") or m.group("verb")).lower()],
                           (m.group("pre") or m.group("pre2") or "").strip().lower(), (m.group("sc") or m.group("sc2") or "").lower()))
         for m in _OF_THEM_RE.finditer(s.text):
-            heads = list(_HEAD_BEFORE_RE.finditer(s.text, 0, m.start()))
+            # (the head noun "of them" refers to, looked for in a bounded window before it: a scan from the sentence's start for each
+            # match was quadratic in a long sentence of such phrases; check round 11 of c3e)
+            heads = list(_HEAD_BEFORE_RE.finditer(s.text, max(0, m.start() - _OF_THEM_WINDOW), m.start()))
             if heads:
                 found.append((m, m.group("n"), _HEAD_NOUNS[heads[-1].group(1).lower()], (m.group("pre") or "").strip().lower(), ""))
         for m in _MAGNITUDE_RE.finditer(s.text):
@@ -2191,6 +2307,18 @@ _FACT_DIMENSIONS = {"wide": "width", "across": "width", "deep": "depth", "long":
                     "in diameter": "diameter"}
 
 
+#: The nouns of one quantity under another name (closed): a fact of '38 mm of rain' is the rainfall of the same storm (c3e: "Storm 1 got
+#: roughly 10% more rainfall than Storm 2" was never compared, the request's facts being 'rain').
+_FACT_SAME_NOUN = {"rainfall": "rain", "precipitation": "rain", "rains": "rain"}
+
+
+def _fact_noun(w: str) -> str:
+    """A fact's noun as compared: singular, and under the one name of its quantity."""
+    w = w.lower()
+    w = _FACT_SAME_NOUN.get(w, w)
+    return w[:-1] if w.endswith("s") and len(w) > 4 else w
+
+
 def _fact_key(text: str, at: int, end: Optional[int] = None) -> Optional[str]:
     """The noun a figure at ``at`` restates: a noun the figure names after it (``end``, past its unit: :data:`_FACT_AFTER_RE`), else the
     content word right before it, past function words ('drains a catchment of 24 km²' -> 'catchment', 'peak discharge 5.4' ->
@@ -2202,7 +2330,7 @@ def _fact_key(text: str, at: int, end: Optional[int] = None) -> Optional[str]:
                 return _FACT_DIMENSIONS[" ".join(after.group("dim").lower().split())]
             w = after.group("of").lower()
             if w not in _FACT_SKIP and w not in _FACT_FRAME:
-                return w[:-1] if w.endswith("s") and len(w) > 4 else w
+                return _fact_noun(w)
     toks = _FACT_WORD_RE.findall(text[max(0, at - 80):at])
     for t in reversed(toks):
         w = t.lower().strip("'’-")
@@ -2210,9 +2338,9 @@ def _fact_key(text: str, at: int, end: Optional[int] = None) -> Optional[str]:
             return None
         if w in _FACT_SKIP:
             continue
-        if w in _FACT_FRAME:
-            return None
-        return w[:-1] if w.endswith("s") and len(w) > 4 else w
+        if w in _FACT_FRAME or w == "s":
+            return None  # (c3e: the 's of a possessive, "Storm 1's 36 mm", is no noun; the labelled possessive is read by the caller)
+        return _fact_noun(w)
     return None
 
 
@@ -2261,6 +2389,15 @@ def _date_value(m: "re.Match[str]") -> tuple[int, int, int]:
     return int(m.group("y2")), months.index(m.group("mo2")) + 1, int(m.group("d2"))
 
 
+_POSS_LABEL_BEFORE_RE = re.compile(r"\b(?P<l>(?:Storm|Site|Station|Zone|Area|Sample|Quadrat|Transect|Point|Plot|Event|Well|Borehole|Village|Town|Ward|District|"
+                                   r"Region)\s\d{1,3})['’]s\s*+$")
+
+
+_SPREAD_OVER_RE = re.compile(r"\s++(?:of\s++(?:rain(?:fall)?|water|precipitation|runoff)\s++)?(?:over|across|on|onto)\s++(?:(?:a|an|the|its|whole|entire)\s++){0,2}"
+                             r"(?:[a-z]{3,15}\s++){0,2}?(?:of\s++)?(?<![\d.,])(?:" + _NUM + r")\s*+" + _AREA_U + r"(?![^.;]{0,40}?\b(?:more|less|fewer|higher|lower|"
+                             r"greater|smaller|larger|than|above|below)\b)", re.IGNORECASE)
+
+
 def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
     """A figure of the request restated in the answer (attack round 8, ge-p9c): 'drains a catchment of 42 km²' against the request's
     'drains a catchment of 24 km²', 'Storm 1 fell on 21 October 2006' against 'Storm 1, on 14 October 2006'. A figure is compared only
@@ -2272,8 +2409,14 @@ def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
     for m in _FACT_FIG_RE.finditer(s.text):
         key = _fact_key(s.text, m.start(), m.end())
         unit = _FACT_UNITS.get(" ".join(m.group("u").lower().split()))
-        if key is None or unit is None or _FACT_DERIVED_AFTER_RE.match(s.text, m.end()):
-            continue  # ("15.1 m³ s⁻¹ above its base flow (16.2 − 1.1)": a figure worked out from others, never one restated)
+        if key is None and unit is not None:
+            # c3e: a figure right after a labelled possessive ("Storm 1's 36 mm over 24 km²") is that label's one figure of its unit
+            pm = _POSS_LABEL_BEFORE_RE.search(s.text, max(0, m.start() - 40), m.start())
+            keys = {k2 for (l2, k2, u2) in facts if pm and l2 == pm.group("l") and u2 == unit}
+            key = keys.pop() if len(keys) == 1 else None
+        if key is None or unit is None or (_FACT_DERIVED_AFTER_RE.match(s.text, m.end()) and not _SPREAD_OVER_RE.match(s.text, m.end())):
+            continue  # ("15.1 m³ s⁻¹ above its base flow (16.2 − 1.1)": a figure worked out from others, never one restated; c3e: a depth
+            # 'over' an area is spread on it, "36 mm over 24 km²", never a comparison)
         lab = _label_before(labels, m.start(), 0) or (next(iter(distinct)) if len(distinct) == 1 else None)
         cands = facts.get((lab, key, unit)) if lab else None
         if not cands:
@@ -2323,8 +2466,7 @@ def _labelled_fold(ctx: _Ctx, s: _Sentence, facts: dict, answer_facts: dict) -> 
         k, ktol = _fold_value(m.group("k"))
         if k is None:
             continue
-        noun = m.group("noun").split()[-1].lower()
-        noun = noun[:-1] if noun.endswith("s") and len(noun) > 4 else noun
+        noun = _fact_noun(m.group("noun").split()[-1])
         def value(lab: str):
             for src in (facts, answer_facts):
                 vals = {x[0] for (l2, k2, _u), xs in src.items() if l2 == lab and k2 == noun for x in xs}
@@ -2350,27 +2492,36 @@ _LABEL_WORD = r"(?:Storm|Site|Station|Zone|Area|Sample|Point|Plot|Well|Village|T
 _REL_LESS = frozenset(("less", "lower", "fewer", "smaller", "shorter", "shallower", "narrower", "slower", "drier", "cooler", "colder"))
 #: "Storm 2 had about 10% less rain than Storm 1", "Site 4's EQS was 25% lower than Site 1's": a relative difference of two labelled
 #: figures the request (or the answer) states, with no bracketed pair (c3d, ge-p9c).
-_LABEL_REL_RE = re.compile(r"\b(?P<l1>" + _LABEL_WORD + r")(?:['’]s\s++(?P<n1>(?:[a-z]{2,20}\s++){0,2}[a-z]{2,20}))?\s++(?:had|has|received|got|saw|recorded|"
+_LABEL_REL_RE = re.compile(r"(?:\b(?:the\s++)?(?P<n0>(?:[a-z]{2,20}\s++){0,1}[a-z]{2,20})\s++(?:of|in|at|for)\s++)?"
+                           r"\b(?P<l1>" + _LABEL_WORD + r")(?:['’]s\s++(?P<n1>(?:[a-z]{2,20}\s++){0,2}[a-z]{2,20}))?\s++(?:had|has|received|got|saw|recorded|"
                            r"produced|was|were|is|are)\s++(?:(?:about|around|roughly|nearly|almost|approximately|some|over|under|more\s+than|less\s+than|at\s+least)\s++)?"
-                           + _num_re("n", scale=False) + r"\s*+(?:%|per\s*+cent\b|percent\b)\s++(?P<cmp>" + _CMP_WORD
-                           + r")\b\s*+(?P<n2>(?:[a-z]{2,20}\s++){0,2}?)than\s++(?:(?:that|those)\s++of\s++|in\s++|at\s++)?(?P<l2>" + _LABEL_WORD + r")\b",
+                           + _num_re("n", scale=False) + r"\s*+(?:(?P<pct>%|per\s*+cent\b|percent\b)|(?P<u>mm|cm|km|m|m³\s?s⁻¹|m3\s?s-1|m³/s|m3/s|cumecs|°C)"
+                           r"(?![\w²³⁻/])(?:\s++of\s++(?P<n3>[a-z]{2,20}))?)\s++(?P<cmp>" + _CMP_WORD
+                           + r")\b\s*+(?P<n2>(?:[a-z]{2,20}\s++){0,2}?)than\s++(?:(?:that|those)\s++of\s++|in\s++|at\s++|for\s++)?(?P<l2>" + _LABEL_WORD + r")\b",
                            re.IGNORECASE)
+_REL_NOUN_SKIP = frozenset(("that", "those", "this", "these", "it", "one"))
 
 
 def _labelled_relative(ctx: _Ctx, s: _Sentence, facts: dict, answer_facts: dict) -> None:
     """c3d (ge-p9c): a relative difference of two labelled figures the request or the answer states ("Storm 2 had about 10% less rain than
     Storm 1" against 36 mm and 38 mm of rain): |A − B| over either figure × 100, in the direction the comparative word states (a 'less'
-    of a larger figure fails); figures of the same noun (after the comparative word or after the possessive) only."""
+    of a larger figure fails); figures of the same noun (after the comparative word or after the possessive) only.
+    c3e: the noun may stand before the label ("The rainfall of Storm 2 was ...") or after an amount ("2 mm of rain more"), the noun under
+    the one name of its quantity ('rainfall' is the request's 'rain'), and the difference may be an amount in a unit ("2 mm higher than
+    that of Storm 1": A − B in the stated direction, against the figures of that unit only)."""
     for m in _LABEL_REL_RE.finditer(s.text):
-        words = (m.group("n2") or "").split() or (m.group("n1") or "").split()
+        words = [w for w in ((m.group("n2") or "").split() or (m.group("n3") or "").split() or (m.group("n1") or "").split()
+                             or (m.group("n0") or "").split()) if w.lower() not in _REL_NOUN_SKIP]
         if not words:
             continue
-        noun = words[-1].lower()
-        noun = noun[:-1] if noun.endswith("s") and len(noun) > 4 else noun
+        noun = _fact_noun(words[-1])
+        unit = _FACT_UNITS.get(" ".join(m.group("u").lower().split())) if m.group("u") else None
+        if m.group("u") and unit is None:
+            continue
 
         def value(lab: str):
             for src in (facts, answer_facts):
-                vals = {x[0] for (l2, k2, _u), xs in src.items() if l2 == lab and k2 == noun for x in xs}
+                vals = {x[0] for (l2, k2, u2), xs in src.items() if l2 == lab and k2 == noun and (unit is None or u2 == unit) for x in xs}
                 if len(vals) == 1:
                     return vals.pop()
             return None
@@ -2379,21 +2530,28 @@ def _labelled_relative(ctx: _Ctx, s: _Sentence, facts: dict, answer_facts: dict)
             continue
         d = (b - a) if m.group("cmp").lower() in _REL_LESS else (a - b)
         stated = _fig(m, "n", s.text)
-        options = [_stated_band(d / base * 100, stated) for base in dict.fromkeys((b, a))]
+        if unit is None:
+            options = [_stated_band(d / base * 100, stated) for base in dict.fromkeys((b, a))]
+            what, shown = "relative difference", f"{stated.shown}%"
+        else:
+            options = [_stated_band(d, stated)]
+            what, shown = "difference", f"{stated.shown} {m.group('u')}"
         ctx.decided.add(" ".join(s.text.split()))
-        ctx.add("geo_pair_comparison", lambda cid, stated=stated, options=options, m=m, a=a, b=b, noun=noun: make_check(
-            ctx.report, check_id=cid, kind="geo_pair_comparison", inputs=[("stated", stated.value, f"the relative difference stated ({stated.shown}%)")],
+        ctx.add("geo_pair_comparison", lambda cid, stated=stated, options=options, m=m, a=a, b=b, noun=noun, what=what, shown=shown: make_check(
+            ctx.report, check_id=cid, kind="geo_pair_comparison", inputs=[("stated", stated.value, f"the {what} stated ({shown})")],
             conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
-            label=f"{m.group('l1')} ({_fmt(a)}) {stated.shown}% {m.group('cmp')} {noun} than {m.group('l2')} ({_fmt(b)})",
-            description=(f"{_excerpt(s.text)} [a relative difference of two labelled figures of the request or the answer: the difference in the "
-                         f"stated direction over either figure × 100; {_RULE.format(tau=1)}]"),
+            label=f"{m.group('l1')} ({_fmt(a)}) {shown} {m.group('cmp')} {noun} than {m.group('l2')} ({_fmt(b)})",
+            description=(f"{_excerpt(s.text)} [a {what} of two labelled figures of the request or the answer: the difference in the "
+                         f"stated direction{' over either figure × 100' if what == 'relative difference' else ''}; {_RULE.format(tau=1)}]"),
             claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="stem_arithmetic_slip"))
 
 
 _CLOCK_RE = re.compile(r"(?<![\d:.,])(?P<h>[01]?\d|2[0-3]):(?P<mi>[0-5]\d)(?![\d:])")
 _CLOCK_STOP = frozenset("the with at of a an and on in its their time times peak was were is are before after then from to by for".split())
 _DUR_RE = re.compile(r"(?<![\d.,])(?:(?P<h>\d{1,3}(?:\.\d{1,2})?)\s*+(?:hours?|hrs?|h)\b(?:\s*+(?:and\s++)?(?P<hm>\d{1,2})\s*+(?:minutes?|mins?|min)\b)?|"
-                     r"(?P<m>\d{1,4})\s*+(?:minutes?|mins?|min)\b)", re.IGNORECASE)
+                     r"(?P<m>\d{1,4})\s*+(?:minutes?|mins?|min)\b|"
+                     # c3e: an interval in words ("a lag of ten hours", "four and a half hours")
+                     r"\b(?P<hw>" + _WORD_NUMBER + r")(?P<hh>\s++and\s++a\s++half)?(?:-|\s++)hours?\b)", re.IGNORECASE)
 _DUR_AFTER_RE = re.compile(r"\s++(?P<dir>after|before|later\s+than|earlier\s+than)\s++(?P<obj>[^.;:,()]{3,80})", re.IGNORECASE)
 _LAG_RE = re.compile(r"\blag(?:\s+times?)?\b", re.IGNORECASE)
 _FOR_LABEL_RE = re.compile(r"\s++(?:for|in|of)\s++(?P<l>" + _LABEL_WORD + r")\b")
@@ -2430,6 +2588,11 @@ def _duration(m: "re.Match[str]") -> tuple[Fraction, Fraction]:
     from .grounded_figures import _half
     if m.group("m"):
         return Fraction(int(m.group("m"))), Fraction(1, 2)
+    if m.group("hw"):
+        # (a whole number of hours in words is precise to the hour, "and a half" to the half hour: half a unit is 30 or 15 minutes,
+        # as for "12 hours" and "12.5 hours"; check round 11 of c3e, where "twelve and a half hours" took the whole hour's band)
+        return (_WORD_NUMBERS[m.group("hw").lower()] + (Fraction(1, 2) if m.group("hh") else 0)) * 60, \
+            Fraction(15) if m.group("hh") else Fraction(30)
     h = Fraction(m.group("h"))
     if m.group("hm"):
         return h * 60 + int(m.group("hm")), Fraction(1, 2)
@@ -2467,6 +2630,9 @@ def _clock_interval(ctx: _Ctx, s: _Sentence, clocks: dict) -> None:
             obj = _clock_words(after.group("obj"))
             first = [e for e in events if _matches(e[2], subj)]
             second = [e for e in events if _matches(e[2], obj)]
+            if not first and len(second) == 1 and len(events) == 2:
+                # c3e: the label itself is the subject ("Storm 2 peaked 5.5 h after its rainfall peak"): the label's other event
+                first = [e for e in events if e is not second[0]]
             sign = 1 if after.group("dir").lower().startswith(("after", "later")) else -1
         else:
             first = [e for e in events if any(w.startswith(_FLOW_WORDS) for w in e[2])]
@@ -2477,7 +2643,9 @@ def _clock_interval(ctx: _Ctx, s: _Sentence, clocks: dict) -> None:
         value = Fraction(sign * (first[0][0] - second[0][0]))
         stated, half = _duration(d)
         approx = bool(_APPROX_RE.search(s.text[max(0, d.start() - 20):d.start()]))
-        tol = max(half, value / 20 if approx else Fraction(0))
+        # (half a unit, the tie excluded: a whole hour never covers a true half hour from both sides, so "four hours" and "five hours"
+        # are no reading of a true 4.5 hours; check round 11 of c3e)
+        tol = max(half - Fraction(1, 60), value / 20 if approx else Fraction(0))
         ctx.decided.add(" ".join(s.text.split()))
         ctx.add("geo_clock_interval", lambda cid, value=value, stated=stated, tol=tol, d=d, lab=lab, a=first[0], b=second[0]: make_check(
             ctx.report, check_id=cid, kind="geo_clock_interval", inputs=[("stated", stated, f"the interval stated ({d.group(0)}, in minutes)")],
@@ -2572,8 +2740,10 @@ def _event_named(events: list[_Event], phrase: str) -> Optional[_Event]:
 
 
 _DAY_UNITS = {"day": Fraction(1), "week": Fraction(7), "month": Fraction(1461, 48), "year": Fraction(1461, 4)}
-_EVENT_INTERVAL_RE = re.compile(r"(?P<ap>\b(?:about|around|roughly|approximately|nearly|almost|some|just\s+over|just\s+under)\s++)?(?<![\d.,])(?P<n>\d{1,4}(?:\.\d{1,2})?)"
-                                r"\s++(?P<u>days?|weeks?|months?|years?)\s++(?P<dir>after|before|later\s+than|earlier\s+than)\s++(?P<obj>[^.;:,()]{3,80})", re.IGNORECASE)
+_EVENT_INTERVAL_RE = re.compile(r"(?P<ap>\b(?:about|around|roughly|approximately|nearly|almost|some|just\s+over|just\s+under)\s++)?"
+                                # c3e: an interval in words too ("a year and a half after", "five and a half months after", "half a year after")
+                                r"(?:(?<![\d.,])(?P<n>\d{1,4}(?:\.\d{1,2})?)|\b(?P<w>" + _WORD_NUMBER + r"|an?)(?P<h1>\s++and\s++a\s++half)?|\b(?P<hf>half)\s++an?)"
+                                r"\s++(?P<u>days?|weeks?|months?|years?)(?P<h2>\s++and\s++a\s++half)?\s++(?P<dir>after|before|later\s+than|earlier\s+than)\s++(?P<obj>[^.;:,()]{3,80})", re.IGNORECASE)
 _EVENT_FOLD_RE = re.compile(r"(?P<ap>\b(?:about|around|roughly|nearly|almost|approximately)\s++)?\b" + _FOLD_K + r"\s++(?:of\s++)?the\s++(?P<noun>[a-z]{3,20})\s++of\s++"
                             r"(?P<obj>[^.;:,()]{3,80})", re.IGNORECASE)
 
@@ -2596,12 +2766,19 @@ def _event_relations(ctx: _Ctx, s: _Sentence, events: list[_Event]) -> None:
         unit = m.group("u").lower().rstrip("s")
         value = days / _DAY_UNITS[unit] * (1 if m.group("dir").lower().startswith(("after", "later")) else -1)
         from .grounded_figures import _half
-        stated = Fig(_num(m.group("n")), m.group("n"), max(_half(m.group("n")), Fraction(1, 2)), bool(m.group("ap")))
+        if m.group("n"):
+            stated = Fig(_num(m.group("n")), m.group("n"), max(_half(m.group("n")), Fraction(1, 2)), bool(m.group("ap")))
+        else:
+            half = bool(m.group("hf") or m.group("h1") or m.group("h2"))
+            whole = Fraction(0) if m.group("hf") else Fraction(1 if m.group("w").lower() in ("a", "an") else _WORD_NUMBERS[m.group("w").lower()])
+            stated = Fig(whole + (Fraction(1, 2) if half else 0), " ".join(m.group(0)[len(m.group("ap") or ""):m.start("dir") - m.start()].split()),
+                         Fraction(1, 4) if half else Fraction(1, 2), bool(m.group("ap")))
+        shown = m.group("n") or stated.shown
         ctx.decided.add(" ".join(s.text.split()))
-        ctx.add("geo_event_relation", lambda cid, value=value, stated=stated, m=m, a=a, b=b: make_check(
-            ctx.report, check_id=cid, kind="geo_event_relation", inputs=[("stated", stated.value, f"the interval stated ({m.group('n')} {m.group('u')})")],
+        ctx.add("geo_event_relation", lambda cid, value=value, stated=stated, m=m, a=a, b=b, shown=shown: make_check(
+            ctx.report, check_id=cid, kind="geo_event_relation", inputs=[("stated", stated.value, f"the interval stated ({shown}{' ' + m.group('u') if m.group('n') else ''})")],
             conclusion=_stated_band(value, stated),
-            label=f"{m.group('n')} {m.group('u')} {m.group('dir')} against the answer's dates {a.date} and {b.date} ({_fmt(value)} {m.group('u')})",
+            label=f"{shown}{' ' + m.group('u') if m.group('n') else ''} {m.group('dir')} against the answer's dates {a.date} and {b.date} ({_fmt(value)} {m.group('u')})",
             description=f"{_excerpt(s.text)} [an interval between two events the answer dates equals the time between the dates; half a unit and 1% (5% after 'about')]",
             claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="contradiction"))
     for m in _EVENT_FOLD_RE.finditer(s.text):
@@ -2895,6 +3072,10 @@ def _inputs_key(report: SpecialistReport, request_text: Optional[str]) -> str:
     return h.hexdigest()
 
 
+_WORD_DURATION_RE = re.compile(r"\b(?:" + _WORD_NUMBER + r"|an?|half)\s++(?:an?\s++)?(?:and\s++a\s++half\s++)?(?:days?|weeks?|months?|years?|hours?)\b",
+                               re.IGNORECASE)
+
+
 def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
     key = (report.report_id, report.response_sha256, _inputs_key(report, request_text))
     hit = _CACHE.get(key)
@@ -2915,8 +3096,8 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
         if len(ctx.checks) >= MAX_PER_REPORT:
             ctx.skip("sentence", sum(1 for t in sentences[k:] if re.search(r"\d", t.text)))
             break
-        if not re.search(r"\d", s.text):
-            continue
+        if not re.search(r"\d", s.text) and not _WORD_DURATION_RE.search(s.text):
+            continue  # (c3e: an interval written in words, "a year and a half after the Darfield quake", has no digit)
         for reader in (_density, _rate_per_thousand, _natural_increase, _doubling, _per_capita, _growth_rate, _mean, _sampling, _significance,
                        _fold, _change_by, _times_pair, _from_to_percent, _bracket_comparison, _pair_comparison, _years_apart, _conversion, _n_formula,
                        _dimension_area, _depth_volume):

@@ -2,7 +2,7 @@
 
 Before c3b this module held its own token rules and closed lexicon (a subject of the answer's own items, a checking or accuracy
 predicate, negation and modal vetoes), read beside the translator's reader. Two readers drifted: each push check found sentences
-one named and the other freed. The one reader (``epinoic_logic.selfcert``, rules ``selfcert-1``, through the public API) reads the
+one named and the other freed. The one reader (``epinoic_logic.selfcert``, the rules ``SELFCERT_RULES`` names, through the public API) reads the
 class by meaning; :func:`flags_self_certification` keeps its name and signature because ``overseer/scripts/mutate_auditor.py``
 mutates it, and FID-009 and FID-005 now never disagree. The rule only ever yields a warning (FID-009), never an error.
 """

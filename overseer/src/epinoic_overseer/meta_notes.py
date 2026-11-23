@@ -1442,7 +1442,7 @@ _META_SENTENCE_RE = re.compile(r"paragraph (\d{1,6}), sentence (\d{1,6}) narrate
 
 def self_report_reading(text: str, *, words: bool = True, ctx: Any = None) -> Optional[str]:
     """Rule ``self-certification-gate``: the rule that names ``text`` (a paragraph, a sentence or a claim of an answer) a
-    self-certification, or None. A thin call into the one reader (``epinoic_logic.selfcert``, rules ``selfcert-1``; round-10 hold
+    self-certification, or None. A thin call into the one reader (``epinoic_logic.selfcert``, the rules ``SELFCERT_RULES`` names; round-10 hold
     remedy c3b), read with ``ctx`` (the context the ROUTER's journaled request gives, ``selfcert.context_for``; None: the strict
     default). Text the reader cannot read is named by rule ``unread-text``. Fail closed, as before: a text over the paragraph bound
     or hiding text, or one holding a JSON object (a pasted receipt), is named (``meta-note``). ``words`` is kept for callers. Never

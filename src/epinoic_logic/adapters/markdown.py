@@ -1019,6 +1019,10 @@ essay report outline summary section passage note notes examination exam assessm
 independently carefully first again thereby then verify verified check checked confirm confirmed memory recollection
 reported reports marked marks labelled labeled flagged treated left presented offered
 """.split())
+#: A word every match of :data:`LABEL_PHRASE_RE` holds (memory, recollection, recall, remember, a check, verify, confirm, corroborate
+#: or validate word, illustrative), read with the same flags: a text without one holds no label phrase, and the phrase pattern, about
+#: eight times slower per character, is not run on it (c3e stabilizer; the pre-filter never changes what the pattern finds).
+_LABEL_PHRASE_HINT_RE = re.compile(r"[mrvcil](?:emory|ecollection|ecall|emember|erif|heck|onfirm|orroborat|alidat|llustrative)", re.IGNORECASE)
 _NOTE_TOKEN_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*")
 #: "<subject> is/are (given) from memory" as the clause's whole predicate: "The causes of the banking crisis of 1931 are
 #: from memory", "Dates other than the poem's own are from memory, so check your notes".
@@ -1788,7 +1792,7 @@ def _label_shaped(masked: str) -> bool:
     of the banking crisis of 1931 are from memory"). A label word somewhere in a substantive clause ("The speaker
     recalls the scene from memory, which explains ...", "The collapse of the Danatbank in July 1931 is illustrative of
     how ...") does not make it a label."""
-    if not LABEL_PHRASE_RE.search(masked):
+    if not _LABEL_PHRASE_HINT_RE.search(masked) or not LABEL_PHRASE_RE.search(masked):
         return False
     if _filler_only(LABEL_PHRASE_RE.sub(" ", masked)):
         return True
@@ -2586,8 +2590,21 @@ _FRAME_GAP = " \t*_`"
 #: A correction frame right before a span that needs nothing else: an arrow, or an explicit correction label.
 #: (check round 9 of c3c: a long arrow "-->", "—>", a bare ">", and a "Right:" or "Correct:" label, '- Wrong: "x". Right: "y"', are
 #: correction frames too)
+#: The label of a correction that follows the wording it replaces, in any language the specialists write ('Right:', 'Correct form:',
+#: 'Better:', 'After:', 'Bien:', 'Correcto:', 'Mejor:', 'Después:', 'Juste :', 'Après :'). One class for this reader and the one reader
+#: of the writer's own words (``own_text._CORRECTION_MARKS``; c3e, the c3d leftover '- Mal: "El primer semana fue difícil". Bien: "La
+#: primera semana fue difícil"' on sp-t16: this reader read only 'Right:' and 'Correct:', so the correction was charged INT-REQ-003).
+CORRECTION_RIGHT_LABELS = (r"right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?|better|stronger|improved|revised|fixed|after|"
+                           r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|despu[eé]s|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
+                           r"juste|corrig[ée]e?|mieux|apr[eè]s")
+#: An arrow between the wording a correction replaces and its label ('"x" → Bien: "y"').
+_CORRECTION_ARROWS = r"(?:→|⟶|⇒|⟹|➔|➜|➝|-{1,2}>|—>|=>)"
 _CORRECTION_BEFORE_RE = re.compile(r"(?:→|⟶|⇒|-{1,2}>|—>|=>|(?<![<>=\-—])>|\bcorrect(?:ed)?\s+(?:form|version|sentence)\s*:|\bcorrection\s*:|"
-                                   r"\b(?:right|correct)\s*:)$", re.IGNORECASE)
+                                   r"\b(?:right|correct)\s*:|"
+                                   # a label of the class right after the wording it replaces, an arrow between or not: '"x". Bien:', '"x" → Mejor:'
+                                   # (c3e; a label alone that may praise rather than correct, 'Bien: "..."', is no correction frame by itself)
+                                   r"[\"'”’»][*_ \t]{0,6}[.;,]?[ \t]{0,3}(?:" + _CORRECTION_ARROWS + r"[ \t]{0,3})?(?:" + CORRECTION_RIGHT_LABELS + r")[ \t]{0,3}:)$",
+                                   re.IGNORECASE)
 
 
 #: Feedback frames that present the span after them as the corrected or model form, with no original span before it
@@ -2639,6 +2656,15 @@ _SENTENCE_START_RE = re.compile(r"[.!?;]\s+")
 #: and nothing but spaces and markup after its colon.
 _CORRECTION_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+(?:model(?:\s+(?:answer|sentence|version|paragraph))?|corrected(?:\s+(?:version|sentence|form))?|correction"
                                        r"|better|improved(?:\s+version)?|rewrite|rewritten)\b[^:\"“”«»\n]{0,40}:", re.IGNORECASE)
+#: The label of a correction opening the line or the sentence, the colon right after it (a bracket of at most 80 characters may
+#: stand between: 'Correcto (registro formal):'; never a longer head, so 'Bien, pero ...:' is no label), in every language the
+#: specialists write: the class :data:`CORRECTION_RIGHT_LABELS` (c3e, the c3d leftover '- Mal: "El primer semana fue difícil".
+#: Bien: "La primera semana fue difícil"' on sp-t16, which a parser reads as two sentences: this reader read only the English
+#: 'Right:' and 'Correct:' there, so the Spanish correction was charged INT-REQ-003). 'Bien:', 'Mejor:', 'Correcto:', 'Juste :' are
+#: the counterparts of 'Right:', 'Better:' and 'Correct:', which this reader already took alone, and 'After:', 'Después:', 'Après :'
+#: the second label of a before-and-after pair ('Antes: "x". Después: "y"'). Read in a feedback task only, as every correction frame.
+_RIGHT_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+(?:" + CORRECTION_RIGHT_LABELS + r")[ \t]{0,3}(?:\([^()\n\"“”«»]{0,80}\)[ \t]{0,3})?:",
+                                 re.IGNORECASE)
 
 
 _MARKUP_RUN_RE = re.compile(r"[\s*_`]*+")
@@ -2763,7 +2789,9 @@ _QUOTATION_SUBJECT_RE = re.compile(r"(?:\b(?:the|your|his|her|their|this|that|ea
 _PRESCRIBED_REPORT_RE = re.compile(r"\b(?:should|would|could|must|ought\s+to|needs?\s+to|has\s+to)\s+(?:then\s+)?(?:read|say|state)\s*[,:]?$", re.IGNORECASE)
 
 
-_ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|-{1,2}>|—>|=>|>(?!=)|[.;,]?\s*(?:right|correct(?:ed)?(?:\s+(?:form|version|sentence))?)\s*:)", re.IGNORECASE)
+#: What follows the wording a correction replaces: an arrow, or the label of its correction (:data:`CORRECTION_RIGHT_LABELS`, c3e).
+_ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|-{1,2}>|—>|=>|>(?!=)|[.;,]?\s*(?:right|correct(?:ed)?(?:\s+(?:form|version|sentence))?)\s*:|"
+                             r"[.;,]?[ \t]{0,3}(?:" + CORRECTION_RIGHT_LABELS + r")[ \t]{0,3}:)", re.IGNORECASE)
 
 
 _QUOTE_STRIP = "\"'“”‘’«»„‟ *_`.,;:!?"
@@ -2946,7 +2974,8 @@ def _roles_of(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read:
         if fb and (_CORRECTION_BEFORE_RE.search(before) or _word_correction(text, spans, k, feedback=fb, lines=lines) or contrast
                    or (_FEEDBACK_BEFORE_RE.search(before) and not arrow_follows)
                    or (corrected_before and _CORRECTION_RESULT_RE.search(before))
-                   or (lines.label_governs(a, _CORRECTION_LABEL_HEAD_RE) and not arrow_follows)):
+                   or (lines.label_governs(a, _CORRECTION_LABEL_HEAD_RE) and not arrow_follows)
+                   or (lines.label_governs(a, _RIGHT_LABEL_HEAD_RE) and not arrow_follows)):
             role = "correction"
         elif joined and roles[k - 1] in ("correction", "mention", "suggestion"):
             role = roles[k - 1]

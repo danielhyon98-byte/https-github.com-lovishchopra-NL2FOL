@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import functools
 import re
+from bisect import bisect_left
 from typing import Callable, Optional
 
-from .lexicon import fold_word, fuzzy_targets, fuzzy_targets_es, lexicon, tags as word_tags
+from .lexicon import fold_word, fuzzy_target, fuzzy_targets, fuzzy_targets_es, lexicon, tags as word_tags
 
 __all__ = ["candidates", "frame_hits"]
 
@@ -102,6 +103,11 @@ def target_of(word: str) -> Optional[str]:
         return None
     if word in lexicon().words or word_tags(word):
         return None  # (a lexicon word, or a variant rule N9 already reads; an exempt real word has no tags and is a candidate)
+    if word.endswith(("ao", "aos", "ía", "io")) and len(word) >= 6:
+        # a Spanish participle with its d dropped, as spoken ("verificao", "comprobao", "revisao": "verificado"; c3e)
+        for full in (word[:-2] + "ado", word[:-3] + "ados" if word.endswith("aos") else None, word[:-2] + "ido" if word.endswith("io") else None):
+            if full and full in _targets():
+                return full
     idx = _index()
     found: dict[str, int] = {}
     for x in _deletes(word, 2):
@@ -144,12 +150,70 @@ def _sound(w: str) -> str:
     return re.sub(r"(.)\1+", r"\1", w)
 
 
+#: The first parts of a compound that make it a check act whatever its last part spells ("double-", "fact-", "proof-"): the
+#: prefixes the lexicon reads on a family verb (``lexicon.tags``), plus "proof".
+_CHECK_PREFIXES = frozenset(("double", "triple", "cross", "fact", "proof", "spot", "sanity", "peer", "self", "hand", "stress",
+                             "re", "independently", "formally", "fully", "twice", "spell"))
+#: The check participles a compound's last part may misspell by two edits ("triple-chekd", "cross-chekd", "spell-chekd": the
+#: prefix is the frame, so the bound of a bare word does not apply; c3e check round 11).
+_COMPOUND_PARTICIPLES = ("checked", "cheked", "verified", "proofread", "reviewed", "tested", "counted", "marked")
+
+
+def _prefix_of(head: str) -> Optional[str]:
+    """The check prefix ``head`` is or misspells by one edit of a word of six letters or more ("tripple" for "triple")."""
+    if head in _CHECK_PREFIXES:
+        return head
+    if len(head) >= 6:
+        for p in _CHECK_PREFIXES:
+            if len(p) >= 5 and p[0] == head[0] and _distance(head, p, 1) <= 1:
+                return p
+    return None
+
+
+def compound_target(raw: str) -> Optional[str]:
+    """The check compound a hyphenated word misspells, or None: its first part is a check prefix and its last part, or the two
+    written as one word, misspells a family word ("double-chekced" -> "double-checked", "fact-cheked" -> "fact-checked",
+    "proof-red" -> "proofread"; c3e, the push check of 2be42c48)."""
+    parts = fold_word(raw).replace("’", "'").split("-")
+    if len(parts) != 2 or not parts[1].isalpha():
+        return None
+    head = _prefix_of(parts[0])
+    if head is None:
+        return None
+    last = parts[1]
+    if word_tags(head + "-" + last) - {"compound"} and "fuzzy" not in word_tags(head + "-" + last):
+        return None  # a compound the lexicon reads as it is ("double-checked")
+    joined = _spelt_target(head + last)
+    if joined is not None:
+        return joined
+    t = _spelt_target(last)
+    if t is None and 4 <= len(last) <= 12:
+        t = next((p for p in _COMPOUND_PARTICIPLES if p[0] == last[0] and _distance(last, p, 2) <= 2 and last != p), None)
+    if t is None and head != parts[0] and word_tags(last):
+        t = last  # (the prefix alone misspelt: "tripple-checked")
+    return head + "-" + t if t is not None else None
+
+
+def _spelt_target(word: str) -> Optional[str]:
+    """The family word ``word`` misspells: by edit distance (:func:`target_of`) or as a one-edit variant rule N9 reads."""
+    t = target_of(word)
+    if t is not None:
+        return t
+    return fuzzy_target(word) if "fuzzy" in word_tags(word) else None
+
+
 def candidates(text: str) -> list[tuple[int, int, str]]:
-    """``(start, end, target)`` for each word of ``text`` that may misspell a family word (:func:`target_of`)."""
+    """``(start, end, target)`` for each word of ``text`` that may misspell a family word (:func:`target_of`), and each check
+    compound with a misspelt last part (:func:`compound_target`)."""
     out = []
     for m in _WORD_RE.finditer(text):
         raw = m.group(0)
-        if "-" in raw or "'" in raw or "’" in raw:
+        if "'" in raw or "’" in raw:
+            continue
+        if "-" in raw:
+            t = compound_target(raw)
+            if t is not None:
+                out.append((m.start(), m.end(), t))
             continue
         t = target_of(fold_word(raw))
         if t is not None:
@@ -193,6 +257,71 @@ def _own_object(after: list) -> bool:
         if t[2] in _DEICTIC + _DIST and any(x[3] & {"C:genre", "C:genre_strong", "C:part"} for x in after[i + 1:i + 4]):
             return True
     return False
+
+
+def _status_target(target: str) -> bool:
+    """Whether ``target`` is a status a sentence of its own can state: a participle or adjective of a check, a status or an
+    approval ("checked", "verified", "signed"), never a verb of another family ("footer" is no misspelt "footed")."""
+    tg = word_tags(target)
+    return bool(tg & {"F:CHECK", "F:STATUS", "F:APPROVE"}) and bool(tg & {"v:part", "adj"})
+
+
+def _status_sentence(sentence: str, a: int) -> bool:
+    """Whether the word at ``a`` stands as the answer's own status sentence: the sentence is that word alone, or that word with a
+    check compound, a family word, "and" or a quantifier ("Cheked.", "Double-cheked.", "Proof-red and fact-cheked.", "All
+    cheked."), so the misspelt word can only label the text it closes (c3e)."""
+    toks = _word_toks(sentence)
+    if not toks or len(toks) > 4 or any(t[0] == a for t in toks) is False:
+        return False
+    for t in toks:
+        if t[0] == a:
+            continue
+        if t[2] in ("and", "y", "&", "all", "everything", "todo") or any(x.startswith("F:") for x in t[3]) or \
+                ("-" in t[2] and compound_target(t[2]) is not None) or target_of(t[2]) is not None:
+            continue
+        return False
+    return not re.search(r"[0-9=<>]", sentence)
+
+
+@functools.lru_cache(maxsize=1)
+def lexicon_excluded() -> frozenset[str]:
+    """The real words the lexicon exempts from rule N9 (``fuzzy_excluded``)."""
+    import json
+    from .lexicon import _HERE
+    return frozenset(fold_word(x) for x in json.loads((_HERE / "lexicon.json").read_text(encoding="utf-8")).get("fuzzy_excluded", []))
+
+
+def _misspelt_subject(sentence: str, a: int, target: str) -> bool:
+    """Whether the word at ``a`` misspells the answer or a part of it (its target is a genre or part word: "responce", "figuers")
+    in a sentence that holds a check or assessment word, the subject of that check ("This responce was checkd by the panel."; c3e).
+    The sentence is then read with the subject spelt as the word it misspells."""
+    if not word_tags(target) & {"C:genre_strong", "C:genre", "C:part"}:
+        return False
+    m = _WORD_RE.match(sentence, a)
+    w = fold_word(m.group(0)) if m else ""
+    # (an inflection of the noun is a word, never a misspelling of it: "readings", "workings", "figured")
+    if not w or any(w == target + x or target == w + x for x in ("s", "es", "'s", "ed", "d", "ing")) or \
+            w.rstrip("s") == target.rstrip("s"):
+        return False
+    # (one edit only, and never an exempt real word: "exclamation" is two edits from "explanation" and a word of its own)
+    if _distance(w, target, 1) > 1 or w in lexicon_excluded():
+        return False
+    toks = _word_toks(sentence)
+    k = next((i for i, t in enumerate(toks) if t[0] == a), None)
+    if k is None:
+        return False
+    # (the misspelt word names THIS answer only with a determiner of the answer's own scope before it, "This responce", "my
+    # figuers", "the responce" for a genre word, or an anchor after it, "figuers above"; a real word one edit from a part noun in
+    # the subject matter's sentence, "State procurement quotas were fixed ... a figure later revised", names no part of the
+    # answer: check round 11 of c3e)
+    prev = toks[k - 1][2] if k > 0 else ""
+    own = prev in _DEICTIC or prev in ("my", "our", "mi", "mis", "nuestra", "nuestro", "nuestras", "nuestros") or \
+        (prev in ("the", "la", "el") and bool(word_tags(target) & {"C:genre_strong"})) or \
+        any(t[3] & {"C:anchor", "C:anchor_idioms"} for t in toks[k + 1:k + 3]) or \
+        (k >= 2 and toks[k - 2][2] in _DIST and toks[k - 1][3] & {"C:det", "C:definite", "C:demonstrative"})
+    if not own:
+        return False
+    return any(any(x.startswith("F:") for x in t[3]) for t in toks if t[0] != a)
 
 
 def _in_check_frame(sentence: str, a: int) -> bool:
@@ -255,12 +384,16 @@ def frame_hits(text: str, reads: Callable[[str], list]) -> list[tuple[str, str, 
     cands = candidates(text)
     if not cands:
         return []
+    starts = [c[0] for c in cands]
     framed: list[tuple[int, int, int, int, str]] = []
     for a, b, target in cands:
         sa = max((m.end() for m in _SENT_END_RE.finditer(text, max(0, a - _WINDOW), a)), default=max(0, a - _WINDOW))
         m_end = _SENT_END_RE.search(text, b, min(len(text), b + _WINDOW))
         sb = m_end.end() if m_end else min(len(text), b + _WINDOW)
-        if _in_check_frame(text[sa:sb], a - sa):
+        piece = text[sa:sb]
+        if "-" in text[a:b] or _in_check_frame(piece, a - sa) or (_status_target(target) and _status_sentence(piece, a - sa)) or \
+                _misspelt_subject(piece, a - sa, target):
+            # (a check compound, "double-chekced", is a check act wherever it stands: its prefix is its frame; c3e)
             framed.append((sa, sb, a, b, target))
     out: list[tuple[str, str, str, int, int, str]] = []
     k = 0
@@ -272,8 +405,15 @@ def frame_hits(text: str, reads: Callable[[str], list]) -> list[tuple[str, str, 
             sb = max(sb, framed[k][1])
             group.append(framed[k])
             k += 1
+        # every candidate in the window is written as its target, framed or not ("This responce was checkd by the panel.": the
+        # misspelt subject names the answer as the word it misspells; c3e), and only the framed ones are hits
         parts, at = [], sa
-        for _sa, _sb, a, b, target in group:
+        for ci in range(bisect_left(starts, sa), len(cands)):  # (by index: a slice of the rest per window was quadratic)
+            a, b, target = cands[ci]
+            if a >= sb:
+                break
+            if b > sb:
+                continue
             parts.append(text[at:a])
             parts.append(_spelled_as(text[a:b], target))
             at = b

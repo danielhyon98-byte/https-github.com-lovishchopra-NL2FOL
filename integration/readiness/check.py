@@ -73,8 +73,9 @@ PASS, BLOCKER, NOT_RUN, REPORTED = "PASS", "BLOCKER", "NOT RUN", "REPORTED"
 
 
 #: The contract line this kit release expects (0.6 since policy 2026.11-v5, the round-10 hold remedy c3b: eligibility rule 0 reads the
-#: one self-certification reader and the policy identity binds its rules). A kit whose line predates it is refused at G1.
-EXPECTED_CONTRACT = "0.6"
+#: one self-certification reader and the policy identity binds its rules; 0.7 since policy 2026.11-v6, c3e: rules selfcert-2, and the
+#: policy identity binds the reader's code too). A kit whose line predates it is refused at G1.
+EXPECTED_CONTRACT = "0.7"
 
 def row(rows: list, name: str, status: str, detail: str) -> None:
     rows.append((name, status, detail))

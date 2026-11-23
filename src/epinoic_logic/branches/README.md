@@ -918,7 +918,13 @@ depth of water over an area), `geo_clock_interval` (an interval or lag between t
 complement, from the year tables of one supplied document read as one), `geo_table_spacing` (the sites' spacing against the table's
 distance column) and `geo_event_relation` (an interval or a multiple between two events the answer dates); a figure's noun may be
 named after it ('2.8 m deep', '38 mm of rain'), a relative difference of two labelled request figures is a `geo_pair_comparison`
-('10% less rain than Storm 1'), and one word limit stated twice is a `geo_case_consistency`.
+('10% less rain than Storm 1'), and one word limit stated twice is a `geo_case_consistency`. The c3e follow-up names a table row only by
+its distinctive content words, never by a function word ('and' of 'Wind and solar power' had named that row, so a wrong figure per person
+was checked against the wrong row and ENTAILED; `grounded_figures.FUNCTION_WORDS`), and widens the frames: an area given by a result verb
+or a cross-section ('giving 12.8 m²'), a labelled difference with its noun before the label or as an amount in a unit ('The rainfall of
+Storm 2 was 2 mm higher than that of Storm 1'; 'rainfall' is the request's 'rain'), a from-to bracket pair ('(from 38 mm to 36 mm)'), a
+labelled possessive figure ('Storm 1's 36 mm'), a volume in powers of ten, intervals in words ('a lag of ten hours', 'a year and a half
+after the Darfield quake') and the label itself as an interval's subject ('Storm 2 peaked 5.5 h after its rainfall peak').
 
 **Language B** (`language_b.py`, `spanish_lexicon.py`). The task is read once (writing, marking, reading or notes, by the task type and
 then the request) and the answer into regions. The statements read are the meta sentences (never the model's own content): a word
@@ -935,7 +941,13 @@ language-neutral checks only. Register, linguistic accuracy and text-type fit ar
 The c3d follow-up reads a reporting verb of the model, what the byline is said to state, a word range credited to the task, the word
 count of the answer's own notes against a one-sided limit, a paraphrase credited by name (a name is the text's kin speaker only where
 the text sets it beside the kin word; content matched by shared stems across the two languages), a speaker the text names after the
-words or by a description, and the scenario a writing or marking task sets in the target language as a source of counts.
+words or by a description, and the scenario a writing or marking task sets in the target language as a source of counts. The c3e
+follow-up adds `lb_share` (a share of a total with its part, 'El 25 % de 80 es 20', or with the fraction it is worked from, '75% of the
+available marks (21/30)'), reads 'desde 2015' with a present perfect as a period to today and the present perfect of a change ('ha
+ganado 56 vecinos'), a paraphrase speaker in Spanish or in a cleft ('Tu abuelo dijo que ...', 'It is your grandmother who says ...'), the
+task's scenario in the answer's own language and hyphenated counts ('El intercambio duró dos semanas', 'a two-week stay'), a duration
+with its bracketed years, a year in Spanish words, the course range for a Paper 1 task's range claim when the request sets none (a
+warning) and the model text's word count ('el texto modelo tiene 300').
 
 **Linear time.** Every reader is one pass or one `finditer` of a word-bounded pattern over a bounded prefix, statements and checks are
 capped per kind and per report, and tables keep grounded_figures' caps. `tests/branches/test_d9d10_linear.py` runs every entry point

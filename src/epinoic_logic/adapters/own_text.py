@@ -22,6 +22,7 @@ import re
 from typing import Optional, Sequence
 
 from .markdown import _ATTRIBUTION_BEFORE_RE
+from .markdown import CORRECTION_RIGHT_LABELS as _MD_CORRECTION_RIGHT_LABELS
 from .markdown import _FORM_JOIN_RE as _MD_FORM_JOIN_RE
 from .markdown import _FORM_NAMED_AFTER_RE as _MD_FORM_NAMED_AFTER_RE
 from .markdown import _GLOSS_BEFORE_RE as _MD_GLOSS_BEFORE_RE
@@ -65,16 +66,16 @@ _OWN_TEXT_AFTER = 96
 #: (c3d, the c3c leftover 'Wrong: "x". Right: "y"' on a marking answer: the class is a LABELLED correction pair in any language the
 #: specialists write: 'Incorrect: "x". Correct: "y"', 'Before: "x". After: "y"', 'Weak: "x". Stronger: "y"', 'Mal: "x". Bien:
 #: "y"', 'Incorrecto: "x". Correcto: "y"', 'Faux : "x". Juste : "y"'; the label of the correction right after the replaced span)
-_RIGHT_LABELS = (r"right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?|better|stronger|improved|revised|fixed|after|"
-                 r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|despu[eé]s|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
-                 r"juste|corrig[ée]e?|mieux|apr[eè]s")
+_RIGHT_LABELS = _MD_CORRECTION_RIGHT_LABELS  # one class for both readers (``markdown.CORRECTION_RIGHT_LABELS``; c3e)
 _CORRECTION_MARKS = (r"(?:→|-{1,2}>|—>|=>|⇒|⟶|⟹|➔|➜|➝|>|\bshould[ \t]{1,3}be\b[ \t:]{0,3}|\bbecomes\b[ \t:]{0,3}|"
-                     r"[.;,]?[ \t]{0,3}(?:" + _RIGHT_LABELS + r")[ \t]{0,3}:[ \t]{0,3})")
+                     # (c3e: an arrow may stand before the label, '"x" → Bien: "y"', 'Mal: "x" -> Correct: "y"')
+                     r"[.;,]?[ \t]{0,3}(?:(?:→|-{1,2}>|—>|=>|⇒|⟶|⟹|➔|➜|➝)[ \t]{0,3})?(?:" + _RIGHT_LABELS + r")[ \t]{0,3}:[ \t]{0,3})")
 _CORRECTION_BEFORE_RE = re.compile(r"[\"'”’»][*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
-#: The longest text :data:`_CORRECTION_BEFORE_RE` matches is 44 characters, and it ends at the window's end (``\Z``): the search
-#: starts this many characters before the end (repair 1 after clearance c3c: searching the whole window from every quotation mark
-#: in it doubled the cost of this pattern on a paragraph of thousands of quotations; the reading is the same).
-_CORRECTION_TAIL = 48
+#: The longest text :data:`_CORRECTION_BEFORE_RE` matches is 50 characters (44 before c3e added the arrow before a label), and it
+#: ends at the window's end (``\Z``): the search starts this many characters before the end (repair 1 after clearance c3c:
+#: searching the whole window from every quotation mark in it doubled the cost of this pattern on a paragraph of thousands of
+#: quotations; the reading is the same).
+_CORRECTION_TAIL = 56
 #: A model, topic or line of inquiry under its label at the start of a line or sentence; a parenthesis of at most 200 characters may
 #: follow the label ("Model (one sentence, to show range with your own content; not a replacement for your text):").
 _OWN_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model|rewrite|rewritten|corrected|correction|"
@@ -179,6 +180,15 @@ _PARAGRAPH_BREAK_AT_RE = re.compile(r"\n(?=\n)")
 _INVENTED_OVERLAP = 200
 
 
+#: The writer's recommended form offered against another, after an imperative ('Use "y", not "x"', 'Say "y", not "x"', 'Escribe
+#: "y", no "x"'; c3e check round 11, the overseer fixer's handoff): the first span is the writer's FRAME and the second the wording it
+#: replaces (:data:`_REPLACED_GAP_RE`). Only the whole pair is read: an imperative before a lone quotation ('Use "x" in your essay')
+#: names a quotation of a text, which stays one.
+_USE_BEFORE_RE = re.compile(r"(?:^|[\n.!?;:(])[ \t*_>#-]{0,8}(?:(?:so|then|instead|now|rather|please),?[ \t]{1,3})?"
+                            r"(?:use|say|write|try|prefer|usa|di|escribe|pon)[ \t]{0,3}:?[ \t]{0,3}\Z", re.IGNORECASE)
+_NOT_THE_OTHER_AFTER_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:not|no)[ \t:]{1,3}[\"“‘«']", re.IGNORECASE)
+
+
 def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None) -> list[Optional[str]]:
     """THE reader of the writer's own quoted words (rules ``own-model`` and ``own-text``; round-10 leftover R10-OWN-TEXT-ONE-READER:
     the channel, the packs and the transfer auditor read them with this one function): per quotation span of ``text`` (``spans``,
@@ -209,7 +219,8 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
                 or _SUGGEST_BEFORE_RE.search(before) or _PHRASE_ONLY_AFTER_RE.match(after)):
             kinds[i] = OWN_FORM
         elif (_CORRECTION_BEFORE_RE.search(before, max(0, len(before) - _CORRECTION_TAIL)) or _OWN_LABEL_BEFORE_RE.search(before) or _PHRASE_AFTER_RE.match(after)
-              or _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start])):
+              or _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start])
+              or (_USE_BEFORE_RE.search(before) and _NOT_THE_OTHER_AFTER_RE.match(after))):
             kinds[i] = OWN_FRAME
         elif i > 0 and kinds[i - 1] is not None and _LIST_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE]):
             kinds[i] = kinds[i - 1]  # a list continuing an own span ('"Y" or "Z"', '"a", "b", "c"')
@@ -232,7 +243,8 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
 _CORRECTION_GAP_RE = re.compile(r"\A[*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
 #: The gap between the writer's own form and the wording it replaces, offered after it ('"y" rather than "x"', '"y" instead of "x"',
 #: '"y", not "x"').
-_REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than|not)[ \t:]{0,3}\Z", re.IGNORECASE)
+_REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than|not|no|en[ \t]{1,3}lugar[ \t]{1,3}de|"
+                              r"en[ \t]{1,3}vez[ \t]{1,3}de)[ \t:]{0,3}\Z", re.IGNORECASE)
 
 
 #: The label of the wording a correction replaces, at the start of a line or sentence ('- Wrong: "x"', 'Incorrect form: "x"',
@@ -323,48 +335,79 @@ _CREDIT_WINDOW = 80
 #: pide:', 'Le sujet dit', 'the passage reads'): the request's or a text's words, never the answer's own. Push check of af6dfe04
 #: (reason 5): the English-only 'you/your/the task|request|question|prompt|student|brief' frame let 'La consigna dice "..."', 'The
 #: instructions say "..."' and 'The exam paper says "..."' pass as the answer's own wording once the answer also wrote the altered
-#: words in its own voice. The cue may stand anywhere in the clause before the opening mark (no sentence end or quotation mark
-#: between).
+#: words in its own voice. Push check of 2be42c48 (critical_open 3): the class is every person or paper that SETS the task, and every
+#: verb of asking or instructing, in any frame and language: the teacher, the examiner or the marker ('Our teacher wrote', 'Mi
+#: profesora escribió:', 'Le professeur demande'), and the request itself by its verb, active, passive or impersonal ('Se nos pide lo
+#: siguiente:', 'We were asked', 'On nous demande', 'Nos piden'). The cue may stand anywhere in the clause before the opening mark (no
+#: sentence end or quotation mark between).
 _READER_CREDIT_BEFORE_RE = re.compile(
     r"(?<![\w'’])(?:you|your|yours|yourself|"
     # the task and its parts (English)
     r"task|tasks|request|question|questions|prompt|student|students|brief|instruction|instructions|rubric|exam|examination|paper|"
     r"assignment|stimulus|mark[ \t]{1,3}scheme|markscheme|syllabus|"
+    # who sets or marks the task (English)
+    r"teacher|teachers|tutor|tutors|lecturer|professor|instructor|examiner|examiners|marker|markers|"
+    # a verb of asking or instructing: the request, active, passive or impersonal (English)
+    r"ask|asks|asked|asking|request|requests|requested|require|requires|required|instruct|instructs|instructed|told|"
     # a text under analysis (English)
     r"text|texts|source|sources|passage|extract|excerpt|poem|novel|play|transcript|document|"
     # Spanish
     r"tu|tus|tuyo|tuya|usted|ustedes|vosotros|vosotras|vuestro|vuestra|vuestros|vuestras|consigna|enunciado|instrucciones|instrucción|"
     r"tarea|pregunta|preguntas|examen|prueba|alumno|alumna|alumnos|estudiante|estudiantes|texto|textos|fragmento|pasaje|fuente|fuentes|"
     r"poema|documento|"
+    r"profesor|profesora|profesores|profesoras|profe|maestro|maestra|maestros|maestras|docente|docentes|tutor|tutora|examinador|"
+    r"examinadora|examinadores|corrector|correctora|"
+    r"pide|piden|pidió|pidieron|pedía|pedían|pedido|pedida|pregunta|preguntan|preguntó|solicita|solicitan|solicitó|exige|exigen|"
+    r"indica|indican|indicó|"
     # French
-    r"ton|ta|tes|votre|vos|vous|consigne|énoncé|sujet|élève|étudiant|étudiante|texte|textes|extrait|poème)"
+    r"ton|ta|tes|votre|vos|vous|consigne|énoncé|sujet|élève|étudiant|étudiante|texte|textes|extrait|poème|"
+    r"professeur|professeure|professeurs|prof|enseignant|enseignante|enseignants|examinateur|examinatrice|correcteur|correctrice|"
+    r"demande|demandent|demandé|demandée|exige|exigent)"
     r"(?!\w)[^.!?\n\"“”«»]{0,72}\Z", re.IGNORECASE)
-#: A quotation its sentence credits to the ANSWER'S OWN text: a part or a kind of the answer's own writing ('The article opens with',
-#: 'The model opens with', 'The second sentence, "..."', 'the headline', 'Mi artículo empieza con', 'La primera frase'), a word
-#: that points back into the answer ('as I said above', 'arriba', 'ci-dessus'), a first-person possessive before a noun ('my
-#: closing line', 'mi carta', 'mon article'), or a first-person past verb of writing or saying ('as I wrote', 'I opened with',
-#: 'como escribí'). Only such a frame lets the answer's own wording stand for the source of a quotation the request holds all
-#: but one or two words of: a bare quotation, or one credited to the task in any frame, is checked against the task whatever
-#: the answer writes elsewhere (push check of af6dfe04, reason 5). A cue of :data:`_READER_CREDIT_BEFORE_RE` in the same clause
-#: overrides it ('the first sentence of the task').
+#: The kinds and the parts of a piece of writing, in the languages the specialists write: the nouns :data:`_OWN_TEXT_CREDIT_BEFORE_RE`
+#: and :data:`_OWN_PART_CREDIT_BEFORE_RE` read.
+_OWN_KIND_NOUNS = (r"article|letter|e-?mail|essay|model|speech|blog|post|entry|review|story|report|answer|response|reply|version|piece|"
+                   r"draft|words|wording|"
+                   r"artículo|carta|correo|ensayo|modelo|discurso|entrada|reseña|respuesta|versión|borrador|palabras|"
+                   r"lettre|courriel|essai|modèle|discours|réponse|brouillon|mots")
+_OWN_PART_NOUNS = (r"headline|title|byline|heading|paragraph|sentence|line|opening|introduction|conclusion|ending|closing|greeting|"
+                   r"sign-off|"
+                   r"titular|título|encabezado|párrafo|frase|oración|línea|apertura|introducción|conclusión|cierre|saludo|despedida|"
+                   r"titre|paragraphe|phrase|ligne")
+#: A quotation its sentence credits to the ANSWER'S OWN text, in the answer's OWN voice (push check of 2be42c48, critical_open 3):
+#: a first-person possessive before a kind or a part of a piece of writing, at most two words between ('my closing line', 'mi
+#: carta', 'mon article', 'our model'; never a possessive before any other noun: 'our teacher', 'mi profesora', and 'nos' before a
+#: verb in 'Se nos pide', which the af6dfe04 reader took for the French possessive), a first-person verb of writing or saying ('as I
+#: wrote', 'as I said above', 'I opened with', 'como escribí'), or a kind of the answer's own writing named as the text quoted ('The
+#: article opens with', 'The model opens with', 'Mi artículo empieza con'). A part alone ('the heading', 'the opening line', 'la
+#: primera línea') may be the task's as well as the answer's: :data:`_OWN_PART_CREDIT_BEFORE_RE` reads it. A word that only points
+#: back ('above', 'arriba', 'Como se indica arriba:') credits nothing by itself: the task may stand above too. Only such a frame lets
+#: the answer's own wording stand for the source of a quotation the request holds all but one or two words of: a bare quotation, or
+#: one credited to the task in any frame, is checked against the task whatever the answer writes elsewhere (push check of af6dfe04,
+#: reason 5). A cue of :data:`_READER_CREDIT_BEFORE_RE` in the same clause overrides it ('the first sentence of the task').
 _OWN_TEXT_CREDIT_BEFORE_RE = re.compile(
     r"(?<![\w'’])(?:"
-    # a part or a kind of the answer's own writing (English)
-    r"article|letter|e-?mail|essay|model|speech|blog|post|entry|review|headline|title|byline|story|report|answer|response|reply|"
-    r"version|piece|paragraph|sentence|line|opening|introduction|conclusion|ending|closing|greeting|sign-off|heading|"
-    # Spanish
-    r"artículo|carta|correo|ensayo|modelo|discurso|entrada|reseña|titular|título|respuesta|versión|párrafo|frase|oración|línea|"
-    r"apertura|introducción|conclusión|cierre|saludo|despedida|"
-    # French
-    r"lettre|courriel|essai|modèle|discours|titre|réponse|paragraphe|phrase|ligne|"
-    # pointing back into the answer
-    r"above|below|earlier|previously|arriba|abajo|anteriormente|ci-dessus|ci-dessous|plus[ \t]{1,3}haut|"
-    # a first-person possessive before a noun, a first-person past verb of writing or saying
-    r"(?:my|our|mi|mis|nuestro|nuestra|nuestros|nuestras|mon|ma|mes|notre|nos)[ \t]{1,3}[^\W\d_]{2,}|"
+    # a kind of the answer's own writing
+    r"(?:" + _OWN_KIND_NOUNS + r")|"
+    # a first-person possessive before a kind or a part of a piece of writing, at most two words between
+    r"(?:my|our|mi|mis|nuestro|nuestra|nuestros|nuestras|mon|ma|mes|notre|nos)(?:[ \t]{1,3}[^\W\d_][\w'’-]{0,24}){0,2}[ \t]{1,3}"
+    r"(?:" + _OWN_KIND_NOUNS + r"|" + _OWN_PART_NOUNS + r")|"
+    # a first-person verb of writing or saying
     r"(?:i|we)[ \t]{1,3}(?:wrote|said|opened|began|started|ended|closed|put|stated|argued|noted|mentioned|explained|used)|"
     r"(?:escribí|dije|empecé|comencé|terminé|abrí|cerré|escribimos|dijimos|"
     r"j['’][ \t]{0,2}ai[ \t]{1,3}(?:écrit|dit|commencé|terminé)))"
     r"(?!\w)[^.!?\n\"“”«»]{0,72}\Z", re.IGNORECASE)
+#: A verb that presents a text's words as that text's saying ('reads', 'says', 'states', 'dice', 'reza', 'indique'): after a part
+#: alone ('The heading reads "..."', 'La primera línea dice: "..."') the part is the task's as much as the answer's.
+_TEXT_SAYS = (r"reads?|read|says?|said|states?|stated|writes?|wrote|puts[ \t]{1,3}it|goes|runs|"
+              r"dice|decía|dijo|pone|ponía|reza|rezaba|lee|leía|escribe|escribió|plantea|planteaba|afirma|señala|"
+              r"dit|disait|écrit|indique|énonce|annonce")
+#: A part of a piece of writing ('The second sentence, "..."', 'The opening of the second paragraph: "..."'), in a clause with no
+#: verb presenting the words as a text's saying (:data:`_TEXT_SAYS`; push check of 2be42c48, critical_open 3: 'The heading reads
+#: "..."' credited the task's heading to the answer's own text).
+_OWN_PART_CREDIT_BEFORE_RE = re.compile(
+    r"(?<![\w'’])(?:" + _OWN_PART_NOUNS + r")(?!\w)(?:(?!(?<![\w'’])(?:" + _TEXT_SAYS + r")(?!\w))[^.!?\n\"“”«»]){0,72}\Z",
+    re.IGNORECASE)
 
 
 def credits_own_text(sentence: str, span_start: int) -> bool:
@@ -373,7 +416,9 @@ def credits_own_text(sentence: str, span_start: int) -> bool:
     article opens with "..."', 'The second sentence, "...", ...', 'As I said above, "..."'. A bare quotation credits nothing. One
     bounded window before the opening mark."""
     before = (sentence or "")[max(0, span_start - _CREDIT_WINDOW):span_start]
-    return bool(_OWN_TEXT_CREDIT_BEFORE_RE.search(before)) and not _READER_CREDIT_BEFORE_RE.search(before)
+    if _READER_CREDIT_BEFORE_RE.search(before):
+        return False
+    return bool(_OWN_TEXT_CREDIT_BEFORE_RE.search(before) or _OWN_PART_CREDIT_BEFORE_RE.search(before))
 
 
 def unquoted_text(text: str) -> str:
