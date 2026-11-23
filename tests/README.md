@@ -2889,3 +2889,12 @@ Measured results only.
   reading on every recorded round; no test bound was changed.
 - Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
   pending the owner's decision on a meaning check.
+
+### Progress, 04:00 UTC (23 November)
+- The push check of `a9129c78` holds it; nothing new is uploaded. Fresh self-certifying phrasings are still delivered
+  (3 of 111, 4 of 50, 5 of 80, 3 of 20 and 9 of 134 missed in five probes); two self-certification forms that the
+  previous commit withheld are delivered again; one Geography and one Language B figure that are wrong are reported
+  as ENTAILED. Every item the previous check named as fixed holds, and every recorded answer reads as before
+  (1,155 records, 0 differences).
+- A fourth follow-up on these items, which need no owner decision, has started. The self-certification class stays
+  open pending the owner's decision on a meaning check.
