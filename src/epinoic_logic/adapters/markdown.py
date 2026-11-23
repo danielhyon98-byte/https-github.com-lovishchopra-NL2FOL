@@ -1919,8 +1919,10 @@ def _split_note_clauses(sentence: str) -> tuple[str, tuple[str, ...]]:
         orig, masked = _cut(orig, masked, [(bare.start(), bare.end())])
     # 6. what remains is itself a label, a self-report, a task note or a note on how the answer was composed, or only
     #    filler around the labels removed: the whole sentence is a note
+    # (the cheap tests first: each is a pure test of the text, so the order changes no reading, and a JSON fragment or a task note is
+    # never read again by the self-certification reader; check round 12 of c3f, timing: a 32 KiB run of JSON fragments was read twice)
     if _LETTER_RE.search(masked) and (
-        _label_shaped(masked) or _self_certification_not_label(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked)
+        _label_shaped(masked) or is_json_shaped(orig) or TASK_NOTE_RE.search(masked) or _self_certification_not_label(masked)
         or (notes and _filler_only(masked)) or is_provenance_note(orig.strip(" ,;:"))  # read on the words: a quoted label is a label
         or (not notes and is_answer_note(orig))  # a note about the answer read by what it says (an omission, a decline, an offer, ...)
     ):
@@ -2594,9 +2596,11 @@ _FRAME_GAP = " \t*_`"
 #: 'Better:', 'After:', 'Bien:', 'Correcto:', 'Mejor:', 'Después:', 'Juste :', 'Après :'). One class for this reader and the one reader
 #: of the writer's own words (``own_text._CORRECTION_MARKS``; c3e, the c3d leftover '- Mal: "El primer semana fue difícil". Bien: "La
 #: primera semana fue difícil"' on sp-t16: this reader read only 'Right:' and 'Correct:', so the correction was charged INT-REQ-003).
-CORRECTION_RIGHT_LABELS = (r"right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?|better|stronger|improved|revised|fixed|after|"
-                           r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|despu[eé]s|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
-                           r"juste|corrig[ée]e?|mieux|apr[eè]s")
+CORRECTION_RIGHT_LABELS = (r"right|correct(?:ed)?(?:[ \t]{1,3}(?:form|version|sentence))?|better|strong(?:er)?|improved|revised|fixed|after|"
+                           # (c3e leftovers, ll-t16: the second label of a 'Draft: "x". Final: "y"' and a 'Weak: "x"' / 'Strong: "y"' pair)
+                           r"final(?:[ \t]{1,3}(?:version|draft|form|sentence))?|"
+                           r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|despu[eé]s|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida|final)|"
+                           r"juste|corrig[ée]e?|mieux|apr[eè]s|version[ \t]{1,3}finale")
 #: An arrow between the wording a correction replaces and its label ('"x" → Bien: "y"').
 _CORRECTION_ARROWS = r"(?:→|⟶|⇒|⟹|➔|➜|➝|-{1,2}>|—>|=>)"
 _CORRECTION_BEFORE_RE = re.compile(r"(?:→|⟶|⇒|-{1,2}>|—>|=>|(?<![<>=\-—])>|\bcorrect(?:ed)?\s+(?:form|version|sentence)\s*:|\bcorrection\s*:|"
@@ -2617,7 +2621,13 @@ _FEEDBACK_BEFORE_RE = re.compile(
     r"\s*(?:(?:is|are|would\s+be|could\s+be|might\s+be|will\s+be|reads?|would\s+read)\b)?"
     r"|\b(?:rewrite|rewriting|rephrase|rephrasing|reword|rewording|redraft|redrafting|write|writing|correct|correcting)\s+"
     r"(?:it|this|that|them|these|the\s+(?:whole\s+)?(?:sentence|phrase|clause|line|paragraph|verb|ending))\s+as"
-    r"|\b(?:becomes?|became|turns?\s+into|is\s+(?:corrected|changed)\s+to))\s*:?$", re.IGNORECASE)
+    r"|\b(?:becomes?|became|turns?\s+into|is\s+(?:corrected|changed)\s+to)"
+    # the same frames in Spanish and French (c3e leftovers, sp-t16: 'Escribiste «x»; lo correcto es «y»' charged the correction
+    # INT-REQ-003 at error while the English 'a stronger version is' was free)
+    r"|\b(?:(?:lo\s+(?:correcto|mejor)|(?:la\s+|una\s+)?(?:forma|versi[oó]n|frase|opci[oó]n)\s+(?:correcta|corregida|mejor)"
+    r"|(?:una\s+)?mejor\s+(?:forma|versi[oó]n|frase|opci[oó]n))\s+(?:es|ser[ií]a)|deber[ií]a\s+(?:ser|decir)|tendr[ií]a\s+que\s+(?:ser|decir)"
+    r"|(?:la\s+)?(?:bonne\s+forme|forme\s+correcte)\s+est|(?:une\s+)?meilleure\s+(?:version|forme|phrase)\s+(?:est|serait)"
+    r"|il\s+faut\s+(?:écrire|dire)|devrait\s+(?:être|dire)))\s*:?$", re.IGNORECASE)
 
 
 #: What a correction leads to, after a correction span on the same line ('change "soy fue" to "fui", giving "Yo fui al
@@ -2635,7 +2645,9 @@ _CORRECTION_RESULT_RE = re.compile(r"(?:giving|to\s+give|which\s+gives|so\s+(?:t
 #: SEC-QROLE-QUADRATIC): the greedy runs they replace read a long run of spaces between two quotations again from every
 #: position of it. They match exactly the strings the greedy forms matched, since a run of spaces or markup is never what
 #: the next part of a pattern needs.
-_WORD_CORRECTION_GAP_RE = re.compile(r"^[\s*_`]*+(?:,\s*+)?(?:should\s+(?:be|read)|is\s+(?:corrected|changed)\s+to|(?:with|by)|to|into)\s*+:?[\s*_`]*+$",
+_WORD_CORRECTION_GAP_RE = re.compile(r"^[\s*_`]*+(?:,\s*+)?(?:should\s+(?:be|read)|is\s+(?:corrected|changed)\s+to|(?:with|by)|to|into"
+                                     # (c3e leftovers, ll-t16 and sp-t16: 'Rewrite "x" as "y"', 'Cambia "x" por "y"', 'Remplace "x" par "y"')
+                                     r"|as|por|par|con|en)\s*+:?[\s*_`]*+$",
                                      re.IGNORECASE)
 
 
@@ -2643,7 +2655,10 @@ _BECOMES_GAP_RE = re.compile(r"^[\s*_`]*+(?:,\s*+)?(?:becomes?|became|turns?\s+i
 
 
 #: What opens a 'change "x" to "y"' correction before its original span.
-_CHANGE_BEFORE_RE = re.compile(r"\b(?:change|changing|correct|correcting|replace|replacing|swap|swapping|rewrite|rewriting)\s*$", re.IGNORECASE)
+_CHANGE_BEFORE_RE = re.compile(r"\b(?:change|changing|correct|correcting|replace|replacing|swap|swapping|rewrite|rewriting|rephrase|rephrasing|reword|rewording"
+                               # (c3e leftovers: the same verbs in Spanish and French)
+                               r"|cambia|cambiar|sustituye|sustituir|reemplaza|reemplazar|reescribe|reescribir|corrige|corregir|convierte|convertir"
+                               r"|remplace|remplacez|remplacer|change|changez|changer|réécris|réécrivez|réécrire|corrigez|corriger)\s*$", re.IGNORECASE)
 
 
 #: Where a sentence of a line starts: a label may open the line or a sentence after a stop.
@@ -2678,7 +2693,9 @@ _SUGGESTION_BEFORE_RE = re.compile(r"(?:\byou\s+(?:could|might|can|may)\s+(?:als
 #: "try" or "add" as an imperative right before a span: at the start of the line or of a sentence or clause, or after "or",
 #: "and", "perhaps", "maybe", "please" or "then" ("Try "para ayudar"", "or add "sin embargo""); never a reporting use ("the
 #: speaker goes on to add "...""), which stays a quotation.
-_IMPERATIVE_SUGGESTION_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\b(?:or|and|perhaps|maybe|please|then)\s+)(?:try|add|write|use|say|put|choose)\s*:?$", re.IGNORECASE)
+_IMPERATIVE_SUGGESTION_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\b(?:or|and|perhaps|maybe|please|then|o|y|mejor)\s+)(?:try|add|write|use|say|put|choose"
+                                       # (the Spanish imperatives of a feedback task: 'Escribiste «x»; escribe «y»'; check round 12 of c3f)
+                                       r"|escribe|escriba|usa|use|utiliza|pon|ponga|añade|prueba)\s*:?$", re.IGNORECASE)
 
 
 _SUGGESTION_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+suggestions?\b[^:\"“”«»\n]{0,40}:", re.IGNORECASE)
@@ -2708,10 +2725,11 @@ _MENTION_NEGATED_REPORT_RE = re.compile(
 
 #: A contrast that corrects: 'Not "We was" but "We were"': the span after "but" corrects the span after "not" (feedback
 #: tasks only).
-_NOT_BEFORE_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\s)not\s*$", re.IGNORECASE)
+#: (c3e leftovers: the same contrast in Spanish and French, 'No «x» sino «y»', 'Pas « x » mais « y »')
+_NOT_BEFORE_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\s)(?:not|no|pas|non(?:\s+pas)?)\s*$", re.IGNORECASE)
 
 
-_BUT_GAP_RE = re.compile(r"^[\s*_`]*+,?\s*+but[\s*_`]*+$", re.IGNORECASE)  # possessive runs: each read once (close round 2)
+_BUT_GAP_RE = re.compile(r"^[\s*_`]*+,?\s*+(?:but|sino|mais)[\s*_`]*+$", re.IGNORECASE)  # possessive runs: each read once (close round 2)
 
 
 #: A negating frame that mentions a short span (at most :data:`_SHORT_MENTION_WORDS` words): 'without "like" or "as"', 'with no
@@ -2792,6 +2810,24 @@ _PRESCRIBED_REPORT_RE = re.compile(r"\b(?:should|would|could|must|ought\s+to|nee
 #: What follows the wording a correction replaces: an arrow, or the label of its correction (:data:`CORRECTION_RIGHT_LABELS`, c3e).
 _ARROW_AFTER_RE = re.compile(r"^[\s*_`]*(?:→|⟶|⇒|-{1,2}>|—>|=>|>(?!=)|[.;,]?\s*(?:right|correct(?:ed)?(?:\s+(?:form|version|sentence))?)\s*:|"
                              r"[.;,]?[ \t]{0,3}(?:" + CORRECTION_RIGHT_LABELS + r")[ \t]{0,3}:)", re.IGNORECASE)
+
+
+#: The words between the writer's own form and the wording it replaces, offered after it ('"y" instead of "x"', '"y" rather than
+#: "x"', '"y" en vez de "x"', '"y" en lugar de "x"', '"y" au lieu de "x"', '"y" plutôt que "x"'), in every language the specialists
+#: write: one class for the role reader and the one reader of the writer's own words (``own_text``). Push check of a9129c78 (the
+#: critical-fixes lens and the challenger): on the sp-t16 marking task 'Escribe "La primera semana fue difícil" en vez de "El primer
+#: semana fue difícil".' charged the corrected span INT-REQ-003 at error while the English 'instead of' form was free: both readers
+#: read only the English words.
+INSTEAD_OF_WORDS = (r"instead[ \t]{1,3}of|rather[ \t]{1,3}than|in[ \t]{1,3}place[ \t]{1,3}of|en[ \t]{1,3}(?:vez|lugar)[ \t]{1,3}de|"
+                    r"au[ \t]{1,3}lieu[ \t]{1,3}de|plut[ôo]t[ \t]{1,3}que|[àa][ \t]{1,3}la[ \t]{1,3}place[ \t]{1,3}de")
+#: 'Instead of "x", write "y"' (c3e leftovers, ll-t16; 'En vez de «x», escribe «y»', 'Au lieu de « x », écris « y »'): the frame before
+#: the replaced span and the gap with an imperative before its correction. In a feedback task the second span is the correction.
+INSTEAD_OF_LEAD_RE = re.compile(r"(?:^|[\n.!?:;(—–])[ \t*_>#-]{0,8}(?:" + INSTEAD_OF_WORDS + r")[ \t]{0,3}[*_`]{0,2}\Z", re.IGNORECASE)
+INSTEAD_IMPERATIVE_GAP_RE = re.compile(r"[\s*_`]*+,[ \t]{0,3}(?:write|use|say|try|put|escribe|escriba|usa|utiliza|pon|di|écris|écrivez|utilise|utilisez"
+                                       r"|mets|mettez|dis|dites)[ \t]{0,3}:?[\s*_`]*+", re.IGNORECASE)
+#: The gap between a correction and the wording it replaces after it (:data:`INSTEAD_OF_WORDS`): in a feedback task the span before
+#: the gap is the correction (:func:`_span_roles`), as the span after an arrow is.
+_REPLACED_AFTER_GAP_RE = re.compile(r"[\s*_`]*+,?[ \t]{0,3}(?:" + INSTEAD_OF_WORDS + r")[ \t:]{0,3}[\s*_`]*+", re.IGNORECASE)
 
 
 _QUOTE_STRIP = "\"'“”‘’«»„‟ *_`.,;:!?"
@@ -2886,7 +2922,7 @@ def _word_correction(text: str, spans: Sequence[tuple[int, int, str]], k: int, *
     if _WORD_CORRECTION_GAP_RE.match(gap) is None:
         return False
     word = gap.strip(" \t*_`:,").lower()
-    if word in ("to", "into", "with", "by"):  # 'change "x" to "y"', 'replace "x" with "y"': the verb stands before the original
+    if word in ("to", "into", "with", "by", "as", "por", "par", "con", "en"):  # 'change "x" to "y"', 'replace "x" with "y"': the verb stands before the original
         return _CHANGE_BEFORE_RE.search(_frame_before(text, pa, lines)) is not None
     return True
 
@@ -2957,6 +2993,11 @@ def _roles_of(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read:
         core = inner.strip(_QUOTE_STRIP).lower()
         role = "quotation"
         imperative = _IMPERATIVE_SUGGESTION_RE.search(before) is not None  # 'write "x"', 'say "y"': no subject, so no attribution
+        # 'Instead of "x", write "y"': this span corrects the one before it, and its imperative attributes nothing (c3e leftovers)
+        pgap = text[spans[k - 1][1]:a] if k > 0 and spans[k - 1][1] <= a else None
+        instead_pair = (fb and pgap is not None and len(pgap) <= 40 and INSTEAD_IMPERATIVE_GAP_RE.fullmatch(pgap) is not None
+                        and INSTEAD_OF_LEAD_RE.search(text, max(0, spans[k - 1][0] - 60), spans[k - 1][0]) is not None)
+        imperative = imperative or instead_pair
         prescribed = fb and _PRESCRIBED_REPORT_RE.search(before) is not None  # 'it should read "..."': no report of a text
         # a negated reporting verb right before the span ('never says "x"', 'not only writes "x"') is an attribution like any
         # other: the span is a quotation and is checked (close round 3, INV-QR-1: the repair round 5 reading is reverted)
@@ -2967,11 +3008,14 @@ def _roles_of(text: str, spans: tuple[tuple[int, int, str], ...], feedback_read:
         gap = text[spans[k - 1][1]:a] if k > 0 and spans[k - 1][1] <= a else None
         joined = gap is not None and _LIST_JOIN_RE.match(gap) is not None
         arrow_follows = _ARROW_AFTER_RE.match(after) is not None
+        # the wording this span replaces follows it on its line ('"y" en vez de "x"', '"y" instead of "x"'; push check of a9129c78)
+        replaces_next = (fb and k + 1 < len(spans) and spans[k + 1][0] >= b and spans[k + 1][0] - b <= 40
+                         and _REPLACED_AFTER_GAP_RE.fullmatch(text, b, spans[k + 1][0]) is not None)
         contrast = (gap is not None and _BUT_GAP_RE.match(gap) is not None
                     and _NOT_BEFORE_RE.search(lines.frame_before(spans[k - 1][0])) is not None)
         # an earlier correction span that ends on this span's line (no line break between its end and this span)
         corrected_before = last_correction_end >= lines.line_start(a)
-        if fb and (_CORRECTION_BEFORE_RE.search(before) or _word_correction(text, spans, k, feedback=fb, lines=lines) or contrast
+        if fb and (_CORRECTION_BEFORE_RE.search(before) or _word_correction(text, spans, k, feedback=fb, lines=lines) or contrast or replaces_next or instead_pair
                    or (_FEEDBACK_BEFORE_RE.search(before) and not arrow_follows)
                    or (corrected_before and _CORRECTION_RESULT_RE.search(before))
                    or (lines.label_governs(a, _CORRECTION_LABEL_HEAD_RE) and not arrow_follows)

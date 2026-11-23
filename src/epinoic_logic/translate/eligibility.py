@@ -256,7 +256,8 @@ def _is_self_report(text: str) -> bool:
     """Whether ``text`` is nothing but a self-report that claims a check (``adapters.self_report.wholly_self_report``); fails
     closed. A claim that also states content keeps its content's check (its outcome never shows a success status, ``outcome``)."""
     try:
-        from ..selfcert import wholly_self_certification  # the one reader, rules selfcert-1 (POLICY_VERSION 2026.11-v5)
+        from ..selfcert import wholly_self_certification  # the one reader (rules selfcert.SELFCERT_RULES; this call site is bound
+        # into the policy identity with it, selfcert.rules_closure)
         return bool(wholly_self_certification(text or ""))
     except Exception:  # noqa: BLE001 - fail closed: a claim the reader cannot read is never sent to the solver as one it read
         return True

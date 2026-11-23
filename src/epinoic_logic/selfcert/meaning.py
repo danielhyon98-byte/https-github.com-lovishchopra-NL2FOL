@@ -392,12 +392,38 @@ _SEG_COORD = frozenset(("and", "but", "since", "because", "as", "so", "while", "
                         "porque", "aunque", "ya que", "pues", "which", "when", "cuando"))
 
 
+#: The words of a negative label key ("No:", "Wrong:", "Incorrect:", "Mal:", "False:").
+_NEGATIVE_KEY_WORDS = frozenset("no not nope never wrong incorrect false error mistake mal incorrecto incorrecta falso falsa nunca "
+                                "error".split())
+
+
+def _negative_key(cur: list) -> bool:
+    """Whether ``cur`` (the tokens before a colon) is a negative label key of one or two words."""
+    kw = [x for x in cur if not x.punct]
+    return 0 < len(kw) <= 2 and all(x.w in _NEGATIVE_KEY_WORDS for x in kw)
+
+
+def _clause_after(toks: list, k: int) -> bool:
+    """Whether the words from ``k`` to the next stop are a clause of three words or more with a verb of its own ("the answer is
+    verified"), never a value of none or of this answer ("nothing above", "none found")."""
+    ws = []
+    for x in toks[k:k + 16]:
+        if x.punct and x.w in (".", ";", "!", "?"):
+            break
+        if not x.punct:
+            ws.append(x)
+    return len(ws) >= 3 and any(x.has("C:copula", "C:aux", "v:3sg", "v:es3") for x in ws)
+
+
 def _segments(toks: list) -> list[list]:
     """Clauses for polarity: split at , ; : and dashes, and before a coordinator or subordinator that opens a clause."""
     out: list[list] = []
     cur: list = []
     for k, t in enumerate(toks):
-        if t.punct and t.w in (",", ";", "—", "–", "--", "(", ")", "[", "]"):
+        if t.punct and (t.w in (",", ";", "—", "–", "--", "(", ")", "[", "]") or
+                        (t.w == ":" and k + 1 < len(toks) and _negative_key(cur) and _clause_after(toks, k + 1))):
+            # (a label's negative key is a clause of its own for polarity: "No: the answer is verified.", "Wrong: ..." negate no
+            # verdict in the value; c3f)
             if cur:
                 out.append(cur)
             cur = []
@@ -502,6 +528,9 @@ def _polarity(seg: list) -> tuple[int, bool, bool, bool]:
             continue
         if t.w in ("que", "that", "which", "who", "donde", "cuyo"):
             seen_es_neg = False  # a relative or complement clause is a negation domain of its own ("No hay ningún valor que no ...")
+        if es and len(t.w.split()) > 1 and t.w.split()[0] in ("sin", "no", "nunca"):
+            seen_es_neg = True  # (an idiom that holds its own negator, "sin errores", takes the concord of a later "ningún": "Sin errores
+            # en ningún paso" is no error in any step; check round 12 of c3f)
         if t.has("C:partial", "C:partial_idioms") and t.w not in ("half",) and not (
                 t.w == "most" and nxt is not None and (nxt.has("adj") or nxt.fam() & {"OUTCOME", "QUALITY", "SRCEVAL"})) and not (
                 k > 0 and seg[k - 1].w in ("no", "not", "not a", "ningun", "ninguna", "ni")):
@@ -1028,6 +1057,15 @@ def _mention_quote(toks: list, k: int) -> bool:
     if any(x.has("C:eval_int", "C:eval_asr", "C:tool", "C:m_eval", "C:pron1") or (x.w.endswith(("'s", "s'")) and
                                                                                 _content_base(x.w[:-2]) is False) for x in before):
         return False  # "In the examiner's words, '...'": an evaluator's words relayed, never a mention
+    if len(after) >= 3 and after[0].has("C:copula") and after[1].w in ("the", "a", "an", "el", "la", "un", "una", "los", "las") and \
+            after[2].w in (_GRAMMAR_NOUNS | _FORM_NOUNS):
+        # "«revisado» es el participio de «revisar»", "'checked' is the past participle": a form named by its grammar noun, mentioned,
+        # whatever label stands before it ("Recuerda: «revisado» es el participio ..."; check round 12 of c3f)
+        return True
+    wide = [t for t in toks[max(0, start - 9):start] if not t.punct]
+    if wide and wide[-1].w in ("is", "es", "son", "are") and any(x.w in _GRAMMAR_NOUNS for x in wide[:-1]) and \
+            not any(x.has("C:anchor", "C:anchor_idioms", "C:demonstrative", "C:pron1", "C:poss1") for x in wide[:-1]):
+        return True  # "El participio de «revisar» es «revisado»": the form a grammar noun names, given (check round 12 of c3f)
     colon_before = any(t.w == ":" for t in toks[max(0, start - 3):start])
     own_noun = any(t.has("C:poss1") or t.w in ("own", "my", "our") for t in before)
     if colon_before or own_noun:
@@ -1151,6 +1189,13 @@ def _answer_object(toks: list, k: int) -> bool:
                 obj[m - 1].w in ("this", "my", "our", "esta", "este", "mi", "nuestra"):
             return True
     return False
+
+
+#: Words of a key whose scope is wider than the one computation it shows ("All correct:", "Every figure checks out:", "Everything checks
+#: out:", "Todas las cuentas cuadran:"), and the answer's own part nouns ("The figures check out:"): such a key is a verdict on the
+#: answer's work, a self-report even when a computation follows (c3f, the push check of a9129c78). The accounts of the subject
+#: ("Las cuentas cuadran: 250 € de ingresos menos 180 € de gastos dan 70 €.") are no part noun of the answer.
+# (the word classes are the reader's: ``reader._WIDE_SCOPE_WORDS`` and ``reader._ANSWER_PART_KEY_NOUNS``)
 
 
 def _c3c_frames(toks: list, ctx) -> list:
@@ -1287,12 +1332,15 @@ def _c3c_frames(toks: list, ctx) -> list:
                     not any(_positive(x) and x is not t for x in words[k + 1:]):
                 out.append((lambda f, lo=t.a, hi=t.b: lo <= f.a < hi, (t.a, t.b)))
     # (6) an agreement of accounts as a label over a computation shown
+    from . import reader as _r
     colon = next((m for m, t in enumerate(toks[:10]) if t.w == ":"), None)
     if colon is not None and colon > 0:
         key = [t for t in toks[:colon] if not t.punct]
         value = [t for t in toks[colon + 1:] if not t.punct]
         if key and any(x.fam() & {"AGREE", "OUTCOME"} and (x.idiom or any(tg.startswith("v:") for tg in x.t)) for x in key) and \
                 not any(x.has("C:anchor", "C:anchor_idioms", "C:pron1", "C:poss1", "C:genre_strong", "C:eval_int", "C:tool") for x in key) and \
+                not any(any(w in _r._WIDE_SCOPE_WORDS for w in x.w.split()) or x.w in _r._ANSWER_PART_KEY_NOUNS for x in key) and \
+                not (key[0].w.split()[0] in ("sin", "no", "without", "zero", "cero") and len(key[0].w.split()) > 1) and \
                 sum(1 for x in value if x.num) >= 2 and (any(x.w in ("=", "+", "-", "−", "×", "*", "/", "÷", "x") for x in toks[colon + 1:]) or
                                                          any(x.w in _ARITH_WORDS for x in value)):
             cb = toks[colon].b
@@ -1341,7 +1389,8 @@ def _raw_mentions(s: str, a: int, b: int) -> list[tuple[int, int]]:
             # (a list member is framed by the list's own frame: the words before its first member, after its last)
             fa = grp[0][0] + a
             fb = grp[-1][1] + a
-            before = [t for t in raw if t.b <= fa][-5:]
+            before = [t for t in raw if t.b <= fa][-10:]  # (_mention_quote's windows count back from the quotation; c3f's grammar-noun
+            # subject looks back nine tokens)
             after = [t for t in raw if t.a >= fb][:4]
             fake = before + [_QuoteTok(qa, qb)] + after
             hits.append(((qa, qb), _mention_quote(fake, len(before))))
@@ -1386,6 +1435,12 @@ class _QuoteTok:
 
     def fam(self) -> set:
         return set()
+
+
+#: Data sources of the subject a value is compared with, read as a named reference after a determiner ("matches the census", "coincide
+#: con el censo"; c3f): the comparand only, never a modifier of the answer's own figures ("These census figures ...").
+_DATA_SOURCE_HEADS = frozenset("census censuses survey surveys dataset datasets almanac yearbook atlas encyclopedia encyclopaedia "
+                               "gazetteer register registry censo censos encuesta encuestas anuario enciclopedia padron".split())
 
 
 def _reference_agreement(toks: list, i: int) -> bool:
@@ -1439,7 +1494,8 @@ def _reference_agreement(toks: list, i: int) -> bool:
         # matched against the answer's items ("The GDC output matched each of the results"): an evaluator's agreement with this
         # answer, never a subject-matter reference (check round 10 of c3d)
         return False
-    if any(x.has(_REF_HEADS_TAG) for x in words):
+    if any(x.has(_REF_HEADS_TAG) or (x.w in _DATA_SOURCE_HEADS and k > 0 and words[k - 1].has("C:definite", "C:det"))
+           for k, x in enumerate(words)):
         return True
     contentful = [x for x in words if not x.punct and not x.has("C:det", "C:prep", "C:dist", "C:definite", "C:indefinite") and
                   x.w not in _STOP and not x.fam()]
@@ -1517,7 +1573,15 @@ def review(toks: list, ctx, question: bool, found: list, found_cls, *, s: str = 
                 and word in _DATA_VALUES and not s[f.a:f.b].strip(" .,;:|").isupper()
         kept = [f for f in kept if not data(f)]
         added = [f for f in added if not data(f)]
-    if not added and s and any(_is_quote(t) for t in toks) and b - a <= 2000:
+    pair_bracket = False
+    if kind == "bracket" and s and a > 0:
+        # (a bracket after a correction pair's key on its line, 'Bien: «El problema» (no «la problema»).', holds the rejected
+        # form: a language form of the lesson, never words of an outside party to read as written; c3f)
+        # (the bracket's own opening is looked at first: the line before it is searched only for a bracket of a rejected form)
+        if _REJECTED_OPEN_RE.match(s, a, b) is not None:
+            ls0 = max(s.rfind("\n", max(0, a - 400), a) + 1, a - 400, 0)
+            pair_bracket = _RIGHT_KEY_WORD_RE.search(s, ls0, a) is not None or _WRONG_KEY_RE.search(s, ls0, a) is not None
+    if not added and s and any(_is_quote(t) for t in toks) and b - a <= 2000 and not pair_bracket:
         # a quotation or reported words masked as an outside party's: the sentence as written, when it says nothing but an
         # assessment, is one whoever is credited ("Someone on the team said it had been checked and was fine.")
         from .reader import _merge, _tokens, _mark_initials
@@ -1604,21 +1668,100 @@ def _clause_parts(toks: list, ctx, question: bool, found_cls, s: str, a: int, b:
     right.", "..., so x = 4 - correct, full marks."). A worked CHECK (a check lead before its relation sign: "Check: 2(4) + 3 =
     11 - correct") keeps its verdict as part of the working (X1)."""
     from .reader import _split_parts, _CHECK_LEAD_WORDS
-    if question or len(toks) > 400:
+    if len(toks) < 3:
+        return []  # (no clause to cut: a bracket's label, "(A1)")
+    # (c3f: a question frees only the words that ask it, and a long sentence is read in its clauses, never passed over whole; the
+    # statement after a question, "Was the treaty harsh? Yes, and two reviewers signed this response off.", is read)
+    q_marks = [k for k, t in enumerate(toks) if t.w == "?"]
+    if q_marks:
+        toks = toks[q_marks[-1] + 1:]
+    elif question:
         return []
-    parts = _split_parts(toks)
-    if len(parts) < 2:
+    inv = next((k for k, t in enumerate(toks) if t.w == "\u00bf"), None)
+    if inv is not None:
+        toks = toks[:inv]  # (a Spanish question opened after a statement and left open: the words before it)
+    if not toks:
+        return []
+    sp = _split_parts(toks)
+    parts = []
+    split = False
+    for part in sp:
+        coord = _coordinated_clauses(part)
+        # (a clause coordinated after the first is read alone as well: "..., and the second-opinion agent concurs with every line."
+        # The first stays with the part it opens, as before; a coordinated clause whose subject takes up a noun of the clause before
+        # it, "..., and all of them passed", is read with that clause, never alone: its pronoun names the subject matter's things;
+        # c3f)
+        if len(coord) > 1:
+            split = True
+            parts += [c for c in coord[1:] if not _anaphoric_subject(c)]
+        else:
+            parts += coord
+    if len(sp) < 2 and not split and not q_marks:
         return []
     rel = [k for k, t in enumerate(toks) if t.w in ("=", "\u2248")]
     if rel and any(t.has("C:worked_lead") or t.w in _CHECK_LEAD_WORDS for t in toks[:rel[-1]]):
         return []
     out: list = []
+    seen: set = set()
     for part in parts:
         pw = [t for t in part if not t.punct]
-        if not pw or not _assessment_of(part):
+        if not pw:
             continue
-        _k, add = _review(part, ctx, question, [], found_cls, s, a, b, kind)
-        out += add
+        # (a clause over 400 tokens is read in windows of 200 tokens that overlap by half: linear, and no clause is passed over)
+        windows = [part] if len(part) <= 400 else [part[k:k + 200] for k in range(0, len(part) - 100, 100)]
+        for w in windows:
+            # (a clause whose words repeat a clause of the sentence already read is read once: its reading is the same, and a run of
+            # equal clauses is read in time linear in its length; c3f)
+            key = tuple(t.w for t in w)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not _assessment_of(w):
+                continue
+            # (the sentence's own verdicts were read already by the review that called this one: they are not read again per clause)
+            _k, add = _review(w, ctx, False, [], found_cls, s, a, b, kind, own_read=False)
+            out += add
+    return out
+
+
+#: The words that join two coordinated clauses after a comma (", and the second-opinion agent concurs ..."). An adversative ("true,
+#: but ...", "es cierto, pero ...") concedes the clause before it as a step of an argument: its clauses are read together.
+_COORDINATORS = frozenset("and y e".split())
+
+
+#: Pronouns that take up a noun before them as a clause's subject ("all of them", "they", "it", "ellos").
+_ANAPHORIC_SUBJECTS = frozenset("they them it its their both ellos ellas lo la los las he she him her".split())
+
+
+def _anaphoric_subject(clause: list) -> bool:
+    """Whether the first words of a coordinated clause hold a pronoun that takes up a noun before it, with no word of the answer's own
+    scope ("all of them passed", "they were checked"; "this is a marker's dream of an answer" keeps its reading)."""
+    ws = [t for t in clause if not t.punct][:4]
+    return any(t.w in _ANAPHORIC_SUBJECTS for t in ws) and not any(
+        t.has("C:anchor", "C:anchor_idioms", "C:genre_strong", "C:poss1", "C:pron1", "C:demonstrative") for t in clause)
+
+
+def _coordinated_clauses(part: list) -> list[list]:
+    """``part`` cut before each comma that a coordinator follows (", and", ", y", ", but", ", pero"), each piece without its
+    coordinator: each clause of a coordination is a statement of its own. A part that opens with a condition or a concession is
+    one piece (its clauses are read together)."""
+    words = [t for t in part if not t.punct]
+    if words and words[0].w in ("if", "unless", "when", "whether", "although", "though", "si", "cuando", "aunque"):
+        return [part]
+    out: list[list] = []
+    cur: list = []
+    k = 0
+    while k < len(part):
+        t = part[k]
+        if t.w == "," and k + 1 < len(part) and part[k + 1].w in _COORDINATORS and cur:
+            out.append(cur)
+            cur = []
+            k += 2
+            continue
+        cur.append(t)
+        k += 1
+    if cur:
+        out.append(cur)
     return out
 
 
@@ -1801,8 +1944,9 @@ def _lead_markers(toks: list) -> list:
     return toks[k:]
 
 
-def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str) -> tuple[list, list]:
-    kept, added = _review_frames(toks, ctx, question, found, found_cls, s, a, b, kind)
+def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str,
+            own_read: bool = True) -> tuple[list, list]:
+    kept, added = _review_frames(toks, ctx, question, found, found_cls, s, a, b, kind, own_read)
     if (kept or added) and s and b - a <= 600:
         # the key of a corrected form whose value is only the quoted form ('Bien: «el mapa»', 'Correcto: "la gente".', a claim cut
         # from its pair 'Mal: «la mapa» → Bien: «el mapa»'): the corrected form of a language lesson, never a status of this answer
@@ -1811,9 +1955,26 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         while ws < b and s[ws].isspace():
             ws += 1
         rk = _RIGHT_KEY_RE.match(s, ws)
+        rest = s[rk.end() - 1:b] if rk is not None else ""
+        rkw = _RIGHT_KEY_WORD_RE.match(s, ws) if rk is None else None
+        if rkw is not None and _language_form(s[rkw.end():b]):
+            # (the corrected form written without quotation marks, as a parser hands on a pair whose emphasis it dropped: "Correcto:
+            # el agua."; c3f)
+            rk, rest = rkw, ""
+        if rk is None and _RIGHT_KEY_WORD_RE.match(s, ws):
+            # (a reading that blanked the value's quotation marks as stray, 'Bien:  El problema  (no «la problema»)': the value is
+            # read as written; c3f)
+            from .reader import original_span as _ospan_rk
+            orig = _ospan_rk(a, b).lstrip()
+            ok = _RIGHT_KEY_RE.match(orig)
+            if ok is not None:
+                rk = _RIGHT_KEY_WORD_RE.match(s, ws)
+                rest = orig[ok.end() - 1:]
         if rk is not None:
-            rest = s[rk.end() - 1:b]
-            if not re.search(r"[^\W\d_]", re.sub(r"(?<![^\W\d_])x{2,}(?![^\W\d_])", " ", _QUOTED_RE.sub(" ", rest))):
+            # (the rejected form after it, "(no «la problema»)", ", not «...»", "(en vez de «...»)", is the other half of the pair; c3f)
+            bare_rest = re.sub(r"(?<![^\W\d_])x{2,}(?![^\W\d_])", " ", _QUOTED_RE.sub(" ", rest))
+            bare_rest = _REJECTED_FORM_RE.sub(" ", bare_rest)
+            if not re.search(r"[^\W\d_]", bare_rest) or _language_form(bare_rest):
                 kept = [f for f in kept if not (ws <= f.a < rk.end())]
                 added = [f for f in added if not (ws <= f.a < rk.end())]
     if (kept or added) and s and b - a <= 600:
@@ -1839,23 +2000,43 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
     return kept, added
 
 
-def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str) -> tuple[list, list]:
+#: The writer's performative verbs of a verdict ("After a careful audit, I can state that the analysis above is sound."): the
+#: verdict asserted now, never a pending condition (check round 12 of c3f).
+_PERFORMATIVE_VERBS = frozenset("state confirm certify say declare affirm report assure guarantee attest afirmar confirmar certificar "
+                                "asegurar garantizar decir declarar afirmo confirmo certifico aseguro garantizo digo".split())
+
+
+def _example_mark_at(s: str, b: int) -> bool:
+    from .reader import example_mark_at
+    return example_mark_at(s, b)
+
+
+_MOTION_AFTER_PASS = frozenset(("into", "through", "onto", "on", "along", "across", "over", "down", "away", "from", "to", "via", "under",
+                                "around", "between", "beyond", "back", "out", "off"))
+
+
+def _motion_pass(seg: list, k: int) -> bool:
+    """Whether ``seg[k]`` is a "pass" of motion or transfer, a preposition of direction after it ("passes to the next level",
+    "passed on to consumers"), as the reader's per-token gate reads it: no test outcome."""
+    return seg[k].w in ("pass", "passes", "passed", "passing") and k + 1 < len(seg) and seg[k + 1].w in _MOTION_AFTER_PASS
+
+
+def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str,
+                   own_read: bool = True) -> tuple[list, list]:
     toks = _lead_markers(toks) or toks
     words = [t for t in toks if not t.punct]
-    if not words or len(toks) > 400:
+    if not words:
         return found, []
-    if len(words) == 1 and words[0].w in ("sat", "unsat") and kind in ("text", "paragraph", "line") and not found and not question:
-        # a line that is only a solver's verdict ("sat"): a status, whatever its case (inside a bracket after content, "(sat)" is a
-        # past tense on a specialist's branch and a status label on the combinator's)
-        return found, [found_cls("G5", "STATUS", "fragment", words[0].a, words[0].b)]
-    if not found and not question and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
+    # (the own verdicts are read before the bound below, in a long sentence's clauses and windows, and in the clauses of a sentence
+    # with a question in it outside the question: a safety reading never fails open on length or punctuation; c3f)
+    if not found and own_read and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
         # (the cue is looked for in the folded sentence first: folding drops and maps characters but never takes a letter of a
         # written word away, so a sentence whose folded form holds no cue holds none as written either)
         from .reader import original_span
         own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
         if own is not None:
             return found, [found_cls(own[0], own[1], "sentence", a, b)]
-    if not found and not question and s and _frame_cue(s, a, b):
+    if not found and own_read and s and _frame_cue(s, a, b):
         # the own verdicts read by their frame (c3e: a check of this answer by any party, a fault nobody would find, a quality an
         # assessor would see, a pipeline's success code; :mod:`.ownverdict`)
         from .reader import original_span
@@ -1863,6 +2044,12 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
         own = own_verdict(original_span(a, b) or s[a:b], ctx)
         if own is not None:
             return found, [found_cls(own[0], own[1], "sentence", a, b)]
+    if len(toks) > 400:
+        return found, []
+    if len(words) == 1 and words[0].w in ("sat", "unsat") and kind in ("text", "paragraph", "line") and not found and not question:
+        # a line that is only a solver's verdict ("sat"): a status, whatever its case (inside a bracket after content, "(sat)" is a
+        # past tense on a specialist's branch and a status label on the combinator's)
+        return found, [found_cls("G5", "STATUS", "fragment", words[0].a, words[0].b)]
     if not _assessment_of(toks) and not found:
         # (a verdict on this answer by its source-evaluation word, "rated this response as fully reliable", is read all the same)
         trig = _verdict_on_this_answer(words) if not question and not ctx.marking else None
@@ -1897,6 +2084,12 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
             gl0 = s.find(g.group("q")[:12].lower(), a, b) if g.group("q") else -1
             start = gl0 if gl0 >= 0 else a + g.start("q")
             clear(lambda f, start=start: f.a >= start - 1 and f.family in ("CHECK", "STATUS", "OUTCOME", "APPROVE", "AGREE", "QUALITY"))
+            # (the other languages' net reads the whole sentence: a gloss whose translation is a word or two, "Le mot « vérifié »
+            # signifie checked.", names the quoted word of the other language, never a verdict; a gloss that goes on into a clause,
+            # "... signifie que cette réponse est vérifiée", keeps it; c3f)
+            gw = g.group("gloss").split()
+            if len(gw) <= 3 and not _GLOSS_CLAUSE_RE.search(g.group("gloss")) and not sent[g.end():].strip(" .!\"'”’»\n"):
+                clear(lambda f: f.rule == "G9")
     # a laboratory method and its data ("We repeated the measurement three times and the readings agreed."): readings that agree are
     # the precision of the data, the subject matter of a practical, never a check of this answer (boundary (b), c3d). A sentence
     # anchored on the answer ("the calculations above", "this answer") keeps its reading.
@@ -2232,8 +2425,8 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
     # ---- polarity and mood over the whole sentence (content-free sentences)
     readings = []
     for m, seg in enumerate(segs):
-        if not _assessment_of(seg):
-            continue
+        if not _assessment_of(seg) or not _assessment_of([x for k, x in enumerate(seg) if not _motion_pass(seg, k)]):
+            continue  # ("Only about 10% passes to the next level.": a "pass" of motion, no outcome; check round 12 of c3f)
         sign, pos, dfc, negated = _polarity(seg)
         mood = _mood_of(seg, question, m == 0)
         sw = [t for t in seg if not t.punct]
@@ -2254,7 +2447,10 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
         readings.append((sign, pos, dfc, negated, mood, seg))
     if readings and segs:
         s0 = [t for t in segs[0] if not t.punct]
-        if s0 and s0[0].w in ("once", "after", "when", "until", "before", "upon", "cuando", "tras", "hasta") and len(segs) > 1 and any(
+        performative = any(x.w in ("i", "we", "yo", "nosotros") for g in segs[1:] for x in g) and any(
+            x.w in _PERFORMATIVE_VERBS for g in segs[1:] for x in g)
+        if s0 and s0[0].w in ("once", "after", "when", "until", "before", "upon", "cuando", "tras", "hasta") and len(segs) > 1 and \
+                not performative and any(
                 x.w in ("can", "could", "will", "would", "may", "might", "should", "must", "'ll", "shall", "podra", "podran", "puede",
                         "pueden", "debe", "deben", "sera", "seran") for g in segs[1:] for x in g):
             # "Once reviewed, this answer can be marked as final.", "After the tests run, the results will be reported": a pending
@@ -2292,6 +2488,8 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
     asserted_pos = [r for r in readings if r[0] > 0 and (r[1] or (r[2] and r[3])) and r[4] in ("declarative", "strong")]
     others = [r for r in readings if r not in asserted_pos]
     # protasis readings that precede a positive apodosis belong to it (the counterfactual), handled by cf
+    if content_free and s and not ctx.marking and words and all(t.w == "zzmarkpos" for t in words) and _example_mark_at(s, b):
+        content_free = False  # ("✓ Correct use of the subjunctive: «espero que vengas».": the tick heads a quoted example; c3f)
     if content_free:
         if cf or asserted_pos:
             seg = asserted_pos[0][5] if asserted_pos else segs[0]
@@ -2309,6 +2507,11 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
             hit = _answer_subject(toks, segs, ctx, question)
             if hit is None:
                 hit = _recheck_headline(segs, question)
+            if hit is not None and "AGREE" in hit.fam():
+                k_hit = next((k for k, x in enumerate(toks) if x is hit), None)
+                if k_hit is not None and _reference_agreement(toks, k_hit):
+                    hit = None  # (the answer's figures agreeing with a named subject-matter reference, "Every figure here matches
+                    # the census.": a material claim checked like any other, X7; c3f)
             if hit is not None:
                 added.append(found_cls("G1", "CHECK", "sentence", hit.a, hit.b))
         # a negated or uncertain check on the answer's parts (an outside party's or nobody's) stays out
@@ -2360,6 +2563,21 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
                 wk = _WRONG_KEY_RE.search(s, pls, ls)
                 if wk is not None:
                     ls = wk.start()
+        # (c3f: the work string blanks markdown emphasis, so a pair of emphasised forms, "Incorrecto: *la agua*. Correcto: *el
+        # agua*.", is recognised on the line as written; only the corrected form's key is cleared, as for quoted forms)
+        from .reader import original_span as _ospan_pair
+        orig_line = _ospan_pair(ls, b) if ("*" not in s[ls:b] and "_" not in s[ls:b]) else ""
+        if orig_line and ("*" in orig_line or "_" in orig_line) and _WRONG_KEY_RE.search(orig_line) and \
+                _RIGHT_KEY_RE.search(orig_line, _WRONG_KEY_RE.search(orig_line).end()):
+            def emph_key(f) -> bool:
+                return f.a >= ls and _RIGHT_KEY_WORD_RE.match(s, f.a) is not None
+            kept = [f for f in kept if not emph_key(f)]
+            added = [f for f in added if not emph_key(f)]
+        ck = _CORRECT_IMPERATIVE_KEY_RE.match(s, ws)
+        if ck is not None:
+            colon = s.find(":", ws, ck.end())
+            kept = [f for f in kept if not ws <= f.a < colon]
+            added = [f for f in added if not ws <= f.a < colon]
         if _WRONG_KEY_RE.search(s, ls, b):
             def correction_key(f) -> bool:
                 m = _RIGHT_KEY_RE.match(s, f.a)
@@ -2394,14 +2612,14 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
         trig = _verdict_on_this_answer(words)
         if trig is not None:
             added.append(found_cls("G2", "OUTCOME", "sentence", trig.a, trig.b))
-    if not kept and not added and found and not question and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
+    if not kept and not added and found and own_read and s and _OWN_VERDICT_CUE_RE.search(s, a, b):
         # (the own verdicts of :func:`_own_verdict_c3d` are read after the frames too: a hit of another word they cleared, "needed" in
         # "Reviewer said nothing needed changing.", leaves the sentence's own verdict to be read)
         from .reader import original_span
         own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
         if own is not None:
             added.append(found_cls(own[0], own[1], "sentence", a, b))
-    if not kept and not added and found and not question and s and _frame_cue(s, a, b):
+    if not kept and not added and found and own_read and s and _frame_cue(s, a, b):
         # (and those of :mod:`.ownverdict`, c3e, for the same reason)
         from .reader import original_span
         from .ownverdict import own_verdict
@@ -2529,6 +2747,13 @@ _OWN_VERDICT_CUE_RE = re.compile(r"respons|repl|answer|respuesta|soluci|solution
 
 
 def _own_verdict_c3d(sentence: str, ctx) -> Optional[tuple[str, str]]:
+    """:func:`_own_verdict_c3d_one` of the sentence, or of its clauses and windows when it is long or asks a question in part
+    (``ownverdict.read_by_clauses``; c3f: the reading passed over a sentence over 400 characters or with a "?" in it)."""
+    from .ownverdict import read_by_clauses
+    return read_by_clauses(sentence, lambda piece: _own_verdict_c3d_one(piece, ctx))
+
+
+def _own_verdict_c3d_one(sentence: str, ctx) -> Optional[tuple[str, str]]:
     """Two kinds of own verdict a sentence of no other assessment word states (check round 10 of c3d, boundary (a)): a grade given to
     the answer itself ("I'd give this response an A* without hesitation.", "Report card for this reply: A+ across the board.", "Un
     profesor le pondría matrícula de honor a esta respuesta.", "Saqué un sobresaliente con esta respuesta."), and a defect of the
@@ -2748,14 +2973,21 @@ _DATA_READINGS = frozenset("readings reading results values measurements titres 
                            "resultados valores mediciones medidas ensayos "
                            # (the singulars a method step names, "Repetimos la medición tres veces"; c3e)
                            "measurement medicion medida lectura ensayo experimento experimentos titulacion valoracion".split())
+#: Words that make a gloss a clause, not a translation ("que", "that", a demonstrative of this text).
+_GLOSS_CLAUSE_RE = re.compile(r"(?i)\b(?:que|that|this|these|esta|este|esto|cette|cet|ce|ces|dieser|diese|dieses|is|est|es|ist)\b")
 #: The verbs of a gloss (a cheap test before :data:`_GLOSS_RE`).
-_GLOSS_VERBS = frozenset("means meant translated translates signifies stands significa quiere traduce dice".split())
+_GLOSS_VERBS = frozenset("means meant translated translates signifies stands significa quiere traduce dice signifie veut traduit "
+                         "bedeutet heisst".split())
 #: A quoted word glossed after a language name or a noun that names a word ("The French word 'vérifié' means checked.").
 _GLOSS_RE = re.compile(r"(?i)\b(?:latin|greek|french|german|italian|spanish|english|portuguese|catalan|arabic|hebrew|latino|griego|"
                        r"franc[eé]s|alem[aá]n|italiano|ingl[eé]s|portugu[eé]s|word|term|verb|noun|adjective|participle|expression|phrase|"
-                       r"palabra|t[eé]rmino|verbo|sustantivo|adjetivo|participio|expresi[oó]n|vocablo)\s+(?:[^\W\d_]+\s+){0,2}?"
-                       r"[\"'“‘«](?P<q>[^\"'”’»\n]{1,40})[\"'”’»]\s*,?\s*(?:means|meant|is\s+translated\s+as|translates\s+(?:as|to)|"
-                       r"signifies|stands\s+for|significa|quiere\s+decir|se\s+traduce\s+(?:como|por))\s+(?P<gloss>[^.;!?\n]{1,60})")
+                       r"palabra|t[eé]rmino|verbo|sustantivo|adjetivo|participio|expresi[oó]n|vocablo|"
+                       # (c3f: the gloss frames of the other languages, "Le mot « vérifié » signifie checked.", "En inglés, 'verified'
+                       # se traduce como 'verificado'.")
+                       r"mot|terme|verbe|adjectif|participe|anglais|allemand|italien|espagnol|wort|begriff)\s*,?\s+(?:[^\W\d_]+\s+){0,2}?"
+                       r"[\"'“‘«]\s*(?P<q>[^\"'”’»\n]{1,40}?)\s*[\"'”’»]\s*,?\s*(?:means|meant|is\s+translated\s+as|translates\s+(?:as|to)|"
+                       r"signifies|stands\s+for|significa|quiere\s+decir|se\s+traduce\s+(?:como|por)|signifie|veut\s+dire|"
+                       r"se\s+traduit\s+(?:par|comme)|bedeutet|hei[sß]t)\s+(?P<gloss>[^.;!?\n]{1,60})")
 #: A quoted word glossed in another language with "se dice" after a language name ("En inglés, «comprobado» se dice 'checked'."; c3e).
 _GLOSS_SAY_RE = re.compile(r"(?i)(?:\ben\s+(?:ingl[eé]s|franc[eé]s|alem[aá]n|italiano|portugu[eé]s|lat[ií]n|catal[aá]n|espa[nñ]ol)\s*,?\s*)?"
                            r"(?:[\"'“‘«](?P<q>[^\"'”’»\n]{1,40})[\"'”’»]|(?<![^\W\d_])x{2,40}(?![^\W\d_]))\s*se\s+dice\s+(?:en\s+[^\W\d_]+\s+)?"
@@ -2777,9 +3009,45 @@ _DEGREE_ADVERBS = frozenset("now already fully all both duly officially formally
 _CLAIM_NOUNS = frozenset("claim claims assertion assertions myth myths notion idea belief pretence pretense illusion boast boasts "
                          "rumour rumor rumours rumors announcement announcements propaganda insistence lie lies fiction".split())
 _WRONG_KEY_RE = re.compile(r"(?i)(?<![^\W_])(?:wrong|incorrect|error|mistake|original|before|you wrote|student wrote|incorrecto|incorrecta|"
-                           r"mal|err[oó]neo|err[oó]nea|antes|escribiste)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|x{2,}(?![^\W\d_]))")
+                           r"mal|err[oó]neo|err[oó]nea|antes|escribiste)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|[*_]{1,2}(?=[^\W\d_])|x{2,}(?![^\W\d_]))")
 _RIGHT_KEY_RE = re.compile(r"(?i)(?:right|correct|correct form|correction|corrected|better|after|correcto|correcta|forma correcta|"
-                           r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|x{2,}(?![^\W\d_]))")
+                           r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|[*_]{1,2}(?=[^\W\d_])|"
+                           r"x{2,}(?![^\W\d_]))")
+def _language_form(value: str) -> bool:
+    """Whether the value of a corrected form's key is a short form of a language written without quotation marks ("Correcto: el
+    agua.", "Bien: la gente", as a parser hands the pair on with its emphasis dropped; c3f): two to four words of letters, none a
+    figure, a family word, a part or genre noun of an answer, a scope or anaphoric word or an evaluator. "Correct: 42", "Right: the
+    figures", "Correcto: todo" and "Bien: verified" stay labels."""
+    from .lexicon import fold_word as _fw, tags as _tg
+    ws = re.findall(r"\S+", value.strip(" .;:!,\t"))
+    if not 2 <= len(ws) <= 4:
+        return False
+    for w in ws:
+        x = w.strip(".,;:!?()")
+        if not x or not x.replace("'", "").replace("’", "").isalpha() or (len(x) == 1 and x.lower() not in "ayoeu") or \
+                x.lower() in ("equals", "equal", "plus", "minus", "times", "divided", "igual", "menos"):
+            return False
+        t = _tg(_fw(x))
+        if any(k.startswith("F:") for k in t) or t & {"C:part", "C:genre", "C:genre_strong", "C:anchor", "C:anchor_idioms",
+                                                       "C:dist", "C:eval_int", "C:eval_asr", "C:tool", "C:m_eval", "C:pron1",
+                                                       "C:poss1", "C:meta", "fuzzy"} or ("C:anaph" in t and "C:det" not in t):
+            return False  # (an article that is also a pronoun, "la", is the article of the form)
+    return True
+
+
+#: The opening of a bracket that holds a rejected form ("(no «la problema»)", "(not ...)", "(en vez de ...)").
+_REJECTED_OPEN_RE = re.compile(r"(?i)\W*(?:no|not|nor|never|nunca|instead\s+of|en\s+vez\s+de|en\s+lugar\s+de|rather\s+than)\b")
+#: What is left of a rejected form beside a corrected one once its quotation is blanked ("(no  )", ", not  ", "(en vez de  )").
+_REJECTED_FORM_RE = re.compile(r"(?i)[(,;]\s*(?:no|not|nor|never|instead\s+of|en\s+vez\s+de|en\s+lugar\s+de|rather\s+than|y\s+no|"
+                               r"and\s+not|nunca)\s*(?=[)\s.;,]|$)\)?")
+#: The key word of a corrected form, followed by its colon or arrow (a pair recognised on the line as written; c3f).
+_RIGHT_KEY_WORD_RE = re.compile(r"(?i)(?:right|correct|correct form|correction|corrected|better|after|correcto|correcta|forma correcta|"
+                                r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*(?::|→|->|=>|⇒)")
+#: (c3f) the forms of a correction pair may be set off by emphasis instead of quotation marks ("Incorrecto: *la agua*. Correcto:
+#: *el agua*."); a key that tells the student to correct, then the pair with an arrow ("Corrige: «los problema» → «los problemas».")
+_CORRECT_IMPERATIVE_KEY_RE = re.compile(r"(?i)(?:corrige|corrija|corregid|correct|fix|change|cambia|cambie|escribe|escriba|write|"
+                                        r"replace|sustituye|sustituya|reemplaza|reemplace|rewrite|reescribe)\s*:\s*[\"“«‘'„*_]"
+                                        r"[^\n]{1,200}?(?:→|->|=>|⇒)\s*[\"“«‘'„*_]")
 #: The answer's own scope named in a sentence (a frame of the subject matter never clears a sentence that names it).
 _OWN_SCOPE_RE = re.compile(r"(?i)\b(?:this|my|our|these|esta|este|estas|estos|mi|mis|nuestra|nuestro)\s+(?:[^\W\d_]+\s+)?(?:answer|answers|"
                            r"response|reply|working|workings|solution|solutions|figures|numbers|results|calculations?|values|steps|claims|"
@@ -2804,14 +3072,19 @@ _DATED_THIRD_PARTY_ACT_RE = re.compile(
     r"certified|reviewed|inspected|audited|accepted|signed\s+off|aprob[oó]|ratific[oó]|verific[oó]|revis[oó]|valid[oó]|certific[oó]|"
     r"inspeccion[oó])\s+(?:the|a|an|el|la|los|las|un|una)\s+(?!(?:answer|answers|essay|response|reply|solution|working|text|figures|"
     r"numbers|calculations?|results|respuesta|ensayo|texto|soluci[oó]n|cifras|resultados)\b)[^\W\d_]+[^.;!?]{0,60}?\b(?:in|en|on|el)\s+"
+    r"(?:(?:\d{1,2}\s+)?[^\W\d_]+\s+)?(?:1[5-9]|20)\d{2}\b"
+    # (c3f: a thing of the subject that underwent a dated check, "The manuscript underwent a peer review in 1950."; its subject never
+    # a noun of this answer)
+    r"|^\W*(?:the|a|an|el|la|los|las|un|una)\s+(?!(?:answer|answers|essay|response|reply|solution|working|text|figures|numbers|"
+    r"calculations?|results|respuesta|ensayo|texto|soluci[oó]n|cifras|resultados)\b)[^\W\d_]+(?:'s|’s)?(?:\s+[^\W\d_]+)?\s+"
+    r"(?:underwent|went\s+through|received|passed|was\s+subjected\s+to|had)\s+(?:a\s+|an\s+|the\s+)?(?:[^\W\d_]+\s+){0,2}?"
+    r"(?:review|reviews|inspection|audit|check|checks|evaluation|examination|appraisal|assessment|vetting)\b[^.;!?]{0,40}?\b(?:in|en)\s+"
     r"(?:(?:\d{1,2}\s+)?[^\W\d_]+\s+)?(?:1[5-9]|20)\d{2}\b")
 
 
 def _frame_cue(s: str, a: int, b: int) -> bool:
     """Whether the sentence ``s[a:b]`` (the folded work string) holds a word one of the frames of :mod:`.ownverdict` turns on, looked
     up before the sentence as written is recovered (most sentences hold none)."""
-    if b - a > 2000:
-        return False
     from .ownverdict import trigger_word
     return any(trigger_word(m.group(0)) for m in _CUE_WORD_RE.finditer(s, a, b))
 
@@ -2821,7 +3094,7 @@ _CUE_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*")
 _WRONG_LABEL_RE = re.compile(r"(?i)[\s>*#_\-•·✗✘×]*(?:wrong|incorrect|error|mistake|original|before|you\s+wrote|student\s+wrote|"
                              r"incorrecto|incorrecta|mal|err[oó]neo|err[oó]nea|antes|escribiste|avoid|evita|evitar)[ \t*_]*(?::|→|->|=>|⇒)[ \t]*")
 #: A quotation inside a label's value.
-_QUOTED_RE = re.compile(r"[\"“«‘'][^\"”»’'\n]{0,200}[\"”»’']")
+_QUOTED_RE = re.compile(r"[\"“«‘'][^\"”»’'\n]{0,200}[\"”»’']|(?<![*_\w])([*_]{1,2})(?=[^\W\d_])[^*_\n]{1,200}(?<=\S)\1(?![*_\w])")
 #: A verdict word in a label's value outside its quotation ("Wrong: the answer is verified" is no correction pair).
 _VERDICT_WORD_RE = re.compile(r"(?i)\b(?:verif\w*|check\w*|correct\w*|right|accurate\w*|confirm\w*|approv\w*|valid\w*|pass\w*|sound|"
                               r"proven|proved|bien|comprob\w*|revis\w*|aprob\w*|exact\w*|perfect\w*|flawless|fine|ok|okay)\b")

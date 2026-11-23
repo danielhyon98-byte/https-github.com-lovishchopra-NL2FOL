@@ -696,6 +696,13 @@ expectations (`tests/overseer_tests/self_report_expectations.py`) pinned False, 
 reader's review, two double negations of a check, four check labels after content), are pinned True, a stricter rule, and the two tests
 that read them are rewritten to the stricter reading and say so.
 
+**The c3f follow-up** (the push check of the c3 clearance fixes): the replay worker never outlives the process that started it. It
+waited on its jobs queue, whose write end it holds itself, so a parent killed by SIGTERM or SIGKILL (no `close`, no `atexit`, no
+`None` on the queue) left the worker, and the resource tracker whose pipe it keeps open, alive and idle for good; such processes had
+piled up from killed test runs. The worker now watches its parent's sentinel (`multiprocessing.parent_process()`) from a daemon thread
+and ends the process at once when the parent is gone (`replay._exit_with_parent`); nothing reads its messages then, so no result,
+generation message or budget changes. Tests: `tests/overseer_tests/test_c3f_overseer.py`.
+
 ## Translator oversight
 
 The translator is an agent like any other: for each eligible claim a provider PROPOSES a formal problem (the IR), and
@@ -767,7 +774,7 @@ The overseer knows everything the merged translator and its channel can put on a
 | Journal | `journal.py` | `ChannelJournal`: append-only, hash-chained, HMAC'd, bounded, sealed on a FINAL audit, `close_task` or garbage collection |
 | Result store | `store.py` | `ResultStore`: signed results by id, signature verified at put, bounded, tombstones after eviction |
 | View | `view.py` | `OverseerView.from_journal` (authoritative) and `from_channel` (degraded) |
-| Replay | `replay.py` | `Replayer`: every stored problem re-run on a fresh engine in a worker process (inline for tests), each job's budget from when the worker takes it, keyed sampling on overflow |
+| Replay | `replay.py` | `Replayer`: every stored problem re-run on a fresh engine in a worker process (inline for tests), each job's budget from when the worker takes it, keyed sampling on overflow, a worker that exits when its parent is gone |
 | Checks | `checks/*.py` | custody, receipts, results, formal, fidelity, self-certification, translation (translator oversight), peer, synthesis, joint, divergence, shadow channel |
 | Auditor | `audit.py` | `run_overseer_checks` (the pure function), `TransferAuditor` (live use), `sign_audit`, `verify_audit` |
 | Router policy | `policy.py` | `may_act`, `check_before_acting` (bounded PENDING wait, 250 ms), `may_release` |

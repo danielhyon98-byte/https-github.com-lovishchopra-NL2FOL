@@ -75,7 +75,9 @@ scanned once per transmission.
 ## The report's own arithmetic (`quant.py`)
 
 Every derived figure a clause states becomes one entailment problem whose premises are the
-stated figures and whose conclusion is the stated change.
+stated figures and whose conclusion is the stated change. A figure followed by 'and a half' (or
+'and a quarter', 'and a third') is never read as its whole part, nor is the first part of a longer
+run of number words (c3f: 'from twelve hours to four and a half hours' had been read as 12 to 4).
 
 * Pairs: every `from X to Y` of the clause (not only the first), with a list after it (`to
   3.1 million in 1930, 4.5 million in 1931 and 5.6 million in 1932`), a chained continuation
@@ -925,6 +927,32 @@ or a cross-section ('giving 12.8 m²'), a labelled difference with its noun befo
 Storm 2 was 2 mm higher than that of Storm 1'; 'rainfall' is the request's 'rain'), a from-to bracket pair ('(from 38 mm to 36 mm)'), a
 labelled possessive figure ('Storm 1's 36 mm'), a volume in powers of ten, intervals in words ('a lag of ten hours', 'a year and a half
 after the Darfield quake') and the label itself as an interval's subject ('Storm 2 peaked 5.5 h after its rainfall peak').
+The c3f follow-up (push check of a9129c78) reads the row of a year-table figure from the figure's own clause only (`geography._YtIndex`,
+built once per sentence, so each lookup is a few binary searches: the walk back over earlier clauses had taken 438 s for 40,000
+characters); with no row and no subject of its own there, the sentence's own subject names it. A row is named by all its content
+words, by a word only it holds that is its head ('gas', 'coal', 'imported'), or by such a word as a modifier right before a word of the
+table ('natural gas', 'nuclear share', 'total supply'); never by a stop word ('share'), a function word, a modifier standing alone
+('natural growth', 'nuclear capacity') or a word inside an intervening clause ('with', 'as', 'despite', 'after', an apposition, a
+contrast or a comparison). Where no row is named a figure per person is the total's, and any other figure gets no derived check; a
+list of rows is a group whose cells are summed ('Coal and oil together supplied 77 %'), and a year written before the figure in its
+own clause dates it ('and in 2025 it was about 42 GJ'). A change 'by N%' of a share (a year table's or an attribute table's) fixes
+neither the relative change nor the change in points, so it is checked only under the reading its words fix ('percentage points',
+'points', 'relative') and a figure that fits one reading is never shown as checked. Also read: an attribute table's column changed
+between two rows ('from Site 1 to Site 10', 'along the transect'), a total of the request's labelled figures ('Together the two storms
+delivered 74 mm'), and a difference of two magnitudes the answer states.
+Check round 12 of c3f: across 'and' only another row's own word continues a list of rows ('a 28% share and supplied 294.0 PJ' never
+names the imported share's row); a figure inside an apposition between the subject and its verb no longer drops the subject ('Nuclear
+power, which had a 4% share, supplied 63.0 PJ'); a sentence's opening year dates a figure with no year of its own; a stated difference
+of two printed cells is checked against the printed cells to half a unit of the figure stated (the cells' own rounding band had shown
+'rose by 11 percentage points' ENTAILED against 13 − 1 = 12); every change of a sentence is read, each with its own clause's column,
+and a figure takes the column its own clause names; from-to per cents of a share row named by its head take the table's two years;
+'per person, 1,050 PJ shared among 24.9 million people, was about 42 GJ' divides the total after the comma; a clock time restated for
+a labelled peak, or in a worked difference of times, is one of the request's times of that label; and a figure that measures another
+thing (an area 'of the catchment', a second figure of the noun beside the request's own, another object's dimension) is no
+restatement of the request's figure. Also read: a difference or a multiple of one column between two rows named by their label ('Site 2
+had 35 more pedestrians than Site 3', 'counts at Site 1 were about eleven times those at Site 10'), a figure stated as a multiple of
+another figure the sentence writes ('300,000 deaths is about 1,600 times Christchurch's 185') and a part stated with its share and its
+whole ('8% of the 24 km² catchment, about 1.9 km²', `geo_share_part`).
 
 **Language B** (`language_b.py`, `spanish_lexicon.py`). The task is read once (writing, marking, reading or notes, by the task type and
 then the request) and the answer into regions. The statements read are the meta sentences (never the model's own content): a word
@@ -948,6 +976,19 @@ ganado 56 vecinos'), a paraphrase speaker in Spanish or in a cleft ('Tu abuelo d
 task's scenario in the answer's own language and hyphenated counts ('El intercambio duró dos semanas', 'a two-week stay'), a duration
 with its bracketed years, a year in Spanish words, the course range for a Paper 1 task's range claim when the request sets none (a
 warning) and the model text's word count ('el texto modelo tiene 300').
+The c3f follow-up matches a figure the answer dates ('En 1960 la escuela tenía catorce alumnos') only with a supplied cell of that
+date: a cell of the text's present ('Hoy viven ...', a paragraph of the present with no year) is dated too, and an answer's line with
+one year dates its figures. `lb_share` reads fraction words ('una cuarta parte', 'a quarter'), 'equivale a', 'corresponde a', 'del
+total de', the total first ('De los 80 alumnos, el 25 % (20 alumnos)'), the part as an apposition ('Veinte alumnos, el 25 % de 80, ...')
+and rates ('Veinte de cada ochenta, es decir el 25 %'); the totals, parts and counts of the answer's own shares and rates are never
+compared with the supplied text's figures. The correction lines the answer counts are read with the channel's own-text reader as well
+('Mal:/Bien:', 'Incorrecto:/Correcto:', 'Escribiste ...; lo correcto es ...'), and a task's word range in Spanish number words reads its
+two bounds apart ('entre cuatrocientas y quinientas palabras'). Check round 12 of c3f: a figure of a line about the present ('Hoy, con
+268 vecinos, la escuela tiene cien alumnos') is read against the text's present cell, never a dated one; a figure with its noun elided
+after a coordinated figure ('de 1.250 habitantes en 1960 a 268 en 2015', 'y doscientos veintiuno en 2015') takes that noun and the year
+after it, and a population figure may be the text's under another of its nouns ('vecinos'); the English counts are read with the
+concepts of their own clause ('two weeks ago, after an exchange of three weeks'); and a 'You wrote "x"; write "y" instead' or
+'Escribiste «x»; escribe «y»' line counts as a correction line.
 
 **Linear time.** Every reader is one pass or one `finditer` of a word-bounded pattern over a bounded prefix, statements and checks are
 capped per kind and per report, and tables keep grounded_figures' caps. `tests/branches/test_d9d10_linear.py` runs every entry point

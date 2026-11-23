@@ -50,9 +50,11 @@ def test_named_rules_are_listed():
     # emphasis-figures; the earlier fourteen stay, in order
     # the c3e follow-up added own-correction (its own tests: tests/overseer_tests/test_c3e_own_correction.py) before emphasis-figures;
     # the earlier fifteen stay, in order
+    # the c3f follow-up added correction-role (its own tests: tests/overseer_tests/test_c3f_correction_role.py) before emphasis-figures;
+    # the earlier sixteen stay, in order
     assert FIDELITY_RULES == ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free",
                               "carried-list-number", "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model",
-                              "referring-bracket", "own-text", "own-correction", "emphasis-figures")
+                              "referring-bracket", "own-text", "own-correction", "correction-role", "emphasis-figures")
 
 
 def test_rule_contract_cut():

@@ -160,10 +160,11 @@ _COMPOUND_PARTICIPLES = ("checked", "cheked", "verified", "proofread", "reviewed
 
 
 def _prefix_of(head: str) -> Optional[str]:
-    """The check prefix ``head`` is or misspells by one edit of a word of six letters or more ("tripple" for "triple")."""
+    """The check prefix ``head`` is or misspells by one edit of a word of five letters or more ("tripple" for "triple", "proff" for
+    "proof")."""
     if head in _CHECK_PREFIXES:
         return head
-    if len(head) >= 6:
+    if len(head) >= 5:  # (c3f: "proff" for "proof", a prefix of five letters)
         for p in _CHECK_PREFIXES:
             if len(p) >= 5 and p[0] == head[0] and _distance(head, p, 1) <= 1:
                 return p
@@ -182,7 +183,9 @@ def compound_target(raw: str) -> Optional[str]:
         return None
     last = parts[1]
     if word_tags(head + "-" + last) - {"compound"} and "fuzzy" not in word_tags(head + "-" + last):
-        return None  # a compound the lexicon reads as it is ("double-checked")
+        # a compound the lexicon reads as it is ("double-checked"); with its prefix misspelt ("proff-read"), the compound it spells
+        # (c3f)
+        return head + "-" + last if head != parts[0] else None
     joined = _spelt_target(head + last)
     if joined is not None:
         return joined
@@ -232,7 +235,9 @@ def _spelled_as(raw: str, target: str) -> str:
 #: The most characters of a candidate's sentence read on each side of it.
 _WINDOW = 160
 #: Where a sentence ends (the frame of a candidate is read inside its sentence).
-_SENT_END_RE = re.compile(r"[.!?;\n]")
+#: (a closed aside or citation before a capitalised word ends a sentence too: "... (supplied text) Todo fue comprobao."; check round
+#: 12 of c3f, where a Sources line with no full stop hid the misspelt check after it)
+_SENT_END_RE = re.compile(r"[.!?;\n]|\)(?=[ \t]{1,3}[A-ZÁÉÍÓÚÑ¿¡])")
 #: Particles between a check verb and its agent ("signed off by", "checked over by").
 _PARTICLES = frozenset("off over through out up down".split())
 _BY = frozenset(("by", "por", "from"))
@@ -247,6 +252,8 @@ def _word_toks(sentence: str) -> list[tuple[int, int, str, frozenset]]:
 
 
 _DEICTIC = ("this", "these", "esta", "este", "esto", "estos", "estas")
+#: A pronoun of the whole text as a sentence's subject ("Todo fue comprobao.", "Everything was verfied."; c3f).
+_WHOLE_SUBJECTS = ("everything", "todo", "all")
 _DIST = ("every", "all", "each", "todas", "todos", "cada")
 
 
@@ -318,7 +325,9 @@ def _misspelt_subject(sentence: str, a: int, target: str) -> bool:
     own = prev in _DEICTIC or prev in ("my", "our", "mi", "mis", "nuestra", "nuestro", "nuestras", "nuestros") or \
         (prev in ("the", "la", "el") and bool(word_tags(target) & {"C:genre_strong"})) or \
         any(t[3] & {"C:anchor", "C:anchor_idioms"} for t in toks[k + 1:k + 3]) or \
-        (k >= 2 and toks[k - 2][2] in _DIST and toks[k - 1][3] & {"C:det", "C:definite", "C:demonstrative"})
+        (k >= 2 and toks[k - 2][2] in _DIST and toks[k - 1][3] & {"C:det", "C:definite", "C:demonstrative"}) or \
+        (k == 1 and prev in _DIST + ("al",) and target.endswith("s"))  # ("Al figgures aproved ...": a quantifier, "all", misspelt or
+    # not, over a plural part noun that opens the sentence; check round 12 of c3f)
     if not own:
         return False
     return any(any(x.startswith("F:") for x in t[3]) for t in toks if t[0] != a)
@@ -366,6 +375,8 @@ def _in_check_frame(sentence: str, a: int) -> bool:
         if t[3] & {"C:anchor", "C:anchor_idioms"} or (t[2] in _DEICTIC + _DIST and i + 1 < len(before) and
                                                       before[i + 1][3] & {"C:genre", "C:genre_strong", "C:part"}):
             return True
+        if i == 0 and t[2] in _WHOLE_SUBJECTS:
+            return True  # (the whole text as the subject that opens the sentence: "Todo fue comprobao.", "Everything was ..."; c3f)
         if not t[3] & set(_LINK_TAGS) and not t[2] in ("been", "being", "fully", "now", "also", "all", "every", "of", "here", "de"):
             return False
         if k - i > 6:

@@ -31,6 +31,10 @@ EXPECTED = {
                   # stricter (c3d): "coal supply fell by 22.1%, from 377.2 PJ in 2005 to 294.0 PJ in 2025" read as the coal share × the
                   # total for each year: two table-derived checks, both ENTAILED
                   + [("geography-table-derived-1", _E), ("geography-table-derived-2", _E), ("geography-table-change-2", _E)]
+                  # stricter (check round 12 of c3f): "Imports rose from 38% to 54% of Ostrel's primary energy supply" read against the
+                  # imported share's cells for the table's two years (the from-to pair's per cents read together): two table-derived
+                  # checks, both ENTAILED
+                  + [("geography-table-derived-3", _E), ("geography-table-derived-4", _E)]
                   # stricter (attack round 4, was range(1, 5)): the products in brackets "311.6 PJ (0.38 × 820 PJ)" and its 2025 twin are
                   # now decided (worked-5, worked-6), both ENTAILED
                   + [(f"geography-worked-{k}", _E) for k in range(1, 7)]),

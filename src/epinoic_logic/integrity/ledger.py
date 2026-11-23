@@ -4826,6 +4826,23 @@ def _split_outside_quotations(text: str) -> list[str]:
 _SELF_REPORT_SENTENCE_CHARS = 4000
 
 
+#: A sentence that describes an assessment criterion or a rubric: what it rewards, requires or credits in a piece of work ('Conclusion
+#: rewards an answer to the research question that ... is compared with accepted science with sources cited.', 'Criterion B requires a
+#: method that is checked against a second source.', 'The mark scheme credits an answer that verifies its result.'). It states no
+#: verification status of this answer, so INT-LEDGER-029 never reads it as a label (push check of a9129c78, the readings lens).
+_CRITERION_NAMES = (r"criteri(?:on|a|o|os)(?:[ \t]{1,3}[A-E](?![\w]))?|crit[eè]res?|rubric|mark[ \t]{0,2}scheme|markband|mark[ \t]{1,3}band|descriptors?|"
+                    r"assessment[ \t]{1,3}(?:criteria|criterion|objectives?)|(?:research[ \t]{1,3}design|data[ \t]{1,3}analysis|conclusion|evaluation|"
+                    r"exploration|analysis|communication|personal[ \t]{1,3}engagement|knowledge(?:[ \t]{1,3}and[ \t]{1,3}understanding)?|application|"
+                    r"focus|organi[sz]ation|language)")
+_CRITERION_SENTENCE_RE = re.compile(r"[\W_]{0,8}(?:the[ \t]{1,3}|el[ \t]{1,3}|la[ \t]{1,3}|le[ \t]{1,3})?(?:" + _CRITERION_NAMES + r")(?:[ \t]{0,3}\([^()\n]{0,40}\))?"
+                                    r"[ \t:,]{1,4}(?:[\w-]{1,20}[ \t]{1,3}){0,3}?(?:rewards?|requires?|credits?|awards?|assesses|expects?|looks[ \t]{1,3}for|asks[ \t]{1,3}(?:for|that)|"
+                                    r"recompensa|exige|valora|premia|r[ée]compense|exige|valorise)\b[^;:\n]*\Z", re.IGNORECASE)
+#: What keeps a criterion sentence about THIS answer, so it is read as any other ('Criterion E rewards this answer.').
+_CRITERION_OWN_RE = re.compile(r"\b(?:this|my|our|the[ \t]{1,3}above|esta|este|mi|nuestra|cette|ce|mon|notre)[ \t]{1,3}(?:answer|response|reply|essay|report|synthesis|"
+                               r"work|respuesta|ensayo|trabajo|réponse|travail)\b|\b(?:above|here|below|arriba|aquí|ci-dessus|this[ \t]{1,3}one|ours|"
+                               r"mine|ésta|celle-ci|celui-ci)\b", re.IGNORECASE)
+
+
 def _self_report_sentences(text: str, labels: Optional[list[str]] = None, content: Optional[list[str]] = None) -> list[str]:
     """The sentences of ``text`` that state a verification status of the answer itself ("VERIFIED: all claims checked and
     confirmed.", "checked by the formal verifier: every line holds", "The synthesis has been verified.", "This synthesis is
@@ -4846,6 +4863,12 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
     for sentence in _split_outside_quotations(plain_tick_bullets(text or "")):
         s = sentence.strip()
         if not s:
+            continue
+        if _CRITERION_SENTENCE_RE.match(s) and not _CRITERION_OWN_RE.search(s):
+            # a criterion or rubric sentence says what a piece of work must do, not what this answer is (push check of a9129c78, the
+            # readings lens: r7 ch-t13 'Conclusion rewards an answer ... that is compared with accepted science with sources cited.')
+            if content is not None:
+                content.append(s[:200])
             continue
         # a label attached to content is read as a label first (hold-fix round 3: the one reader now also names a sentence whose
         # clause after its content is a bare checking label, "... June 1919 (verified)."; the content stays content beside it)

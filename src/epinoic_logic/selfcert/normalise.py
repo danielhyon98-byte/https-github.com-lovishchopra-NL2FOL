@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+import bisect
 import functools
 import json
 import pathlib
@@ -94,10 +95,19 @@ _BLOCKS_LOW: list = []
 def letter_like(cp: int) -> bool:
     blocks = fold_table()["blocks"]
     if not _BLOCKS_LOW or _BLOCKS_LOW[0] is not blocks:
-        _BLOCKS_LOW[:] = [blocks, min((a for a, _b in blocks), default=0x110000)]
+        # (the blocks sorted by their first code point, with the highest last code point of each prefix: a code point is in a block
+        # exactly when the last block starting at or below it, or one before it, reaches it; check round 12 of c3f: the scan of
+        # every block for each character of a long text in another script was a third of its reading)
+        order = sorted(blocks)
+        reach, top = [], -1
+        for _a, b in order:
+            top = max(top, b)
+            reach.append(top)
+        _BLOCKS_LOW[:] = [blocks, min((a for a, _b in blocks), default=0x110000), [a for a, _b in order], reach]
     if cp < _BLOCKS_LOW[1]:
         return False  # (below every block: the same answer as the scan of the blocks, c3e stabilizer)
-    return any(a <= cp <= b for a, b in blocks)
+    k = bisect.bisect_right(_BLOCKS_LOW[2], cp) - 1
+    return k >= 0 and _BLOCKS_LOW[3][k] >= cp
 
 
 def _invisible(cp: int, cat: str) -> bool:
@@ -416,6 +426,16 @@ def _is_letter(c: str) -> bool:
 def _pass_tokens(chars: list[str], origin: list[int], known) -> tuple[list[str], list[int]]:
     """Rules N4 to N6 over the tokens of the folded text. ``known`` is the lexicon's word test."""
     conf = fold_table()["confusables"]
+    # (the word test of each string asked, kept for this pass only: a letter-spaced run of one letter repeated, "a a a ...", asks
+    # the same eighteen strings at every letter; check round 12 of c3f, timing)
+    lexicon_known, asked = known, {}
+
+    def known(w: str) -> bool:
+        got = asked.get(w)
+        if got is None:
+            got = asked[w] = bool(lexicon_known(w))
+        return got
+
     n = len(chars)
     # N4 and N5 per token (maximal run of letters and digits)
     i = 0

@@ -33,7 +33,10 @@ removing or changing none; 1.2 adds the one self-certification reader (round-10 
 label-or-mark-on-content reading the auditor's FID-005 shares), removing or changing none (the older
 reader names stay, as thin calls into it); 1.3 adds ``own_model_words`` in ``adapters`` (the c3d follow-up: the one reader's decision that
 a quoted span is the writer's own, the wording one of its own corrections replaces included, which the transfer auditor's
-OVS-FID-004 now reads as the parser and the channel read it), removing or changing none.
+OVS-FID-004 now reads as the parser and the channel read it), removing or changing none; 1.4 adds ``correction_reading``,
+``CORRECTION_FREE`` and ``CORRECTION_QUOTATION`` in ``adapters`` (the c3f follow-up: the halves of the answer's own corrections
+read by role against the supplied texts, which the English parser and the channel read and the transfer auditor's OVS-FID-004 now
+reads too), removing or changing none.
 """
 from __future__ import annotations
 
@@ -42,7 +45,7 @@ AREAS: tuple[str, ...] = ("ir", "engine", "channel", "integrity", "translate", "
 #: The public API's version, MAJOR.MINOR: MINOR goes up with every name added; MAJOR with every name removed or
 #: changed in meaning. Attached components check it (the overseer: ``epinoic_overseer.compat``, which refuses at import
 #: a translator whose API states another MAJOR than the one it was built against).
-API_VERSION = "1.3"
+API_VERSION = "1.4"
 
 __all__ = ["API_VERSION", "AREAS", "exports_table", "markdown"]
 

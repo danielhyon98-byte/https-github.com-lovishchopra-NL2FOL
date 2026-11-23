@@ -52,7 +52,7 @@ morphology, and never counts a model's own content. Every reader is bounded and 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from functools import lru_cache
 from typing import Optional
@@ -562,10 +562,28 @@ def _word_checks(ctx: _Ctx, statements: list[_Stmt]) -> None:
 
 #: A word bound the answer credits to the task ("The task asks for between 250 and 400 words", "La consigna pide entre 450 y 600 palabras",
 #: "your task sets a 450–600-word range"): c3d, sp-t15.
-_TASK_WORDS_RE = re.compile(r"\b(?:the|your|this|tu|la|el)\s+(?:task|question|request|brief|prompt|instructions?|assignment|consigna|tarea|enunciado)\s+"
+_TASK_WORDS_RE = re.compile(r"\b(?:the|your|this|tu|la|el)\s+(?:[A-Za-z]{1,12}\s+){0,2}?(?:task|question|request|brief|prompt|instructions?|assignment|consigna|tarea|enunciado)\s+"
                             r"(?:asks\s+for|asked\s+for|requires?|required|sets?|wants?|wanted|calls?\s+for|specifies|specified|says|said|gives?|pide|exige|marca)\s+"
                             r"(?:an?\s+|a\s+range\s+of\s+|a\s+length\s+of\s+)?(?:between\s+(?P<a>\d{2,4})\s+and\s+(?P<b>\d{2,4})|entre\s+(?P<c>\d{2,4})\s+y\s+(?P<d>\d{2,4})|"
                             r"(?:from\s+)?(?P<e>\d{2,4})\s*+(?:[–—-]|to|a)\s*+(?P<f>\d{2,4}))(?:-|\s+)(?:words?|palabras)\b", re.IGNORECASE)
+
+
+_ENTRE_WORDS_RE = re.compile(r"\b(?P<pre>entre|between)\s++(?P<x>[^\W\d_][^\d\n,;.]{2,60}?)\s++(?P<and>y|and)\s++(?P<y>[^\W\d_][^\d\n,;.]{2,60}?)\s++(?P<u>palabras|words)\b",
+                             re.IGNORECASE)
+
+
+def _bound_words_as_digits(text: str) -> str:
+    """A range of words written in Spanish number words with its two bounds read apart ("entre cuatrocientas y quinientas palabras" ->
+    "entre 400 y 500 palabras": the 'y' between the bounds is the range's, never part of one number), then any other number word."""
+    def sub(m: "re.Match[str]") -> str:
+        vals = []
+        for g in ("x", "y"):
+            figs = es.spanish_number_figures(m.group(g))
+            if len(figs) != 1 or figs[0][0] != 0 or figs[0][1] < len(m.group(g).rstrip()):
+                return m.group(0)
+            vals.append(figs[0][2])
+        return f"{m.group('pre')} {vals[0]} {m.group('and')} {vals[1]} {m.group('u')}"
+    return _normalise_es_figures(_ENTRE_WORDS_RE.sub(sub, text))
 
 
 def _task_word_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
@@ -591,7 +609,9 @@ def _task_word_claims(ctx: _Ctx, statements: list[_Stmt]) -> None:
     else:
         lo_r, hi_r = min(mins), max(maxs)
     for st in statements:
-        for m in _TASK_WORDS_RE.finditer(st.text):
+        # (a bound in Spanish number words, "entre cuatrocientas y quinientas palabras", is read as its digits; c3e left)
+        text = _bound_words_as_digits(st.text) if _ES_NUMBER_WORD_HINT_RE.search(st.text) else st.text
+        for m in _TASK_WORDS_RE.finditer(text):
             ga, gb = next((a, b) for a, b in (("a", "b"), ("c", "d"), ("e", "f")) if m.group(a))
             lo, hi = int(m.group(ga)), int(m.group(gb))
             ctx.add("lb_word_range_claim", lambda cid, lo=lo, hi=hi, m=m, st=st: make_check(
@@ -835,10 +855,27 @@ _CONNECTOR_LIST_RE = re.compile(r"\b(?P<n>" + _NUMBER_WORD + r"|\d{1,2})\s+(?:co
                                 r"(?:\s{1,3}[^\W\d_]{1,20}){0,6}?\s*+(?:\(|:)(?P<rest>[^\n]{0,400})", re.IGNORECASE)
 
 
+def _correction_lines(text: str) -> list[str]:
+    """The answer's correction lines: a line that writes a correction with an arrow or an English label (:data:`_ARROW_LINE_RE`), or a
+    line holding one of the answer's own corrections as the channel's own-text reader reads them (``own_text.correction_pairs``: 'Mal:
+    "x". Bien: "y"', 'Incorrecto: «x». Correcto: «y»', 'Antes:/Después:', 'Escribiste «x»; lo correcto es «y»'); c3e left (sp-t16): the
+    answer's correct count of its six corrections drew a COUNTEREXAMPLE when one line used a Spanish label."""
+    from ..adapters.own_text import correction_pairs
+    arrows = {m.start() for m in _ARROW_LINE_RE.finditer(text)}
+    out, pos = [], 0
+    for line in text.split("\n"):
+        start, pos = pos, pos + len(line) + 1
+        if any(start <= a < pos for a in arrows):
+            out.append(line)
+        elif sum(line.count(q) for q in ('"', "«", "“")) >= 2 and len(out) < 400 and any(c is not None for _r, c in correction_pairs(line[:2000])):
+            out.append(line)
+    return out
+
+
 def _listed_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
     from ..adapters.markdown import find_quotation_spans
     model = set(ctx.regions.model)
-    lines = [m.group(0) for m in _ARROW_LINE_RE.finditer(ctx.text[:MAX_TEXT])]
+    lines = _correction_lines(ctx.text[:MAX_TEXT])
     for st in statements:
         if st.paragraph in model:
             continue
@@ -1008,16 +1045,46 @@ def _percent_changes(ctx: _Ctx) -> None:
 _SHARE_PCT = r"\s*+(?:%|por\s+ciento\b|per\s*+cent\b|percent\b)"
 _SHARE_ART = r"(?:(?:los|las|el|la|unos|unas|the|a|an)\s++)?"
 _SHARE_AP = r"(?P<ap>(?:unos|unas|aproximadamente|alrededor\s+de|casi|about|around|roughly|approximately|nearly|some)\s++)?"
-#: A share of a total and the part it gives: "El 25 % de 80 es 20", "el 25 % de los 80 alumnos, es decir 20 alumnos", "25% of 80 is 20".
-_SHARE_RE = re.compile(r"(?<![\d.,])(?P<p>" + _ES_NUM + r")" + _SHARE_PCT + r"\s++(?:de|of)\s++" + _SHARE_ART + r"(?<![\d.,])(?P<n>" + _ES_NUM + r")(?![\d,.]\d)"
-                       r"(?:\s++[^\W\d_]{2,20}){0,3}?\s*+,?\s*+(?:es\s+decir|o\s+sea|that\s+is|i\.\s*+e\.|es|son|serían?|da|dan|is|are|was|were|would\s+be|"
-                       r"makes?|gives?|comes\s+to|equals)\s*+,?\s*+" + _SHARE_AP + r"(?<![\d.,])(?P<y>" + _ES_NUM + r")(?![\d,.]\d|\s*+(?:%|por\s+ciento))",
-                       re.IGNORECASE)
-#: The part first: "20 alumnos son el 25 % de 80", "20 is 25% of 80".
-_SHARE_PART_FIRST_RE = re.compile(r"(?<![\d.,%])(?P<y>" + _ES_NUM + r")(?![\d,.]\d)(?:\s++[^\W\d_]{2,20}){0,2}?\s++(?:es|son|era|eran|is|are|was|were|"
-                                  r"representan?|represents?|makes?\s+up|make\s+up|constituyen?)\s++(?:el\s++|un\s++|the\s++)?" + _SHARE_AP
-                                  + r"(?<![\d.,])(?P<p>" + _ES_NUM + r")" + _SHARE_PCT + r"\s++(?:de|of)\s++" + _SHARE_ART
+#: The per cent of a share, as a figure or as a fraction word ("el 25 %", "una cuarta parte", "la mitad", "a quarter"); push check of
+#: a9129c78: the fraction words and the frames below had drawn no check ("Una cuarta parte de 80 son 30").
+_SHARE_FRACTION_WORDS = {"la mitad": Fraction(50), "una cuarta parte": Fraction(25), "un cuarto": Fraction(25), "una tercera parte": Fraction(100, 3),
+                         "un tercio": Fraction(100, 3), "dos tercios": Fraction(200, 3), "dos terceras partes": Fraction(200, 3),
+                         "tres cuartos": Fraction(75), "tres cuartas partes": Fraction(75), "una quinta parte": Fraction(20), "un quinto": Fraction(20),
+                         "una décima parte": Fraction(10), "half": Fraction(50), "one half": Fraction(50), "a quarter": Fraction(25),
+                         "one quarter": Fraction(25), "a third": Fraction(100, 3), "one third": Fraction(100, 3), "two thirds": Fraction(200, 3),
+                         "three quarters": Fraction(75), "a fifth": Fraction(20), "one fifth": Fraction(20), "a tenth": Fraction(10)}
+_SHARE_P = (r"(?:(?<![\d.,])(?P<p>" + _ES_NUM + r")" + _SHARE_PCT + r"|(?<![^\W\d_])(?P<fw>"
+            + "|".join(sorted((re.escape(k).replace(r"\ ", r"\s+") for k in _SHARE_FRACTION_WORDS), key=len, reverse=True)) + r")(?![^\W\d_]))")
+_SHARE_HINT_RE = re.compile(r"\bpor\s+ciento\b|\bper\s*+cent\b|\bpercent\b|" + _SHARE_P, re.IGNORECASE)
+#: "de", "del total de", "de un total de", "of", "of the total of" before the total.
+_SHARE_OF = r"\s++(?:del?\s+total\s+de|de\s+un\s+total\s+de|de|del|of\s+(?:the|a)\s+total\s+of|of)\s++" + _SHARE_ART
+#: The verbs and appositions that give the part: "es", "son", "equivale a", "corresponde a", "supone", "es decir", "that is", "equals" ...
+_SHARE_LINK = (r"(?:es\s+decir|o\s+sea|that\s+is|i\.\s*+e\.|equivalen?\s+a|corresponden?\s+a|suponen?|representan?|serían?|es|son|da|dan|"
+               r"amounts?\s+to|corresponds?\s+to|would\s+be|is|are|was|were|makes?|gives?|comes\s+to|equals)")
+_SHARE_NOUNS = r"(?:\s++[^\W\d_]{2,20}){0,3}?"
+#: A share of a total and the part it gives: "El 25 % de 80 es 20", "el 25 % de los 80 alumnos, es decir 20 alumnos", "25% of 80 is 20",
+#: "Un 25 % de 80 equivale a 20", "El 25 % del total de 80 alumnos corresponde a 20 alumnos", "Una cuarta parte de 80 son 20", and the
+#: part in brackets after the total ("el 25 % de los 80 alumnos (20 alumnos)").
+_SHARE_RE = re.compile(_SHARE_P + _SHARE_OF + r"(?<![\d.,])(?P<n>" + _ES_NUM + r")(?![\d,.]\d)" + _SHARE_NOUNS
+                       + r"(?:\s*+,?\s*+" + _SHARE_LINK + r"\s*+,?\s*+|\s*+\(\s*+)" + _SHARE_AP + r"(?<![\d.,])(?P<y>" + _ES_NUM
+                       + r")(?![\d,.]\d|\s*+(?:%|por\s+ciento|/))", re.IGNORECASE)
+#: The part first: "20 alumnos son el 25 % de 80", "20 is 25% of 80", and the share as an apposition of the part ("Veinte alumnos, el 25 %
+#: de 80, estudian francés").
+_SHARE_PART_FIRST_RE = re.compile(r"(?<![\d.,%])(?P<y>" + _ES_NUM + r")(?![\d,.]\d)(?:\s++[^\W\d_]{2,20}){0,2}?(?:\s++(?:es|son|era|eran|is|are|was|were|"
+                                  r"representan?|represents?|makes?\s+up|make\s+up|constituyen?|equivalen?\s+a|corresponden?\s+a|suponen?)\s++|\s*+,\s*+)"
+                                  r"(?:el\s++|un\s++|una\s++|la\s++|the\s++)?" + _SHARE_AP + _SHARE_P + _SHARE_OF
                                   + r"(?<![\d.,])(?P<n>" + _ES_NUM + r")(?![\d,.]\d|\s*+(?:%|por\s+ciento))", re.IGNORECASE)
+#: The total first: "De los 80 alumnos, el 25 % (20 alumnos) estudia francés", "De los 80 alumnos, el 25 % son 20", "Of the 80 pupils,
+#: 25% (20) study French".
+_SHARE_TOTAL_FIRST_RE = re.compile(r"\b(?:de|of)\s++" + _SHARE_ART + r"(?<![\d.,])(?P<n>" + _ES_NUM + r")(?![\d,.]\d)" + _SHARE_NOUNS
+                                   + r"\s*+,\s*+(?:el\s++|un\s++|una\s++|la\s++|the\s++)?" + _SHARE_AP + _SHARE_P
+                                   + r"(?:\s*+\(\s*+|\s*+,?\s*+" + _SHARE_LINK + r"\s*+,?\s*+)(?P<y>" + _ES_NUM + r")(?![\d,.]\d|\s*+(?:%|por\s+ciento|/))",
+                                   re.IGNORECASE)
+#: A rate stated as a count of a count with its per cent: "Veinte de cada ochenta, es decir el 25 %", "20 out of 80, or 25%".
+_SHARE_RATE_RE = re.compile(r"(?<![\d.,])(?P<a>" + _ES_NUM + r")(?![\d,.]\d)(?:\s++[^\W\d_]{2,20}){0,2}?\s++(?:de\s+cada|out\s+of(?:\s+every)?|of\s+every|in\s+every)\s++"
+                            r"(?P<b>" + _ES_NUM + r")(?![\d,.]\d)(?:\s++[^\W\d_]{2,20}){0,2}?(?:\s*+,\s*+(?:(?:es\s+decir|o\s+sea|that\s+is|i\.\s*+e\.|or|o)\s*+,?\s*+)?|"
+                            r"\s++(?:es\s+decir|o\s+sea|that\s+is|i\.\s*+e\.|or|o)\s*+,?\s*+)"
+                            r"(?:el\s++|un\s++|the\s++)?" + _SHARE_AP + r"(?P<p>" + _ES_NUM + r")" + _SHARE_PCT, re.IGNORECASE)
 #: A share with the fraction it is worked from in brackets: "75% of the available marks (21/30)", "el 70 % de la nota (21 de 30)".
 _SHARE_FRACTION_RE = re.compile(r"(?<![\d.,])(?P<p>" + _ES_NUM + r")" + _SHARE_PCT + r"\s++(?:de|of)\s++(?:[^\W\d_]{1,20}\s++){0,4}?\(\s*+(?P<a>" + _ES_NUM
                                 + r")\s*+(?:/|de|of|out\s+of)\s*+(?P<b>" + _ES_NUM + r")\s*+\)", re.IGNORECASE)
@@ -1037,7 +1104,14 @@ _SHARE_YEAR_RE = re.compile(r"(?:1[5-9]|20)\d{2}")
 _SHARE_AGE_AFTER_RE = re.compile(r"\s*+(?:or|o|y)\s++(?:older|more|over|above|younger|less|under|below|m[aá]s|mayores|menos)\b", re.IGNORECASE)
 
 
-def _share_part_of_total(sent: str, m: "re.Match[str]") -> bool:
+def _share_per_cent(m: "re.Match[str]", spanish: bool) -> list[Fraction]:
+    """The per cent of a share match: its figure read every way, or the value of its fraction word ('una cuarta parte': 25)."""
+    if m.group("fw"):
+        return [_SHARE_FRACTION_WORDS[" ".join(m.group("fw").lower().split())]]
+    return _readings(m.group("p"), spanish)
+
+
+def _share_part_of_total(sent: str, m: "re.Match[str]", part_first: bool = False) -> bool:
     """Whether the part ``y`` of a share match is a number OF THE SAME TOTAL: never a year ("En 2023 los jóvenes eran el 25 % de los 80
     vecinos"), an age ("18 or older", "65 años"), a rating ("4 estrellas") or a count of another noun ("o sea 300 camas" of 150
     hoteles); a noun after the part is the total's own noun ("es decir 30 alumnos" of 80 alumnos) or there is none (check round 11 of
@@ -1052,8 +1126,46 @@ def _share_part_of_total(sent: str, m: "re.Match[str]") -> bool:
         return True
     noun = re.match(r"\s*+([^\W\d_]+)", sent[m.end("n"):m.end("n") + 40])
     if noun is None or noun.group(1).lower() in _SHARE_FUNCTION_WORDS:
-        return False  # (a noun of the part's own and none of the total's: "es 4 estrellas")
+        # (a noun of the part's own and none of the total's: "es 4 estrellas"; but a part written first names what the total counts:
+        # "Veinte alumnos, el 25 % de 80, estudian francés")
+        return part_first
     return after.group(1).lower()[:4] == noun.group(1).lower()[:4]
+
+
+_SMALL_WORDS_ALT = "|".join(sorted((w for w in es.SMALL_NUMBER_WORDS if len(w) > 2), key=len, reverse=True))
+#: "Dos de cada tres", "one in every four" (a small count in words too).
+_RATE_OF_EVERY_RE = re.compile(r"(?<![\d.,\w])(?P<a>" + _ES_NUM + "|" + _SMALL_WORDS_ALT + r")(?![\d,.]\d|\w)(?:\s++[^\W\d_]{2,20}){0,2}?\s++"
+                               r"(?:de\s+cada|out\s+of\s+every|of\s+every|in\s+every)\s++(?P<b>" + _ES_NUM + "|" + _SMALL_WORDS_ALT + r")(?![\d,.]\d|\w)",
+                               re.IGNORECASE)
+
+
+def _small_words_as_digits(sent: str) -> str:
+    """The sentence with the small counts of its rates written as digits ("Uno de cada cuatro alumnos, el 25 %" -> "1 de cada 4 ...")."""
+    def sub(m: "re.Match[str]") -> str:
+        a, b = m.group("a"), m.group("b")
+        va = int(a) if a.isdigit() else es.SMALL_NUMBER_WORDS.get(a.casefold())
+        vb = int(b) if b.isdigit() else es.SMALL_NUMBER_WORDS.get(b.casefold())
+        if va is None or vb is None:
+            return m.group(0)
+        g = m.group(0)
+        return str(va) + g[m.end("a") - m.start():m.start("b") - m.start()] + str(vb)
+    return _RATE_OF_EVERY_RE.sub(sub, sent)
+
+
+def _share_frame_values(line: str) -> set:
+    """The values of the totals, parts and counts of the shares and rates a line states ("el 25 % de los 80 alumnos, es decir 20", "dos de
+    cada tres vecinos"), every reading of their numerals: the answer's own working, never a figure it takes from a supplied text."""
+    en, sp, _n = es.english_ratio(line)
+    spanish = sp >= en
+    sent = _small_words_as_digits(_normalise_es_figures(line) if spanish else line)
+    out: set = set()
+    for rx in (_SHARE_RE, _SHARE_PART_FIRST_RE, _SHARE_TOTAL_FIRST_RE, _SHARE_RATE_RE, _RATE_OF_EVERY_RE, _SHARE_FRACTION_RE):
+        for m in rx.finditer(sent):
+            for g in ("n", "y", "a", "b"):
+                v = m.groupdict().get(g)
+                if v and not _YEAR_RE.match(v):
+                    out.update(_readings(v, spanish))
+    return out
 
 
 def _shares(ctx: _Ctx) -> None:
@@ -1064,19 +1176,21 @@ def _shares(ctx: _Ctx) -> None:
     holding is enough); Spanish number words and 'por ciento' are read as figures first."""
     from ..adapters.history_specialist.sentences import split_sentences
     for para in ctx.regions.paragraphs:
-        if "%" not in para and not re.search(r"\bpor\s+ciento\b|\bper\s*+cent\b|\bpercent\b", para, re.IGNORECASE):
+        if "%" not in para and not _SHARE_HINT_RE.search(para):
             continue
         for orig in split_sentences(para):
             en, sp, _n = es.english_ratio(orig)
             spanish = sp >= en
             sent = _normalise_es_figures(orig) if spanish else orig
-            for rx in (_SHARE_RE, _SHARE_PART_FIRST_RE):
+            seen: set = set()
+            for rx in (_SHARE_RE, _SHARE_PART_FIRST_RE, _SHARE_TOTAL_FIRST_RE):
                 for m in rx.finditer(sent):
-                    P, N, Y = _readings(m.group("p"), spanish), _readings(m.group("n"), spanish), _readings(m.group("y"), spanish)
+                    P, N, Y = _share_per_cent(m, spanish), _readings(m.group("n"), spanish), _readings(m.group("y"), spanish)
                     if not P or not N or not Y or (_YEAR_RE.match(m.group("n")) and not m.group("n").startswith("0")):
                         continue
-                    if not _share_part_of_total(sent, m):
+                    if not _share_part_of_total(sent, m, part_first=rx is _SHARE_PART_FIRST_RE) or (m.start("y"), m.start("n")) in seen:
                         continue
+                    seen.add((m.start("y"), m.start("n")))
                     from .grounded_figures import _half
                     y_shown = m.group("y")
                     half = _half(y_shown.replace(".", "").replace(",", ".") if spanish else y_shown.replace(",", ""))
@@ -1089,10 +1203,23 @@ def _shares(ctx: _Ctx) -> None:
                     ctx.add("lb_share", lambda cid, options=options, stated=stated, m=m, orig=orig: make_check(
                         ctx.report, check_id=cid, kind="lb_share", inputs=[("stated", stated, f"the part stated ({m.group('y')})")],
                         conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
-                        label=f"{m.group('y')} against {m.group('p')} % of {m.group('n')} (every reading of the numerals)",
+                        label=f"{m.group('y')} against {m.group('p') + ' %' if m.group('p') else m.group('fw')} of {m.group('n')} (every reading of the numerals)",
                         description=(f"{orig[:220]} [a share of a total gives the part per cent × total / 100, within half a unit of the part as written "
                                      "(5% after an approximation word); a numeral is read every way it can be read and one reading holding is enough]"),
                         claim_ids=ctx.claims(orig, orig[:60]), defect="stem_arithmetic_slip"))
+            for m in _SHARE_RATE_RE.finditer(_small_words_as_digits(sent)):
+                P, A, B = _readings(m.group("p"), spanish), _readings(m.group("a"), spanish), _readings(m.group("b"), spanish)
+                options = [_band(a / b * 100, _POINT_FLOOR) for a in A for b in B if b != 0]
+                if not P or not options or _YEAR_RE.match(m.group("b")):
+                    continue
+                stated = P[0]
+                ctx.add("lb_share", lambda cid, options=options, stated=stated, m=m, orig=orig: make_check(
+                    ctx.report, check_id=cid, kind="lb_share", inputs=[("stated", stated, f"the per cent stated ({m.group('p')} %)")],
+                    conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
+                    label=f"{m.group('p')} % against {m.group('a')} of every {m.group('b')} × 100 (every reading of the numerals)",
+                    description=(f"{orig[:220]} [a rate of a count of a count equals that fraction × 100, within half a point; one reading of the "
+                                 "numerals holding is enough]"),
+                    claim_ids=ctx.claims(orig, orig[:60]), defect="stem_arithmetic_slip"))
             for m in _SHARE_FRACTION_RE.finditer(sent):
                 P, A, B = _readings(m.group("p"), spanish), _readings(m.group("a"), spanish), _readings(m.group("b"), spanish)
                 options = [_band(a / b * 100, _POINT_FLOOR) for a in A for b in B if b != 0]
@@ -1400,6 +1527,10 @@ class _Fig:
     after: tuple = ()
     #: every year near the figure (the nearest is ``year``): "1.250 habitantes en 1960 y 212 vecinos en 2015" puts both years near 212
     near_years: tuple = ()
+    #: a supplied text's figure of the text's present (no year in its sentence, a word of the present in the sentence or, when the
+    #: paragraph states no year, in the paragraph: "Hoy viven en Valdeoca 268 personas. ... la escuela volvió a abrir sus puertas con
+    #: catorce alumnos"); push check of a9129c78: an undated cell had matched an answer's figure dated 1960
+    present: bool = False
 
 
 #: Small Spanish number words read before a plural noun ("tres hijos", "diez viviendas", "once puestos"): the ledger's reader reads them
@@ -1434,6 +1565,19 @@ def _figures(text: str, language: Optional[str], skip: list[tuple[int, int]], se
             ys = set(re.findall(r"(?<!\d)(?:1[89]\d{2}|20\d{2})(?!\d)", text[st:end]))
             sent_years[st] = next(iter(ys)) if len(ys) == 1 else None
         sent_starts = starts
+        # a sentence of the present: a word of the present in it, or in its paragraph when the paragraph states no year
+        paras = [0] + [m.end() for m in _PARA_RE.finditer(text[:MAX_REGION])]
+        para_now: dict[int, bool] = {}
+        for i, st in enumerate(paras):
+            end = paras[i + 1] if i + 1 < len(paras) else len(text)
+            seg = text[st:end]
+            para_now[st] = _NOW_RE.search(seg) is not None and not re.search(r"(?<!\d)(?:1[89]\d{2}|20\d{2})(?!\d)", seg)
+        sent_now: dict[int, bool] = {}
+        for i, st in enumerate(starts):
+            end = starts[i + 1] if i + 1 < len(starts) else len(text)
+            seg = text[st:end]
+            has_year = re.search(r"(?<!\d)(?:1[89]\d{2}|20\d{2})(?!\d)", seg) is not None
+            sent_now[st] = not has_year and (_NOW_RE.search(seg) is not None or para_now[paras[bisect_right(paras, st) - 1]])
     while k < len(toks) and len(out) < 400:
         a, b, num, word = toks[k]
         j = bisect_right(sk_starts, a) - 1
@@ -1454,16 +1598,28 @@ def _figures(text: str, language: Optional[str], skip: list[tuple[int, int]], se
               and toks[nxt][3].casefold().endswith("s") and len(toks[nxt][3]) >= 4 and word[0].islower() == word.islower()):
             vals = frozenset({Fraction(_ES_SMALL_COUNT[word.casefold()])})
             shown = word
+        noun = None
         if vals and nxt < len(toks) and toks[nxt][3] and toks[nxt][3].casefold() not in _STOP_NOUNS and len(toks[nxt][3]) >= 4:
             noun = toks[nxt][3].casefold()
-            years = [(abs(j - k), toks[j][2]) for j in range(max(0, k - 4), min(len(toks), nxt + 4)) if toks[j][2] and _YEAR_RE.match(toks[j][2])]
+        elif vals and out and k > 0 and toks[k - 1][3] and toks[k - 1][3].casefold() in ("a", "y", "e", "hasta") and 0 < a - out[-1].start <= 60 \
+                and not re.search(r"[.;:!?](?:\s|$)|\n", text[out[-1].start:a]):
+            # the noun elided after a coordinated figure ("de 1.250 habitantes en 1960 a 268 en 2015", "1.250 habitantes en 1960 y
+            # doscientos veintiuno en 2015"): the earlier figure's noun (check round 12 of c3f, where the second figure went unread)
+            noun = out[-1].noun
+        if noun is not None:
+            elided = not (nxt < len(toks) and toks[nxt][3] and toks[nxt][3].casefold() == noun)
+            # (an elided figure's year is the one after it: the year before it is the earlier figure's)
+            lo_y = k + 1 if elided else max(0, k - 4)
+            years = [(abs(j - k), toks[j][2]) for j in range(lo_y, min(len(toks), nxt + 4)) if toks[j][2] and _YEAR_RE.match(toks[j][2])]
             year = min(years)[1] if years else None
+            present = False
             if year is None and sent_years:
                 from bisect import bisect_right as _br
                 year = sent_years.get(sent_starts[_br(sent_starts, a) - 1])
+                present = year is None and sent_now.get(sent_starts[_br(sent_starts, a) - 1], False)
             ctx_words = tuple(t[3].casefold() for t in toks[max(0, k - 8):k] if t[3] and t[3].casefold() not in _CONTEXT_STOP)
             after = tuple(t[3].casefold() for t in toks[nxt + 1:nxt + 9] if t[3] and t[3].casefold() not in _CONTEXT_STOP)
-            out.append(_Fig(vals, shown, noun, year, ctx_words[-6:], a, after[:6], tuple(y for _d, y in years)))
+            out.append(_Fig(vals, shown, noun, year, ctx_words[-6:], a, after[:6], tuple(y for _d, y in years), present))
         k = nxt if vals else k + 1
     return out
 
@@ -1489,9 +1645,12 @@ def _supplied_figures(ctx: _Ctx) -> None:
     # text has "doce puestos")
     stated_values: set[Fraction] = set()
     stated_series: dict[Fraction, set] = {}
+    latest: dict[str, int] = {}
     for d in docs:
         if not es.is_spanish(d.text):
             continue
+        ys = [int(y) for y in re.findall(r"(?<!\d)(?:1[89]\d{2}|20\d{2})(?!\d)", d.text[:MAX_REGION])]
+        latest[d.document_id] = max(ys, default=0)
         figs = _figures(d.text, "es", [], sentence_years=True)
         bound_at = {f.start for f in figs}
         for f in figs:
@@ -1517,15 +1676,64 @@ def _supplied_figures(ctx: _Ctx) -> None:
                 continue
             skip = [(a, b) for a, b, _q in find_quotation_spans(line, min_single_words=1)]
             credited = es.SPANISH_CREDIT_RE.search(line) is not None or (ctx.task == "reading" and _NUMBERED_RE.match(line) is not None)
+            # the one year of the answer's line dates each figure of it with no year of its own nearby ("En 2015 el ayuntamiento creó
+            # un espacio con doce puestos"), unless the line speaks of the present or the year is relative ('desde 2009')
+            line_years = set(_YEAR_IN_RE.findall(line))
+            line_year = next(iter(line_years)) if len(line_years) == 1 and not _NOW_RE.search(line) and not _RELATIVE_YEAR_RE.search(line) \
+                and not re.search(r"\b(?:desde|hasta|since|until|till|by)\s+(?:1[89]\d{2}|20\d{2})\b", line, re.IGNORECASE) else None
+            framed = set() if credited else _share_frame_values(line)
             for f in _figures(line, "es", skip):
+                if f.values & framed:
+                    continue  # (c3e left: the total or part of the answer's own share or rate, "El 25 % de los 80 alumnos", is no figure of the text)
+                if any(w in _NOW_WORDS for w in f.after[:2] + f.context[-2:]):
+                    f = replace(f, year=None, near_years=())  # (a figure the answer dates 'hoy' is the present's: "a 268 personas hoy")
+                elif f.year is None and line_year is not None:
+                    f = replace(f, year=line_year, near_years=(line_year,))
                 cands = index.get(_stem(f.noun), [])
+                if f.year and _stem(f.noun) in _POPULATION_STEMS and not any(c.year == f.year for c, _d in cands):
+                    # a population counted with another of its nouns for the year the answer gives ("... a 268 en 2015" after
+                    # "1.250 habitantes", the text's "212 vecinos" of 2015): the text's figure of that year (check round 12 of c3f)
+                    cands = cands + [x for st in sorted(_POPULATION_STEMS - {_stem(f.noun)}) for x in index.get(st, []) if x[0].year == f.year]
                 if not cands or len(cands) > 64:
                     continue
                 if _derived_figure(line, f, cands):
                     continue  # a difference, a change or a bound worked out from the text's figures: no figure taken from it
+                if f.year:
+                    # push check of a9129c78 ('6. En 1960 la escuela tenía catorce alumnos.': the text gives 'más de cien alumnos' for
+                    # 1960 and 'catorce alumnos' for the present): a figure the answer dates matches only a cell of that date
+                    match = [(c, d) for c, d in cands if f.values & c.values]
+                    near = [(c, d) for c, d in match if c.year and c.year in f.near_years]
+                    if near:
+                        _add_figure(ctx, line, f, near[0][0], near[0][1], credited)  # the text's figure as the text dates it
+                        continue
+                    same = [(c, d) for c, d in cands if c.year == f.year]
+                    if same:
+                        distinct = {frozenset(c.values) for c, _d in same}
+                        if len(distinct) > 1:
+                            mine = {_stem(w) for w in f.context + f.after}
+                            scored = sorted(((len(mine & {_stem(w) for w in c.context + c.after}), c, d) for c, d in same), key=lambda x: -x[0])
+                            if scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+                                continue
+                            same = [(scored[0][1], scored[0][2])]
+                        _add_figure(ctx, line, f, same[0][0], same[0][1], credited)  # against the text's figure of that year
+                        continue
+                    if match:
+                        if all(c.year for c, _d in match):
+                            _add_year(ctx, line, f, match[0][0], match[0][1], credited)  # the text's figure, given for another year
+                        elif any(c.present for c, _d in match) and int(f.year) <= latest.get(match[0][1], 0):
+                            present = next((c, d) for c, d in match if c.present)
+                            _add_present(ctx, line, f, present[0], present[1], credited, latest[present[1]])
+                        continue  # (an undated cell, or a present one after the text's last year: no reading of the date)
                 if any(f.values & c.values for c, _d in cands):
                     match = [(c, d) for c, d in cands if f.values & c.values]
                     pick = match[0]
+                    pres = [(c, d) for c, d in cands if c.present]
+                    if f.year is None and not line_years and _NOW_RE.search(line) and pres and not any(c.present for c, _d in match) \
+                            and all(c.year for c, _d in match):
+                        # 'Hoy, con 268 vecinos, la escuela tiene cien alumnos.': the line speaks of the present, so the figure is the
+                        # text's present one ('catorce alumnos'), never the dated 'cien alumnos' of 1960 (check round 12 of c3f)
+                        _add_figure(ctx, line, f, pres[0][0], pres[0][1], credited)
+                        continue
                     if f.year and all(c.year and c.year not in f.near_years for c, _d in match):
                         _add_year(ctx, line, f, pick[0], pick[1], credited)  # the text's figure, given for another year
                         continue
@@ -1560,6 +1768,9 @@ _CHANGE_VERB_RE = re.compile(r"\b(?:perdi[oó]|perdieron|gan[oó]|ganaron|creci[
                              r"lost|gained|grew|fell|rose|dropped|increased|decreased|declined)\b", re.IGNORECASE)
 _COMPARATIVE_AFTER_RE = re.compile(r"^\s*+(?:[^\W\d_]{1,20}\s+){0,2}?(?:m[aá]s|menos|more|fewer|less)\s+(?:que|de\s+los\s+que|than)\b",
                                    re.IGNORECASE)
+#: The nouns that count a place's people, one with another ('habitantes', 'vecinos', 'personas').
+_POPULATION_STEMS = frozenset(_stem(w) for w in ("habitantes", "vecinos", "personas", "residentes", "inhabitants", "residents", "people"))
+_NOW_WORDS = frozenset(("hoy", "ahora", "actualmente", "today", "now", "currently"))
 _NOW_RE = re.compile(r"\b(?:hoy|ahora|actualmente|en\s+la\s+actualidad|today|now|currently)\b", re.IGNORECASE)
 
 
@@ -1625,6 +1836,14 @@ _EN_EVENT_STOP = frozenset("text article says said that this with from have been
 _ES_YEAR_WORDS_RE = re.compile(r"\b(?:dos\s+mil|mil\s+(?:novecientos|ochocientos))\b", re.IGNORECASE)
 
 
+#: A length of time in a clause, in digits or in words ('llevaba seis años cerrada', 'six years later'): the clause's year is the point
+#: the length is measured from or to, never the event's own year (c3e left, sp-t14: 'En 2015 la escuela llevaba seis años cerrada.' was
+#: compared with the year the school closed).
+_DURATION_IN_CLAUSE_RE = re.compile(r"\b(?:" + _NUMBER_WORD + r"|\d{1,3}|medio|media|un|una|unos|unas|varios|varias|muchos|muchas|pocos|pocas|a|an|"
+                                    r"several|many|few)\s+(?:años|año|meses|mes|semanas|días|décadas|siglos|years?|months?|weeks?|days?|decades?|centuries)\b",
+                                    re.IGNORECASE)
+
+
 def _event_years(ctx: _Ctx) -> None:
     """Attack round 3 (sp-t14): the year of an event the answer credits to the text ("Según el texto, la fibra óptica llegó en 2019")
     against the year the text gives it ("En 2021 llegó por fin la fibra óptica"): the text's clause holding exactly one year and sharing
@@ -1661,7 +1880,8 @@ def _event_years(ctx: _Ctx) -> None:
                 continue
             for clause in _CLAUSE_SPLIT_RE.split(line):
                 ys = _YEAR_IN_RE.findall(clause)
-                if len(ys) != 1 or re.search(r"\d", _YEAR_IN_RE.sub("", clause)) or _RELATIVE_YEAR_RE.search(clause):
+                if (len(ys) != 1 or re.search(r"\d", _YEAR_IN_RE.sub("", clause)) or _RELATIVE_YEAR_RE.search(clause)
+                        or _DURATION_IN_CLAUSE_RE.search(clause)):
                     continue  # a clause with a figure besides its year is the figure readers'; "seis años después de 2015": the year is the
                     # reference point of a relative date, never the event's (attack round 8)
                 mine = _content_stems(clause)
@@ -1689,6 +1909,20 @@ def _add_year(ctx: _Ctx, line: str, f: _Fig, cell: _Fig, doc: str, credited: boo
         description=(f"a dated figure taken from a supplied text: {f.shown} {f.noun} ({f.year}) in '{line[:200]}' against {doc}: {cell.shown} {cell.noun} "
                      f"({cell.year}) ({'credited to the text' if credited else 'not credited'}) [rule: a figure taken from a supplied text keeps the "
                      "text's year]"),
+        claim_ids=ctx.claims(line, f.shown), severity="error" if credited else "warning", defect="source_mismatch"))
+
+
+def _add_present(ctx: _Ctx, line: str, f: _Fig, cell: _Fig, doc: str, credited: bool, latest: int) -> None:
+    """Push check of a9129c78: a figure the supplied text gives for its present ('Hoy ...'), dated by the answer with a year no later than
+    the last year the text states ('En 1960 la escuela tenía catorce alumnos'): the text's present comes after that year. Built only for
+    such a year, so a year after it (which the text does not fix) is never shown as checked."""
+    ctx.add("supplied_figure", lambda cid: make_check(
+        ctx.report, check_id=cid, kind="supplied_figure", inputs=[("latest", latest, f"the last year the supplied text {doc} states")],
+        conclusion={"op": "le", "left": _var("latest"), "right": _real(int(f.year) - 1)},
+        label=f"the year {f.year} the answer gives for {f.shown} {f.noun} is after {latest}, the last year {doc} states before its present",
+        description=(f"a dated figure taken from a supplied text: {f.shown} {f.noun} ({f.year}) in '{line[:200]}' against {doc}: {cell.shown} {cell.noun} "
+                     f"(the text's present) ({'credited to the text' if credited else 'not credited'}) [rule: a figure the text gives for its present "
+                     "is dated after every year the text states]"),
         claim_ids=ctx.claims(line, f.shown), severity="error" if credited else "warning", defect="source_mismatch"))
 
 
@@ -2075,8 +2309,7 @@ def _category_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
     """Attack round 8 (sp-t16): a count of the answer's own corrections by category ("agreement (three)", "two for the subjunctive", "one
     ser/estar error"), and a total stated with its parts ("six corrections above: four for agreement, two ... and one ..."), against the
     correction lines the answer lists, each categorised by the words of its explanation."""
-    lines = [ctx.text[m.start():ctx.text.find("\n", m.start()) if ctx.text.find("\n", m.start()) >= 0 else len(ctx.text)]
-             for m in _ARROW_LINE_RE.finditer(ctx.text[:MAX_TEXT])][:200]
+    lines = _correction_lines(ctx.text[:MAX_TEXT])[:200]  # (every correction form the channel's own-text reader reads; c3e left)
     if not lines:
         return
     counts: dict[str, int] = {}
@@ -2472,7 +2705,11 @@ def _cross_counts(ctx: _Ctx) -> None:
                     if not entries or any(ev == v for ev, _c in entries):
                         continue  # the text gives the answer's count with this noun: nothing misread
                     if mine is None:
-                        mine = frozenset(_cc_concepts(line)) - {key}
+                        # the concepts of the count's own clause (check round 12 of c3f: "You returned to England two weeks ago, after an
+                        # exchange of three weeks" had read 'two weeks' with the exchange of the other clause)
+                        lo = max(line.rfind(",", 0, m.start()), line.rfind(";", 0, m.start()), -1) + 1
+                        hi_c = [x for x in (line.find(",", m.end()), line.find(";", m.end())) if x >= 0]
+                        mine = frozenset(_cc_concepts(line[lo:min(hi_c) if hi_c else len(line)])) - {key}
                     held = {ev for ev, c in entries if c & mine}
                     if len(held) != 1:
                         continue

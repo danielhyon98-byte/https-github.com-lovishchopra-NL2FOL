@@ -191,21 +191,29 @@ def test_a_closed_miss_is_withheld_on_both_paths(subject, sentence):
 
 
 # ------------------------------------------------------------------------------------------------ 4. the digest covers rule 0's code
+# (rewritten to the stricter rule of c3f, the push check of a9129c78: the digest bound a hand-made list of two modules outside the
+# package, so rule 0's call site and the marking context were outside the policy identity. The digest now binds the import closure
+# of the package and of the code that applies the rule, computed by AST; each test below asserts at least what it asserted before.)
 def test_the_digest_covers_the_modules_outside_the_package_that_rule_0_executes():
-    assert sc.RULES_EXTERNAL_CODE == ("adapters/markdown.py", "lexis.py")
+    external = set(sc.rules_external_code())
+    assert {"adapters/markdown.py", "lexis.py", "translate/eligibility.py", "adapters/self_report.py"} <= external
     root = Path(sc.__file__).resolve().parent.parent
-    assert all((root / name).is_file() for name in sc.RULES_EXTERNAL_CODE)
+    assert all((root / name).is_file() for name in external)
 
 
-@pytest.mark.parametrize("name", ["adapters/markdown.py", "lexis.py"])
-def test_a_code_only_change_outside_the_package_changes_the_digest_and_the_policy_identity(tmp_path, monkeypatch, name):
-    from epinoic_logic.engine import identity as identity_mod
+def _copy_of_the_translator(tmp_path: Path, monkeypatch) -> Path:
     root = Path(sc.__file__).resolve().parent.parent
     copy = tmp_path / "epinoic_logic"
-    (copy / "adapters").mkdir(parents=True)
-    for x in sc.RULES_EXTERNAL_CODE:
-        shutil.copyfile(root / x, copy / x)
+    shutil.copytree(root, copy, ignore=shutil.ignore_patterns("__pycache__"))
     monkeypatch.setattr(sc, "_external_root", lambda: copy)
+    monkeypatch.setattr(sc, "_HERE", copy / "selfcert")
+    return copy
+
+
+@pytest.mark.parametrize("name", ["adapters/markdown.py", "lexis.py", "translate/eligibility.py", "adapters/self_report.py"])
+def test_a_code_only_change_outside_the_package_changes_the_digest_and_the_policy_identity(tmp_path, monkeypatch, name):
+    from epinoic_logic.engine import identity as identity_mod
+    copy = _copy_of_the_translator(tmp_path, monkeypatch)
     before_digest = sc.rules_digest()
     before_policy = identity_mod.policy_id.__wrapped__()
     path = copy / name
@@ -222,4 +230,4 @@ def test_every_module_outside_the_package_the_reader_imports_is_bound():
             s = line.strip()
             if s.startswith("from .."):
                 imported.add(s.split()[1][2:].replace(".", "/") + ".py")
-    assert imported <= set(sc.RULES_EXTERNAL_CODE), imported
+    assert imported <= set(sc.rules_external_code()), imported

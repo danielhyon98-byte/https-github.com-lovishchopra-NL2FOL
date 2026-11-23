@@ -79,7 +79,9 @@ CORRECT = [
     ("c2/ge-t15", "The amount of energy from coal fell by about 22% between 2005 and 2025.", "geography-table-change", True),
     ("c2/ge-t15", "The amount of energy from natural gas rose by about 88% between 2005 and 2025.", "geography-table-change", True),
     ("c2/ge-t15", "Natural gas supply rose by about 88% between 2005 and 2025, from 123 PJ to 231 PJ.", "geography-table-change", True),
-    ("c2/ge-t15", "The share of coal fell by about 39% between 2005 and 2025.", "geography-table-change", True),
+    # (rewritten to the stricter rule of the push check of a9129c78: 'fell by about 39%' of a share fixes neither the relative change
+    # (39%) nor the change in points (18), so the figure that fits one reading is never shown as checked; it was ENTAILED here)
+    ("c2/ge-t15", "The share of coal fell by about 39% between 2005 and 2025.", "geography-table-change", False),
     ("c2/ge-t15", "Total supply showed a relative rise of about 28%, faster than population.", "geography-table-derived", True),
     ("c2/ge-t15", "Compared with coal, total supply showed a relative rise of about 28%.", "geography-table-derived", True),
     ("c2/ge-t15", "Imported energy, mostly oil and gas, was about 567 PJ in 2025.", "geography-table-derived", True),
