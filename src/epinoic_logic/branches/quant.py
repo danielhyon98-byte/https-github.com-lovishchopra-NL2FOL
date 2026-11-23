@@ -195,7 +195,13 @@ MAX_NUMBER_WORDS = 5
 #: number words from each of its words ('one hundred and ' * k, 'twenty-three ' * k), n² to n³ steps, while 'and' between words is
 #: also the 'and' of a total ('twenty and thirty, making fifty'); a sentence holding a longer run is reported undecided by the readers
 #: (:data:`_LONG_NUMBER_RUN_RE`), never read as a figure of its first words (integration gate 1, parser-safety-2 and -7).
-_WNUM = rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred)){{0,{MAX_NUMBER_WORDS - 1}}}(?![a-z])"
+#: A figure followed by 'and a half' ('four and a half hours', '4 and a half hours') states another number than its digits or words: it is
+#: never read as them (c3e left, ge-p9c: 'from twelve hours to four and a half hours' was read as 12 to 4, so 'fell by eight hours' was
+#: ENTAILED and the true 'seven and a half hours' a counterexample). Nor is the first part of a longer run of number words ('twenty' of
+#: 'twenty-four and a half').
+_AND_A_PART = r"(?![\s-]+and[\s-]+(?:a|one)[\s-]+(?:half|quarter|third)\b)"
+_WNUM = (rf"(?:{_WNUM_TOKEN})(?:(?:[\s-]+and)?[\s-]+(?:{_WNUM_TOKEN}|hundred)){{0,{MAX_NUMBER_WORDS - 1}}}(?![a-z])"
+         rf"(?!(?:[\s-]+(?:and[\s-]+)?(?:{_WNUM_TOKEN}|hundred)){{0,{MAX_NUMBER_WORDS}}}[\s-]+and[\s-]+(?:a|one)[\s-]+(?:half|quarter|third)\b)")
 #: A run of more number words than a figure in words takes (:data:`MAX_NUMBER_WORDS`), joined as the words of one figure are: such a
 #: sentence states no number in those words, and the readers report it undecided instead of reading its first words.
 #: Each start reads at most that many words, so the search is linear.
@@ -217,12 +223,12 @@ _CUR = r"(?:US\$|U\.S\.\s?\$|[A-Z]{1,3}\$|\$|£|€|¥)"  # a country's dollar (
 #: The longest numeral read as a figure (far below Python's 4,300-digit integer-string limit): a longer run of digits is refused per
 #: statement (``CORE-QNT-001``, 'too large to check'), never converted, so one oversized figure cannot discard the report's other checks.
 MAX_FIGURE_DIGITS = 1000
-_NUM = rf"({_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"  # never split a thousands group or a decimal
-_NUMX = rf"(?:{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
+_NUM = rf"({_DIGITS}|{_WNUM})(?!\d|,\d|\.\d){_AND_A_PART}"  # never split a thousands group or a decimal
+_NUMX = rf"(?:{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d){_AND_A_PART}"
 #: A figure of a pair, a list, a continuation, a dated figure or a difference: digits, words, or scientific notation read whole
 #: ('from 500 tonnes to 2.5e3 tonnes', 'to 2.5 × 10³ tonnes', 'from 5 to 1e9'; the STEM number reader gives its exact value).
-_FIG_NUMX = rf"(?:(?<!\d)(?<!\d[.,]){_NOT_EXPONENT}(?:{si_digits_pattern()})|{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d)"
-_AMOUNT = rf"([-+−]?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d)"  # a derived figure may carry a sign (ASCII or Unicode minus)
+_FIG_NUMX = rf"(?:(?<!\d)(?<!\d[.,]){_NOT_EXPONENT}(?:{si_digits_pattern()})|{_DIGITS}|{_WNUM})(?!\d|,\d|\.\d){_AND_A_PART}"
+_AMOUNT = rf"([-+−]?(?:{_DIGITS})|{_WNUM})(?!\d|,\d|\.\d){_AND_A_PART}"  # a derived figure may carry a sign (ASCII or Unicode minus)
 _PCT_UNIT = r"(?:per cent|percent(?!age)|%)"  # 'percentage points' is a difference, not a per-cent unit
 _RATE_UNIT = r"per (?:thousand|1,?000|10,?000|100,?000|million|head|capita)"
 _SCALE_UNIT = r"quadrillion|trillion|billion|million|thousand|trn|tn|bn|m|k"

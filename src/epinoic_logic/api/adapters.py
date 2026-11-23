@@ -57,6 +57,12 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     # the one reader's decision that a quoted span is the writer's own (a model, a frame, an own correction and the wording it
     # replaces), with the supplied texts in view (c3d: the auditor's OVS-FID-004 reads what the parser and the channel read; API 1.3)
     'own_model_words': ('epinoic_logic.adapters.sources', 'own_model_words'),
+    # the halves of the answer's own corrections read by role against the supplied texts: the replaced half of a correction that
+    # restores a text's exact wording is free, a corrected half that presents a text's wording altered is a quotation (c3f: the
+    # auditor's OVS-FID-004 reads what the English parser and the channel read; API 1.4)
+    'correction_reading': ('epinoic_logic.adapters.own_text', 'correction_reading'),
+    'CORRECTION_FREE': ('epinoic_logic.adapters.own_text', 'CORRECTION_FREE'),
+    'CORRECTION_QUOTATION': ('epinoic_logic.adapters.own_text', 'CORRECTION_QUOTATION'),
     'segment': ('epinoic_logic.adapters.english_specialist.parser', 'segment'),
     'self_cert_vocabulary': ('epinoic_logic.adapters.markdown', 'self_cert_vocabulary'),
     'split_sentences': ('epinoic_logic.adapters.english_specialist.parser', 'split_sentences'),

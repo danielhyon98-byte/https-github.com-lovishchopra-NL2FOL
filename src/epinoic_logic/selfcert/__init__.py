@@ -15,7 +15,7 @@ that opens or closes no quotation is read as the stray mark it is, and a misspel
 check frame about the answer, as a check compound ("double-chekced") or as the answer's own status sentence (:mod:`.misspelt`,
 rule N9 (b); c3d, c3e). Own verdicts are also read by their frame (:mod:`.ownverdict`, c3e): a check, an approval or an agreement
 of THIS answer by any party, outside ones included; a fault nobody would find; a quality an assessor would see; a pipeline's success
-code. Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
+code. Every clause of every sentence is read, however long the sentence, and a question frees only the words that ask it (c3f). Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
 script with no vocabulary) is never delivered silently: :meth:`Reading.refuses` names it (receipt code CORE-SELF-002).
 
 What is NOT a self-certification and is never gated: a negated, questioned or uncertain assessment; an instruction ("verify by
@@ -30,7 +30,9 @@ Public functions (exported through ``epinoic_logic.api.adapters``): :func:`read`
 """
 from __future__ import annotations
 
+import ast
 import functools
+import gc
 import hashlib
 import pathlib
 import re
@@ -62,51 +64,202 @@ Spot = tuple
 RULES_DATA = ("lexicon.json", "fold_table.json")
 
 
-#: The modules OUTSIDE this package that the rule's reading executes, by path relative to the translator package: the quotation reader
-#: (``adapters/markdown.find_quotation_spans``, called from the reader, the meaning layer and the pieces; ``corrections_apply``, called
-#: from :func:`context_for`) and the word lists it reads with (``lexis``). A code-only change to any of them changes how rule 0 reads a
-#: text, so it changes the digest too (check round 11 of c3e: ``find_quotation_spans`` returning nothing left the policy identity
-#: unchanged). A new import of the reader from outside this package is added here (``tests/selfcert/test_c3e_check.py`` pins it).
-RULES_EXTERNAL_CODE = ("adapters/markdown.py", "lexis.py")
+#: The code that APPLIES rule 0 outside this package: the rule's call site (``translate/eligibility._is_self_report``) and the reading
+#: of a report's self-reports and of the marking context (``adapters/self_report``). With the modules of this package they are the
+#: roots of the code the digest binds; every module they import inside the translator package, at any depth and wherever the import
+#: stands (a function's body too), is bound with them (:func:`rules_closure`; c3f, the push check of a9129c78: rule 0's call site and
+#: the marking context were outside the digest, so a build with rule 0 disabled kept the policy identity).
+RULE_APPLICATION_CODE = ("translate/eligibility.py", "adapters/self_report.py")
+#: The translator package's name (an absolute import of it is resolved like a relative one).
+_PACKAGE = "epinoic_logic"
+#: A line that may hold an import statement (looked for before the statement is parsed).
+_IMPORT_LINE_RE = re.compile(rb"^[ \t]*(?:from[ \t]+[\w.]+[ \t]+import\b|import[ \t]+[\w.])")
 
 
 def rules_code() -> tuple[str, ...]:
-    """The modules of the rule's code: every ``.py`` file under this package's directory (subdirectories included, compiled caches
-    excluded), by path relative to it, in sorted order (the modules outside it are :data:`RULES_EXTERNAL_CODE`)."""
+    """The modules of the rule's code in this package: every ``.py`` file under this package's directory (subdirectories included,
+    compiled caches excluded), by path relative to it, in sorted order (the modules outside it are :func:`rules_external_code`)."""
     return tuple(sorted(p.relative_to(_HERE).as_posix() for p in _HERE.rglob("*.py") if "__pycache__" not in p.parts))
 
 
 def _external_root() -> pathlib.Path:
-    """The translator package's directory, where :data:`RULES_EXTERNAL_CODE` lives."""
+    """The translator package's directory, where :data:`RULE_APPLICATION_CODE` and the modules the rule imports live."""
     return pathlib.Path(__file__).resolve().parent.parent
 
 
+def _module_file(rel: str) -> pathlib.Path:
+    """The file of the module at ``rel`` (a path relative to the translator package): this package's own files are read where
+    :data:`_HERE` is, the others under :func:`_external_root`."""
+    if rel.startswith("selfcert/"):
+        return _HERE / rel[len("selfcert/"):]
+    return _external_root() / rel
+
+
+def _resolve(parts: list[str]) -> Optional[str]:
+    """The module file (relative path) the dotted ``parts`` inside the translator package name, or None (a name, not a module)."""
+    if not parts:
+        return "__init__.py"
+    rel = "/".join(parts)
+    for cand in (rel + ".py", rel + "/__init__.py"):
+        if _module_file(cand).is_file():
+            return cand
+    return None
+
+
+def _imports_of(rel: str, source: bytes) -> list[str]:
+    """The modules inside the translator package that the module ``rel`` imports, read from its import statements by AST (a
+    relative import, an absolute one of the package, a name imported from a package that is a module of its own), in source
+    order. A statement is parsed alone, its continuation lines (a bracketed list of names) with it."""
+    pkg = rel.split("/")[:-1]
+    lines = source.splitlines()
+    out: list[str] = []
+    k = 0
+    while k < len(lines):
+        line = lines[k]
+        if not _IMPORT_LINE_RE.match(line):
+            k += 1
+            continue
+        stmt = [line.strip()]
+        if b"(" in line and b")" not in line:
+            while k + 1 < len(lines) and b")" not in stmt[-1]:
+                k += 1
+                stmt.append(lines[k].strip())
+        while stmt[-1].endswith(b"\\") and k + 1 < len(lines):
+            k += 1
+            stmt.append(lines[k].strip())
+        k += 1
+        text = b" ".join(x.rstrip(b"\\") for x in stmt)
+        try:
+            tree = ast.parse(text.split(b"#", 1)[0] if b"(" not in text else text)
+        except SyntaxError:
+            continue  # (a line of prose in a docstring that reads like an import)
+        for node in ast.walk(tree):
+            targets: list[list[str]] = []
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    if node.level - 1 > len(pkg):
+                        continue
+                    base = pkg[:len(pkg) - (node.level - 1)]
+                elif (node.module or "").split(".")[0] == _PACKAGE:
+                    base = []
+                else:
+                    continue
+                mod = [x for x in (node.module or "").split(".") if x]
+                if not node.level:
+                    mod = mod[1:]
+                targets.append(base + mod)
+                targets += [base + mod + [a.name] for a in node.names if a.name != "*"]
+            elif isinstance(node, ast.Import):
+                targets += [a.name.split(".")[1:] for a in node.names if a.name.split(".")[0] == _PACKAGE]
+            for t in targets:
+                got = _resolve(t)
+                if got is not None:
+                    out.append(got)
+    return out
+
+
+#: The last closure and digest computed, with the stored state they were computed from (check round 12 of c3f: every identity
+#: computation parsed the imports of about 150 sources again, about 1 s on a first crossing with the package's caches emptied).
+_CLOSURE_MEMO: dict = {}
+
+
+def _stored_state(names, dirs) -> tuple:
+    """(path, modification time, size) of each module ``names`` and each directory ``dirs`` holds (a module added to a package
+    changes its directory), None for one that is gone: what a closure and a digest are a function of."""
+    out = []
+    for n in names:
+        try:
+            st = _module_file(n).stat()
+            out.append((n, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((n, None, None))
+    for d in dirs:
+        try:
+            out.append((str(d), d.stat().st_mtime_ns, None))
+        except OSError:
+            out.append((str(d), None, None))
+    return tuple(out)
+
+
+def rules_closure() -> tuple[str, ...]:
+    """Every module of the code rule 0 executes, by path relative to the translator package, in sorted order: this package's
+    modules and :data:`RULE_APPLICATION_CODE`, every module they import inside the translator package at any depth, and the
+    ``__init__.py`` of every package on the way (it runs when a module of its package is imported). Computed from the stored
+    sources by AST (never a list kept by hand), so a module the rule comes to import is bound as soon as it is imported; computed
+    again whenever any of those sources, or a directory that holds one, has changed since the last computation."""
+    memo = _CLOSURE_MEMO.get("closure")
+    if memo is not None and _stored_state(memo[0], memo[1]) == memo[2]:
+        return memo[0]
+    closure = _rules_closure()
+    dirs = sorted({_module_file(n).parent for n in closure} | {_HERE})
+    _CLOSURE_MEMO["closure"] = (closure, dirs, _stored_state(closure, dirs))
+    return closure
+
+
+def _rules_closure() -> tuple[str, ...]:
+    seen: set[str] = set()
+    todo = ["selfcert/" + x for x in rules_code()] + list(RULE_APPLICATION_CODE)
+    while todo:
+        rel = todo.pop()
+        if rel in seen:
+            continue
+        path = _module_file(rel)
+        if not path.is_file():
+            continue
+        seen.add(rel)
+        parts = rel.split("/")
+        todo += ["/".join(parts[:k] + ["__init__.py"]) for k in range(len(parts)) if "/".join(parts[:k] + ["__init__.py"]) != rel]
+        todo += [m for m in _imports_of(rel, path.read_bytes()) if m not in seen]
+    return tuple(sorted(seen))
+
+
+def rules_external_code() -> tuple[str, ...]:
+    """The modules of :func:`rules_closure` outside this package."""
+    return tuple(x for x in rules_closure() if not x.startswith("selfcert/"))
+
+
 def rules_digest() -> str:
-    """SHA-256 over :data:`SELFCERT_RULES`, the data files (:data:`RULES_DATA`) and the code of every module of the reader
-    (:func:`rules_code`) and of the modules outside it the rule executes (:data:`RULES_EXTERNAL_CODE`), each by name and content as
-    stored, in a fixed order: a change to the rule's data OR its code changes the digest, so the policy identity of eligibility rule 0
-    (``engine.identity.policy_manifest``) changes with it (c3e: a code-only change to rule 0 left the identity unchanged before)."""
+    """SHA-256 over :data:`SELFCERT_RULES`, the data files (:data:`RULES_DATA`) and the code of every module rule 0 executes
+    (:func:`rules_closure`: this package, the code that applies the rule and their import closure inside the translator package),
+    each by name and content as stored, in a fixed order: a change to the rule's data OR its code, wherever that code lives, changes
+    the digest, so the policy identity of eligibility rule 0 (``engine.identity.policy_manifest``) changes with it (c3e: a
+    code-only change to the reader left the identity unchanged; c3f: so did one to rule 0's call site or the marking context)."""
+    closure = rules_closure()
+    data = tuple(_stored_state(["selfcert/" + n for n in RULES_DATA], ()))
+    memo = _CLOSURE_MEMO.get("digest")
+    if memo is not None and memo[0] == closure and memo[1] == data and memo[2] == _CLOSURE_MEMO["closure"][2]:
+        return memo[3]
     h = hashlib.sha256()
     h.update(SELFCERT_RULES.encode())
     for name in RULES_DATA:
         h.update(b"\0" + name.encode() + b"\0")
         h.update((_HERE / name).read_bytes())
-    for name in rules_code():
+    for name in closure:
         h.update(b"\0code\0" + name.encode() + b"\0")
-        h.update((_HERE / name).read_bytes())
-    root = _external_root()
-    for name in RULES_EXTERNAL_CODE:
-        h.update(b"\0external\0" + name.encode() + b"\0")
-        h.update((root / name).read_bytes())
-    return h.hexdigest()
+        h.update(_module_file(name).read_bytes())
+    digest = h.hexdigest()
+    _CLOSURE_MEMO["digest"] = (closure, data, _CLOSURE_MEMO["closure"][2], digest)
+    return digest
+
+
+#: The length from which a reading runs with the cyclic garbage collector paused (check round 12 of c3f, timing: a reading of a long
+#: text allocates many short-lived objects, and the collector's full passes over them grew faster than the text, about a third of a
+#: 32 KiB reading). The reading itself is unchanged; the collector resumes when the reading ends, whatever its outcome.
+_GC_PAUSE_FROM = 4096
 
 
 def _read(text: str, ctx: Context) -> Reading:
+    paused = len(text) >= _GC_PAUSE_FROM and gc.isenabled()
+    if paused:
+        gc.disable()
     try:
         hits, unread = read_text(text, ctx)
         return Reading(tuple(Hit(*h) for h in hits), tuple(Unread(*u) for u in unread))
     except Exception:  # noqa: BLE001 - fail closed: a reader failure refuses
         return Reading((Hit("reader-failed", "CHECK", "whole", 0, len(text), "the text"),), ())
+    finally:
+        if paused:
+            gc.enable()
 
 
 @functools.lru_cache(maxsize=4096)

@@ -989,6 +989,31 @@ def _dedupe_ids(ids) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+#: How many words :func:`_word_grams` reads in a row.
+_GRAM = 4
+
+
+def _word_grams(text: str, *, first_only: bool = False) -> set:
+    """The runs of one to :data:`_GRAM` words of ``text`` (case and diacritics folded), or only its first run of :data:`_GRAM` words
+    (all of them in a shorter text): a prefilter for an exact search of a quotation in a long text (``TranslatorChannel._lone_label_quotations``). A text holding
+    the quotation word for word holds its first run, so the prefilter never drops a match; one pass over the text."""
+    import unicodedata
+    words = ["".join(ch for ch in unicodedata.normalize("NFKD", w.casefold()) if not unicodedata.combining(ch))
+             for w in re.findall(r"\w+", text or "")]
+    if not words:
+        return set()
+    if first_only:
+        return {tuple(words[:_GRAM])}
+    return {tuple(words[i:i + k]) for i in range(len(words)) for k in range(1, _GRAM + 1)}
+
+
+#: A markdown blockquote line ('> ...', at most three spaces before the mark), its text in group 1 (``Hub._blockquote_quotations``).
+_BLOCKQUOTE_LINE_RE = re.compile(r"[ \t]{0,3}>[ \t]?([^\n]*)")
+#: How many blockquotes, and how long each, the blockquote reader reads.
+_BLOCKQUOTE_MAX = 64
+_BLOCKQUOTE_MAX_CHARS = 2000
+
+
 def _located(excerpt: str, text: str, document_id: Optional[str] = None) -> bool:
     """The quoted words occur in ``text`` in some form (exact, normalized, elided, a form difference or a long elision).
     ``document_id`` names a supplied text for the grounding cache; the answer never depends on it."""
@@ -2563,6 +2588,9 @@ class TranslatorChannel:
         findings += source_findings
         uncredited = self._guarded("uncredited quotations (INT-REQ-003)", findings, lambda: self._uncredited_quotations(report, supplied, request_text=req.user_input), [], **rid)
         findings += uncredited
+        findings += self._guarded("blockquoted quotations (INT-REQ-003)", findings, lambda: self._blockquote_quotations(report, supplied, request_text=req.user_input), [], **rid)
+        findings += self._guarded("lone correction labels (INT-REQ-003)", findings,
+                                  lambda: self._lone_label_quotations(report, supplied, request_text=req.user_input, task_type=self._task_type_for(report.agent_id)), [], **rid)
         findings += self._guarded("peer figures (INT-REQ-014)", findings, lambda: self._peer_figures(report, supplied), [], **rid)
         findings += self._guarded("relayed check results (INT-REQ-014)", findings, lambda: self._relayed_check_results(report, supplied), [], **rid)
         findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(report, supplied), [], **rid)
@@ -3274,6 +3302,137 @@ class TranslatorChannel:
                                             message=f"quotation '{ex[:120]}' of claim {c.claim_id}, which the report credits to no text, was not found in the supplied texts {doc_ids}"
                                                     + (" nor in the request" if request_text else "") + f": {why}",
                                             claim_ids=[c.claim_id], report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=doc_ids))
+        return out
+
+    @staticmethod
+    def _blockquote_quotations(report: SpecialistReport, supplied: list[SuppliedText], *, request_text: Optional[str] = None) -> list[IntegrityFinding]:
+        """INT-REQ-003 (error) for a markdown blockquote ('> ...' lines) that alters the request or a supplied text: a blockquote presents
+        its words as quoted material, with no quotation marks, so no quotation reader saw it (push check of 2be42c48, reason 3, and the
+        c3e check round 11 on c2/sp-t15: '> Escribe un artículo de opinión para la revista digital de tu colegio', where the task says
+        'instituto', drew nothing alone or with the altered wording in the answer's own voice). A block of four words or more that no
+        supplied text nor the request holds, while one of them holds all its words but one or two, half of them in a run, is an altered
+        quotation of that text, whatever the answer writes elsewhere; one quoted exactly, one holding quotation marks (the quotation
+        readers read those), and one of the writer's own words (no text holds most of it) draw nothing. Consecutive '>' lines are one
+        block; at most :data:`_BLOCKQUOTE_MAX` blocks of at most :data:`_BLOCKQUOTE_MAX_CHARS` characters are read (linear)."""
+        from ..adapters.markdown import find_quotation_spans
+        from ..adapters.sources import holds_half_in_a_run, is_peer_text, nearest_text
+        text = report.original_response or ""
+        if ">" not in text or (not supplied and not request_text):
+            return []
+        blocks: list[str] = []
+        current: list[str] = []
+        for line in text.split("\n"):
+            m = _BLOCKQUOTE_LINE_RE.match(line)
+            if m:
+                current.append(m.group(1).strip())
+                continue
+            if current:
+                blocks.append(" ".join(x for x in current if x))
+                current = []
+            if len(blocks) >= _BLOCKQUOTE_MAX:
+                break
+        if current and len(blocks) < _BLOCKQUOTE_MAX:
+            blocks.append(" ".join(x for x in current if x))
+        docs = {t.document_id: t for t in supplied}
+        candidates = {d: t for d, t in docs.items() if not is_peer_text(t)} or dict(docs)
+        if request_text:
+            candidates["the request"] = SuppliedText(document_id="the request", title=None, author="router", text=request_text)
+        out: list[IntegrityFinding] = []
+        for block in blocks:
+            ex = block.strip(" \t*_`").strip()
+            if not ex or len(ex) > _BLOCKQUOTE_MAX_CHARS or find_quotation_spans(ex):
+                continue
+            words = len(ex.split())
+            if words < 4 or any(_located(ex, t.text, d) for d, t in candidates.items()):
+                continue
+            hit = None
+            for d, t in candidates.items():
+                _n, miss = nearest_text(ex, {d: t})
+                if 0 < len(miss) <= 2 and len(miss) < words and _holds_long_words(ex, miss) and holds_half_in_a_run(ex, t.text):
+                    hit = (d, miss)
+                    break
+            if hit is None:
+                continue
+            key = ex.casefold()[:60]
+            ids = [c.claim_id for c in report.claims if key in c.claim_text.casefold()][:1]
+            out.append(IntegrityFinding(code="INT-REQ-003", severity="error",
+                                        message=f"blockquoted quotation '{ex[:120]}' was not found in the supplied texts {sorted(docs)}"
+                                                + (" nor in the request" if request_text else "")
+                                                + f": {'the request' if hit[0] == 'the request' else 'the supplied text ' + hit[0]} holds all of its words but "
+                                                + f"{', '.join(hit[1])} (an altered quotation)",
+                                        claim_ids=ids, report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=sorted(docs)))
+        return out
+
+    @staticmethod
+    def _lone_label_quotations(report: SpecialistReport, supplied: list[SuppliedText], *, request_text: Optional[str] = None,
+                               task_type: Optional[str] = None) -> list[IntegrityFinding]:
+        """INT-REQ-003 (error), in a feedback task only, for a quotation under a correction's label ALONE ('Bien: "..."', 'Right: "..."',
+        'After: "..."', 'Juste : "..."') that alters the request or a supplied text. The c3e reading lets such a label make its span a
+        correction in a feedback task, because a parser that reads one sentence at a time cuts a pair ('Mal: "x". Bien: "y"') in two, so
+        the parsers leave the span out of their quotations. Read on the whole answer, a label with no wording it replaces in view (no
+        own correction pair of the one reader, ``own_text.correction_pairs``, and no replaced half under a label on the line or sentence
+        before it) corrects nothing: it may praise and quote (the c3e check's design review: 'Bien: "<the task misquoted>"' drew
+        nothing). Such a span of three words or more that no supplied text nor the request holds, while one of them holds all its words
+        but one or two (two of them of four letters or more), and that the answer's own voice does not hold, is an altered quotation of
+        that text. Linear in the spans."""
+        from ..adapters.markdown import _LineIndex, _RIGHT_LABEL_HEAD_RE, _span_roles, corrections_apply, find_quotation_spans, quotation_task
+        from ..adapters.own_text import _NEUTRAL_LABEL_BEFORE_RE, _REPLACED_LABEL_BEFORE_RE, correction_pairs, unquoted_text
+        from ..adapters.sources import is_peer_text, nearest_text
+        text = report.original_response or ""
+        if not corrections_apply(task_type) or (not supplied and not request_text) or ":" not in text:
+            return []
+        with quotation_task(task_type, authoritative=True):
+            spans = find_quotation_spans(text)
+            if not spans:
+                return []
+            roles = _span_roles(text, spans)
+            if "correction" not in roles:
+                return []
+            paired = {i for pair in correction_pairs(text, spans) for i in pair if i is not None}
+        lines = _LineIndex(text)
+        own_voice: Optional[str] = None
+        own_grams: set = set()
+        docs = {t.document_id: t for t in supplied}
+        candidates = {d: t for d, t in docs.items() if not is_peer_text(t)} or dict(docs)
+        if request_text:
+            candidates["the request"] = SuppliedText(document_id="the request", title=None, author="router", text=request_text)
+        out: list[IntegrityFinding] = []
+        for k, ((a, b, inner), role) in enumerate(zip(spans, roles)):
+            if role != "correction" or k in paired or not lines.label_governs(a, _RIGHT_LABEL_HEAD_RE):
+                continue
+            if k > 0 and a - spans[k - 1][1] <= 200:
+                pa = spans[k - 1][0]
+                window = (max(0, pa - 160), pa)
+                if _REPLACED_LABEL_BEFORE_RE.search(text, *window) or _NEUTRAL_LABEL_BEFORE_RE.search(text, *window):
+                    continue  # '- Mal: "x"' over '- Bien: "y"': the replaced half under its label on the line before
+            ex = inner.strip().strip(".,;:!?").strip()
+            words = len(ex.split())
+            if words < 3 or any(_located(ex, t.text, d) for d, t in candidates.items()):
+                continue
+            hit = None
+            for d, t in candidates.items():
+                _n, miss = nearest_text(ex, {d: t})
+                if 0 < len(miss) <= 2 and len(miss) < words and _holds_long_words(ex, miss):
+                    hit = (d, miss)
+                    break
+            if hit is None:
+                continue
+            # the answer's own wording, written in its own voice (read only for an altered quotation, so the answer is searched once
+            # per finding, never once per span)
+            if own_voice is None:
+                own_voice = unquoted_text(text)
+                own_grams = _word_grams(own_voice)
+            first = _word_grams(ex, first_only=True)
+            if first and first <= own_grams and _located(ex, own_voice):
+                continue
+            key = ex.casefold()[:60]
+            ids = [c.claim_id for c in report.claims if key in c.claim_text.casefold()][:1]
+            out.append(IntegrityFinding(code="INT-REQ-003", severity="error",
+                                        message=f"quotation '{ex[:120]}' under a correction's label with no wording it replaces was not found in the supplied "
+                                                f"texts {sorted(docs)}" + (" nor in the request" if request_text else "")
+                                                + f": {'the request' if hit[0] == 'the request' else 'the supplied text ' + hit[0]} holds all of its words but "
+                                                + f"{', '.join(hit[1])} (an altered quotation; a label alone corrects nothing)",
+                                        claim_ids=ids, report_ids=[report.report_id], agent_ids=[report.agent_id], document_ids=sorted(docs)))
         return out
 
     @staticmethod

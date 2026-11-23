@@ -78,7 +78,7 @@ class Reading:
 _PUNCT_CLAUSE = frozenset(";")
 _DASHES = frozenset("—–")
 _REL = frozenset("=≈≤≥<>≠")
-_OPS = frozenset("+×*÷/^−-")
+_OPS = frozenset("+×*÷/^−-·")
 
 
 class Tok:
@@ -1119,9 +1119,23 @@ def _computation(toks: list[Tok]) -> bool:
         rnum = any(t.num or _fraction(t.w) for t in right)
         # (a fraction or product written as one number token, "1/3", is an operation too)
         lop = any(t.w in _OPS or _fraction(t.w) for t in left) or \
-            any(left[m].num and left[m + 1].w == "(" for m in range(len(left) - 1))
+            any(left[m].num and left[m + 1].w == "(" for m in range(len(left) - 1)) or _percent_of(left)
         rop = any(t.w in _OPS or _fraction(t.w) for t in right)
         if lnum and rnum and (lop or rop):
+            return True
+    return False
+
+
+def _percent_of(left: list[Tok]) -> bool:
+    """Whether a run before a relation sign takes a per-cent of a number ("25 % de 80 =", "25% of 80 ="): an operation, as "×" is."""
+    for m, t in enumerate(left):
+        if t.w.endswith("%") and t.num:
+            j = m + 1
+        elif t.num and m + 1 < len(left) and left[m + 1].w == "%":
+            j = m + 2
+        else:
+            continue
+        if j + 1 < len(left) and left[j].w in ("of", "de", "del") and left[j + 1].num:
             return True
     return False
 
@@ -1581,8 +1595,18 @@ def _neg_count(toks: list[Tok], start: int, i: int, es: bool) -> int:
     k = 0
     seen_es_no = False
     skip_to = -1
+    outer: list[tuple[int, bool]] = []
     for j in range(max(start, i - 40), i):
         t = toks[j]
+        if t.w in ("(", "["):
+            # a negator outside a bracket never reaches into it, nor one inside a closed bracket out of it ("He ruled with no
+            # majority (the specialist flags this date as from memory).": check round 12 of c3f)
+            outer.append((k, seen_es_no))
+            k, seen_es_no = 0, False
+            continue
+        if t.w in (")", "]") and outer:
+            k, seen_es_no = outer.pop()
+            continue
         if j < skip_to:
             continue  # inside the inert complement of a "without"/"sin" (attack round 7)
         if t.w in ("without", "sin"):
@@ -1610,6 +1634,64 @@ def _neg_count(toks: list[Tok], start: int, i: int, es: bool) -> int:
     return k
 
 
+def _example_mark_key(kwords: list, value: list) -> bool:
+    """Whether a key with a mark heads a quoted example of a language form: besides the mark, the key names a grammar form or a use
+    of one ("✓ Correct use of the subjunctive:", "✓ Uso correcto del subjuntivo:", "✓ Correct form:") and nothing of this answer, and
+    the value is a quotation and nothing more."""
+    from .meaning import _FORM_NOUNS, _GRAMMAR_NOUNS, _QMARKS, _is_quote
+    words = [t for t in kwords if t.w not in ("zzmarkpos", "zzapprove", "zzscorefull")]
+    if not words or len(words) > 8 or not any(t.w in _GRAMMAR_NOUNS or t.w in _FORM_NOUNS or t.w in ("use", "uso", "example", "ejemplo")
+                                               for t in words):
+        return False
+    if any(t.has("C:anchor", "C:anchor_idioms", "C:poss1", "C:pron1", "C:genre", "C:genre_strong", "C:part", "C:eval_int", "C:tool")
+           for t in words):
+        return False
+    inner = [t for t in value if not (t.punct and t.w in ".;!")]
+    return bool(inner) and (_is_quote(inner[0]) or inner[0].w in _QMARKS) and (_is_quote(inner[-1]) or inner[-1].w in _QMARKS)
+
+
+def line_rest(s: str, b: int) -> list:
+    """The tokens of the rest of the line after a mark that ends at ``b`` (the folding sets a mark at a line's head on a line of its
+    own), at most 400 characters."""
+    b1 = b
+    while b1 < len(s) and b1 < b + 8 and s[b1] in " \t\n":
+        b1 += 1
+    nl = s.find("\n", b1, b1 + 400)
+    return _merge(_tokens(s, b1, nl if nl >= 0 else min(len(s), b1 + 400)))
+
+
+def example_mark_at(s: str, b: int) -> bool:
+    """Whether the mark that ends at ``b`` heads a quoted language example on its line (:func:`_example_mark_line`)."""
+    rest = line_rest(s, b)
+    colon = next((q for q in range(min(len(rest), 12)) if rest[q].w == ":"), None)
+    return colon is not None and _example_mark_key([x for x in rest[:colon] if not x.punct], rest[colon + 1:])
+
+
+def _example_mark_line(sent: list, mark) -> bool:
+    """Whether the tick ``mark`` opens a line that heads a quoted language example (:func:`_example_mark_key`): the mark, a key up to
+    the first colon after it, a quotation as the whole value."""
+    # (the mark opens the line: a word before it ends the search there, so a run of marks is never scanned again at each mark)
+    k = None
+    for q, x in enumerate(sent):
+        if x is mark:
+            k = q
+            break
+        if not x.punct:
+            return False
+    if k is None:
+        return False
+    colon = next((q for q in range(k + 1, min(len(sent), k + 12)) if sent[q].w == ":"), None)
+    if colon is None:
+        return False
+    key = [x for x in sent[k:colon] if not x.punct]
+    return _example_mark_key(key, sent[colon + 1:])
+
+
+#: What an attributive "accepted" names as the subject's reference: "the accepted value (of g)", "the accepted constant".
+_REFERENCE_DETS = frozenset(("the", "an", "a", "its", "their", "this", "that", "of", "against", "with", "to", "from"))
+_REFERENCE_NOUNS = frozenset(("value", "values", "constant", "constants", "figure", "standard", "literature", "data", "density",
+                              "theory", "model", "range", "definition", "view", "wisdom", "estimate", "estimates", "rate", "mass",
+                              "speed", "temperature", "enthalpy", "wavelength", "reference"))
 _HASTE = frozenset(("premature", "hasty", "rash", "too early", "too soon", "prematuro", "prematura", "precipitado", "precipitada",
                     "apresurado", "apresurada", "demasiado pronto", "demasiado temprano"))
 
@@ -1776,6 +1858,26 @@ def _clause_found(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
     return _clause_found_bounded(cl, ctx, info)
 
 
+def _pair_site(pair_toks: list, toks: list, i: int, index: Optional[dict] = None) -> tuple:
+    """``(tokens, index)`` of the tick ``toks[i]`` in ``pair_toks`` (the clause itself, or the sentence it was cut from). ``index``
+    (filled on first use, then reused for every tick of the clause) maps a tick's offset to its first place in ``pair_toks``, so a
+    clause of ticks is never scanned again at each tick."""
+    if pair_toks is toks:
+        return toks, i
+    if index is None:
+        index = {}
+    if index.get("of") is not pair_toks:
+        index.clear()
+        index["of"] = pair_toks
+        at: dict = {}
+        for k, x in enumerate(pair_toks):
+            if x.w == "zzmarkpos" and x.a not in at:
+                at[x.a] = k
+        index["at"] = at
+    j = index["at"].get(toks[i].a)
+    return (toks, i) if j is None else (pair_toks, j)
+
+
 def _pair_word_after_cross(toks: list) -> int:
     """The index of the first word after the clause's first cross (``len(toks)`` when it has no cross, or no word after it): a tick
     after this index has a word between a cross and itself (:func:`_tick_of_correction_pair`)."""
@@ -1785,23 +1887,75 @@ def _pair_word_after_cross(toks: list) -> int:
     return next((k for k in range(first + 1, len(toks)) if not toks[k].punct), len(toks))
 
 
+#: Quotation marks that close a quoted half of a correction pair (the openers are :data:`_PAIR_QUOTES`; "’" folds to "'").
+_PAIR_CLOSERS = frozenset(("\"", "”", "»", "’", "'"))
+#: Marks around a half of a correction pair that are no part of its wording (an arrow to the corrected form, a stop or a comma).
+_PAIR_JOINERS = frozenset(("→", "->", "⇒", "=>", ",", ".", ";", ":", "-", "—", "–", "(", ")"))
+
+
+def _pair_half(half: list) -> list:
+    """A half of a correction pair without the arrows, stops and commas around it."""
+    a, b = 0, len(half)
+    while a < b and half[a].punct and half[a].w in _PAIR_JOINERS:
+        a += 1
+    while b > a and half[b - 1].punct and half[b - 1].w in _PAIR_JOINERS:
+        b -= 1
+    return half[a:b]
+
+
+def _quoted_half(half: list) -> bool:
+    """Whether a half of a correction pair is quoted wording: it opens with a quotation mark, closes with one and holds a word."""
+    return len(half) >= 3 and half[0].w in _PAIR_QUOTES and half[-1].w in _PAIR_CLOSERS and \
+        any(not x.punct for x in half[1:-1])
+
+
+def _prose_half(half: list) -> bool:
+    """Whether a half of a correction pair is prose of a language: two words or more, every token a word of letters (no figure, no
+    value, no sign, no mark), so a half that is the answer's own value, figure, date or result is never prose."""
+    words = [x for x in half if not (x.punct and x.w in ("'", "-"))]
+    return len(words) >= 2 and all(not x.punct and not x.num and x.w.replace("'", "").replace("-", "").isalpha() and
+                                   not x.w.startswith("zz") for x in words)
+
+
 def _tick_of_correction_pair(toks: list, i: int, word_after_cross: int) -> bool:
-    """The tick ``toks[i]`` closes a correction pair marked by a cross before it ('✗ "Ella es cansada" → ✓ "Ella está cansada"'): a
-    cross earlier in the clause with a word between it and the tick (``word_after_cross`` < ``i``, from
-    :func:`_pair_word_after_cross`: the earliest cross has the most words before the tick, so it alone is read), and at most 20
-    words after the tick, none of a family (provenance aside) or an anchor. Each tick reads at most 21 words after it (repair 2 of
-    c3e: the words after every tick of a run of ticks were collected whole, and the clause before it scanned again, so a clause of
-    ticks was read in time quadratic in its length)."""
+    """The tick ``toks[i]`` closes a correction pair OF LANGUAGE marked by a cross before it ('✗ "Ella es cansada" → ✓ "Ella está
+    cansada"'): a cross earlier in the clause with a word between it and the tick (``word_after_cross`` < ``i``, from
+    :func:`_pair_word_after_cross`: the earliest cross has the most words before the tick, so it alone is read), at most 20 words
+    after the tick, none of a family (provenance aside) or an anchor, and two halves that are wording: both quoted ('✗ "I has went" ✓
+    "I have gone"'), or both prose of a language that differ in part of their words and share the rest ('✗ Ella es cansada ✓ Ella
+    está cansada'). A check mark on the answer's own value, figure, date, result or verdict word after a cross ('✗ 1918 ✓ 1919', '✗ x
+    = 3 ✓ x = 4', '✗ 0 errors ✓ 42', '✗ draft ✓ final, 1919') marks that value: a self-report (c3f, the push check of a9129c78: the
+    exemption of c3e freed any tick after a cross). Each tick reads at most 21 words after it (repair 2 of c3e: the words after every
+    tick of a run of ticks were collected whole, and the clause before it scanned again, so a clause of ticks was read in time
+    quadratic in its length)."""
     if word_after_cross >= i:
         return False
     after: list = []
+    tail: list = []
     for j in range(i + 1, len(toks)):
         x = toks[j]
+        tail.append(x)
         if not x.punct and x.w not in _PAIR_QUOTES:
             after.append(x)
             if len(after) > 20:
                 return False
-    return bool(after) and not any(x.fam() - {"PROVENANCE"} or x.has("C:anchor", "C:anchor_idioms", "C:genre_strong") for x in after)
+    if not after or any(x.fam() - {"PROVENANCE"} or x.has("C:anchor", "C:anchor_idioms", "C:genre_strong") for x in after):
+        return False
+    c = word_after_cross - 1
+    while c > 0 and toks[c].w != "zzmarkneg":
+        c -= 1  # (the cross before the first word after it: the half opens right after the cross, its quotation mark included)
+    first = _pair_half(toks[c + 1:i])
+    second = _pair_half(tail)
+    if len(first) > 24 or any(x.w in ("zzmarkneg", "zzmarkpos") for x in first):
+        return False
+    if _quoted_half(first) and _quoted_half(second):
+        return True
+    if not (_prose_half(first) and _prose_half(second)):
+        return False
+    w1 = [x.w for x in first if not x.punct]
+    w2 = [x.w for x in second if not x.punct]
+    # (a correction of wording keeps part of its words and changes the rest: "Ella es cansada" / "Ella está cansada")
+    return w1 != w2 and bool(set(w1) & set(w2)) and bool(set(w1) ^ set(w2))
 
 
 def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
@@ -1830,6 +1984,9 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
             return [_Found("G2", "CHECK", "sentence", toks[k_res].a, toks[k_res].b)]
     skip_rest = False
     word_after_cross: Optional[int] = None
+    pair_toks: list = toks
+    pair_index: dict = {}
+    own_in_clause: Optional[bool] = None
     for i, t in enumerate(toks):
         if _inert(t.w, t.t, t.num):
             continue  # a word no frame below can start from (no family, frame verb or noun, number, mark or score): read past it
@@ -2007,15 +2164,33 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
         if mark and mood not in ("question",):
             # (a mark closing the writer's own claim of checking, "Model: I checked that ... ✔", stamps that claim: it is the
             # writer's, whichever clause of the sentence it closes)
-            own = any(x.has("C:poss1", "C:anchor", "C:anchor_idioms") for x in toks) or info.get("writer_check", False)
+            # (read once per clause, never once per mark: a clause of marks scanned itself whole at every mark; repair 1 of the c3f
+            # clearance, timing)
+            if own_in_clause is None:
+                own_in_clause = any(x.has("C:poss1", "C:anchor", "C:anchor_idioms") for x in toks)
+            own = own_in_clause or info.get("writer_check", False)
             if ctx.marking and t.w in ("zzmarkpos", "zzrating", "zzscorefull") and not own:
                 continue  # a tick or a score in a marking task marks the student's work (decision D9)
             if t.w == "zzmarkpos" and word_after_cross is None:
                 word_after_cross = _pair_word_after_cross(toks)  # (once per clause)
-            if t.w == "zzmarkpos" and _tick_of_correction_pair(toks, i, word_after_cross):
+                pair_toks = toks
+                if word_after_cross >= len(toks) or not any(not x.punct for x in toks[i + 1:]):
+                    # (or cut at the tick: '✗ Nosotros somos en casa ✓ | Nosotros estamos en casa', as the auditor's template form
+                    # of the claim is read; check round 12 of c3f)
+                    # (the clause may have been cut from its sentence at the cross, '✗ Ella es cansada ✓ Ella está cansada': the pair
+                    # is read in the sentence it stands in)
+                    sent_toks = info.get("sentence_toks") or toks
+                    if sent_toks is not toks and len(sent_toks) <= 4 * len(toks) + 48:
+                        pair_toks = sent_toks
+                        word_after_cross = _pair_word_after_cross(sent_toks)
+            # (the tick's place in the sentence is looked up in an index built once per clause, never by a scan at each tick)
+            if t.w == "zzmarkpos" and _tick_of_correction_pair(*_pair_site(pair_toks, toks, i, pair_index), word_after_cross):
                 continue  # a correction pair marked by a cross and a tick ('✗ "Ella es cansada" → ✓ "Ella está cansada"'): the tick
                 # marks the corrected form of the quoted words, the subject matter of a language lesson, never this answer
                 # (boundary (b); check round 11 of c3e)
+            if t.w == "zzmarkpos" and not ctx.marking and (_example_mark_line(info.get("sentence_toks") or toks, t) or (
+                    info.get("line_rest") is not None and _example_mark_line([t] + info["line_rest"], t))):
+                continue  # ("✓ Correct use of the subjunctive: «espero que vengas».": the tick marks the quoted example; c3f)
             found.append(_Found("G6" if len(toks) > 2 else "G5", "MARK", "symbol", t.a, t.b))
             continue
         # production verbs are a check only with a checking signal; otherwise they are read in their other family, if any
@@ -2090,6 +2265,12 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
         if t.w in ("pass", "passes", "passed", "passing") and i + 1 < len(toks) and toks[i + 1].w in (
                 "into", "through", "onto", "on", "along", "across", "over", "down", "away", "from", "to", "via", "under", "around",
                 "between", "beyond", "back", "out", "off"):
+            continue
+        # "the accepted value", "the accepted 9.81 m s⁻²", "el valor aceptado": a named reference value of the subject (boundary (b),
+        # agreement with a named reference is material), never an approval of the answer (check round 12 of c3f)
+        if t.w in ("accepted", "aceptado", "aceptada", "aceptados", "aceptadas") and (
+                (i > 0 and toks[i - 1].w in _REFERENCE_DETS and i + 1 < len(toks) and (toks[i + 1].num or toks[i + 1].w in _REFERENCE_NOUNS))
+                or (i > 0 and toks[i - 1].w in ("valor", "valores", "dato", "datos"))):
             continue
         # "10 passes", "two passes": a count of passes, a noun
         if t.w in ("passes", "pass") and i > 0 and (toks[i - 1].num or toks[i - 1].w in ("two", "three", "several", "many", "ten")):
@@ -2982,8 +3163,11 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
         anchored = _subject_matter_anchor(toks)
         # (a neutral outcome concluding a worked computation in the same sentence, "Since x = 1/3 = 0.33, the claim holds.", is
         # the working's conclusion, material for the engine: rule X1)
+        # (a label's key before the computation is no conclusion of it: "Everything checks out: 2 × 21 = 42.", "The figures check
+        # out: ..." give a verdict of a wider scope than the computation shown, a self-report; c3f)
+        key_verdict = cl.role == "key" and not _computation_verdict_key([x for x in cl.toks if not x.punct])
         if (present or t.has("prefix") or (fam == "FIDELITY" and any(x.has("C:part") for x in theme.toks))) and not anchored and \
-                not (info.get("computation") and fam in ("OUTCOME", "AGREE")):
+                not (info.get("computation") and fam in ("OUTCOME", "AGREE") and not key_verdict):
             return ("G3", form)
         return None
     if cls in ("I", "T") and fam in _FAMS_G5:
@@ -3257,6 +3441,35 @@ def _shows_working(value: list[Tok]) -> bool:
         any(t.num for t in value[k + 1:])
 
 
+#: The singular nouns of ONE computation ("the calculation", "la cuenta"): a key that gives its verdict over one of them, before the
+#: computation it shows, reports that computation ("The calculation checks out: 2 × 21 = 42.").
+_COMPUTATION_NOUNS = frozenset("calculation computation sum arithmetic product subtraction addition division multiplication working "
+                               "cuenta operacion calculo suma resta multiplicacion division".split())
+_COMPUTATION_DETERMINERS = frozenset("the this that la esta este el esa ese".split())
+#: The words of a verdict over the computation the key names (besides the family words).
+_COMPUTATION_VERDICT_WORDS = frozenset("out up is was holds cuadra sale es fue esta bien".split())
+
+
+def _computation_verdict_key(kwords: list[Tok]) -> bool:
+    """Whether a label's key is a verdict whose scope is the ONE computation its value shows: a definite determiner, a singular
+    computation noun, then only verdict words ("The calculation checks out:", "La cuenta cuadra:"). A key that credits any evaluator
+    (examiner, overseer, hub, agent, teacher, marker, panel, tool), names no scope or a wider one (all, every, each, the
+    calculations, the figures, everything, the working, the answer, "Error-free:", "All correct:") is a self-report even when a
+    computation follows (c3f, the push check of a9129c78: the worked-key exemption of c3e freed any verdict before a computation)."""
+    if len(kwords) < 3 or len(kwords) > 6:
+        return False
+    if kwords[0].w not in _COMPUTATION_DETERMINERS or kwords[1].w not in _COMPUTATION_NOUNS or kwords[1].w == "working":
+        return False
+    for t in kwords[2:]:
+        if t.has("C:tool", "C:anchor", "C:anchor_idioms", "C:dist", "C:poss1", "C:by", "agent") or \
+                any(x.startswith("C:eval") for x in t.t) or t.w in ("by", "por", "all", "every", "each", "todo", "toda", "todos",
+                                                                    "todas", "everything"):
+            return False
+        if not (t.fam() or t.w in _COMPUTATION_VERDICT_WORDS or t.has("C:copula", "C:aux")):
+            return False
+    return True
+
+
 def _command_term_label(kwords: list[Tok], value: list[Tok]) -> bool:
     """Whether a label is a command-term label: a command-term key and a value of command terms only (quoted or not, an assessment
     objective in brackets after it, "(AO3)"). A value with any other word ("Command term: evaluate, verified") is read as usual."""
@@ -3422,6 +3635,11 @@ def _criterion_key(key: list[Tok]) -> bool:
     return len(ws[0].w) == 1 and ws[0].w.isalpha() and ws[0].cap and all(t.num or _fraction(t.w) for t in ws[1:])
 
 
+#: The endings of a noun of quality ("validity", "accuracy", "correctness", "fiabilidad", "validez"): a heading of an evaluation of
+#: method ("Validity: the sample of 30 is small, so the conclusion is tentative."), never a status participle (c3f).
+_QUALITY_NOUN_ENDINGS = ("ity", "ness", "acy", "ency", "ancy", "idad", "ez")
+
+
 def _status_key(key: list[Tok]) -> bool:
     """Whether a label's key is a status of its own ("VERIFIED:", "Checked and approved:", "Formally verified by Z3:"): every word
     a family word or a function word, one of them a positive check, status, outcome or approval participle or adjective."""
@@ -3528,10 +3746,11 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
     if "sentence_toks" not in info:
         info["sentence_toks"] = toks
     # a check or a redo anywhere in the sentence ("I reran the calculations above and nothing changed.")
-    info["check_signal"] = any(t.fam() & {"CHECK"} or t.w in _SIGNAL or t.w.startswith(_REDO_PREFIXES) for t in toks)
+    info["check_signal"] = any("F:CHECK" in t.t or t.w in _SIGNAL or t.w.startswith(_REDO_PREFIXES) for t in toks)
     frame0 = _outside_frame(toks, ctx)
     after = _verdict_after_derivation(toks) if computation else None
     whole_computation = computation
+    worked_labels: list = []  # (start, key end, neutral) of each label whose value shows a computation
     for n_part, part in enumerate(_split_parts(toks)):
         info["outside_frame"] = frame0 and n_part == 0  # the frame sets its own clause, never a clause after ";" or a dash
         # a clause after a derivation's last figure is read as a clause of its own, not as part of a worked computation
@@ -3552,6 +3771,17 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
             continue
         if k is not None:
             key, value = part[:k], part[k + 1:]
+            kw_h = [t for t in key if not t.punct]
+            # a quality noun heading an evaluation of method, its value a clause about the subject ("Validity: the sample of 30 is
+            # small, so the conclusion is tentative."): the criterion the clause evaluates, no status of this answer (boundary (b);
+            # c3f). A value that names the answer or the writer is read with the key as usual.
+            heading = len(kw_h) == 1 and kw_h[0].w.endswith(_QUALITY_NOUN_ENDINGS) and _value_is_clause(value) and not any(
+                x.has("C:anchor", "C:anchor_idioms", "C:poss1", "C:pron1") or (
+                    x.has("C:genre_strong") and m > 0 and value[m - 1].has("C:demonstrative", "C:poss1")) for m, x in enumerate(value))
+            if computation and value:
+                kw0 = [t for t in key if not t.punct]
+                worked_labels.append((part[0].a, key[-1].b if key else part[0].a,
+                                      _neutral_check_key(kw0) or _computation_verdict_key(kw0)))
             depth = info.get("label_depth", 0)
             if depth < 2 and value and _label(value) is not None and len(key) <= 4 and \
                     not any(t.has("C:tool", "C:eval_int") for t in key):
@@ -3562,7 +3792,7 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
                 # "VERIFIED: Status: done") stamps what follows however many keys come after it
                 if any(t.w in ("zzmarkpos", "zzapprove", "zzscorefull") for t in key) and not ctx.marking:
                     found.append(_Found("G6", "MARK", "label_before", part[0].a, key[-1].b))
-                elif _status_key(key):
+                elif _status_key(key) and not heading:
                     found.append(_Found("G6", "STATUS", "label_before", part[0].a, key[-1].b))
                 continue
             kc = _key_class(key)
@@ -3578,7 +3808,7 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
                     # vetted"): a label on the line (G6), never an attribute of the source title it follows
                     found.append(_Found("G6", tail, "label_after", part[0].a, part[-1].b))
                     continue
-            if _status_key(key) and value:
+            if _status_key(key) and value and not heading:
                 found.append(_Found("G6", "STATUS", "label_before", part[0].a, key[-1].b))
                 # the labelled value is read as well: a value that is itself a self-certification ("VERIFIED: all claims checked and
                 # confirmed.") makes the whole piece one, not a label on content
@@ -3594,14 +3824,16 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
                 continue
             # a mark written in the key ("Verdict \u2713:", "\u2713 Status:"): the writer's mark on what follows (rule N7, G6)
             if any(t.w in ("zzmarkpos", "zzapprove", "zzscorefull") for t in key) and not ctx.marking:
+                if _example_mark_key(kwords, value):
+                    continue  # ("✓ Correct use of the subjunctive: «espero que vengas».": the tick marks the quoted example of a
+                    # language point, never this answer; check round 12 of c3f)
                 found.append(_Found("G6", "MARK", "label_before", part[0].a, key[-1].b))
                 continue
             # the key read as a clause (a key can itself be a self-assessment: "Nothing to fix:", "Good to go:"); a key whose value
             # shows the computation it reports ("The calculation checks out: 2 × 21 = 42.") is a worked check, material for the
             # engine (boundary (b); check round 11 of c3e), unless the key names the whole answer or all of it
-            worked_key = _shows_working(value) and not any(
-                t.w in _WHOLE_ANSWER_NOUNS or t.has("C:anchor", "C:anchor_idioms", "C:poss1", "C:dist") for t in key)
-            if kc not in ("assess", "defect", "output") and not worked_key:
+            worked_key = _shows_working(value) and _computation_verdict_key(kwords)
+            if kc not in ("assess", "defect", "output") and not worked_key and not heading:
                 for seg in _comma_split(key):
                     found += _clause_found(Clause(seg, role="key", question=question), ctx, info)
             # a bracket inside the key: "Answer (verified):", "Working (fine):"
@@ -3614,6 +3846,27 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
             if kc == "output":
                 continue
             if kc == "worked" and computation:
+                continue
+            # (a defect denied over the key's scope, "Sin errores en ningún paso:", "No errors anywhere:", is a verdict as "Error-free:"
+            # is, however many negators it takes; check round 12 of c3f)
+            denied_defect = bool(kwords) and kwords[0].w.split()[0] in ("sin", "no", "without", "zero", "cero", "ningun", "ninguna") and \
+                any(x.fam() & {"DEFECT"} for x in kwords[1:3]) or bool(kwords) and len(kwords[0].w.split()) > 1 and \
+                kwords[0].w.split()[0] in ("sin", "no", "without", "zero", "cero") and bool(kwords[0].fam() & {"OUTCOME", "DEFECT"})
+            if computation and value and kc != "output" and not _neutral_check_key(kwords) and \
+                    not _computation_verdict_key(kwords) and not ctx.marking and (_key_verdict_word(kwords) or denied_defect) and \
+                    (_neg_count(kwords, 0, len(kwords), False) == 0 or denied_defect) and (
+                    kc in ("assess", "defect") or denied_defect or any(
+                        any(w in _WIDE_SCOPE_WORDS for w in x.w.split()) or x.has("C:dist") or x.w in _ANSWER_PART_KEY_NOUNS or
+                        # (c3f: the answer named in the key, "The answer's calculation is right:", "This response's arithmetic
+                        # is correct:", or an evaluator credited with the check, "The calculation was checked by the examiner:",
+                        # "El cálculo fue revisado por el examinador:")
+                        x.has("C:genre", "C:genre_strong", "C:anchor", "C:anchor_idioms", "C:eval_asr", "C:eval_int",
+                              "C:eval_int_agentive", "C:tool", "C:m_eval", "C:generic_role") or
+                        x.w.rstrip("s").rstrip("'’") in _KEY_ANSWER_NOUNS for x in kwords)):
+                # a verdict key over a computation shown whose scope is wider than it or unspecified ("Todo cuadra: 2 × 21 = 42.",
+                # "Todas las cuentas cuadran: ..."): the answer's verdict on its work, a self-report (c3f; a neutral check key,
+                # "Check:", "Comprobación:", is the working's label)
+                found.append(_Found("G6", "STATUS", "label_before", part[0].a, key[-1].b))
                 continue
             marking_key = ctx.marking and (any(w in ("grade", "mark", "marks", "score", "criterion", "nota", "provisional",
                                                      "calificacion", "band", "level", "total", "quality", "grades", "scores")
@@ -3775,13 +4028,95 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
     if (computation or info.get("host_computation")) and not info.get("tool_named"):
         # (a participle or status label on the computation, "Verified: ...", "..., as formally verified", stays a label: it is no
         # part of the working; a check mark closing the working and the check noun of a worked check are the working's)
+        # (c3f: a worked check is a neutral check key, "Check:", "Comprobación:", "Verificación:", "Prueba:", or a verdict over the ONE
+        # computation shown, "The calculation checks out:"; a key that credits an evaluator or gives a verdict of a wider or
+        # unspecified scope, "Approved by the examiner:", "Every figure checks out:", "Error-free:", "All correct:", is a self-report
+        # with a computation after it, and so is a verdict over all of it in the value, "Verificación: todo correcto, 2 × 20 = 40.")
+        def own_key(f) -> bool:
+            return any(not neutral and a0 <= f.a and f.b <= kb for a0, kb, neutral in worked_labels)
         found = [f for f in found if (f.rule == "G1" and f.family in ("OUTCOME", "QUALITY") and not _x1_value_theme(toks, f)) or
                  (f.rule == "G6" and f.form in ("label_before", "label_after") and f.family in ("STATUS", "CHECK", "APPROVE") and
-                  _participle_label(toks, f)) or (after is not None and f.a >= after)]
+                  _participle_label(toks, f)) or (after is not None and f.a >= after) or own_key(f) or _wide_verdict(toks, f) or
+                 _credited_lead(toks, f)]
     return found
 
 
+def _credited_lead(toks: list[Tok], f) -> bool:
+    """Whether the finding ``f`` stands in a lead before a colon and a computation that credits an evaluator with the check or
+    names the answer ("The calculation was checked by the examiner: 6 × 7 = 42.", "El cálculo fue revisado por el examinador: ...",
+    a lead too long to be read as a label's key): the evaluator's verdict, never the working (check round 12 of c3f)."""
+    if f.family not in ("CHECK", "APPROVE", "STATUS", "OUTCOME", "QUALITY", "AGREE"):
+        return False
+    colon = next((k for k, t in enumerate(toks) if t.w == ":" and t.a >= f.b), None)
+    if colon is None or colon > 14:
+        return False
+    lead = [t for t in toks[:colon] if not t.punct]
+    return any(t.has("C:eval_asr", "C:eval_int", "C:eval_int_agentive", "C:m_eval") for t in lead) and \
+        any(t.w in ("by", "por") for t in lead)
+
+
 #: Words that open a worked CHECK of a value (X1), beside the lexicon's worked leads: a substitution or a check of a stated value.
+#: The words of a neutral check key ("Check:", "Comprobación:", "Verificación:", "Prueba:", "Sanity check:", "Worked check:").
+_NEUTRAL_KEY_WORDS = frozenset(("check", "checks", "checking", "verification", "verificacion", "comprobacion", "prueba", "sanity check",
+                                "sanity", "worked", "quick", "arithmetic", "test", "substitution", "sustitucion", "worked check",
+                                "quick check", "control"))
+#: Words of a scope wider than one computation ("todo correcto", "all correct", "everything checks").
+_WIDE_SCOPE_WORDS = frozenset("all every each everything todo toda todos todas everyone whole entire "
+                              # (c3f: the whole of the work in other words, "Correct throughout:", "Flawless from start to finish:",
+                              # "Correcto de principio a fin:", "Accurate in full:")
+                              "throughout start finish principio fin full".split())
+#: The answer's own nouns as written in a key, a possessive included ("The answer's calculation is right:").
+_KEY_ANSWER_NOUNS = frozenset("answer response reply essay solution respuesta solucion".split())
+#: The answer's own part nouns in a key ("The figures check out:"): a verdict over the answer's work, wider than one computation.
+_ANSWER_PART_KEY_NOUNS = frozenset("figures figure numbers values calculations computations results working workings answers steps "
+                                   "lines sums cifras numeros valores calculos resultados pasos operaciones".split())
+
+
+def _key_verdict_word(kwords: list[Tok]) -> bool:
+    """Whether a label's key holds a verdict word: an outcome, agreement, quality, approval or status word, or a check verb in a
+    finite or participle form ("checks out", "cuadra", "verified"), never a check noun alone ("Check", "Comprobación") or the
+    heading of the working ("Working:", a gerund that names the answer's own computation)."""
+    for t in kwords:
+        if t.has("v:ger", "prod") and not t.has("adj", "v:part", "v:past"):
+            continue
+        f = t.fam()
+        if f & {"OUTCOME", "AGREE", "QUALITY", "APPROVE", "STATUS"}:
+            return True
+        if "CHECK" in f and t.has("v:part", "v:past", "v:3sg", "v:espret", "v:espret1", "v:espret3") and not t.has("noun"):
+            return True
+    return False
+
+
+#: The words besides the act of the writer's own check of the computation shown ("I checked this by hand:", "Lo comprobé a mano:").
+_WRITER_CHECK_WORDS = frozenset("this it that these again twice by hand myself ourselves mentally backwards in reverse once more esto "
+                                "lo la a mano de nuevo otra vez".split())
+
+
+def _neutral_check_key(kwords: list[Tok]) -> bool:
+    """Whether a label's key is a neutral check key that credits no evaluator and states no verdict ("Check:", "Comprobación:"),
+    or the writer's own check of the computation it shows, by no tool or party ("I checked this by hand:")."""
+    if 0 < len(kwords) <= 3 and all(t.w in _NEUTRAL_KEY_WORDS for t in kwords):
+        return True
+    if 2 <= len(kwords) <= 6 and kwords[0].has("C:pron1") and kwords[1].fam() & {"CHECK"} and \
+            kwords[1].has("v:past", "v:espret", "v:espret1", "v:3sg", "v:base") and all(t.w in _WRITER_CHECK_WORDS for t in kwords[2:]):
+        return True
+    kw = kwords[1:] if kwords and kwords[0].w in ("lo", "la", "los", "las") else kwords
+    if 1 <= len(kw) <= 5 and kw[0].fam() & {"CHECK"} and kw[0].has("v:espret1") and \
+            all(t.w in _WRITER_CHECK_WORDS for t in kw[1:]):
+        return True  # (a Spanish first person with no pronoun, "Lo comprobé a mano:"; the clitic opens the key)
+    return False
+
+
+def _wide_verdict(toks: list[Tok], f) -> bool:
+    """Whether the finding ``f`` is an outcome verdict whose scope is wider than a computation ("todo correcto", "all correct",
+    "everything is right"): its own words or the two before it hold a word of a wider scope."""
+    if f.family not in ("OUTCOME", "QUALITY", "STATUS"):
+        return False
+    k0 = next((k for k, t in enumerate(toks) if t.a >= f.a), len(toks))
+    k1 = next((k for k, t in enumerate(toks) if t.a >= f.b), len(toks))
+    return any(t.w.split()[0] in _WIDE_SCOPE_WORDS for t in toks[max(0, k0 - 2):k1] if not t.punct and t.w)
+
+
 _CHECK_LEAD_WORDS = frozenset(("substituting", "substitute", "substitution", "sustituyendo", "sustituir", "plugging", "check", "checking",
                                "verify", "verifying", "verification", "comprobacion", "comprobando", "test", "testing", "back-substituting"))
 
@@ -4967,16 +5302,18 @@ def _styled_assessment(w: str) -> bool:
     styled or marked letters (small capitals, combining underlines, hidden characters inside it)."""
     m = _MARKUP_LEAD_RE.match(w)
     core = w[m.end():] if m else w
+    if not core:
+        return False
+    # (the word first, then its styling: both must hold, and a word that is no assessment word needs no look at its letters; check
+    # round 12 of c3f: the styling test of every letter of every word of a long text was most of the reading of the run-on breaks)
+    word = re.split(r"[*_`~<]", _INVISIBLE_RE.sub("", _folded_letters(core)), maxsplit=1)[0]
+    if not (_family_word(word) and not _number_like(word)):
+        return False
     # (styled letters: the fold table's letter-like blocks or small capitals, combining marks over letters, hidden characters; an
     # accented letter of a language, "revisión", is no styling)
-    styled = bool(m) or bool(_STYLING_MARK_RE.search(core)) or any(
+    return bool(m) or bool(_STYLING_MARK_RE.search(core)) or any(
         letter_like(ord(c)) or (not c.isascii() and c.isalpha() and unicodedata.decomposition(c) == "" and
                                 _folded_letters(c) != c) for c in core)
-    if not styled or not core:
-        return False
-    core = _INVISIBLE_RE.sub("", _folded_letters(core))
-    core = re.split(r"[*_`~<]", core, maxsplit=1)[0]
-    return _family_word(core) and not _number_like(core)
 
 
 def _unit_like(w: str) -> bool:
@@ -5102,6 +5439,10 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
         # the dashes of the line, counted once (counting them again at every dash was quadratic in a line of dashes: a line of
         # 10,000 list marks "- - - ..." took about 5 s; repair 1 after clearance c3c)
         dashes = sum(1 for t in toks if t[2] in ("-", "–", "—"))
+        # (the last tick of the line, once per line: a cross before it opens a correction pair)
+        # (the template form of a claim writes the marks as words, 'zzmarkneg' and 'zzmarkpos': the same marks; c3f)
+        pair_tick_after = max((t[0] for t in toks if t[2][:1] in _TICK_BULLETS or t[2] == "zzmarkpos"), default=None)
+        pair_cross_at = min((t[0] for t in toks if t[2] in _PAIR_CROSSES or t[2] == "zzmarkneg"), default=None)
         for k in range(1, len(toks)):
             a0, a1, x = toks[k - 1]
             b0, b1, y = toks[k]
@@ -5121,6 +5462,11 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
                 brk = a1  # a spaced dash: what follows it is read on its own too ("... parques - 100% correct")
             elif x[-1] in ".!?:;" or (x[-1] in "\"'»”’)" and len(x) > 1 and x[-2] in ".!?:;"):
                 brk = None  # a sentence or label break already: read as written
+            elif (x in _PAIR_CROSSES or x == "zzmarkneg") and pair_tick_after is not None and pair_tick_after > a1:
+                brk = None  # a cross that opens a correction pair closed by a tick on the line ('✗ Ella es cansada ✓ Ella está
+                # cansada'): the pair is read whole, its halves together (c3f: a break after the cross cut the pair in two)
+            elif (x[:1] in _TICK_BULLETS or x == "zzmarkpos") and pair_cross_at is not None and pair_cross_at < a0:
+                brk = None  # the tick of such a pair: its corrected half follows it (check round 12 of c3f)
             elif "\t" in gap or len(gap) >= 2:
                 brk = None if aligned else a1
             elif y == "|" and not table_row:
@@ -5171,6 +5517,10 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
                     # official data, Britain's figures ...", stays inside the frame)
                     brk = a1
                     head_only.append((a1, a1 + _sentence_tail_chars(text, toks, k)))
+                elif k - 1 > 0 and x.rstrip(".,;:")[-1:] in ")]" and "(" not in x[1:] and len(yl) >= 3 and not x_num:
+                    brk = a1  # a closed aside or citation, then a capitalised word with no stop between them ("... (supplied text)
+                    # Todo fue comprobao.", "(course notes) Everything was verified."): what follows is read on its own too (check
+                    # round 12 of c3f: a self-certification after a Sources line with no full stop was read as part of it)
                 elif xl in _BEFORE_NAME or x_name:
                     brk = None
                 elif yl in _CLAUSE_OPENERS or (not yw.isupper() and any(t.startswith("F:") for t in word_tags(fold_word(yl)))):
@@ -5390,6 +5740,11 @@ _QUOTE_LABEL_RE = re.compile(r"([\"\u201d\u2019'\u00bb])[ \t]{0,2}([(\[])([^()\[
 _OPENER_OF = {"\"": "\"", "'": "'", "\u201d": "\u201c", "\u2019": "\u2018", "\u00bb": "\u00ab"}
 
 
+#: A bracket that holds a rejected form of a correction pair: a negator or "instead of", then a quotation.
+_REJECTED_BRACKET_RE = re.compile(r"(?i)\s*(?:no|not|nor|never|nunca|instead\s+of|en\s+vez\s+de|en\s+lugar\s+de|rather\s+than|y\s+no|"
+                                  r"and\s+not)\s*[\"'“‘«„]")
+
+
 def _quoted_then_label(text: str) -> Optional[tuple[str, list[tuple[int, int]]]]:
     """``text`` with the marks of each quotation that a short bracket follows blanked (same offsets), and the brackets' inner
     spans; None when there is none. Only a bracket of at most five words with no digit is taken (a page or a date, "(p. 12)",
@@ -5403,6 +5758,9 @@ def _quoted_then_label(text: str) -> Optional[tuple[str, list[tuple[int, int]]]]
         inner = m.group(3)
         if any(c.isdigit() for c in inner) or len(inner.split()) > 5:
             continue
+        if _REJECTED_BRACKET_RE.match(inner):
+            continue  # (the rejected form of a correction pair, 'Bien: «El problema» (no «la problema»)': a quoted language form after
+            # "no", "not", "instead of", never a label on the quotation before it; c3f)
         close = m.start(1)
         opener = _OPENER_OF[m.group(1)]
         line_start = text.rfind("\n", 0, close) + 1
@@ -5491,6 +5849,8 @@ def _stray_quotes_blanked(text: str) -> Optional[str]:
 #: A line that opens with a cross mark used as a list bullet ("✘ less control over quality").
 _CROSS_BULLET_RE = re.compile(r"(?m)^[ \t]*[✘✗✖❌❎×][ \t]+[^\W\d_]")
 _TICK_BULLETS = "✔✓☑✅"
+#: The cross marks that open a correction pair ("✗ ... ✓ ...").
+_PAIR_CROSSES = frozenset("✘✗✖❌❎")
 
 
 def _tick_bullet(text: str, at: int) -> bool:
@@ -5773,6 +6133,11 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
             if kind == "bracket":
                 info["host_computation"] = host_computation
                 info["bracket_after_content"] = bracket_after_content
+            words0 = [x for x in toks if not x.punct]
+            if words0 and len(words0) <= 2 and all(x.w.startswith("zzmark") for x in words0):
+                # a mark read as a sentence of its own: the rest of its line, for a mark that heads a quoted language example
+                # (:func:`_example_mark_line`; check round 12 of c3f)
+                info["line_rest"] = line_rest(s, b)
             # in a marking task, a sentence that credits the pipeline, a tool or another agent ("Overseer agreement: 16/16", "Another
             # model independently arrived at the same figures.") is read as outside one: marking relaxes only verdicts on the
             # student's work, never a credit to the platform (attack round 5)

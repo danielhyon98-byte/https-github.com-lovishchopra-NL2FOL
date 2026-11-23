@@ -94,6 +94,10 @@ def _pair_reference(toks: list, i: int) -> bool:
 
 
 def test_the_tick_of_a_correction_pair_is_read_as_before_from_one_pass_over_the_clause():
+    # (rewritten to the stricter rule of c3f, the push check of a9129c78: the c3e condition freed any tick after a cross, so a tick
+    # on the answer's own value was free; the tick is now free only in a correction pair of language. This test asserted equality
+    # with the c3e condition; it now asserts that the reading never frees a tick the c3e condition gated, and fixes the value of the
+    # named forms both ways)
     from epinoic_logic.selfcert.reader import _pair_word_after_cross, _tick_of_correction_pair, _tokens
     rng = random.Random(1122)
     pieces = ["zzmarkpos", "zzmarkneg", '"', "«", "»", ",", ".", "→", "ella", "es", "está", "cansada", "the", "answer", "this",
@@ -105,5 +109,16 @@ def test_the_tick_of_a_correction_pair_is_read_as_before_from_one_pass_over_the_
         toks = _tokens(s, 0, len(s))
         cut = _pair_word_after_cross(toks)
         for i, t in enumerate(toks):
-            if t.w == "zzmarkpos":
-                assert _tick_of_correction_pair(toks, i, cut) == _pair_reference(toks, i), (s, i)
+            if t.w == "zzmarkpos" and _tick_of_correction_pair(toks, i, cut):
+                assert _pair_reference(toks, i), (s, i)
+    fixed = {'zzmarkneg "Ella es cansada" → zzmarkpos "Ella está cansada"': True,
+             "zzmarkneg Ella es cansada zzmarkpos Ella está cansada": True,
+             'zzmarkneg "I has went" zzmarkpos "I have gone"': True,
+             "zzmarkneg 1918 zzmarkpos 1919": False, "zzmarkneg x = 3 zzmarkpos x = 4": False,
+             "zzmarkneg x = 3 → zzmarkpos x = 4": False, "zzmarkneg 0 errors zzmarkpos 42": False,
+             "zzmarkneg wrong zzmarkpos 4.2 m/s": False, "zzmarkneg 3 zzmarkpos 4": False,
+             "zzmarkneg draft zzmarkpos final , 1919": False}
+    for s, want in fixed.items():
+        toks = _tokens(s, 0, len(s))
+        i = next(k for k, t in enumerate(toks) if t.w == "zzmarkpos")
+        assert _tick_of_correction_pair(toks, i, _pair_word_after_cross(toks)) is want, s

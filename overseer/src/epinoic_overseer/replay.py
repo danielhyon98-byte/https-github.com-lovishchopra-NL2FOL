@@ -32,6 +32,9 @@
   (the job it was running is recorded with an error, the jobs it never took are sent to the new worker); a worker that
   never starts a job after ``MAX_WORKER_RESTARTS`` replacements leaves every outstanding job with an error. Every one of
   these outcomes is a replay that did not reproduce the status (AUDIT-005 for a definitive original), never agreement.
+* **Lifetime.** The worker never outlives the process that started it (c3f): it watches its parent's sentinel and exits
+  at once when the parent is gone, also after a SIGTERM or SIGKILL that skips ``close`` and ``atexit``
+  (:func:`_exit_with_parent`). Nothing is left reading its messages then, so no result, message or budget changes.
 * **Deferred work.** ``submit_task`` queues a deterministic callable (R2 re-derivation) that runs in a background
   thread in ``process`` mode and at drain time (or at once, with ``eager``) in ``inline`` mode. ``tasks="inline"`` (the
   overseer port's choice, ``port.py``) keeps the replays in the worker process and runs the deferred work in this process
@@ -47,6 +50,8 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import multiprocessing.connection
+import os
 import queue
 import threading
 import time
@@ -205,10 +210,35 @@ def _warm_reader() -> None:
         pass
 
 
+def _exit_with_parent() -> None:  # pragma: no cover - runs in the spawned process
+    """Make this worker exit as soon as the process that started it is gone (c3f). The worker waits on its jobs queue, and
+    it holds that queue's write end itself, so ``jobs.get()`` never sees end of file when the parent dies; a parent killed
+    by SIGTERM or SIGKILL runs no ``atexit`` and never sends the ``None`` that ends the loop. Such a worker, and the
+    resource tracker whose pipe it keeps open, stayed alive and idle for good. A daemon thread therefore waits on the
+    parent's sentinel (:func:`multiprocessing.parent_process`, the pipe the parent holds open while it lives; ready
+    exactly when ``parent_process().is_alive()`` turns false) and ends the process at once, while idle or in a job: no
+    reader of its messages is left, so no job's result, generation message or budget changes. A worker started outside
+    ``multiprocessing`` (no parent process) is left as it is."""
+    parent = multiprocessing.parent_process()
+    if parent is None or parent.sentinel is None:
+        return
+
+    def watch() -> None:
+        try:
+            multiprocessing.connection.wait([parent.sentinel])
+        except Exception:  # noqa: BLE001 - a sentinel that cannot be waited on is taken as a parent that is gone
+            pass
+        os._exit(0)  # never the interpreter's exit path: it would join queue feeder threads no reader will drain
+
+    threading.Thread(target=watch, name="overseer-replay-parent-watch", daemon=True).start()
+
+
 def _worker_main(jobs: Any, results: Any, gen: int = 0) -> None:  # pragma: no cover - runs in the spawned process
     """The worker loop. Every message names the worker's generation: ``(gen, "started", jid, None, None)`` when it takes a
     job from its queue (the job's budget starts then), ``(gen, "done", jid, result_json, error)`` when it has finished. The
-    reader is warmed first (:func:`_warm_reader`), before any job is taken."""
+    worker first starts its parent watch (:func:`_exit_with_parent`: it exits when its parent is gone), then warms the
+    reader (:func:`_warm_reader`), before any job is taken."""
+    _exit_with_parent()
     _warm_reader()
     while True:
         item = jobs.get()

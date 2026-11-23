@@ -172,6 +172,10 @@ def _status_tail(tail: str) -> bool:
 _PLAIN_RUN_RE = re.compile("[^\u201c\u00ab\u201d\u00bb\"'\u2018\u2019\n.!?]+")
 
 
+#: A line break, or a single closing mark after a non-blank and before no letter or digit (the end of a single-quoted span).
+_SINGLE_CLOSE_RE = re.compile("\n|(?<=\\S)['\u2019](?![^\\W_])")
+
+
 def sentence_spans(s: str, a: int, b: int) -> list[tuple[int, int]]:
     """The sentences of ``s[a:b]`` (rule S2): split at ".", "!", "?" followed by a blank or the end, never inside a number, after
     an abbreviation or an initial, or inside a quotation; a line break inside a piece is a blank. One pass."""
@@ -182,6 +186,7 @@ def sentence_spans(s: str, a: int, b: int) -> list[tuple[int, int]]:
     straight_end = -1  # the closing mark of a straight-quoted span ("Tested. Approved. Trusted.") inside which no sentence ends
     text_since_start = False  # whether s[start:i] holds a non-blank character (kept as a flag: stripping a growing slice of a run
     # of line breaks was quadratic)
+    close_at = -1  # the first single closing mark or line break after the last opener searched from (b: none)
     while i < b:
         m = _PLAIN_RUN_RE.match(s, i, b)
         if m is not None:
@@ -208,11 +213,13 @@ def sentence_spans(s: str, a: int, b: int) -> list[tuple[int, int]]:
             # a single-quoted span ('Tested. Trusted. Proven.'): its closing mark follows a non-blank and precedes a non-letter (an
             # apostrophe inside a word, "can't", never closes it); bounded look-ahead, one line
             end = min(b, i + 300)
-            k = i + 1
-            while k < end and s[k] != "\n":
-                if s[k] in "'\u2019" and not s[k - 1].isspace() and (k + 1 >= b or not s[k + 1].isalnum()):
-                    break
-                k += 1
+            # the first line break or closing mark after the opener, found by a regular-expression search and kept until the scan
+            # passes it (never a step per character: a run of openers, "‘a ‘a ‘a ...", stepped up to 300 characters from each;
+            # c3f check round 12): each character is searched once
+            if close_at <= i:
+                close_m = _SINGLE_CLOSE_RE.search(s, i + 1, b)
+                close_at = close_m.start() if close_m is not None else b
+            k = close_at if close_at < end else end
             if k < end and s[k] in "'\u2019" and any(x in s[i:k] for x in ".!?"):
                 straight_end = k
         if ((c in "'\u2019\"" and i == straight_end) or (c in "\u201d\u00bb" and depth_q == 0)) and i > start and \

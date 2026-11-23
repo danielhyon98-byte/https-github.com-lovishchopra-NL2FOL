@@ -128,6 +128,9 @@ _CUE_RE = re.compile(
 #: 'named after', 'modelled after', 'look after', 'take after': not an ordering.
 _NOT_A_CUE_BEFORE_RE = re.compile(r"\b(?:named|modelled|modeled|look(?:s|ed|ing)?|called|take[sn]?|took|taking|chase[sd]?|pattern(?:ed)?|styled|sought|seek(?:s|ing)?|run|ran|running|go(?:es|ing)?|went)\s+$", re.IGNORECASE)
 _CLAUSE_BREAK_RE = re.compile(r";|:|,\s+(?:and|but|while|whereas|yet|so)\b|\b(?:but|while|whereas)\b", re.IGNORECASE)
+#: A cue right after a coordinator and its comma ('... in 2005 and, after coal declined, about 42 GJ in 2025'): it opens an adverbial
+#: clause fronted in the next clause.
+_FRONTED_CUE_BEFORE_RE = re.compile(r"\b(?:and|but|yet|so|then)\s*+,\s*+$", re.IGNORECASE)
 _RELATIVE_CLAUSE_RE = re.compile(r"\b(?:which|who|whom|whose|that)\b", re.IGNORECASE)
 _RELATIVE_START_RE = re.compile(r"^\s*(?:which|who|whom|whose|that)\b", re.IGNORECASE)
 #: A comma-delimited aside that opens with a bare participle: ', founded in January 1919,' / ', fought on 18 June 1815,'.
@@ -1030,6 +1033,21 @@ def _cue_relations(sentence: str, context: Optional[str] = None) -> list[Chronol
                 # object here; the dates after the comma belong to the list ('including', 'among them'), never to the order, and the dates
                 # before it to the subject's own span
                 continue
+        if _FRONTED_CUE_BEFORE_RE.search(left_text):
+            # '..., and, after coal declined, about 42 GJ in 2025': the cue opens an adverbial clause fronted in the next coordinated
+            # clause, so it orders that clause's event (after the comma closing the cue's phrase) against the phrase's own event, never
+            # the date before the coordinator (check round 12 of c3f had read 'after' as 2005 later than 2025); a side with no date
+            # gives no relation
+            k = right_text.find(",")
+            if k >= 0:
+                obj_tokens = _tokens(right_text[:k])
+                main = right_text[k + 1:]
+                main_break = _CLAUSE_BREAK_RE.search(main)
+                main_tokens = _tokens(main[: main_break.start()] if main_break else main)
+                if obj_tokens and main_tokens:
+                    later, earlier = _orient_cue(cue, main_tokens[0], obj_tokens[-1])
+                    emit(resolve(cue, later, earlier, f"'{cue}' opens a clause fronted after the coordinator; it orders that clause's event"))
+            continue
         breaks = list(_CLAUSE_BREAK_RE.finditer(left_text))
         clause_start = breaks[-1].end() if breaks else 0
         left_clause = left_text[clause_start:]

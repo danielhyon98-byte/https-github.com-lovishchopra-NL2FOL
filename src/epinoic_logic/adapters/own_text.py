@@ -22,6 +22,16 @@ import re
 from typing import Optional, Sequence
 
 from .markdown import _ATTRIBUTION_BEFORE_RE
+from .markdown import INSTEAD_OF_WORDS as _MD_INSTEAD_OF_WORDS
+from .markdown import INSTEAD_IMPERATIVE_GAP_RE as _MD_INSTEAD_IMPERATIVE_GAP_RE
+from .markdown import INSTEAD_OF_LEAD_RE as _MD_INSTEAD_OF_LEAD_RE
+from .markdown import _BECOMES_GAP_RE as _MD_BECOMES_GAP_RE
+from .markdown import _BUT_GAP_RE as _MD_BUT_GAP_RE
+from .markdown import _CHANGE_BEFORE_RE as _MD_CHANGE_BEFORE_RE
+from .markdown import _FEEDBACK_BEFORE_RE as _MD_FEEDBACK_BEFORE_RE
+from .markdown import _NOT_BEFORE_RE as _MD_NOT_BEFORE_RE
+from .markdown import _WORD_CORRECTION_GAP_RE as _MD_WORD_CORRECTION_GAP_RE
+from .markdown import feedback_task
 from .markdown import CORRECTION_RIGHT_LABELS as _MD_CORRECTION_RIGHT_LABELS
 from .markdown import _FORM_JOIN_RE as _MD_FORM_JOIN_RE
 from .markdown import _FORM_NAMED_AFTER_RE as _MD_FORM_NAMED_AFTER_RE
@@ -31,7 +41,8 @@ from .markdown import _MODAL_FORM_BEFORE_RE as _MD_MODAL_FORM_BEFORE_RE
 from .markdown import _TRIGGER_AFTER_RE as _MD_TRIGGER_AFTER_RE
 from .markdown import find_quotation_spans
 
-__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "correction_originals", "correction_pairs", "credits_own_text", "own_model_spans", "quotes_own_wording", "unquoted_text", "own_text_kinds",
+__all__ = ["OWN_MODEL_RULE", "OWN_TEXT_RULE", "OWN_FORM", "OWN_FRAME", "CORRECTION_FREE", "CORRECTION_QUOTATION", "correction_originals", "correction_pairs",
+           "correction_reading", "credits_own_text", "own_model_spans", "quotes_own_wording", "unquoted_text", "own_text_kinds",
            "own_text_spans"]
 
 #: The two kinds of the writer's own quoted words (:func:`own_text_kinds`; round-10 leftover R10-OWN-TEXT-ONE-READER, one reader for
@@ -80,6 +91,9 @@ _CORRECTION_TAIL = 56
 #: follow the label ("Model (one sentence, to show range with your own content; not a replacement for your text):").
 _OWN_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:an?[ \t]{1,3})?(?:model|rewrite|rewritten|corrected|correction|"
                                   r"improved|revised|alternative|suggested|suggestion|topic|line[ \t]{1,3}of[ \t]{1,3}inquiry|better|stronger|right|correct|"
+                                  # (c3e leftovers, ll-t16: '- Weak: "x"' over '- Strong: "y"', 'Draft: "x". Final: "y"'; never a part of a
+                                  # text, 'Final line:', 'Strong opening:')
+                                  r"(?:strong|final)(?![ \t]{1,3}(?:line|opening|paragraph|sentence|stanza|verse|words?))|"
                                   # the correction's label in Spanish and French (c3d: 'Mal: "x". Bien: "y"', 'Correcto: "y"', 'Juste : "y"')
                                   r"bien|correct[oa]|corregid[oa]|correcci[oó]n|mejor|(?:forma|versi[oó]n|frase)[ \t]{1,3}(?:correcta|corregida)|"
                                   r"juste|corrig[ée]e?|mieux|"
@@ -104,7 +118,8 @@ _SUGGEST_BEFORE_RE = re.compile(r"\b(?:would|could|should|might)[ \t]{1,3}(?:nor
 _PHRASE_ONLY_AFTER_RE = re.compile(r"\A[ \t]{0,3}(?:is|are)[ \t]{1,3}(?:an?[ \t]{1,3})?(?:fixed[ \t]{1,3}|set[ \t]{1,3}|common[ \t]{1,3}|idiomatic[ \t]{1,3}|"
                                    r"colloquial[ \t]{1,3}|informal[ \t]{1,3}|everyday[ \t]{1,3})?(?:phrase|expression|idiom|collocation)s?\b", re.IGNORECASE)
 #: After the span: a suggested replacement ("instead of", "rather than"): a FRAME (:func:`own_text_kinds`).
-_PHRASE_AFTER_RE = re.compile(r"\A[ \t,]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than)\b", re.IGNORECASE)
+#: (push check of a9129c78: in every language the specialists write, ``markdown.INSTEAD_OF_WORDS``: 'en vez de', 'au lieu de')
+_PHRASE_AFTER_RE = re.compile(r"\A[ \t,]{0,3}(?:" + _MD_INSTEAD_OF_WORDS + r")(?!\w)", re.IGNORECASE)
 #: After the span: members of a class of forms ("and other wish or hope phrases").
 _CLASS_AFTER_RE = re.compile(r"\A[ \t,]{0,3}(?:and|or)[ \t]{1,3}other[ \t]{1,3}(?:[^\W\d_][\w-]{0,19}[ \t]{1,3}){0,4}(?:phrases|words|verbs|"
                              r"expressions|forms|triggers|structures|connectives|conjunctions)\b", re.IGNORECASE)
@@ -189,6 +204,68 @@ _USE_BEFORE_RE = re.compile(r"(?:^|[\n.!?;:(])[ \t*_>#-]{0,8}(?:(?:so|then|inste
 _NOT_THE_OTHER_AFTER_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:not|no)[ \t:]{1,3}[\"“‘«']", re.IGNORECASE)
 
 
+#: What may stand before a feedback frame's lead in the gap between two spans ('"x"; a stronger version is "y"').
+_FEEDBACK_LEAD_PREFIX_RE = re.compile(r"[\s*_`,;:.]*+(?:(?:a|an|the|una?|la|el|une|le)[ \t]{1,3})?", re.IGNORECASE)
+#: How many characters a feedback correction's gap may hold.
+_FEEDBACK_GAP_MAX = 60
+
+
+#: A feedback lead that names the span after it as the corrected wording in any task ('a stronger version is', 'the corrected sentence
+#: reads', 'lo correcto es', 'la forme correcte est'): it says what the writer recommends, never what a text does.
+_LEAD_ANY_TASK_RE = re.compile(r"(?:(?:stronger|better|clearer|improved|corrected|correct|right|revised|more[ \t]{1,3}\w+)[ \t]{1,3}(?:version|form|sentence|"
+                               r"phrase|phrasing|wording|word|option|line|clause)s?|lo[ \t]{1,3}(?:correcto|mejor)|(?:forma|versi[oó]n|frase|opci[oó]n)[ \t]{1,3}"
+                               r"(?:correcta|corregida|mejor)|mejor[ \t]{1,3}(?:forma|versi[oó]n|frase|opci[oó]n)|bonne[ \t]{1,3}forme|forme[ \t]{1,3}correcte|"
+                               r"meilleure[ \t]{1,3}(?:version|forme|phrase))\b", re.IGNORECASE)
+
+
+def _feedback_pair(text: str, spans: Sequence[tuple[int, int, str]], r: int, c: int, fb: bool) -> bool:
+    """Whether span ``c`` corrects span ``r`` right before it on its line by a correction written in words (c3e leftovers on ll-t16 and
+    sp-t16), the frames the role reader reads in a feedback task (``markdown._span_roles``). In any task: an imperative of changing
+    before the replaced wording ('Change "x" to "y"', 'Replace "x" with "y"', 'Rewrite "x" as "y"', 'Cambia "x" por "y"', 'Remplace
+    « x » par « y »'), 'Instead of "x", write "y"', and a lead that names the corrected wording ('You wrote "x"; a stronger version is
+    "y"', 'Escribiste «x»; lo correcto es «y»'); they say what the writer recommends, never what a text does. In a feedback task only
+    (``fb``, ``markdown.feedback_task``): '"x" becomes "y"', 'Your sentence "x" could become "y"' and 'Not "x" but "y"', 'No «x» sino
+    «y»', which in an analysis describe the text ('the "rose" becomes a "canker"', 'not "angry" but "resigned"'), so both spans stay
+    quotations there. The replaced span is then the wording an own correction replaces (:func:`correction_pairs`) and the correction a
+    FRAME, both decided with the supplied texts in view as any own correction (``sources.own_model_words``, INV-Q1). Bounded windows."""
+    if not (0 <= r < c < len(spans)) or spans[r][1] > spans[c][0]:
+        return False
+    gap = text[spans[r][1]:spans[c][0]]
+    if len(gap) > _FEEDBACK_GAP_MAX or "\n" in gap:
+        return False
+    before_r = text[max(0, spans[r][0] - 60):spans[r][0]].rstrip(" \t*_`")
+    if _MD_WORD_CORRECTION_GAP_RE.match(gap):
+        word = gap.strip(" \t*_`:,").lower()
+        if word in ("to", "into", "with", "by", "as", "por", "par", "con", "en"):
+            return _MD_CHANGE_BEFORE_RE.search(before_r) is not None
+        return fb
+    if _MD_BECOMES_GAP_RE.match(gap):
+        return fb
+    if _MD_BUT_GAP_RE.match(gap):
+        return fb and _MD_NOT_BEFORE_RE.search(before_r) is not None
+    if _MD_INSTEAD_IMPERATIVE_GAP_RE.fullmatch(gap):
+        return _MD_INSTEAD_OF_LEAD_RE.search(text, max(0, spans[r][0] - 60), spans[r][0]) is not None
+    if _WROTE_THEN_WRITE_GAP_RE.fullmatch(gap):
+        # 'You wrote "x"; write "y" instead', 'Escribiste «x»; escribe «y»' (check round 12 of c3f, sp-t16): the student's wording,
+        # then the imperative that gives its correction, in any task
+        return _STUDENT_WROTE_BEFORE_RE.search(before_r) is not None
+    lead = _MD_FEEDBACK_BEFORE_RE.search(gap)
+    if lead is None or _FEEDBACK_LEAD_PREFIX_RE.fullmatch(gap, 0, lead.start()) is None:
+        return False
+    return fb or _LEAD_ANY_TASK_RE.match(gap, lead.start()) is not None
+
+
+#: The student's own words, credited to the student in a feedback task ('You wrote "x"', 'Escribiste «x»', 'Tu as écrit « x »'): the
+#: wording a correction replaces, which an own correction may pair (:func:`_replaced_partner`), never a text's.
+_STUDENT_WROTE_BEFORE_RE = re.compile(r"(?:\byou(?:[ \t]{1,3}have)?[ \t]{1,3}(?:wrote|written|write|put|said)|\b(?:escribiste|pusiste|dijiste|has[ \t]{1,3}escrito)"
+                                      r"|\btu[ \t]{1,3}as[ \t]{1,3}(?:écrit|mis|dit)|\bvous[ \t]{1,3}avez[ \t]{1,3}(?:écrit|mis|dit))[ \t]{0,3}[,:]?\Z", re.IGNORECASE)
+
+
+#: The gap between the student's wording and the imperative that gives its correction ('You wrote "x"; write "y" instead').
+_WROTE_THEN_WRITE_GAP_RE = re.compile(r"[\s*_`]*+[;,.][ \t]{0,3}(?:(?:so|then|instead|please),?[ \t]{1,3})?(?:write|use|put|say|try|escribe|escriba|"
+                                      r"usa|pon|di|écris|écrivez|mets|mettez)[ \t]{0,3}:?[\s*_`]*+", re.IGNORECASE)
+
+
 def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None) -> list[Optional[str]]:
     """THE reader of the writer's own quoted words (rules ``own-model`` and ``own-text``; round-10 leftover R10-OWN-TEXT-ONE-READER:
     the channel, the packs and the transfer auditor read them with this one function): per quotation span of ``text`` (``spans``,
@@ -204,6 +281,7 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
     if not spans:
         return []
     form = _form_flags(text, spans)
+    fb = feedback_task(None)
     breaks = [m.end() for m in _PARAGRAPH_BREAK_RE.finditer(text)]
     invented = [m.start() for m in _INVENTED_EXAMPLE_RE.finditer(text)]
     kinds: list[Optional[str]] = [OWN_FORM if f else None for f in form]
@@ -220,7 +298,8 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
             kinds[i] = OWN_FORM
         elif (_CORRECTION_BEFORE_RE.search(before, max(0, len(before) - _CORRECTION_TAIL)) or _OWN_LABEL_BEFORE_RE.search(before) or _PHRASE_AFTER_RE.match(after)
               or _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start])
-              or (_USE_BEFORE_RE.search(before) and _NOT_THE_OTHER_AFTER_RE.match(after))):
+              or (_USE_BEFORE_RE.search(before) and _NOT_THE_OTHER_AFTER_RE.match(after))
+              or (i > 0 and _feedback_pair(text, spans, i - 1, i, fb))):
             kinds[i] = OWN_FRAME
         elif i > 0 and kinds[i - 1] is not None and _LIST_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE]):
             kinds[i] = kinds[i - 1]  # a list continuing an own span ('"Y" or "Z"', '"a", "b", "c"')
@@ -243,8 +322,8 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
 _CORRECTION_GAP_RE = re.compile(r"\A[*_ \t]{0,6}" + _CORRECTION_MARKS + r"[ \t*_]{0,6}\Z", re.IGNORECASE)
 #: The gap between the writer's own form and the wording it replaces, offered after it ('"y" rather than "x"', '"y" instead of "x"',
 #: '"y", not "x"').
-_REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:instead[ \t]{1,3}of|rather[ \t]{1,3}than|not|no|en[ \t]{1,3}lugar[ \t]{1,3}de|"
-                              r"en[ \t]{1,3}vez[ \t]{1,3}de)[ \t:]{0,3}\Z", re.IGNORECASE)
+_REPLACED_GAP_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:" + _MD_INSTEAD_OF_WORDS + r"|(?:et[ \t]{1,3})?(?:not|no|non|pas))[ \t:]{0,3}\Z",
+                              re.IGNORECASE)
 
 
 #: The label of the wording a correction replaces, at the start of a line or sentence ('- Wrong: "x"', 'Incorrect form: "x"',
@@ -278,10 +357,12 @@ def _replaced_partner(text: str, spans: Sequence[tuple[int, int, str]], kinds: S
     if not inner.strip() or kinds[i] is not None:
         return None
     before = text[max(0, start - 40):start].rstrip(" \t*_")
-    if _ATTRIBUTION_BEFORE_RE.search(before) and not _IMPERATIVE_WRITE_BEFORE_RE.search(before):
+    fb = feedback_task(None)
+    if (_ATTRIBUTION_BEFORE_RE.search(before) and not _IMPERATIVE_WRITE_BEFORE_RE.search(before)
+            and not _STUDENT_WROTE_BEFORE_RE.search(before)):
         return None
     if (i + 1 < len(spans) and kinds[i + 1] == OWN_FRAME and end <= spans[i + 1][0]
-            and _CORRECTION_GAP_RE.match(text[end:spans[i + 1][0]][:_OWN_TEXT_BEFORE])):
+            and (_CORRECTION_GAP_RE.match(text[end:spans[i + 1][0]][:_OWN_TEXT_BEFORE]) or _feedback_pair(text, spans, i, i + 1, fb))):
         return i + 1  # '"x" -> "y"'
     if (i > 0 and kinds[i - 1] is not None and spans[i - 1][1] <= start
             and _REPLACED_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE])):
@@ -312,6 +393,88 @@ def correction_pairs(text: str, spans: Optional[Sequence[tuple[int, int, str]]] 
         j = _replaced_partner(text, spans, kinds, i)
         if j is not None:
             out.append((i, None if j == _UNSEEN else j))
+    return out
+
+
+#: The roles :func:`correction_reading` gives the halves of an own correction.
+CORRECTION_FREE = "free"
+CORRECTION_QUOTATION = "quotation"
+#: A neutral label of the replaced half ('Before:', 'Original:', 'Draft:', 'Antes:', 'Borrador:', 'Avant :'): it does not call the
+#: wording wrong, so it never disclaims it (an altered quotation of a supplied text under it stays a quotation, INV-Q1).
+_NEUTRAL_LABEL_BEFORE_RE = re.compile(r"(?:^|[\n.!?;])[ \t*_>#-]{0,8}(?:before|original|draft|first[ \t]{1,3}draft|antes|original|borrador|avant|"
+                                      r"brouillon)(?:[ \t]{1,3}(?:version|sentence|wording|versi[oó]n|frase))?[ \t]{0,3}[*_]{0,2}[ \t]{0,3}:[ \t]{0,3}[*_]{0,2}\Z",
+                                      re.IGNORECASE)
+#: Fewest words of a corrected half read against the supplied texts (a shorter one is a phrase any text may share).
+_SOURCE_CORRECTION_MIN_WORDS = 3
+
+
+def correction_reading(text: str, docs: "dict[str, str]", spans: Optional[Sequence[tuple[int, int, str]]] = None,
+                       kinds: Optional[Sequence[Optional[str]]] = None) -> dict[int, str]:
+    """The halves of the answer's own corrections read by ROLE against the supplied texts (``docs``: document id -> text), by span
+    index of ``text`` (``spans``, default :func:`markdown.find_quotation_spans`). Push check of a9129c78 (the critical-fixes lens and the
+    challenger, ll-t16): the replaced half and the corrected half were read alike, so a correction that restores a source's exact
+    wording ('Wrong: "Not every kitchen has a home." Right: "Not every kitchen has a door."') was charged ES-SRC-001 and INT-REQ-003 at
+    error on its replaced half, while a corrected half that alters the source ('Mal: "Made with love." Bien: "Made with care. Finished
+    with care."') drew nothing. Now, for each pair of :func:`correction_pairs` with both halves in ``text``:
+
+    * :data:`CORRECTION_FREE` for the replaced half when the corrected half presents a supplied text's wording EXACTLY (of three
+      words or more) and the replaced half is a near version of that text (all its words but one or two) that no supplied text
+      holds: the writer's own example of the misquotation it corrects. A neutral label ('Before:', 'Original:', 'Draft:') does not
+      call the wording wrong, so it frees nothing (INV-Q1: an altered quotation under it stays one);
+    * :data:`CORRECTION_QUOTATION` for the corrected half when it presents the SOURCE's wording, so it is checked against the source
+      like any quotation: it is of three words or more, no supplied text holds it, a supplied text holds all its words but one or two
+      (an altered quotation of that text), and the replaced half is not the student's own wording a supplied text holds outside its
+      quotation marks (a marking correction of the student's email, 'Mal: "El primer semana fue difícil". Bien: "La primera semana
+      fue difícil"', is the writer's correction): either no supplied text holds the replaced half, or one holds it inside its own
+      quotation marks (the advert's slogan the notes quote, 'Before: "Every kitchen has a story." After: "Every kitchen has a
+      secret."'), whose wording is the quoted source's and never the student's to correct.
+
+    Every other half keeps its reading. Linear in the spans; each half is read against each text once."""
+    from ..translate.grounding import locate_excerpt
+    from .sources import SuppliedText, nearest_text
+    text = text or ""
+    if not docs:
+        return {}
+    spans = list(find_quotation_spans(text) if spans is None else spans)
+    pairs = [(r, c) for r, c in correction_pairs(text, spans, kinds) if c is not None]
+    if not pairs:
+        return {}
+    supplied = {d: SuppliedText(document_id=d, title=None, author=None, text=t) for d, t in docs.items()}
+    quoted_cache: dict[str, list[str]] = {}
+
+    def strip(ex: str) -> str:
+        return ex.strip().strip(".,;:!?").strip()
+
+    def held(ex: str) -> list[str]:
+        return [d for d, t in docs.items() if locate_excerpt(ex, t) is not None]
+
+    def near(ex: str) -> Optional[str]:
+        words = len(ex.split())
+        doc, missing = nearest_text(ex, supplied)
+        return doc if doc is not None and 0 < len(missing) <= 2 and len(missing) < words else None
+
+    def held_quoted(ex: str, doc_id: str) -> bool:
+        if doc_id not in quoted_cache:
+            quoted_cache[doc_id] = [inner.casefold() for _a, _b, inner in find_quotation_spans(docs[doc_id])]
+        key = ex.casefold()
+        return any(key in inner for inner in quoted_cache[doc_id])
+
+    out: dict[int, str] = {}
+    for r, c in pairs:
+        ex_r, ex_c = strip(spans[r][2]), strip(spans[c][2])
+        if not ex_r or not ex_c or len(ex_c.split()) < _SOURCE_CORRECTION_MIN_WORDS:
+            continue
+        holders_r, holders_c = held(ex_r), held(ex_c)
+        if holders_c and not holders_r:
+            if near(ex_r) in holders_c and not _NEUTRAL_LABEL_BEFORE_RE.search(text, max(0, spans[r][0] - _OWN_TEXT_BEFORE), spans[r][0]):
+                out[r] = CORRECTION_FREE
+            continue
+        if holders_c:
+            continue
+        if holders_r and not any(held_quoted(ex_r, d) for d in holders_r):
+            continue  # the student's own wording corrected: the writer's correction
+        if near(ex_c) is not None:
+            out[c] = CORRECTION_QUOTATION
     return out
 
 

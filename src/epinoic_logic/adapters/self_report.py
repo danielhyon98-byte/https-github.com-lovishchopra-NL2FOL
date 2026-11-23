@@ -313,8 +313,10 @@ def mask_outside_quotations(text: str) -> str:
         for i in range(a, b):
             if not out[i].isspace() and out[i] not in ".!?":
                 out[i] = "x"
-        out[a] = " "
-        out[b - 1] = " "
+        # (a mark next to a blank becomes part of the masked run, never a second blank: two blanks read as a column gap and cut
+        # "«comprobado» se dice 'checked'" in two, its gloss frame lost; check round 12 of c3f)
+        out[a] = "x" if a > 0 and text[a - 1].isspace() else " "
+        out[b - 1] = "x" if b < len(text) and text[b].isspace() else " "
     return "".join(out)
 
 

@@ -278,7 +278,8 @@ def build(raw: dict) -> Lexicon:
 
 def fuzzy_targets(lex: "Lexicon") -> set[str]:
     """The words rule N9 reads misspelt: the family words (a light verb's family forms too: "passed", "signed", "checks") and the
-    part words of six letters or more, and "every", "nothing", "nobody". A production verb ("calculated") is not a target."""
+    part words of six letters or more, and "every", "nothing", "nobody", "everything" (c3f: "Evrything was verfied."). A production
+    verb ("calculated") is not a target."""
     targets: set[str] = set()
     for w, tg in lex.words.items():
         if not w.isalpha() or "lang:es" in tg:
@@ -286,7 +287,7 @@ def fuzzy_targets(lex: "Lexicon") -> set[str]:
         family = any(t.startswith("F:") for t in tg) and "prod" not in tg
         # (the answer's own genre nouns too, "answer", "response", "solution": a misspelt subject, "This anwser was thoroughly
         # cheked.", names the answer as the word it misspells; check round 9 of c3c)
-        if (len(w) >= 6 and (family or "C:part" in tg or "C:genre_strong" in tg)) or w in ("every", "nothing", "nobody"):
+        if (len(w) >= 6 and (family or "C:part" in tg or "C:genre_strong" in tg)) or w in ("every", "nothing", "nobody", "everything"):
             targets.add(w)
     return targets
 

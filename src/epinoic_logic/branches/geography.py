@@ -34,6 +34,8 @@ kind                      statement read                                        
 ``geo_word_count``        a word count the answer states of itself                                 INT-SUBJ-004
 ``geo_dimension_area``    an area stated with the two dimensions it is the product of              INT-SUBJ-001
 ``geo_depth_volume``      a volume stated with a depth of water and the area it covers             INT-SUBJ-001
+``geo_share_part``        a part stated with its share of a whole and the whole ('8% of the 24 km² INT-SUBJ-001
+                          catchment, about 1.9 km²')
 ``geo_clock_interval``    an interval (or a lag time) between two events whose clock times the     INT-SUBJ-001
                           request gives for one label
 ``geo_table_derived``     a share row's amount in the total row's unit, a figure per person, a     INT-SUBJ-001 credited,
@@ -55,6 +57,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
+from bisect import bisect_left, bisect_right
 from functools import lru_cache
 from typing import Optional
 
@@ -278,6 +281,8 @@ class _Ctx:
     #: statements the bounds left unread, by kind (attack round 3: a statement past MAX_PER_KIND or MAX_PER_REPORT is named on
     #: the receipt by :func:`_bound_finding`, never dropped silently)
     dropped: dict = field(default_factory=dict)
+    #: the request's text, for a figure's object the request never names with that figure (check round 12 of c3f)
+    request_text: str = ""
 
     def room(self, kind: str) -> bool:
         return self.counts.get(kind, 0) < MAX_PER_KIND and len(self.checks) < MAX_PER_REPORT
@@ -533,6 +538,9 @@ _QTY_UNIT = r"(?P<{g}u>kJ|MJ|GJ|TJ|PJ|EJ|kWh|MWh|GWh|TWh|Wh|J|kg|tonnes?|Mt|t)(?
 _PER_CAPITA_RE = re.compile(r"\bper\s++(?:capita|person|head)\s*+(?:of|is|was|=|:|,|at)?\s*+(?:about\s+|around\s+|roughly\s+|approximately\s+)?"
                             + _num_re("x", currency=True) + r"(?:\s*+" + _QTY_UNIT.format(g="x") + r")?"
                             + r"|" + _num_re("y", currency=True) + r"(?:\s*+" + _QTY_UNIT.format(g="y") + r")?\s++(?:per\s++(?:capita|person|head)|a\s++head)\b", re.IGNORECASE)
+#: A total divided among the population right after it ("1,050 PJ shared among 24.9 million people", "divided by 24.9 million").
+_SHARED_AMONG_RE = re.compile(r"\s*+(?:shared|divided|spread|split)\s++(?:among|amongst|between|by|over)\s++(?:about\s+|around\s+|roughly\s+)?\d",
+                              re.IGNORECASE)
 _QTY_TOTAL_RE = re.compile(_num_re("v") + r"\s*+" + _QTY_UNIT.format(g="v"))
 _TOTAL_RE = re.compile(_num_re("v", currency=True), re.IGNORECASE)
 
@@ -560,6 +568,11 @@ def _per_capita(ctx: _Ctx, s: _Sentence) -> None:
             return
         tot = _fig(qt[0][0], "v", s.text)
         factor = qt[0][1] / fx
+        if pm.group("x") and _SHARED_AMONG_RE.match(s.text, pm.end()) and pm.end() <= p.start:
+            # 'per person, 1,050 PJ shared among 24.9 million people, was about 42 GJ': the figure after the comma is the total being
+            # divided, the other one the figure per person (check round 12 of c3f had charged the correct 42 GJ)
+            x, tot = tot, x
+            factor = fx / qt[0][1]
     else:
         totals = [_fig(m, "v", s.text) for m in _TOTAL_RE.finditer(s.text) if m.group("vcur") and not (pm.start() <= m.start("v") < pm.end())]
         if x.currency:
@@ -1043,7 +1056,13 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
         if _NOT_A_CELL_BEFORE_RE.search(before) or _NOT_A_CELL_AFTER_RE.match(text[t.end():t.end() + 40]) or \
                 _DERIVED_BEFORE_RE.search(text[max(0, t.start() - 48):t.start()]):
             continue
-        near = sorted((abs(j - i), c) for j, c in colpos if abs(j - i) <= 4)
+        # a column named after the figure beyond a clause cut is another clause's ('The pedestrian count at site 4 was 97, and the EQS
+        # fell by 13 points' reads 97 as the count, never as the EQS: check round 12 of c3f); with no column near, the one its own clause
+        # names before it
+        near = sorted((abs(j - i), c) for j, c in colpos if abs(j - i) <= 4 and not (j > i and _CELL_CLAUSE_CUT_RE.search(text, t.end(), toks[j].start())))
+        if not near:
+            own = [(i - j, c) for j, c in colpos if i - 8 <= j < i and not _CELL_CLAUSE_CUT_RE.search(text, toks[j].end(), t.start())]
+            near = own[-1:]
         if near and len(near) > 1 and near[0][0] == near[1][0] and near[0][1] != near[1][1]:
             continue
         col = near[0][1] if near else None
@@ -1110,6 +1129,9 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
                     claim_ids=_claims(ctx.report, s.text, shown), severity=severity, defect="source_mismatch"))
 
 
+_CELL_CLAUSE_CUT_RE = re.compile(r"[,;:]|\b(?:while|whilst|whereas|but)\b", re.IGNORECASE)
+
+
 _TABLE_COUNT_RE = re.compile(r"\b(?:(?:the|your|my|our)\s+(?:data\s+)?table\s+(?:shows?|has|lists?|gives?|contains?|records?|covers?)|data\s+from|my|our|there\s+are)\s++"
                              r"(?P<n>" + _WORD_NUMBER + r"|\d{1,3})\s++(?P<noun>[a-z]{2,20})\b", re.IGNORECASE)
 
@@ -1154,6 +1176,12 @@ _TIMES_PAIR_RE = re.compile(r"(?P<ap>\babout\s++|\baround\s++|\broughly\s++|\bne
 #: "about 160 times Christchurch's 185 deaths (300,000 ÷ 185)": a multiple with its division in brackets.
 _TIMES_DIV_RE = re.compile(r"(?P<ap>\babout\s++|\baround\s++|\broughly\s++|\bnearly\s++|\balmost\s++)?(?P<n>" + _WORD_NUMBER + r"|" + _NUM + r")\s++times\b"
                            r"[^.;()]{0,80}?\(\s*+(?P<a>" + _NUM + r")\s*+(?:÷|/)\s*+(?P<b>" + _NUM + r")\s*+\)", re.IGNORECASE)
+
+#: "300,000 deaths is about 160 times Christchurch's 185": a figure stated as a multiple of another figure the sentence writes (check
+#: round 12 of c3f, ge-t16).
+_TIMES_OF_RE = re.compile(r"(?<![\d.,])(?P<a>" + _NUM + r")(?![\d,]\d|\.\d)(?:\s++[a-z]{1,15}){0,2}\s++(?:is|was|are|were)\s++"
+                          r"(?P<ap>about\s++|around\s++|roughly\s++|nearly\s++|almost\s++)?(?P<n>" + _WORD_NUMBER + r"|" + _NUM + r")\s++times\s++"
+                          r"(?:[A-Z][\w-]{1,30}['’]s\s++|the\s++|that\s++of\s++[A-Z][\w-]{1,30},?\s++)?(?P<b>" + _NUM + r")(?![\d,]\d|\.\d|\s*+[%)])")
 
 
 def _num(x: str) -> Fraction:
@@ -1215,7 +1243,7 @@ def _times_pair(ctx: _Ctx, s: _Sentence) -> None:
     """Attack round 3 (ge-t14): "N times as many ... (A against B)": the multiple equals A / B (within 10% after "about", else half a
     unit of the multiple written)."""
     from .grounded_figures import _half
-    for m in list(_TIMES_PAIR_RE.finditer(s.text)) + list(_TIMES_DIV_RE.finditer(s.text)):
+    for m in list(_TIMES_PAIR_RE.finditer(s.text)) + list(_TIMES_DIV_RE.finditer(s.text)) + list(_TIMES_OF_RE.finditer(s.text)):
         w = m.group("n")
         n = Fraction(_WORD_NUMBERS[w.lower()]) if w.lower() in _WORD_NUMBERS else _num(w)
         a, b = _num(m.group("a")), _num(m.group("b"))
@@ -1296,11 +1324,21 @@ def _from_to_percent(ctx: _Ctx, s: _Sentence) -> None:
             claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="stem_arithmetic_slip"))
 
 
-_BY_PERIOD_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<ap>about\s++|around\s++|roughly\s++)?(?P<n>" + _NUM + r")\s*+"
+_BY_PERIOD_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<rel>an?\s++(?:relative|proportional)\s++)?(?P<ap>about\s++|around\s++|roughly\s++)?(?P<n>" + _NUM + r")\s*+"
                            r"(?P<u>percentage\s+points?\b|points?\b|million\b|billion\b|thousand\b|%|per\s*+cent\b|percent\b)?[^.;\d]{0,30}?\b(?:between\s++(?P<y1>\d{4})\s++and\s++(?P<y2>\d{4})|"
                            r"from\s++(?P<z1>\d{4})\s++to\s++(?P<z2>\d{4}))", re.IGNORECASE)
-_BY_ALONE_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<ap>about\s++|around\s++|roughly\s++)?(?P<n>" + _NUM + r")\s*+(?P<u>percentage\s+points?\b)",
+_BY_ALONE_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<rel>(?!))?(?P<ap>about\s++|around\s++|roughly\s++)?(?P<n>" + _NUM + r")\s*+(?P<u>percentage\s+points?\b)",
                           re.IGNORECASE)
+
+
+#: A word that fixes a change "by N%" of a share row as the relative change, not the change in points.
+_RELATIVE_WORD_RE = re.compile(r"\b(?:relative|relatively|proportional|proportionally|in\s+relative\s+terms)\b", re.IGNORECASE)
+
+
+@lru_cache(maxsize=256)
+def _yt_index(text: str) -> "_YtIndex":
+    """The row index of a sentence, built once per sentence text for every year-table reader."""
+    return _YtIndex(text)
 
 
 #: What makes a change an AMOUNT of a share row's item: "energy from oil", "the amount of ...", "natural gas supply", "oil use".
@@ -1336,15 +1374,17 @@ def _table_change_by(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
     PJ between 2005 and 2025", "grew by 4.5 million between 2005 and 2025") or, in percentage points, over the row's two years ("The coal
     share fell by 16 percentage points"): the size equals the difference of the row's two cells (in the row's unit; a scale word the row
     states is the row's own)."""
-    from .grounded_figures import _entity_at, _half, _word_positions
-    hits = [(m, True) for m in _BY_PERIOD_RE.finditer(s.text)] + [(m, False) for m in _BY_ALONE_RE.finditer(s.text)
-                                                                 if not _BY_PERIOD_RE.search(s.text)]
+    from .grounded_figures import _half
+    dated_hits = [(m, True) for m in _BY_PERIOD_RE.finditer(s.text)]
+    # (whether the sentence states a period is decided once, never once per change: check round 12 of c3f timed the per-match search
+    # at 108 s for one 200k-character sentence)
+    hits = dated_hits or [(m, False) for m in _BY_ALONE_RE.finditer(s.text)]
     if not hits:
         return
-    where = _word_positions(s.text)
+    index = _yt_index(s.text)
     for table in year_tables:
         for m, dated in hits:
-            entity, _count = _entity_at(table, where, m.start())
+            entity = index.row(table, m.start())  # (the row the change's own clause names; push check of a9129c78)
             if not entity:
                 continue
             cells = {c.year: c for c in table.cells if c.entity == entity and c.year is not None}
@@ -1394,15 +1434,25 @@ def _table_change_by(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
             # × 100; of a row of shares it is either the relative change or the change in points (one reading holding is enough); any
             # other change is the difference of the cells (attack round 8: '16%' had been compared with 24.9 − 21.4)
             readings: list[tuple[Fraction, Fraction, str]] = []
+            relative = m.group("rel") is not None or _RELATIVE_WORD_RE.search(s.text, _yt_index(s.text).clause_start(m.start()), m.end()) is not None
             if per_cent:
                 if v1 == 0:
                     continue
                 rel = abs(v2 - v1) / abs(v1) * 100
                 rtol = max(_half(m.group("n").replace(",", "")), rel / 100, Fraction(1, 10))
                 readings.append((rel, max(rtol, rel / 20) if m.group("ap") else rtol, "the relative change (V1 − V0) / V0 × 100"))
-            if not per_cent or cells[y1].unit == "%":
-                tol = max(_half(m.group("n").replace(",", "")), cells[y1].half + cells[y2].half)
+            if not per_cent or (cells[y1].unit == "%" and not relative):
+                # the difference of the cells AS PRINTED, to half a unit of the figure stated: a band of the cells' own rounding (±1
+                # point for whole-number cells) had shown 'rose by 11 percentage points' as ENTAILED against 13 − 1 = 12 (check round
+                # 12 of c3f); a check never shows a figure the printed cells refute as checked
+                tol = _half(m.group("n").replace(",", ""))
                 readings.append((diff, max(tol, diff / 20) if m.group("ap") else tol, "the difference of its cells"))
+            if len(readings) > 1 and any(abs(n - v) <= t for v, t, _w in readings):
+                # push check of a9129c78: "The coal share fell by about 18% from 2005 to 2025" holds as the change in points (46 − 28) and
+                # not as the relative change (39%); its words fix neither reading ('percentage points' or 'points' for the difference,
+                # 'relative' for the ratio), so a figure that fits one of them is never shown as checked; one that fits neither is
+                # refuted under both
+                continue
             if not ctx.room("geo_table_change"):
                 return
             ctx.decided.add(" ".join(s.text.split()))
@@ -1417,6 +1467,179 @@ def _table_change_by(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
                 description=f"{_excerpt(s.text)} [a change of a supplied table's row equals {what} for the two years]",
                 claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="error", defect="source_mismatch"))
             return
+
+
+#: A change of an attribute table's column between two of its rows ("Retail use fell by 92 percentage points along the transect",
+#: "Pedestrian counts fell by about 91% from Site 1 to Site 10", "The EQS fell by 13 points from Site 1 to Site 10"); c3e left (ge-t14).
+_COL_CHANGE_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r"|shrank|dropped)\s++by\s++(?P<ap>about\s++|around\s++|roughly\s++|nearly\s++|almost\s++|approximately\s++)?"
+                            r"(?P<n>" + _NUM + r")\s*+(?P<u>percentage\s+points?\b|points?\b|%|per\s*+cent\b|percent\b)?", re.IGNORECASE)
+_COL_SPAN_RE = re.compile(r"\b(?:from|between)\s++(?:the\s+)?(?P<noun>[a-z]{3,12})s?\s++(?P<a>[a-z0-9]{1,3})\s++(?:to|and)\s++(?:(?P=noun)s?\s++)?(?P<b>[a-z0-9]{1,3})\b"
+                          r"|\b(?P<along>along\s+the\s+(?:whole\s+)?(?:transect|road|route|street|line)|from\s+the\s+first\s+(?:site|point|station)\s+to\s+the\s+last)\b",
+                          re.IGNORECASE)
+
+
+def _table_column_change(ctx: _Ctx, s: _Sentence, tables: list[_AttrTable]) -> None:
+    """c3e left (ge-t14): a change of one column of a supplied attribute table between two of its rows, the rows named by their label
+    ('from Site 1 to Site 10') or the whole table ('along the transect': its first and last rows), the column by its distinctive words
+    before the change verb. In points (or with no unit) it is the difference of the two cells; 'by N%' of a column held in per cent fixes
+    neither the relative change nor the change in points, so a figure that fits one of them is never shown as checked (as for a year
+    table's share); 'by N%' of any other column is the relative change."""
+    from .grounded_figures import _half, _number
+    # every change of the sentence is read, each with the column its own clause names (check round 12 of c3f: 'Pedestrian counts fell
+    # by 195 from Site 1 to Site 10, while the EQS fell by 3 points' had shown the first change ENTAILED and left the wrong second one
+    # unread)
+    prev = 0
+    for m in _COL_CHANGE_RE.finditer(s.text):
+        _column_change_at(ctx, s, tables, m, prev, _half, _number)
+        prev = m.end()
+
+
+_COL_CLAUSE_CUT_RE = re.compile(r"[,;:]|\b(?:while|whilst|whereas|but|and)\b", re.IGNORECASE)
+
+
+_APPROX_WORD = r"about\s++|around\s++|roughly\s++|approximately\s++|nearly\s++|almost\s++"
+#: "Site 2 had 35 more pedestrians per 10 minutes than Site 3": a difference of one column between two rows named by their label.
+_ROW_MORE_RE = re.compile(r"\b(?P<na>[a-z]{3,12})\s++(?P<a>[a-z0-9]{1,3})\s++(?:had|has|recorded|records|saw|sees|showed|shows|counted|scored)\s++"
+                          r"(?P<ap>" + _APPROX_WORD + r")?(?P<n>" + _NUM + r")\s++(?P<dir>more|fewer|less|higher|lower)\b(?P<words>[^.;]{0,60}?)"
+                          r"\bthan\s++(?:at\s++|in\s++|for\s++)?(?:(?P<nb>[a-z]{3,12})\s++)?(?P<b>[a-z0-9]{1,3})\b(?![.,]\d)", re.IGNORECASE)
+#: "Pedestrian counts at Site 1 were about eleven times those at Site 10": a multiple of one column between two rows.
+_ROW_TIMES_RE = re.compile(r"\b(?:at|in|for)\s++(?P<na>[a-z]{3,12})\s++(?P<a>[a-z0-9]{1,3})\s++(?:was|were|is|are)\s++(?P<ap>" + _APPROX_WORD + r")?"
+                           r"(?P<n>" + _WORD_NUMBER + r"|" + _NUM + r")\s++times\s++(?:those|that|the\s+[a-z]{3,15}|as\s+(?:high|many|much|large)\s+as)\s++"
+                           r"(?:at|in|for|of)\s++(?:(?P<nb>[a-z]{3,12})\s++)?(?P<b>[a-z0-9]{1,3})\b(?![.,]\d)", re.IGNORECASE)
+
+
+def _row_pair_comparison(ctx: _Ctx, s: _Sentence, tables: list[_AttrTable]) -> None:
+    """Check round 12 of c3f (ge-t14): a difference ('Site 2 had 35 more pedestrians than Site 3') or a multiple ('Pedestrian counts at
+    Site 1 were about eleven times those at Site 10') of one column of a supplied attribute table between two rows named by their
+    label, the column named by the distinctive words of the clause (after the comparison word for a difference, before 'at' for a
+    multiple). Read only when exactly one column is named and both rows are rows of the table under its row noun."""
+    from .grounded_figures import _half, _number
+    if " than " not in s.text and " times " not in s.text:
+        return
+    cuts: Optional[list] = None  # (the clause cuts, found once per sentence: never a scan of the sentence per comparison)
+    for kind, rx in (("more", _ROW_MORE_RE), ("times", _ROW_TIMES_RE)):
+        for m in rx.finditer(s.text):
+            if kind == "more":
+                words = m.group("words")
+            else:
+                if cuts is None:
+                    cuts = [c.end() for c in _COL_CLAUSE_CUT_RE.finditer(s.text)]
+                k = bisect_right(cuts, m.start())
+                words = s.text[cuts[k - 1] if k else 0:m.start()]
+            head = {_stem(w) for w in re.findall(r"[A-Za-z][A-Za-z'’-]{1,30}", words) if w.lower() not in _STOPWORDS}
+            for table in tables:
+                if not table.row_noun or not m.group("na").lower().startswith(table.row_noun[:4]):
+                    continue
+                if m.group("nb") and not m.group("nb").lower().startswith(table.row_noun[:4]):
+                    continue
+                cols = [k for k, (_h, st) in enumerate(table.columns) if st and st & head]
+                if len(cols) != 1:
+                    continue
+                labels = [lab.strip().lower() for lab, _cells in table.rows]
+                a, b = m.group("a").lower(), m.group("b").lower()
+                if a not in labels or b not in labels or a == b:
+                    continue
+                col = cols[0] + 1
+                ca, cb = _number(table.rows[labels.index(a)][1][col]), _number(table.rows[labels.index(b)][1][col])
+                if ca is None or cb is None:
+                    continue
+                va, vb = ca[0], cb[0]
+                w = m.group("n")
+                n = Fraction(_WORD_NUMBERS[w.lower()]) if w.lower() in _WORD_NUMBERS else _num(w)
+                h = _half(w.replace(",", "")) if w[0].isdigit() else Fraction(1, 2)
+                if kind == "more":
+                    value = (va - vb) if m.group("dir").lower() in ("more", "higher") else (vb - va)
+                    tol = max(h, abs(value) / 20) if m.group("ap") else h
+                    what = "the difference of the two rows' cells"
+                else:
+                    if vb == 0:
+                        continue
+                    value = va / vb
+                    tol = max(h, value / 10) if m.group("ap") else h
+                    what = "the ratio of the two rows' cells"
+                if not ctx.room("supplied_figure"):
+                    ctx.skip("supplied_figure")
+                    return
+                header = table.columns[cols[0]][0]
+                ctx.decided.add(" ".join(s.text.split()))
+                ctx.add("supplied_figure", lambda cid, n=n, value=value, tol=tol, m=m, header=header, table=table, va=va, vb=vb, what=what: make_check(
+                    ctx.report, check_id=cid, kind="supplied_figure", inputs=[("stated", n, f"the comparison stated ({m.group(0).strip()})")],
+                    conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(value)}), "right": _real(tol)},
+                    label=(f"{m.group('n')} against '{header}' of {table.document_id}, row {m.group('a')} ({_fmt(va)}) and row "
+                           f"{m.group('b')} ({_fmt(vb)})"),
+                    description=f"{_excerpt(s.text)} [a comparison of two rows of a supplied table's column equals {what}]",
+                    claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="warning", defect="source_mismatch"))
+                break
+
+
+def _column_change_at(ctx: _Ctx, s: _Sentence, tables: list[_AttrTable], m: "re.Match[str]", prev: int, _half, _number) -> None:
+    """One change of :func:`_table_column_change`: its column named by the words of its own clause (from the last cut before it, or
+    from the previous change), else, for the sentence's first change, by every word before it."""
+    span = _COL_SPAN_RE.search(s.text, m.end()) or _COL_SPAN_RE.search(s.text)
+    if span is None:
+        return
+    cuts = [c.end() for c in _COL_CLAUSE_CUT_RE.finditer(s.text, prev, m.start())]
+    lo = max([prev] + cuts)
+
+    def stems(a: int) -> set:
+        return {_stem(w) for w in re.findall(r"[A-Za-z][A-Za-z'’-]{1,30}", s.text[a:m.start()]) if w.lower() not in _STOPWORDS}
+
+    own, wide = stems(lo), (stems(0) if prev == 0 else None)
+    for table in tables:
+        head = own
+        if not any(st and st & own for _h, st in table.columns):
+            if wide is None:
+                continue
+            head = wide
+        cols = [k for k, (_h, stems) in enumerate(table.columns) if stems and stems & head]
+        if len(cols) != 1:
+            continue
+        col = cols[0] + 1
+        labels = [lab.strip().lower() for lab, _cells in table.rows]
+        if span.group("along"):
+            ia, ib = 0, len(table.rows) - 1
+        else:
+            if table.row_noun and not span.group("noun").lower().startswith(table.row_noun[:4]):
+                continue
+            a, b = span.group("a").lower(), span.group("b").lower()
+            if a not in labels or b not in labels:
+                continue
+            ia, ib = labels.index(a), labels.index(b)
+        ca, cb = _number(table.rows[ia][1][col]), _number(table.rows[ib][1][col])
+        if ca is None or cb is None or not ctx.room("supplied_figure"):
+            continue
+        v0, v1 = ca[0], cb[0]
+        header = table.columns[cols[0]][0]
+        pct_col = "%" in header or "per cent" in header.lower()
+        unit = (m.group("u") or "").lower()
+        n = _num(m.group("n"))
+        h = _half(m.group("n").replace(",", ""))
+        readings: list[tuple[Fraction, Fraction, str]] = []
+        if unit.startswith("%") or (unit.startswith("per") and not unit.startswith("percentage")):
+            if v0 != 0:
+                rel = abs(v1 - v0) / abs(v0) * 100
+                readings.append((rel, max(h, rel / 100, rel / 20 if m.group("ap") else Fraction(0)), "the relative change (V1 − V0) / V0 × 100"))
+            if pct_col:
+                d = abs(v1 - v0)
+                readings.append((d, max(h, d / 20 if m.group("ap") else Fraction(0)), "the difference of the cells in points"))
+            if len(readings) > 1 and any(abs(n - v) <= t for v, t, _w in readings):
+                continue  # (an ambiguous reading is never shown as checked)
+        else:
+            d = abs(v1 - v0)
+            readings.append((d, max(h, d / 20 if m.group("ap") else Fraction(0)), "the difference of the cells"))
+        if not readings:
+            continue
+        ctx.decided.add(" ".join(s.text.split()))
+        options = [{"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(v)}), "right": _real(t)} for v, t, _w in readings]
+        what = " or ".join(w for _v, _t, w in readings)
+        ctx.add("supplied_figure", lambda cid, n=n, options=options, what=what, header=header, ia=ia, ib=ib, table=table, v0=v0, v1=v1: make_check(
+            ctx.report, check_id=cid, kind="supplied_figure", inputs=[("stated", n, f"the change stated ({m.group(0).strip()})")],
+            conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
+            label=(f"the change by {m.group('n')} of '{header}' of {table.document_id} from row {table.rows[ia][0]} ({_fmt(v0)}) to row "
+                   f"{table.rows[ib][0]} ({_fmt(v1)})"),
+            description=f"{_excerpt(s.text)} [a change of a supplied table's column between two rows equals {what}]",
+            claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="warning", defect="source_mismatch"))
+        return
 
 
 #: A figure credited to a supplied table with years (attack round 8: "According to the table, 45% of supply was imported in 2025.").
@@ -1442,15 +1665,10 @@ def _year_table_credited(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
         entity, _n = _entity_at(table, where, f.start())
         if entity:
             return  # a row named by all its words: the shared reader decides it
-        counts: dict[str, int] = {}
-        for _e, words in table.entities:
-            for w in words:
-                counts[w] = counts.get(w, 0) + 1
-        scores = {e: sum(1 for w in words if counts[w] == 1 and w in where) for e, words in table.entities}
-        best = max(scores.values(), default=0)
-        if best == 0 or list(scores.values()).count(best) != 1:
+        index = _yt_index(s.text)  # (by its head or modifier in the figure's own clause, before or after it; push check of a9129c78)
+        entity = index.row(table, f.start()) or index.row_after(table, f.end())
+        if entity is None:
             continue
-        entity = next(e for e, v in scores.items() if v == best)
         cell = next((c for c in table.cells if c.entity == entity and c.year == year), None)
         if cell is None or (cell.unit == "%") != bool(f.group("p")) or not ctx.room("geo_table_figure"):
             continue
@@ -1522,72 +1740,284 @@ def _yt_rows(table) -> dict:
     return rows
 
 
-#: Where the clause of a figure starts: a comma, a semicolon, a colon, a bracket or a word that opens another clause or a comparison
-#: ("Although population grew, total energy supply showed ...", "..., faster than population").
-_YT_CLAUSE_CUT_RE = re.compile(r"[,;:()]|\b(?:although|though|while|whereas|but|than|because|since)\b", re.IGNORECASE)
-_YT_VERB_START_RE = re.compile(r"\s*(?:was|were|is|are|rose|fell|grew|showed|reached|stood|made|came|amounted|totalled|totaled)\b", re.IGNORECASE)
+#: Where the clause of a figure starts: a comma, a semicolon, a colon, a bracket, a dash between spaces, or a word that opens another
+#: clause, a comparison or an intervening phrase ("Although population grew, ...", "..., faster than population", "and, with natural
+#: growth, about 9.3 GJ", "as nuclear capacity grew", "despite oil prices", "after coal declined").
+_YT_CLAUSE_CUT_RE = re.compile(r"[,;:()]|\s[-–—]\s|\b(?:although|though|while|whilst|whereas|but|than|because|since|as|with|despite|after|before|"
+                               r"when|unless|once|until|compared)\b", re.IGNORECASE)
+_YT_OPENER_RE = re.compile(r"\s*+(?:although|though|while|whilst|whereas|because|since|as|with|despite|after|before|when|unless|once|until|"
+                           r"compared|given|if|in\s+spite\s+of)\b", re.IGNORECASE)
+_YT_VERB_RE = re.compile(r"\b(?:was|were|is|are|rose|rises|fell|falls|grew|grows|showed|shows|reached|reaches|stood|stands|made|makes|came|"
+                         r"amounted|amounts|totalled|totaled|totals|supplied|supplies|provided|provides|used|uses|increased|decreased|dropped|"
+                         r"declined|went|accounted|accounts|equalled|equaled|equals)\b", re.IGNORECASE)
+_YT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]{0,30}")
+_YT_DIGIT_RE = re.compile(r"\d")
+_YT_NUMBER_RE = re.compile(r"(?<![\d.,])\d[\d,.]*")
+#: Working in brackets right after a figure ("251 PJ (22% of 1,050 PJ)", "123 PJ in 2005 (0.15 × 820)"): the figure is the worked reader's.
+_YT_WORKING_AFTER_RE = re.compile(r"[^.;()\d]{0,24}\(\s*+[^()]{0,40}?\d")
+#: Words that never make a clause's own subject: function words, approximators, verbs of stating a figure and pronouns ("and in 2025
+#: it was about 5.5 GJ" has no subject of its own, so the figure is the sentence subject's).
+_YT_NOT_SUBJECT = frozenset("""about around roughly approximately nearly almost some just only also still then later again further
+    was were is are rose fell grew showed reached stood made came amounted totalled totaled went it they this that there here
+    year years each""".split()) | _FUNCTION_WORDS
+#: A change of a level, not the level itself, stated before a figure in its own clause ("Natural growth in supply per person reached
+#: 9.3 GJ", "rose by about 4 GJ"): a figure per person or an amount there is not the year's level.
+_YT_CHANGE_BEFORE_RE = re.compile(r"\b(?:growth|rise|increase|fall|drop|decline|decrease|change|difference|gain|loss|reduction|"
+                                  r"(?:rose|grew|fell|increased|decreased|dropped|declined|went\s+(?:up|down))\s++by)\b", re.IGNORECASE)
 
 
-def _yt_named_row(table, text: str, where: dict, at: int) -> Optional[str]:
-    """The row the figure at ``at`` belongs to: the row its own clause names (the words after the last clause boundary before it), by
-    all its words (the shared reader's rule), else by the words only that row holds. A clause that opens with its verb after an
-    apposition ("Imported energy, mostly oil and gas, was about 567 PJ") takes the sentence's subject. A row named only in another
-    clause ("Although population grew, ...", "..., faster than population") never takes the figure (check round 11 of c3e)."""
-    marks = list(_YT_CLAUSE_CUT_RE.finditer(text, 0, at))
-    lo = marks[-1].end() if marks else 0
-    got = _yt_named_row_in(table, where, at, lo)
-    if got is not None or not marks:
-        return got
-    if _YT_VERB_START_RE.match(text, lo):
-        hi = marks[0].start()
-        return _yt_named_row_in(table, where, hi, 0)
-    # an apposition after the clause that names the row ("The imported share rose by 16 percentage points, a relative rise of about
-    # 16%"): the clauses before it, back to a contrast or a comparison ("Although population grew, ..."), never past one
-    hi = marks[-1].start()
-    for k in range(len(marks) - 2, -2, -1):
-        start = marks[k].end() if k >= 0 else 0
-        if k >= 0 and marks[k].group(0)[:1].isalpha():
-            return None  # (the clause opens with a contrast or comparison word: its row is not the figure's)
-        if re.match(r"\s*(?:although|though|while|whereas|but|than|because|since)\b", text[start:hi], re.IGNORECASE):
+_YT_OPENING_YEAR_RE = re.compile(r"\s*+(?:in|by|during)\s++(?P<y>1[89]\d{2}|20\d{2})\b", re.IGNORECASE)
+
+
+def _yt_word(w: str) -> str:
+    w = w.lower().strip("'’-")
+    return w[:-2] if w.endswith(("'s", "’s")) else w
+
+
+@dataclass(frozen=True)
+class _YtRow:
+    entity: str
+    words: frozenset           # the label's content words (the shared reader's: every one named means the row is named)
+    alone: frozenset           # stems of the row's distinctive head words: each names the row by itself ('gas', 'coal', 'imported')
+    modifiers: frozenset       # stems of its distinctive modifiers: each names the row only before a word of the table ('natural gas')
+
+
+@lru_cache(maxsize=64)
+def _yt_row_vocab(table) -> tuple[tuple[_YtRow, ...], frozenset]:
+    """The naming words of each row of a year table (read once per table). A row is named by ALL its content words (the shared rule);
+    by a word only it holds that is its head (the label's last content word, or the word of a one-word label: 'Natural gas' by 'gas',
+    'Coal' by 'coal', 'Share of primary energy supply that is imported' by 'imported'); or by a word only it holds that modifies a word of
+    the table right after it ('natural gas', 'nuclear share', 'total supply', 'wind and solar power'). A stop word ('share', 'total'), a
+    function word or a modifier standing alone ('natural growth', 'nuclear capacity') never names a row (push check of a9129c78)."""
+    labels = {e: [w for w in (_yt_word(x) for x in _YT_WORD_RE.findall(re.sub(r"\([^)]*\)", "", e))) if len(w) >= 3 and w not in _FUNCTION_WORDS]
+              for e, _w in table.entities}
+    held: dict[str, int] = {}
+    for ws in labels.values():
+        for st in {_stem(w) for w in ws}:
+            held[st] = held.get(st, 0) + 1
+    vocab = frozenset(_stem(w) for ws in labels.values() for w in ws)
+    rows = []
+    for e, words in table.entities:
+        ws = labels[e]
+        own = [w for w in ws if held[_stem(w)] == 1]
+        head = ws[-1] if ws else ""
+        alone = frozenset(_stem(w) for w in own if w not in _STOPWORDS and w == head)
+        mods = frozenset(_stem(w) for w in own) - alone
+        rows.append(_YtRow(e, frozenset(words), alone, mods))
+    return tuple(rows), vocab
+
+
+class _YtIndex:
+    """One sentence read once for the row lookups of the year-table readers: its words with their positions, its clause cuts, a running
+    count of the words that can be a clause's own subject, and the span of the sentence's own subject. Each lookup is then a few binary
+    searches per row, so a sentence of k figures costs O(k log n), never a walk back over every earlier clause (the push check of
+    a9129c78 timed 'Energy supply per person was ' + 'about 38 GJ in 2005, ' * k at 438 s for 40k characters)."""
+
+    def __init__(self, text: str):
+        self.text = text
+        self.toks = [(m.start(), _yt_word(m.group(0))) for m in _YT_WORD_RE.finditer(text)]
+        self.starts = [p for p, _w in self.toks]
+        cuts = list(_YT_CLAUSE_CUT_RE.finditer(text))
+        self.cuts = [m.end() for m in cuts]
+        self.cut_starts = [m.start() for m in cuts]
+        run, acc = [0], 0
+        for _p, w in self.toks:
+            acc += 1 if (len(w) >= 3 and w not in _YT_NOT_SUBJECT and not _YT_VERB_RE.fullmatch(w)) else 0
+            run.append(acc)
+        self.subject_run = run
+        # the sentence's own subject: the words before its first verb in that verb's clause ("Result: coal supply fell by 22.1%, from
+        # ..."), after an opening subordinate clause ("Although population grew, total energy supply showed ..."); when that clause opens
+        # with its verb, the sentence's first clause ("Imported energy, mostly oil and gas, was about 567 PJ")
+        s0 = 0
+        if _YT_OPENER_RE.match(text):
+            k = text.find(",")
+            s0 = k + 1 if k >= 0 else len(text)
+        v = _YT_VERB_RE.search(text, s0)
+        self.subject = (0, 0)
+        if v is not None:
+            c = max(self.clause_start(v.start()), s0)
+            if self._has_subject(c, v.start()):
+                span = (c, v.start())
+            else:
+                k = bisect_right(self.cut_starts, s0)
+                end = self.cut_starts[k] if k < len(self.cut_starts) else v.start()
+                span = (s0, min(end, v.start()))
+            # a figure in the subject's own words makes it no subject; one inside an apposition between the subject and its verb does
+            # not ('Nuclear power, which had a 4% share, supplied 63.0 PJ', 'Hydroelectric power (6% in 2025) supplied 41.0 PJ': check
+            # round 12 of c3f, where the PJ figure had lost its row and its check)
+            if not any(not _YEAR_IN_RE.fullmatch(n) for n in _YT_NUMBER_RE.findall(text, span[0], span[1])):
+                self.subject = span
+        self._named: dict = {}
+
+    def _numbers(self) -> tuple[list[int], list[bool]]:
+        """The start of each number of the sentence and whether it is a year (read once)."""
+        if not hasattr(self, "_nums"):
+            ms = list(_YT_NUMBER_RE.finditer(self.text))
+            self._nums = ([m.start() for m in ms], [bool(_YEAR_IN_RE.fullmatch(m.group(0))) for m in ms])
+            self._changes = [m.start() for m in _YT_CHANGE_BEFORE_RE.finditer(self.text)]
+        return self._nums
+
+    def clause_start(self, at: int) -> int:
+        k = bisect_right(self.cuts, at) - 1
+        return self.cuts[k] if k >= 0 else 0
+
+    def _has_subject(self, lo: int, at: int) -> bool:
+        i, j = bisect_left(self.starts, lo), bisect_left(self.starts, at)
+        return self.subject_run[j] - self.subject_run[i] > 0
+
+    def _events(self, table) -> tuple:
+        """(rows, {row index: sorted positions where its head, or its modifier before a word of the table, names it}, {word: positions})."""
+        got = self._named.get(id(table))
+        if got is not None and got[0] is table:
+            return got[1]
+        rows, vocab = _yt_row_vocab(table)
+        heads = {st: r for r, row in enumerate(rows) for st in row.alone}
+        mods = {st: r for r, row in enumerate(rows) for st in row.modifiers}
+        events: dict[int, list[int]] = {}
+        where: dict[str, list[int]] = {}
+        toks = self.toks
+        for i, (p, w) in enumerate(toks):
+            where.setdefault(w, []).append(p)
+            st = _stem(w)
+            r = heads.get(st)
+            if r is None and st in mods:
+                # a modifier names its row only right before a word of the table, or before another modifier of a listed row
+                # ('wind and solar power', 'Solar and wind supplied')
+                k = i + 1
+                if k < len(toks) and toks[k][1] in ("and", "or", "&") and "," not in self.text[p:toks[k][0]]:
+                    # across 'and' only another row's own word continues the list ('wind and solar', 'Solar and wind'); a shared word
+                    # or a verb there opens a new clause ('a 28% share and supplied 294.0 PJ', 'share and supply both grew' never
+                    # name the imported share's row: check round 12 of c3f)
+                    k += 1
+                    if k < len(toks) and _stem(toks[k][1]) not in mods and _stem(toks[k][1]) not in heads:
+                        k = len(toks)
+                if k < len(toks) and _stem(toks[k][1]) in vocab:
+                    r = mods[st]
+            if r is not None:
+                events.setdefault(r, []).append(p)
+        out = (rows, events, where)
+        self._named[id(table)] = (table, out)
+        return out
+
+    def _rows_in(self, table, lo: int, at: int) -> list[tuple[int, str]]:
+        """(position, row) of each row named in [lo, at): where its head or its modifier names it last there, else where the last of all
+        its content words stands."""
+        rows, events, where = self._events(table)
+        found = []
+        for r, row in enumerate(rows):
+            best = -1
+            ps = events.get(r)
+            if ps:
+                j = bisect_left(ps, at) - 1
+                if j >= 0 and ps[j] >= lo:
+                    best = ps[j]
+            if best < 0 and row.words:
+                last = -1
+                for w in row.words:
+                    qs = where.get(w)
+                    j = bisect_left(qs, at) - 1 if qs else -1
+                    if j < 0 or qs[j] < lo:
+                        last = -1
+                        break
+                    last = max(last, qs[j])
+                best = last
+            if best >= 0:
+                found.append((best, row.entity))
+        found.sort()
+        return found
+
+    def _is_list(self, found: list, at: int) -> bool:
+        """Whether the rows found are listed for one figure: two or more, no figure among them, each joined to the next by 'and', a comma
+        or '&' and never by a contrast ('Hydroelectric power and nuclear power supplied 57.4 PJ', 'Coal and oil together ...')."""
+        if len(found) < 2:
+            return False
+        starts, _years = self._numbers()
+        if bisect_left(starts, at) > bisect_left(starts, found[0][0]):
+            return False  # (a number among the rows: each has its own figure)
+        for (p0, _e0), (p1, _e1) in zip(found, found[1:]):
+            gap = self.text[p0:p1]
+            if p0 == p1 or not re.search(r",|\band\b|&|\bplus\b", gap) or re.search(r"\b(?:than|but|while|whereas|not)\b", gap, re.IGNORECASE):
+                return False
+        return True
+
+    def group(self, table, at: int) -> list[str]:
+        """The rows a figure at ``at`` is stated for as a list of two or more (its own clause's rows, as :meth:`_is_list` reads them); []
+        otherwise."""
+        found = self._rows_in(table, self.clause_start(at), at)
+        return [e for _p, e in found] if self._is_list(found, at) else []
+
+    def row(self, table, at: int) -> Optional[str]:
+        """The row the figure at ``at`` is stated for: the row its own clause names (the words after the clause's cut), the one named
+        last before it; with no row and no subject of its own there ("and, with natural growth, about 9.3 GJ in 2025", "and in 2025 it
+        was about 5.5 GJ", ", a relative rise of about 16%"), the row the sentence's own subject names ("Imported energy, mostly oil and
+        gas, was about 567 PJ"). A row named only inside another clause (an apposition, a 'with', 'as', 'despite' or 'after' clause, a
+        contrast or a comparison) never takes the figure; None when no one row is named (none, a list of rows, or two rows named by the
+        same words)."""
+        lo = self.clause_start(at)
+        found = self._rows_in(table, lo, at)
+        if not found:
+            if self._has_subject(lo, at):
+                return None
+            s0, s1 = self.subject
+            if s1 > lo or s0 >= s1:
+                return None
+            lo, at = s0, s1
+            found = self._rows_in(table, s0, s1)
+            if not found:
+                return None
+        if self._is_list(found, at) or (len(found) > 1 and found[-1][0] == found[-2][0]):
             return None
-        got = _yt_named_row_in(table, where, hi, start)
-        if got is not None:
-            return got
-        hi = marks[k].start() if k >= 0 else 0
-    return None
+        return found[-1][1]
 
+    def row_after(self, table, at: int) -> Optional[str]:
+        """The one row the figure's own clause names after it, up to the clause's next cut ("45% of supply was imported in 2025")."""
+        k = bisect_right(self.cut_starts, at)
+        hi = self.cut_starts[k] if k < len(self.cut_starts) else len(self.text)
+        found = self._rows_in(table, at, hi)
+        return found[0][1] if len({e for _p, e in found}) == 1 else None
 
-def _yt_named_row_in(table, where: dict, at: int, lo: int) -> Optional[str]:
-    from .grounded_figures import _entity_at
-    where = {w: ps for w, ps in ((w, [p for p in ps if lo <= p < at]) for w, ps in where.items()) if ps}
-    entity, _n = _entity_at(table, where, at)
-    if entity:
-        return entity
-    counts: dict[str, int] = {}
-    for _e, words in table.entities:
-        for w in words:
-            counts[w] = counts.get(w, 0) + 1
-    full = {e: _row_words(e) for e, _w in table.entities}
-    scores = {e: sum(1 for w in full[e] if w in where and min(where[w]) < at and sum(1 for o in full.values() if w in o) == 1) for e, _w in table.entities}
-    best = max(scores.values(), default=0)
-    if best == 0 or list(scores.values()).count(best) != 1:
+    def changes_before(self, at: int) -> bool:
+        """Whether the figure's own clause states a change before it ('growth in supply per person reached 9.3 GJ')."""
+        self._numbers()
+        ps = self._changes
+        j = bisect_left(ps, at) - 1
+        return j >= 0 and ps[j] >= self.clause_start(at)
+
+    def year_before(self, at: int) -> Optional[int]:
+        """The year a figure's own clause writes before it, when that clause states no other number ('and in 2025 it was about 5.5 GJ',
+        'In 2025 energy supply per person was about 5.5 GJ'); None otherwise."""
+        lo = self.clause_start(at)
+        starts, years = self._numbers()
+        i, j = bisect_left(starts, lo), bisect_left(starts, at)
+        if j - i == 1 and years[i]:
+            m = _YT_NUMBER_RE.match(self.text, starts[i])
+            return int(m.group(0))
+        if j == i:
+            # the sentence's opening year, when it writes no other ('In 2025 nuclear power, which had a 4% share, supplied 63.0 PJ':
+            # check round 12 of c3f, where the PJ figure had no year and no check)
+            o = _YT_OPENING_YEAR_RE.match(self.text)
+            if o is not None and sum(years) == 1:
+                return int(o.group("y"))
         return None
-    return next(e for e, v in scores.items() if v == best)
 
 
-def _yt_years(text: str, figs: list, years: list) -> Optional[list]:
-    """The year each figure of a clause is stated for: the year written right after it ('62% of energy in 2005'), else, for a from-to pair
-    of a table with two years and no year written, the earlier and the later year; None when a figure has none."""
+def _yt_years(text: str, figs: list, years: list, index: Optional["_YtIndex"] = None) -> Optional[list]:
+    """The year each figure of a clause is stated for: the year written right after it ('62% of energy in 2005'), else the one year its
+    own clause writes before it with no other number ('and in 2025 it was about 5.5 GJ'), else, for a from-to pair of a table with two
+    years and no year written, the earlier and the later year. A figure with no year is None in the list; None when no figure has one."""
     out = []
     for f in figs:
         y = _YT_YEAR_AFTER_RE.match(text, f.end())
-        out.append(int(y.group("y")) if y and not _YT_PCT_RE.search(text, f.end(), y.start("y")) and not _YT_AMOUNT_RE.search(text, f.end(), y.start("y")) else None)
+        yr = int(y.group("y")) if y and not _YT_PCT_RE.search(text, f.end(), y.start("y")) and not _YT_AMOUNT_RE.search(text, f.end(), y.start("y")) else None
+        if yr is None and index is not None:
+            yr = index.year_before(f.start())
+        out.append(yr)
     if all(y is not None for y in out):
         return out
     if len(figs) == 2 and len(years) == 2 and not _YEAR_IN_RE.search(text) and re.search(r"\bfrom\b", text[:figs[0].start()], re.IGNORECASE) \
             and re.search(r"\bto\b", text[figs[0].end():figs[1].start()], re.IGNORECASE):
         return sorted(years)
-    return None
+    return out if any(y is not None for y in out) else None
 
 
 def _yt_check(ctx: _Ctx, s: _Sentence, kind: str, f: "re.Match[str]", value: Fraction, what: str, table, credited: bool) -> None:
@@ -1613,11 +2043,10 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
     person rose from about 34 GJ in 2005 to about 42 GJ in 2025'), the relative change of a row ('a relative rise of about 16%': (V1 − V0)
     / V0 × 100) and a share row's complement ('Domestic sources supplied 62% ... in 2005 and 56% in 2025': 100 − the imported share).
     Each figure is checked for the year written after it (or the table's two years for a from-to pair)."""
-    from .grounded_figures import _word_positions
     if re.search(r"[=×÷]", s.text):
         return
     credited = bool(_YT_CREDIT_RE.search(s.text))
-    where = _word_positions(s.text)
+    index = _yt_index(s.text)
     for table in _yt_documents(year_tables):
         rows = _yt_rows(table)
         years = sorted({y for r in rows.values() for y in r})
@@ -1625,36 +2054,96 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
         totals = {e: set(re.findall(r"[a-z]+", next(iter(r.values())).unit.lower())) for e, r in rows.items() if e not in shares and r}
         people = [e for e in totals if "population" in e.lower()]
         energy_total = [e for e, units in totals.items() if units & set(_ENERGY_J)]
+
+        def share_of(at: int, y: int) -> tuple[Optional[Fraction], str]:
+            """The share (a fraction) of the row, or the listed rows, the figure at ``at`` is stated for in year ``y``: 1 for the total
+            or no share row; None when a listed or named share row has no cell for ``y``."""
+            group = [e for e in index.group(table, at) if e in shares]
+            if len(group) >= 2:
+                if any(y not in rows[e] for e in group):
+                    return None, ""
+                return sum((rows[e][y].value for e in group), Fraction(0)) / 100, " + ".join(f"'{e}'" for e in group)
+            row = index.row(table, at)
+            if row in shares:
+                return (rows[row][y].value / 100, f"'{row}'") if y in rows[row] else (None, "")
+            return Fraction(1), ""
         # a figure per person
         if _PER_PERSON_RE.search(s.text) and len(people) == 1 and len(energy_total) == 1:
             figs = [f for f in _YT_AMOUNT_RE.finditer(s.text) if f.group("u").lower() in _ENERGY_J]
-            ys = _yt_years(s.text, figs, years) if figs else None
+            ys = _yt_years(s.text, figs, years, index) if figs else None
             if ys:
                 tot, pop = energy_total[0], people[0]
                 tunit = next(iter(totals[tot] & set(_ENERGY_J)))
                 pscale = next((v for k, v in _PEOPLE_SCALE.items() if k in totals[pop]), Fraction(1))
                 for f, y in zip(figs, ys):
-                    row = _yt_named_row(table, s.text, where, f.start())
-                    share = rows[row][y].value / 100 if row in shares and y in rows.get(row, {}) else Fraction(1)
-                    if y not in rows[tot] or y not in rows[pop] or rows[pop][y].value == 0:
+                    if y is None or y not in rows[tot] or y not in rows[pop] or rows[pop][y].value == 0 or not ctx.room("geo_table_derived"):
+                        continue
+                    if index.changes_before(f.start()) or _YT_WORKING_AFTER_RE.match(s.text, f.end()):
+                        continue  # a change of the level per person, not the level ('growth in supply per person reached 9.3 GJ'), or a
+                        # figure with its working in brackets after it (the worked reader's)
+                    share, named = share_of(f.start(), y)
+                    if share is None:
                         continue
                     value = share * rows[tot][y].value * _ENERGY_J[tunit] / (rows[pop][y].value * pscale) / _ENERGY_J[f.group("u").lower()]
-                    _yt_check(ctx, s, "geo_table_derived", f, value, f"the {'share × ' if share != 1 else ''}total per person for {y}", table, credited)
+                    _yt_check(ctx, s, "geo_table_derived", f, value, f"the {f'share of {named} × ' if share != 1 else ''}total per person for {y}",
+                              table, credited)
             continue
-        # an amount of a share row in the total row's unit
+        # an amount of a share row (or of a list of share rows, or the total row itself) in the total row's unit
         if totals:
             figs = [f for f in _YT_AMOUNT_RE.finditer(s.text) if sum(1 for e, u in totals.items() if f.group("u").lower() in u and e not in people) == 1]
-            ys = _yt_years(s.text, figs, years) if figs else None
+            ys = _yt_years(s.text, figs, years, index) if figs else None
             for f, y in zip(figs, ys or []):
+                if y is None or not ctx.room("geo_table_derived") or index.changes_before(f.start()) or _YT_WORKING_AFTER_RE.match(s.text, f.end()):
+                    continue  # (a figure with its working in brackets, "251 PJ (22% of 1,050 PJ)", is the worked reader's)
                 tot = next(e for e, u in totals.items() if f.group("u").lower() in u and e not in people)
-                row = _yt_named_row(table, s.text, where, f.start())
-                if row not in shares or y not in rows[row] or y not in rows[tot]:
+                if y not in rows[tot]:
                     continue
-                value = rows[row][y].value / 100 * rows[tot][y].value
-                _yt_check(ctx, s, "geo_table_derived", f, value, f"the share of '{row}' × '{tot}' for {y}", table, credited)
+                group = [e for e in index.group(table, f.start()) if e in shares]
+                row = None if len(group) >= 2 else index.row(table, f.start())
+                if len(group) >= 2:
+                    if any(y not in rows[e] for e in group):
+                        continue
+                    value = sum((rows[e][y].value for e in group), Fraction(0)) / 100 * rows[tot][y].value
+                    what = f"the shares of {' + '.join(repr(e) for e in group)} × '{tot}' for {y}"
+                elif row == tot:
+                    value, what = rows[tot][y].value, f"the row '{tot}' for {y}"  # (the total row's own cell: 'rose from 820 PJ to 1,500 PJ')
+                elif row in shares and y in rows[row]:
+                    value, what = rows[row][y].value / 100 * rows[tot][y].value, f"the share of '{row}' × '{tot}' for {y}"
+                else:
+                    continue
+                _yt_check(ctx, s, "geo_table_derived", f, value, what, table, credited)
+        # a share stated for a list of share rows ('Coal and oil together supplied 77 % of primary energy in 2005'): the sum of their
+        # cells; and a share of one share row its clause names only by its head ('Imports made up 54% of supply in 2025, up from 38% in
+        # 2005'), which the shared table reader (every word of the row named) leaves unread: its cell (c3e left)
+        words = {w for _p, w in index.toks}
+        pcts = list(_YT_PCT_RE.finditer(s.text))
+        # (the years of the sentence's per cents read together: a from-to pair with no year written takes the table's two years,
+        # "The share of supply that is imported rose from 38% to 46%"; check round 12 of c3f, where each was read alone and none had
+        # a year)
+        pct_years = (_yt_years(s.text, pcts, years, index) or [None] * len(pcts)) if pcts else []
+        for f_i, f in enumerate(pcts):
+            group = [e for e in index.group(table, f.start()) if e in shares]
+            if len(group) < 2:
+                row = index.row(table, f.start())
+                if row not in shares or not ctx.room("geo_table_derived") or index.changes_before(f.start()):
+                    continue
+                if next((r for r in _yt_row_vocab(table)[0] if r.entity == row and r.words and r.words <= words), None) is not None:
+                    continue  # (every word of the row named: the shared reader's)
+                y = pct_years[f_i]
+                if y is None or y not in rows[row]:
+                    continue
+                _yt_check(ctx, s, "geo_table_derived", f, rows[row][y].value, f"the cell of '{row}' for {y}", table, credited)
+                continue
+            if not ctx.room("geo_table_derived"):
+                continue
+            y = pct_years[f_i]
+            if y is None or any(y not in rows[e] for e in group):
+                continue
+            _yt_check(ctx, s, "geo_table_derived", f, sum((rows[e][y].value for e in group), Fraction(0)),
+                      f"the sum of the shares of {' + '.join(repr(e) for e in group)} for {y}", table, credited)
         # the relative change of a row
         for m in _REL_CHANGE_RE.finditer(s.text):
-            row = _yt_named_row(table, s.text, where, m.start())
+            row = index.row(table, m.start())
             if row is None or row not in rows:
                 continue
             ys_ = sorted({int(y) for y in _YEAR_IN_RE.findall(s.text)} & set(rows[row])) or sorted(rows[row])
@@ -1965,6 +2454,37 @@ def _dimension_area(ctx: _Ctx, s: _Sentence) -> None:
             description=f"{_excerpt(s.text)} [an area stated with its two dimensions equals their product, units converted exactly; {_RULE.format(tau=1)}]",
             claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="stem_arithmetic_slip"))
 
+
+
+#: "8% of the 24 km² catchment, about 1.9 km², was built up": a part stated with its share of a whole and the whole (check round 12 of
+#: c3f, ge-p9c): the part equals share × whole, in the whole's unit.
+_SHARE_PART_RE = re.compile(r"(?<![\d.,])(?P<p>" + _NUM + r")\s*+(?:%|per\s*+cent\b|percent\b)\s++of\s++(?:the\s++|its\s++|a\s++|an\s++)?"
+                            r"(?<![\d.,])(?P<a>" + _NUM + r")(?![\d,]\d|\.\d)\s*+(?P<ua>" + _AREA_U + r")(?:\s++[a-z]{3,15}){0,2},?\s++"
+                            r"(?:or\s++|that\s+is\s++|i\.e\.\s*+)?(?P<ap>(?:about|around|roughly|approximately|nearly|some)\s++)?(?<![\d.,])(?P<c>" + _NUM + r")"
+                            r"(?![\d,]\d|\.\d)\s*+(?P<uc>" + _AREA_U + r")", re.IGNORECASE)
+
+
+def _share_part(ctx: _Ctx, s: _Sentence) -> None:
+    """Check round 12 of c3f (ge-p9c): a part stated with its share of a whole and the whole ("8% of the 24 km² catchment, about
+    1.9 km²"): the part equals share / 100 × whole, units converted exactly; half a unit of its last digit and 1% (5% after an
+    approximation word)."""
+    from .grounded_figures import _half
+    if "%" not in s.text and "cent" not in s.text.lower():
+        return
+    for m in _SHARE_PART_RE.finditer(s.text):
+        fa = _AREA_M2.get(" ".join(m.group("ua").lower().split()))
+        fc = _AREA_M2.get(" ".join(m.group("uc").lower().split()))
+        if fa is None or fc is None or not ctx.room("geo_share_part"):
+            continue
+        value = _num(m.group("p")) / 100 * _num(m.group("a")) * fa / fc
+        stated = Fig(_num(m.group("c")), m.group("c"), _half(m.group("c").replace(",", "")), bool(m.group("ap")))
+        ctx.decided.add(" ".join(s.text.split()))
+        ctx.add("geo_share_part", lambda cid, value=value, stated=stated, m=m: make_check(
+            ctx.report, check_id=cid, kind="geo_share_part", inputs=[("stated", stated.value, f"the part stated ({m.group('c')} {m.group('uc')})")],
+            conclusion=_stated_band(value, stated),
+            label=f"{m.group('p')}% of {m.group('a')} {m.group('ua')} is {_fmt(value)} {m.group('uc')}",
+            description=f"{_excerpt(s.text)} [a part stated with its share and its whole equals share × whole, units converted exactly; {_RULE.format(tau=1)}]",
+            claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="stem_arithmetic_slip"))
 
 _VOL_M3 = {"m³": Fraction(1), "m3": Fraction(1), "cubic metres": Fraction(1), "cubic meters": Fraction(1), "km³": Fraction(10**9), "km3": Fraction(10**9),
            "litres": Fraction(1, 1000), "liters": Fraction(1, 1000), "l": Fraction(1, 1000), "megalitres": Fraction(1000), "megaliters": Fraction(1000),
@@ -2398,6 +2918,55 @@ _SPREAD_OVER_RE = re.compile(r"\s++(?:of\s++(?:rain(?:fall)?|water|precipitation
                              r"greater|smaller|larger|than|above|below)\b)", re.IGNORECASE)
 
 
+#: A comparison between a figure and a label after it; a group or a total of the labelled events.
+_REQ_CMP_BETWEEN_RE = re.compile(r"\b(?:times|than|compared\s+(?:with|to)|against|versus|vs\.?|relative\s+to|as\s+much\s+as|more|less|higher|lower|"
+                                 r"greater|smaller|larger)\b", re.IGNORECASE)
+_REQ_GROUP_RE = re.compile(r"\b(?:together|combined|altogether|in\s+total|in\s+all|between\s+them|both|the\s+two|all\s+(?:the\s+)?[a-z]{3,15}s|"
+                           r"total|sum)\b", re.IGNORECASE)
+
+
+#: The request-fact units of an area (as ``_FACT_UNITS`` names them).
+_FACT_AREA_UNITS = frozenset(("km2", "m2", "ha", "hectares"))
+_REQ_SUBJECT_RE = re.compile(r"\b(?:the|a|an)\s+(?P<n>[A-Za-z]{3,30})\b(?:\s+(?:at|in|near|on)\s+(?:(?!\b(?:the|a|an)\b)[^,.;:]){0,40}?)?\s+"
+                             r"(?:was|is|were|are|measured|measures|had|has)\b", re.IGNORECASE)
+_SUBJECT_HEAD_RE = re.compile(r"^\W*(?:the|a|an|this|its|their)\s+(?P<n>[A-Za-z]{3,30})\s+(?:is|was|are|were|has|had|measures|measured)\b",
+                              re.IGNORECASE)
+
+
+def _not_the_requests_object(ctx: _Ctx, text: str, m: "re.Match[str]", key: str, unit: Optional[str], facts: dict) -> bool:
+    """Check round 12 of c3f (ge-p9c, false counterexamples on correct figures): a figure that measures another thing than the request's
+    figure of its noun is no restatement of it: an area of a part of the noun's area ('about 1.9 km² of the catchment', or the same
+    sentence also writing the request's own '24 km² catchment'), and a dimension of an object the request never names ('The bridge is 12
+    m long and 3 m wide')."""
+    from .grounded_figures import _half
+    if unit in _FACT_AREA_UNITS and re.match(r"\s*of\s+(?:the|this|its|their)\s", text[m.end():m.end() + 12], re.IGNORECASE):
+        return True  # (an area 'of the catchment': a part of it)
+    cands = [c for (l2, k2, u2), xs in facts.items() if k2 == key and u2 == unit for c, _ch, _s in xs]
+    v = Fraction(m.group("n").replace(",", ""))
+    if cands and all(v != c for c in cands):
+        for m2 in _FACT_FIG_RE.finditer(text):
+            if m2.start() == m.start() or _FACT_UNITS.get(" ".join(m2.group("u").lower().split())) != unit:
+                continue
+            v2 = Fraction(m2.group("n").replace(",", ""))
+            if any(abs(v2 - c) <= _half(m2.group("n").replace(",", "")) for c in cands):
+                return True  # (the request's own figure of that noun written in the sentence too: this one measures something else)
+    if key in _FACT_DIMENSIONS.values() and ctx.request_text:
+        sh = _SUBJECT_HEAD_RE.match(text)
+        if sh is not None and sh.end() <= m.start():
+            noun = sh.group("n").lower().rstrip("s")
+            # (the words the request writes before each of its figures of that dimension: the object it measures)
+            near = set()
+            for r in _FACT_FIG_RE.finditer(ctx.request_text):
+                if _fact_key(ctx.request_text, r.start(), r.end()) == key:
+                    # (the subject of the request's clause that states the dimension: "the channel at Marsh Lane Bridge was 6.0 m")
+                    subj = list(_REQ_SUBJECT_RE.finditer(ctx.request_text, max(0, r.start() - 120), r.start()))
+                    if subj:
+                        near.add(subj[-1].group("n").lower().rstrip("s"))
+            if near and noun not in near:
+                return True  # (a dimension of another object than the one the request measures: "The bridge is 12 m long")
+    return False
+
+
 def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
     """A figure of the request restated in the answer (attack round 8, ge-p9c): 'drains a catchment of 42 km²' against the request's
     'drains a catchment of 24 km²', 'Storm 1 fell on 21 October 2006' against 'Storm 1, on 14 October 2006'. A figure is compared only
@@ -2406,6 +2975,7 @@ def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
     from .grounded_figures import _half
     labels = _labels_at(s.text)
     distinct = {lab for _p, lab in labels}
+    grouped = _REQ_GROUP_RE.search(s.text) is not None  # (read once per sentence)
     for m in _FACT_FIG_RE.finditer(s.text):
         key = _fact_key(s.text, m.start(), m.end())
         unit = _FACT_UNITS.get(" ".join(m.group("u").lower().split()))
@@ -2417,7 +2987,36 @@ def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
         if key is None or unit is None or (_FACT_DERIVED_AFTER_RE.match(s.text, m.end()) and not _SPREAD_OVER_RE.match(s.text, m.end())):
             continue  # ("15.1 m³ s⁻¹ above its base flow (16.2 − 1.1)": a figure worked out from others, never one restated; c3e: a depth
             # 'over' an area is spread on it, "36 mm over 24 km²", never a comparison)
-        lab = _label_before(labels, m.start(), 0) or (next(iter(distinct)) if len(distinct) == 1 else None)
+        if _not_the_requests_object(ctx, s.text, m, key, unit, facts):
+            continue
+        lab = _label_before(labels, m.start(), 0)
+        if lab is None and len(distinct) == 1:
+            # the sentence's one label, unless it stands after the figure on the other side of a comparison ("The calculated discharge of
+            # 16.2 m³ s⁻¹ is three times Storm 1's peak": the figure is not Storm 1's; c3e left)
+            at = labels[0][0]
+            if not (m.end() < at <= m.end() + 160 and _REQ_CMP_BETWEEN_RE.search(s.text, m.end(), at)):
+                lab = next(iter(distinct))
+        if lab is None and grouped:
+            # a figure of a group or a total ("Together the two storms delivered 74 mm of rain"): no one label's figure, but the sum of
+            # the labels' figures of its noun and unit when each label has one (c3e left: the sums of the request's figures)
+            per = {}
+            for (l2, k2, u2), xs in facts.items():
+                if k2 == key and u2 == unit and l2 is not None:
+                    per.setdefault(l2, []).extend(xs)
+            if len(per) < 2 or any(len(xs) != 1 for xs in per.values()) or not ctx.room("geo_request_figure"):
+                continue
+            total = sum((xs[0][0] for xs in per.values()), Fraction(0))
+            tol = max(_half(m.group("n").replace(",", "")), sum((xs[0][1] for xs in per.values()), Fraction(0)))
+            v = Fraction(m.group("n").replace(",", ""))
+            shown = " + ".join(f"{xs[0][2]} ({l2})" for l2, xs in sorted(per.items()))
+            ctx.decided.add(" ".join(s.text.split()))
+            ctx.add("geo_request_figure", lambda cid, v=v, m=m, total=total, tol=tol, shown=shown, key=key: make_check(
+                ctx.report, check_id=cid, kind="geo_request_figure", inputs=[("stated", v, f"the total stated ({m.group(0)})")],
+                conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(total)}), "right": _real(tol)},
+                label=f"the {key} of all the request's labels together stated as {m.group(0)} against {shown} = {_fmt(total)}",
+                description=f"{_excerpt(s.text)} [a total of the request's labelled figures is their sum (half a unit of each)]",
+                claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="warning", defect="source_mismatch"))
+            continue
         cands = facts.get((lab, key, unit)) if lab else None
         if not cands:
             cands = [x for (l2, k2, u2), xs in facts.items() if k2 == key and u2 == unit and (lab is None or l2 is None) for x in xs]
@@ -2455,9 +3054,9 @@ def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
 
 
 #: "Storm 2's peak discharge was two and a half times that of Storm 1": a multiple of two labelled figures the request (or the answer)
-#: states (attack round 8).
+#: states (attack round 8); the possessive alone too ("three times Storm 1's", c3e left).
 _LABEL_FOLD_RE = re.compile(r"\b(?P<l1>(?:Storm|Site|Station|Zone|Area|Sample|Point|Plot|Well|Village|Town)\s\d{1,3})['’]s\s++(?P<noun>(?:[a-z]{2,20}\s++){0,2}[a-z]{2,20})\s++"
-                            r"(?:was|is|were|are)\s++(?P<ap>(?:about|around|roughly|nearly|almost|approximately)\s++)?" + _FOLD_K + r"\s++(?:that\s++of|as\s++[a-z]{2,20}\s++as)\s++"
+                            r"(?:was|is|were|are)\s++(?P<ap>(?:about|around|roughly|nearly|almost|approximately)\s++)?" + _FOLD_K + r"\s++(?:(?:that\s++of|as\s++[a-z]{2,20}\s++as)\s++)?"
                             r"(?:the\s+[a-z]{2,20}\s+of\s+)?(?P<l2>(?:Storm|Site|Station|Zone|Area|Sample|Point|Plot|Well|Village|Town)\s\d{1,3})(?:['’]s)?\b")
 
 
@@ -2656,6 +3255,57 @@ def _clock_interval(ctx: _Ctx, s: _Sentence, clocks: dict) -> None:
             claim_ids=_claims(ctx.report, s.text, d.group(0)), defect="stem_arithmetic_slip"))
 
 
+#: A peak a labelled event reached at a clock time ("Storm 1 peaked at 22:30", "In Storm 1 the river peaked at 20:30", "Storm 2
+#: peaked at 15:00, 4.5 hours after ..."), the time in the peak's own clause.
+_PEAK_AT_RE = re.compile(r"\b(?:peak(?:ed|s|ing)?|maximum|highest)\b[^.;:,()]{0,40}?\bat\s++(?P<t>(?:[01]?\d|2[0-3]):[0-5]\d)(?![\d:])",
+                         re.IGNORECASE)
+
+
+def _clock_peak(ctx: _Ctx, s: _Sentence, clocks: dict) -> None:
+    """Check round 12 of c3f (ge-p9c): a peak time of a label the request times ("Storm 1 peaked at 22:30" against the request's
+    peak discharge at 21:30 and peak rainfall at 09:30): the time stated is one of the request's times of that label's events (the
+    discharge's alone when the clause names the river or its flow, the rainfall's alone when it names the rain), half a minute either
+    way. A time that is none of them is named; one that is any of them holds. A label the request gives no time for is not read."""
+    if not clocks:
+        return
+    labels = _labels_at(s.text)
+    worked = [(w, "t") for w in _CLOCK_WORK_RE.finditer(s.text)] + \
+        [(w, "t2") for w in _CLOCK_WORK_RE.finditer(s.text)]
+    for m, g in [(x, "t") for x in _PEAK_AT_RE.finditer(s.text)] + worked:
+        clause_lo = max(s.text.rfind(";", 0, m.start()), s.text.rfind(".", 0, max(0, m.start() - 1)), 0)
+        lab = _label_before(labels, m.start(), clause_lo)
+        if lab is None or lab not in clocks or not ctx.room("geo_request_figure"):
+            continue
+        if m.re is _CLOCK_WORK_RE:
+            words = set()  # (a worked difference of two times: each is one of the label's times)
+        else:
+            words = _clock_words(s.text[clause_lo:m.end()])
+        flow = any(w.startswith(_FLOW_WORDS) for w in words)
+        rain = any(w.startswith(_RAIN_WORDS) and not w.startswith("storm") for w in words)
+        events = clocks[lab]
+        if flow != rain:
+            want = _FLOW_WORDS if flow else _RAIN_WORDS
+            events = [e for e in events if any(w.startswith(want) and not w.startswith("storm") for w in e[2])] or events
+        t = m.group(g)
+        h, mi = t.split(":")
+        stated = Fraction(int(h) * 60 + int(mi))
+        if any(e[0] == stated for e in events):
+            continue  # (a time the request gives for the label: nothing restated wrongly)
+        shown = ", ".join(dict.fromkeys(e[1] for e in events))
+        ctx.decided.add(" ".join(s.text.split()))
+        options = [{"op": "eq", "left": _var("stated"), "right": _real(Fraction(e[0]))} for e in events]
+        ctx.add("geo_request_figure", lambda cid, t=t, stated=stated, options=options, shown=shown, lab=lab: make_check(
+            ctx.report, check_id=cid, kind="geo_request_figure", inputs=[("stated", stated, f"the time restated ({t}, in minutes)")],
+            conclusion=options[0] if len(options) == 1 else {"op": "or", "args": options},
+            label=f"the time of {lab} restated as {t} against the request's {shown}",
+            description=f"{_excerpt(s.text)} [a clock time the request gives for a labelled peak, restated, is one of the request's times of that label]",
+            claim_ids=_claims(ctx.report, s.text, t), severity="warning", defect="source_mismatch"))
+
+
+#: A worked difference of two clock times ("Storm 1: 21:30 − 09:30 = 12 hours").
+_CLOCK_WORK_RE = re.compile(r"(?<![\d:.,])(?P<t>(?:[01]?\d|2[0-3]):[0-5]\d)\s*+[−–-]\s*+(?P<t2>(?:[01]?\d|2[0-3]):[0-5]\d)(?![\d:])")
+
+
 #: A spacing of sampled sites, with the span it covers: "The sites are 150 m apart, from 0 m to 900 m." (c3d, ge-t14).
 _SPACING_RE = re.compile(r"\b" + _SITES + r"\s++(?:are|were|lie|lay|sit|sat|stand|stood)\s++(?P<ap>(?:about|around|roughly|approximately)\s++)?(?<![\d.,])(?P<i>"
                          + _NUM + r")\s*+(?P<iu>m|metres|meters|km)\s++apart\b(?:\s*+,?\s*+from\s++(?P<a>" + _NUM + r")\s*+(?P<au>m|metres|meters|km)\s++"
@@ -2798,6 +3448,66 @@ def _event_relations(ctx: _Ctx, s: _Sentence, events: list[_Event]) -> None:
             conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(ratio)}), "right": _real(ktol)},
             label=f"{own[0][1]} is {m.group('k')} the {m.group('noun')} of the event the answer gives as {mine[0][1]} (ratio {_fmt(ratio)})",
             description=f"{_excerpt(s.text)} [a multiple of a figure the answer states for a dated event equals the ratio of the two figures]",
+            claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="contradiction"))
+
+
+#: c3e left (ge-t16): a magnitude or a clock time the answer states for one event, and a difference of two events' magnitudes.
+_AM_PM_RE = re.compile(r"(?<![\d.:])(?P<h>1[0-2]|0?\d)[.:](?P<mi>[0-5]\d)\s*+(?P<ap>a\.?m\.?|p\.?m\.?)(?![\w])", re.IGNORECASE)
+_MAG_DIFF_RE = re.compile(r"(?<![\d.,])(?P<n>\d(?:\.\d{1,2})?)\s++(?:magnitude\s+)?(?:units?|points?)\s++(?:of\s+magnitude\s+)?(?P<cmp>weaker|smaller|lower|less|"
+                          r"stronger|larger|greater|higher|bigger|more)\b(?:\s+in\s+magnitude)?\s++than\s++(?P<obj>[^.;:,()]{3,80})", re.IGNORECASE)
+_MAG_LESS = frozenset(("weaker", "smaller", "lower", "less"))
+
+
+def _answer_quantities(sentences: list[_Sentence]) -> tuple[list, list]:
+    """The answer's own magnitudes (and clock times), one per sentence that states exactly one: ``([(value, words, shown, sentence)], ...)``
+    (at most 64 of each)."""
+    mags, clocks = [], []
+    for k, s in enumerate(sentences[:2000]):
+        ms = list(_MAGNITUDE_RE.finditer(s.text))
+        if len(ms) == 1 and not _MAG_DIFF_RE.search(s.text) and len(mags) < 64:
+            v = ms[0].group("n") or ms[0].group("m")
+            mags.append((Fraction(v), frozenset(_clock_words(_MAGNITUDE_RE.sub(" ", s.text))), ms[0].group(0), k))
+        cs = list(_AM_PM_RE.finditer(s.text))
+        if len(cs) == 1 and len(clocks) < 64:
+            c = cs[0]
+            h = int(c.group("h")) % 12 + (12 if c.group("ap").lower().startswith("p") else 0)
+            clocks.append((h * 60 + int(c.group("mi")), frozenset(_clock_words(_AM_PM_RE.sub(" ", s.text))), c.group(0), k))
+    return mags, clocks
+
+
+def _named_quantity(items: list, phrase: str, here: int) -> Optional[tuple]:
+    """The one item of another sentence than ``here`` whose sentence alone (among those others) holds a word the phrase names."""
+    pool = [x for x in items if x[3] != here]
+    if len(pool) < 2:
+        return None  # (one other sentence: no word tells its event from the sentence's own)
+    mine = _clock_words(phrase)
+    hits = []
+    for x in pool:
+        others = set().union(*(y[1] for y in pool if y is not x)) if len(pool) > 1 else set()
+        if (x[1] - others) & mine:
+            hits.append(x)
+    return hits[0] if len(hits) == 1 else None
+
+
+def _answer_quantity_relations(ctx: _Ctx, s: _Sentence, here: int, mags: list, clocks: list) -> None:
+    """c3e left (ge-t16): a difference of two events' magnitudes the answer states ("The Haiti earthquake was 0.1 magnitude units weaker
+    than Darfield" against its own magnitude 7.0 and 7.1): each event is the one other sentence that alone holds a word the phrase names.
+    (A clock time restated for an event is not read: which sentence times which event is not fixed by its words.)"""
+    from .grounded_figures import _half
+    for m in _MAG_DIFF_RE.finditer(s.text):
+        a = _named_quantity(mags, s.text[max(0, m.start() - 120):m.start()], here)
+        b = _named_quantity(mags, m.group("obj"), here)
+        if a is None or b is None or a is b or not ctx.room("geo_event_relation"):
+            continue
+        diff = (b[0] - a[0]) if m.group("cmp").lower() in _MAG_LESS else (a[0] - b[0])
+        n = Fraction(m.group("n"))
+        tol = _half(m.group("n"))
+        ctx.decided.add(" ".join(s.text.split()))
+        ctx.add("geo_event_relation", lambda cid, n=n, diff=diff, tol=tol, m=m, a=a, b=b: make_check(
+            ctx.report, check_id=cid, kind="geo_event_relation", inputs=[("stated", n, f"the difference stated ({m.group('n')} {m.group('cmp')})")],
+            conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(diff)}), "right": _real(tol)},
+            label=f"{m.group('n')} magnitude units {m.group('cmp')} against the answer's {a[2]} and {b[2]} ({_fmt(diff)})",
+            description=f"{_excerpt(s.text)} [a difference of two magnitudes the answer states is their difference, in the direction stated]",
             claim_ids=_claims(ctx.report, s.text, m.group(0)), defect="contradiction"))
 
 
@@ -2955,8 +3665,9 @@ _GEO_META_LINE_RE = re.compile(r"^[ \t]*+[(*_]*+(?:next\s+step|sources?|referenc
 #: A word figure the answer credits to the request, the figure after the credit (check round 10 of c3d: "You asked for about 1,500 words
 #: for the two sections together.", "The question asks for a model answer of about 800 words.", "Your teacher set a limit of 350
 #: words."): group ``p``.
-REQ_WORDS_CREDIT = (r"\b(?:you|the\s+(?:question|task|request|brief|prompt|assignment)|your\s+(?:teacher|task|brief|question|request|assignment))\s+"
-                    r"(?:asked|asks|ask|wanted|wants|requested|requests|set|sets|specified|specifies|gave|gives|called|calls|required|requires)\s+"
+REQ_WORDS_CREDIT = (r"\b(?:you|the\s+(?:[A-Za-z]{1,12}\s+){0,2}?(?:question|task|request|brief|prompt|assignment)|your\s+(?:teacher|task|brief|question|request|assignment))\s+"
+                    r"(?:asked|asks|ask|wanted|wants|requested|requests|set|sets|specified|specifies|gave|gives|called|calls|required|requires|"
+                    r"allows?|allowed|permits?|permitted|limits?|limited|caps?|capped)\s+"
                     r"(?:for\s+)?(?:[a-z]+\s+){0,5}?(?:of\s+|to\s+)?(?:about|around|approximately|roughly|some|up\s+to|no\s+more\s+than|at\s+most|"
                     r"at\s+least)?\s*(?P<p>\d{1,2},\d{3}|\d{1,5})(?:\s++|-)words?\b")
 _REQ_WORDS_CLAIM_RE = re.compile(r"\b(?:the\s+|your\s+|a\s+)?(?P<n>\d{1,2},\d{3}|\d{1,5})(?:\s++|-)words?\s+(?:that\s+)?(?:you|your\s+(?:request|brief|task|teacher))\s+"
@@ -3088,9 +3799,12 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
     from .grounded_figures import supplied_tables
     year_tables = supplied_tables(list(report.supplied_texts)) if report.supplied_texts else []
     facts, dates = _request_facts(request_text) if request_text else ({}, {})
+    if facts:
+        ctx.request_text = request_text[:20_000]
     clocks = _request_clocks(request_text) if request_text else {}
     events = _answer_events(sentences) if any(_DATE_RE.search(t.text) for t in sentences[:2000]) else []
     parts = _answer_parts(sentences)
+    mags, ams = _answer_quantities(sentences) if any(_MAGNITUDE_RE.search(t.text) for t in sentences[:2000]) else ([], [])
     answer_facts = _answer_facts(sentences) if facts or any("'s" in t.text or "’s" in t.text for t in sentences[:400]) else {}
     for k, s in enumerate(sentences):
         if len(ctx.checks) >= MAX_PER_REPORT:
@@ -3100,7 +3814,7 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
             continue  # (c3e: an interval written in words, "a year and a half after the Darfield quake", has no digit)
         for reader in (_density, _rate_per_thousand, _natural_increase, _doubling, _per_capita, _growth_rate, _mean, _sampling, _significance,
                        _fold, _change_by, _times_pair, _from_to_percent, _bracket_comparison, _pair_comparison, _years_apart, _conversion, _n_formula,
-                       _dimension_area, _depth_volume):
+                       _dimension_area, _depth_volume, _share_part):
             _guarded(ctx, reader.__name__.strip("_"), lambda reader=reader: reader(ctx, s))
         if facts or dates:
             _guarded(ctx, "request_figures", lambda: _request_figures(ctx, s, facts, dates))
@@ -3109,10 +3823,13 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
             _guarded(ctx, "labelled_relative", lambda: _labelled_relative(ctx, s, facts, answer_facts))
         if clocks:
             _guarded(ctx, "clock_interval", lambda: _clock_interval(ctx, s, clocks))
+            _guarded(ctx, "clock_peak", lambda: _clock_peak(ctx, s, clocks))
         if events:
             _guarded(ctx, "event_relations", lambda: _event_relations(ctx, s, events))
         if parts:
             _guarded(ctx, "part_complement", lambda: _part_complement(ctx, s, parts))
+        if mags:
+            _guarded(ctx, "answer_quantity_relations", lambda: _answer_quantity_relations(ctx, s, k, mags, ams))
         if year_tables:
             _guarded(ctx, "table_change_by", lambda: _table_change_by(ctx, s, year_tables))
             _guarded(ctx, "year_table_credited", lambda: _year_table_credited(ctx, s, year_tables))
@@ -3122,6 +3839,8 @@ def _build(report: SpecialistReport, request_text: Optional[str]) -> _Built:
             _guarded(ctx, "table_aggregates", lambda: _table_aggregates(ctx, s, tables))
             _guarded(ctx, "table_superlative", lambda: _table_superlative(ctx, s, tables))
             _guarded(ctx, "table_spacing", lambda: _table_spacing(ctx, s, tables))
+            _guarded(ctx, "table_column_change", lambda: _table_column_change(ctx, s, tables))
+            _guarded(ctx, "row_pair_comparison", lambda: _row_pair_comparison(ctx, s, tables))
     if tables:
         for s in sentences:
             _guarded(ctx, "table_count", lambda s=s: _table_count(ctx, s, tables))

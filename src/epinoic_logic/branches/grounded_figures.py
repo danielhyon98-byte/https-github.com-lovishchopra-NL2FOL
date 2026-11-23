@@ -411,6 +411,33 @@ _DERIVED_FIG_BEFORE_RE = re.compile(r"\b(?:an?\s++)?(?:fall|rise|drop|decrease|i
                                     r"approximately|nearly|almost)\s++)?$", re.IGNORECASE)
 
 
+#: A word that opens an intervening clause or phrase ("After coal declined, imports made up 54%", "Imports made up 54%, after coal
+#: declined, in 2025", "with natural gas growing"): a row it names is that clause's, never a figure's outside it (push check of a9129c78,
+#: the sweep of every row lookup: 'coal' of the opening clause had named the row of 'imports made up 28%', ENTAILED against Coal 2025).
+_INTERVENING_RE = re.compile(r"\b(?:after|as(?!\s+well\s+as)|with|without|despite|since|before|when|whenever|while|whilst|although|though|because|"
+                             r"compared\s+(?:with|to)|unlike|than|in\s+spite\s+of)\b", re.IGNORECASE)
+_INTERVENING_END_RE = re.compile(r"[,;:()]|\s[-–—]\s")
+
+
+def _intervening_spans(clause: str) -> list[tuple[int, int]]:
+    """The spans of the clause's intervening clauses: from the opening word to the next comma, semicolon, colon, bracket or dash."""
+    out = []
+    for m in _INTERVENING_RE.finditer(clause):
+        e = _INTERVENING_END_RE.search(clause, m.end())
+        out.append((m.start(), e.start() if e else len(clause)))
+        if len(out) >= 64:
+            break
+    return out
+
+
+def _outside(where: dict[str, list[int]], spans: list[tuple[int, int]], at: int) -> dict[str, list[int]]:
+    """``where`` without the words inside an intervening clause that does not hold the figure at ``at``."""
+    drop = [(a, b) for a, b in spans if not a <= at < b]
+    if not drop:
+        return where
+    return {w: kept for w, ps in where.items() for kept in [[p for p in ps if not any(a <= p < b for a, b in drop)]] if kept}
+
+
 def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> list[_Finding]:
     out: list[_Finding] = []
     for offset, clause in _clauses(text):
@@ -418,13 +445,15 @@ def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> li
         if not figures:
             continue
         credit = _TABLE_CREDIT_RE.search(clause)
-        where = _word_positions(clause)
+        where_all = _word_positions(clause)
+        spans = _intervening_spans(clause)
         # "from A to B" with no year written: A is the row's earlier year and B its later one, when the row has exactly two (attack round 3)
         ends: dict[int, str] = {}
         for pm in _FROM_TO_FIG_RE.finditer(clause):
             ends[pm.start("a")] = "first"
             ends[pm.start("b")] = "last"
         for f in figures:
+            where = _outside(where_all, spans, f.start) if spans else where_all
             if f.unit == "pp" or _RESULT_BEFORE_RE.search(clause[max(0, f.start - 4):f.start]):
                 continue  # a gap in points, or a result after '=': no figure of a cell
             if _DERIVED_FIG_BEFORE_RE.search(clause[max(0, f.start - 48):f.start]):
