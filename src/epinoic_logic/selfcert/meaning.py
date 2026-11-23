@@ -187,7 +187,9 @@ _COUNTED = frozenset(("times", "agents", "agent", "reviewers", "reviewer", "chec
                       "rounds", "round", "runs", "recomputations", "recalculations", "reruns", "derivations", "methods", "people",
                       "rondas", "revisiones",
                       "issues", "corrections", "slips", "flags", "red", "independent", "separate", "specialist", "specialists",
-                      "examiners", "markers", "models", "veces", "agentes", "errores", "fallos", "out"))
+                      "examiners", "markers", "models", "veces", "agentes", "errores", "fallos", "out",
+                      # (the claims a check counted, "0 counterexamples / 14 claims": a count of what was checked; c3e)
+                      "claims", "statements", "assertions", "afirmaciones"))
 
 
 #: The units of a verdict's precision ("to the penny", "to the last digit", "al céntimo").
@@ -244,6 +246,10 @@ def _content_at(words: list, k: int, ctx) -> bool:
     if t.has("C:eval_asr") and prev is not None and (prev.has("C:det", "C:dist", "C:poss1", "C:neg") or prev.w in ("no", "any")) and \
             not t.has("poss", "C:pron2", "C:poss2") and not t.w.endswith(("'s", "s'")):
         return False  # "the reviewers", "no examiner": assessors credited, no subject matter ("Examiners check ...": a generic, read so)
+    if prev is not None and prev.has("C:eval_int", "C:eval_int_agentive", "C:tool") and not prev.has("C:meta") and t.w.isalpha() and \
+            not t.t and not t.cap and (nxt is None or nxt.has("C:aux", "C:copula", "v:past", "v:3sg") or nxt.fam()):
+        return False  # a noun naming the evaluator after its kind ("an LLM judge scored ...", "the AI grader marked ..."): the
+        # evaluator's name, no subject matter (c3e)
     if not t.cap and not t.t and t.w.isalpha() and nxt is not None and (
             nxt.has("C:eval_int_agentive", "C:eval_asr", "C:m_eval") or (nxt.has("C:eval_int") and nxt.w not in ("system", "systems"))):
         return False  # a lower-case modifier of an evaluator ("the geography agent", "an experienced moderator"): the evaluator's name
@@ -254,7 +260,7 @@ def _content_at(words: list, k: int, ctx) -> bool:
     if t.w in ("you", "tu", "usted") and nxt is not None and (nxt.has("C:future_modal", "C:ability_modal", "C:would_modal", "C:aux") or
                                                               nxt.w in ("won't", "will", "can", "cannot", "can't", "could", "couldn't",
                                                                         "wouldn't", "would", "'ll")) and any(
-            x.has("V:finding") or x.w in ("submit", "hand", "use", "send", "trust") or x.fam() & {"APPROVE", "ASSURE"}
+            x.has("V:finding") or x.w in ("submit", "hand", "use", "send", "trust", "take", "accept") or x.fam() & {"APPROVE", "ASSURE"}
             for x in words[k + 2:k + 8]):
         return False  # the reader as the one who would find a fault or hand the text in ("You won't find a mistake here.", "You can
         # submit this as it stands."): the addressee of a verdict on this text, no subject matter (attack round 3)
@@ -293,7 +299,8 @@ def _content_at(words: list, k: int, ctx) -> bool:
         return False  # "give this the maximum", "Mark awarded: full." (attack round 7): the score awarded, no quantity of the subject
     if w.split()[-1] in ("model", "models", "modelo", "modelos") and not (
             any(x in _AGENT_COUNT for x in w.split()[:-1]) or
-            (prev is not None and (prev.has("C:agent_quant") or prev.w in _AGENT_COUNT or prev.w.split()[-1] in _AGENT_COUNT))):
+            (prev is not None and (prev.has("C:agent_quant", "C:m_eval", "C:assessor_extra") or prev.w in _AGENT_COUNT or
+                                   prev.w.split()[-1] in _AGENT_COUNT))):
         if prev is not None and prev.has("C:demonstrative", "C:poss1") and not any(x.w in ("in", "en", "of", "de", "del") for x in
                                                                                    words[max(0, k - 2):k - 1]) and \
                 any(x.fam() & {"SCORE", "CHECK", "OUTCOME", "APPROVE"} for x in words[:k]):
@@ -1795,6 +1802,44 @@ def _lead_markers(toks: list) -> list:
 
 
 def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str) -> tuple[list, list]:
+    kept, added = _review_frames(toks, ctx, question, found, found_cls, s, a, b, kind)
+    if (kept or added) and s and b - a <= 600:
+        # the key of a corrected form whose value is only the quoted form ('Bien: «el mapa»', 'Correcto: "la gente".', a claim cut
+        # from its pair 'Mal: «la mapa» → Bien: «el mapa»'): the corrected form of a language lesson, never a status of this answer
+        # (boundary (b); check round 11 of c3e). A value with any word outside its quotation keeps its reading.
+        ws = a
+        while ws < b and s[ws].isspace():
+            ws += 1
+        rk = _RIGHT_KEY_RE.match(s, ws)
+        if rk is not None:
+            rest = s[rk.end() - 1:b]
+            if not re.search(r"[^\W\d_]", re.sub(r"(?<![^\W\d_])x{2,}(?![^\W\d_])", " ", _QUOTED_RE.sub(" ", rest))):
+                kept = [f for f in kept if not (ws <= f.a < rk.end())]
+                added = [f for f in added if not (ws <= f.a < rk.end())]
+    if (kept or added) and s and b - a <= 600:
+        # a condition a method or a claim of the subject holds under ("This method is correct only when the sample is random."), the
+        # correct value of a named sum or question of the subject ("The correct answer to 6 × 7 is 42.", "La respuesta correcta a 6 × 7
+        # es 42.") and a text of the answer applying a check verb to the subject matter ("Este ensayo evalúa las dos interpretaciones de
+        # la revolución."): claims about the subject, never about this answer's own correctness (boundary (b); check round 11 of c3e),
+        # whichever frame read them. A sentence that names the answer or a part of it in its own scope keeps its reading.
+        from .reader import original_span as _ospan2
+        sent2 = _ospan2(a, b) or s[a:b]
+        g2 = _GLOSS_SAY_RE.search(sent2)
+        if not _OWN_SCOPE_RE.search(sent2) and (_ONLY_WHEN_RE.search(sent2) or _CORRECT_ANSWER_TO_RE.match(sent2) or
+                                                _TEXT_EVALUATES_RE.match(sent2) or _DATED_THIRD_PARTY_ACT_RE.match(sent2) or
+                                                (g2 is not None and not _OWN_VALUE_RE.search(g2.group("gloss")) and
+                                                 not _VERDICT_WORD_RE.search(_QUOTED_RE.sub(" ", sent2[g2.end("gloss"):])))):
+            # (and a gloss of a quoted word with "se dice", "«comprobado» se dice 'checked'.", whichever frame read the word)
+            # (also a third party's dated act on a thing of the subject, "The panel approved the dam in 1998.": history)
+            def subject(f) -> bool:
+                return f.family in ("CHECK", "OUTCOME", "QUALITY", "STATUS", "AGREE", "APPROVE") and \
+                    f.rule in ("G1", "G2", "G3", "G5", "G9", "N9")
+            kept = [f for f in kept if not subject(f)]
+            added = [f for f in added if not subject(f)]
+    return kept, added
+
+
+def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: int, b: int, kind: str) -> tuple[list, list]:
     toks = _lead_markers(toks) or toks
     words = [t for t in toks if not t.punct]
     if not words or len(toks) > 400:
@@ -1808,6 +1853,14 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         # written word away, so a sentence whose folded form holds no cue holds none as written either)
         from .reader import original_span
         own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
+        if own is not None:
+            return found, [found_cls(own[0], own[1], "sentence", a, b)]
+    if not found and not question and s and _frame_cue(s, a, b):
+        # the own verdicts read by their frame (c3e: a check of this answer by any party, a fault nobody would find, a quality an
+        # assessor would see, a pipeline's success code; :mod:`.ownverdict`)
+        from .reader import original_span
+        from .ownverdict import own_verdict
+        own = own_verdict(original_span(a, b) or s[a:b], ctx)
         if own is not None:
             return found, [found_cls(own[0], own[1], "sentence", a, b)]
     if not _assessment_of(toks) and not found:
@@ -1833,12 +1886,27 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
                     (k + 2 >= len(toks) or toks[k + 2].punct):
                 g = toks[k + 1]
                 clear(lambda f, g=g: f.form == "fragment" and g.a <= f.a < g.b + 1)
+    # a gloss of a quoted word ("The French word 'vérifié' means checked.", "La palabra «comprobado» significa checked."): the meaning
+    # of the word mentioned, never a label on this answer (c3e, a near variant of the Latin gloss of c3d). Only after a language
+    # name or a noun that names a word, and only when the gloss names nothing of this answer.
+    if s and b - a <= 600 and any(t.w in _GLOSS_VERBS for t in words):
+        from .reader import original_span as _ospan
+        sent = _ospan(a, b) or s[a:b]
+        g = _GLOSS_RE.search(sent) or _GLOSS_SAY_RE.search(sent)
+        if g is not None and not _OWN_VALUE_RE.search(g.group("gloss")):
+            gl0 = s.find(g.group("q")[:12].lower(), a, b) if g.group("q") else -1
+            start = gl0 if gl0 >= 0 else a + g.start("q")
+            clear(lambda f, start=start: f.a >= start - 1 and f.family in ("CHECK", "STATUS", "OUTCOME", "APPROVE", "AGREE", "QUALITY"))
     # a laboratory method and its data ("We repeated the measurement three times and the readings agreed."): readings that agree are
     # the precision of the data, the subject matter of a practical, never a check of this answer (boundary (b), c3d). A sentence
     # anchored on the answer ("the calculations above", "this answer") keeps its reading.
     if not any(t.has("C:anchor", "C:anchor_idioms", "C:genre_strong") for t in words):
         lab = any(t.w in _LAB_ACTS and any(x.has("C:method_noun") or x.w in _DATA_READINGS for x in words[k + 1:k + 5])
-                  for k, t in enumerate(words))
+                  for k, t in enumerate(words)) or any(
+            # (a measurement of a quantity of the subject, then its readings: "Medimos el caudal dos veces y los valores coincidieron.",
+            # "We measured the flow twice and the readings agreed."; check round 11 of c3e)
+            t.w in _MEASURE_ACTS and any(x.w in _DATA_READINGS or x.w == "valores" for x in words[k + 1:k + 12])
+            for k, t in enumerate(words))
         if lab:
             for k, t in enumerate(words):
                 if t.fam() & {"AGREE"} and any(x.w in _DATA_READINGS or x.has("C:method_noun") or x.w in ("they", "them")
@@ -2276,13 +2344,51 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         # a correction pair ('Wrong: "El primer semana fue difícil". Right: "La primera semana fue difícil"', "Incorrecto: «...».
         # Correcto: «...»"): the second key names the corrected form of the quoted words, never a verdict on this answer (c3c
         # leftover, c3d). Only the key's own hit is cleared, and only after a key of the faulty form on the same line.
-        ls = max(s.rfind("\n", max(0, a - 400), a) + 1, a - 400, 0)  # (the line, at most 400 characters back: linear)
+        ws = a
+        while ws < b and s[ws].isspace():
+            ws += 1  # (a sentence read with the blank lines before it: its line is the line of its first word; c3e)
+        ls = max(s.rfind("\n", max(0, ws - 400), ws) + 1, ws - 400, 0)  # (the line, at most 400 characters back: linear)
+        if ls >= 2 and s[ls - 1] == "\n":
+            # the pair cut over two lines ('Mal: "el gente" →' over 'Bien: "la gente"', as the run-on reading breaks it at the arrow):
+            # the line of the faulty form is read with the corrected one when it opens with that form's key (c3e)
+            pls = max(s.rfind("\n", max(0, ls - 400), ls - 1) + 1, ls - 400, 0)
+            if _WRONG_LABEL_RE.match(s, pls) and _RIGHT_KEY_RE.match(s, ls):
+                ls = pls
+            elif _RIGHT_KEY_RE.match(s, ls) and s[pls:ls].rstrip().endswith(("→", "->", "=>", "⇒")):
+                # (the faulty form's key inside the line before, after a sentence of the paragraph: "La ciudad tiene muchos parques.
+                # Mal: \"el gente\" →" over "Bien: \"la gente\""; check round 11 of c3e)
+                wk = _WRONG_KEY_RE.search(s, pls, ls)
+                if wk is not None:
+                    ls = wk.start()
         if _WRONG_KEY_RE.search(s, ls, b):
             def correction_key(f) -> bool:
                 m = _RIGHT_KEY_RE.match(s, f.a)
                 return m is not None and m.start() >= ls and _WRONG_KEY_RE.search(s, ls, f.a) is not None
             kept = [f for f in kept if not correction_key(f)]
             added = [f for f in added if not correction_key(f)]
+        # the key of the faulty form and the form it labels ('Mal: "La problema".', "- Wrong: la problema", "Error: «el gente»"):
+        # a defect said of the quoted or written form, never a verdict on this answer (c3e, an over-block of 2be42c48: "mal" in the
+        # lexicon read the key as a check). A value of none or zero ("Errors: none", "Mistakes: 0") or one that names this answer
+        # ("Wrong: nothing above") stays a status.
+        m = _WRONG_LABEL_RE.match(s, ls) if (s.find(":", ls, b + 1) >= 0 or s.find("→", ls, b + 1) >= 0 or
+                                              s.find("->", ls, b + 1) >= 0) else None
+        if m is None and ws > ls and (s.find(":", ws, b + 1) >= 0 or s.find("→", ws, b + 1) >= 0):
+            # the pair written inline after a sentence of the paragraph ("La ciudad tiene muchos parques. Mal: \"La problema\".
+            # Bien: \"El problema\"."): its key opens the sentence, not the line (check round 11 of c3e)
+            m = _WRONG_LABEL_RE.match(s, ws)
+        if m is not None and m.end() <= b + 1:
+            ve = s.find("\n", m.end())
+            ve = b if ve < 0 else min(ve, b)
+            cut = _PAIR_RIGHT_RE.search(s, m.end(), ve)
+            vend = cut.start() if cut is not None else ve
+            value = s[m.end():vend]
+            bare = _QUOTED_RE.sub(" ", value)  # (what the value says outside its quotation: a verdict there stays one)
+            if value.strip() and not _ZERO_VALUE_RE.match(value) and not _OWN_VALUE_RE.search(value) and \
+                    not _VERDICT_WORD_RE.search(bare):
+                def wrong_label(f) -> bool:
+                    return m.start() <= f.a < vend
+                kept = [f for f in kept if not wrong_label(f)]
+                added = [f for f in added if not wrong_label(f)]
     if not kept and not added and not question and not ctx.marking:
         # (read last: no frame above speaks of a verdict on this answer itself, whoever gives it)
         trig = _verdict_on_this_answer(words)
@@ -2293,6 +2399,13 @@ def _review(toks: list, ctx, question: bool, found: list, found_cls, s: str, a: 
         # "Reviewer said nothing needed changing.", leaves the sentence's own verdict to be read)
         from .reader import original_span
         own = _own_verdict_c3d(original_span(a, b) or s[a:b], ctx)
+        if own is not None:
+            added.append(found_cls(own[0], own[1], "sentence", a, b))
+    if not kept and not added and found and not question and s and _frame_cue(s, a, b):
+        # (and those of :mod:`.ownverdict`, c3e, for the same reason)
+        from .reader import original_span
+        from .ownverdict import own_verdict
+        own = own_verdict(original_span(a, b) or s[a:b], ctx)
         if own is not None:
             added.append(found_cls(own[0], own[1], "sentence", a, b))
     return kept, added
@@ -2629,8 +2742,24 @@ _SYSTEM_NOUNS = frozenset(("delivery", "deliveries", "transmission", "transmissi
 _LAB_ACTS = frozenset("repeated repeat repeats repeating took take takes taking measured measure measures recorded record records "
                       "conducted performed carried ran repetimos repeti repitio repitieron medimos medi midio tomamos tome tomo "
                       "registramos realizamos".split())
+#: Verbs of measuring a quantity of the subject (a laboratory or field method).
+_MEASURE_ACTS = frozenset("measured measure measures measuring medimos medi midio midieron mido medir medimos".split())
 _DATA_READINGS = frozenset("readings reading results values measurements titres titers trials repeats replicates runs lecturas "
-                           "resultados valores mediciones medidas ensayos".split())
+                           "resultados valores mediciones medidas ensayos "
+                           # (the singulars a method step names, "Repetimos la medición tres veces"; c3e)
+                           "measurement medicion medida lectura ensayo experimento experimentos titulacion valoracion".split())
+#: The verbs of a gloss (a cheap test before :data:`_GLOSS_RE`).
+_GLOSS_VERBS = frozenset("means meant translated translates signifies stands significa quiere traduce dice".split())
+#: A quoted word glossed after a language name or a noun that names a word ("The French word 'vérifié' means checked.").
+_GLOSS_RE = re.compile(r"(?i)\b(?:latin|greek|french|german|italian|spanish|english|portuguese|catalan|arabic|hebrew|latino|griego|"
+                       r"franc[eé]s|alem[aá]n|italiano|ingl[eé]s|portugu[eé]s|word|term|verb|noun|adjective|participle|expression|phrase|"
+                       r"palabra|t[eé]rmino|verbo|sustantivo|adjetivo|participio|expresi[oó]n|vocablo)\s+(?:[^\W\d_]+\s+){0,2}?"
+                       r"[\"'“‘«](?P<q>[^\"'”’»\n]{1,40})[\"'”’»]\s*,?\s*(?:means|meant|is\s+translated\s+as|translates\s+(?:as|to)|"
+                       r"signifies|stands\s+for|significa|quiere\s+decir|se\s+traduce\s+(?:como|por))\s+(?P<gloss>[^.;!?\n]{1,60})")
+#: A quoted word glossed in another language with "se dice" after a language name ("En inglés, «comprobado» se dice 'checked'."; c3e).
+_GLOSS_SAY_RE = re.compile(r"(?i)(?:\ben\s+(?:ingl[eé]s|franc[eé]s|alem[aá]n|italiano|portugu[eé]s|lat[ií]n|catal[aá]n|espa[nñ]ol)\s*,?\s*)?"
+                           r"(?:[\"'“‘«](?P<q>[^\"'”’»\n]{1,40})[\"'”’»]|(?<![^\W\d_])x{2,40}(?![^\W\d_]))\s*se\s+dice\s+(?:en\s+[^\W\d_]+\s+)?"
+                           r"(?P<gloss>[^.;!?\n]{1,60})")  # (a quoted word, or its run as a reader masks it: "xxxxxxxxxx")
 #: Names of languages a word is glossed from ("the Latin verus, true").
 _LANGUAGE_NAMES = frozenset("latin greek french german italian spanish english arabic sanskrit hebrew portuguese norse saxon "
                             "latino griego frances aleman italiano ingles arabe".split())
@@ -2648,9 +2777,61 @@ _DEGREE_ADVERBS = frozenset("now already fully all both duly officially formally
 _CLAIM_NOUNS = frozenset("claim claims assertion assertions myth myths notion idea belief pretence pretense illusion boast boasts "
                          "rumour rumor rumours rumors announcement announcements propaganda insistence lie lies fiction".split())
 _WRONG_KEY_RE = re.compile(r"(?i)(?<![^\W_])(?:wrong|incorrect|error|mistake|original|before|you wrote|student wrote|incorrecto|incorrecta|"
-                           r"mal|err[oó]neo|err[oó]nea|antes|escribiste)\s*:\s*[\"“«‘'„]")
+                           r"mal|err[oó]neo|err[oó]nea|antes|escribiste)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|x{2,}(?![^\W\d_]))")
 _RIGHT_KEY_RE = re.compile(r"(?i)(?:right|correct|correct form|correction|corrected|better|after|correcto|correcta|forma correcta|"
-                           r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*:\s*[\"“«‘'„]")
+                           r"correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s)\s*(?::|→|->|=>|⇒)\s*(?:[\"“«‘'„]|x{2,}(?![^\W\d_]))")
+#: The answer's own scope named in a sentence (a frame of the subject matter never clears a sentence that names it).
+_OWN_SCOPE_RE = re.compile(r"(?i)\b(?:this|my|our|these|esta|este|estas|estos|mi|mis|nuestra|nuestro)\s+(?:[^\W\d_]+\s+)?(?:answer|answers|"
+                           r"response|reply|working|workings|solution|solutions|figures|numbers|results|calculations?|values|steps|claims|"
+                           r"respuesta|soluci[oó]n|c[aá]lculos?|cifras|resultados|pasos)\b|\b(?:above|below|herein|arriba|abajo|aqu[ií]|here)\b")
+#: A restriction of a claim to a condition ("only when", "only if", "solo si", "sólo cuando").
+_ONLY_WHEN_RE = re.compile(r"(?i)\b(?:only|solo|sólo|solamente|únicamente|unicamente)\s+(?:when|if|where|whenever|cuando|si)\b")
+#: The correct value of a sum or question the sentence names ("The correct answer to 6 × 7 is 42.", "La respuesta correcta a 6 × 7 es 42.").
+_CORRECT_ANSWER_TO_RE = re.compile(r"(?i)^\W*(?:the\s+(?:correct|right)\s+(?:answer|value|result|solution)\s+(?:to|for|of)\s+|"
+                                   r"(?:la|el)\s+(?:respuesta|soluci[oó]n|resultado|valor)\s+correct[oa]\s+(?:a|de|para)\s+)"
+                                   r"(?=[^.;!?]{0,60}?\b(?:is|was|are|es|era|son)\b)")
+#: A text of the answer applying a check verb to the subject matter ("Este ensayo evalúa las dos interpretaciones ...", "This essay
+#: assesses two readings ...": its method, the object no part of the answer).
+_TEXT_EVALUATES_RE = re.compile(r"(?i)^\W*(?:this|este|esta)\s+(?:essay|ensayo|texto|art[ií]culo|article|report|informe|section|secci[oó]n|"
+                                r"paragraph|p[aá]rrafo)\s+(?:evaluates|assesses|examines|tests|eval[uú]a|examina|analiza|valora|compara|"
+                                r"compares)\s+(?:las?|los|el|the|two|dos|tres|three|both|ambas|ambos)\b")
+
+
+#: A third party's dated act on a thing of the subject ("The panel approved the dam in 1998.", "La comisión aprobó la presa en 1998."):
+#: a narrative of the subject's past, never a check of this answer; the thing is no part of an answer.
+_DATED_THIRD_PARTY_ACT_RE = re.compile(
+    r"(?i)^\W*(?:the|a|an|el|la|los|las|un|una)\s+[^\W\d_]+(?:\s+[^\W\d_]+)?\s+(?:approved|ratified|endorsed|verified|checked|validated|"
+    r"certified|reviewed|inspected|audited|accepted|signed\s+off|aprob[oó]|ratific[oó]|verific[oó]|revis[oó]|valid[oó]|certific[oó]|"
+    r"inspeccion[oó])\s+(?:the|a|an|el|la|los|las|un|una)\s+(?!(?:answer|answers|essay|response|reply|solution|working|text|figures|"
+    r"numbers|calculations?|results|respuesta|ensayo|texto|soluci[oó]n|cifras|resultados)\b)[^\W\d_]+[^.;!?]{0,60}?\b(?:in|en|on|el)\s+"
+    r"(?:(?:\d{1,2}\s+)?[^\W\d_]+\s+)?(?:1[5-9]|20)\d{2}\b")
+
+
+def _frame_cue(s: str, a: int, b: int) -> bool:
+    """Whether the sentence ``s[a:b]`` (the folded work string) holds a word one of the frames of :mod:`.ownverdict` turns on, looked
+    up before the sentence as written is recovered (most sentences hold none)."""
+    if b - a > 2000:
+        return False
+    from .ownverdict import trigger_word
+    return any(trigger_word(m.group(0)) for m in _CUE_WORD_RE.finditer(s, a, b))
+
+
+_CUE_WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*")
+#: A line opening with the key of a faulty form, its value after it ('- Wrong: "La problema"', "Mal: la problema", "✗ Error: ...").
+_WRONG_LABEL_RE = re.compile(r"(?i)[\s>*#_\-•·✗✘×]*(?:wrong|incorrect|error|mistake|original|before|you\s+wrote|student\s+wrote|"
+                             r"incorrecto|incorrecta|mal|err[oó]neo|err[oó]nea|antes|escribiste|avoid|evita|evitar)[ \t*_]*(?::|→|->|=>|⇒)[ \t]*")
+#: A quotation inside a label's value.
+_QUOTED_RE = re.compile(r"[\"“«‘'][^\"”»’'\n]{0,200}[\"”»’']")
+#: A verdict word in a label's value outside its quotation ("Wrong: the answer is verified" is no correction pair).
+_VERDICT_WORD_RE = re.compile(r"(?i)\b(?:verif\w*|check\w*|correct\w*|right|accurate\w*|confirm\w*|approv\w*|valid\w*|pass\w*|sound|"
+                              r"proven|proved|bien|comprob\w*|revis\w*|aprob\w*|exact\w*|perfect\w*|flawless|fine|ok|okay)\b")
+#: Where the faulty form's value ends: the key of the corrected form, or an arrow to it.
+_PAIR_RIGHT_RE = re.compile(r"(?i)(?:→|->|⇒|=>|\b(?:right|correct|correct\s+form|correction|corrected|better|after|correcto|correcta|"
+                            r"forma\s+correcta|correcci[oó]n|corregido|corregida|bien|mejor|despu[eé]s|use|usa|di|say)\s*:)")
+#: A value of none or zero: the key and its value are a status ("Errors: none", "Mistakes: 0", "Errores: ninguno").
+_ZERO_VALUE_RE = re.compile(r"(?i)[\s\"'“«‘]*(?:none|nothing|nil|n/?a|0|zero|no(?:ne)?\s+found|ningun[oa]?|nada|cero|-|—)\b")
+#: A value that names this answer or a part of it ("Wrong: nothing above", "Mal: nada de esto").
+_OWN_VALUE_RE = re.compile(r"(?i)\b(?:above|below|here|this\s+(?:answer|response|reply|text)|esto|esta\s+respuesta|arriba|aqu[ií])\b")
 #: Verbs that give a verdict on an object ("rates X as true", "deems X accurate", "calls X correct").
 _VERDICT_VERBS = frozenset("rate rates rated rating deem deems deemed judge judges judged consider considers considered call calls "
                            "called declare declares declared classify classifies classified class classes classed grade grades graded "

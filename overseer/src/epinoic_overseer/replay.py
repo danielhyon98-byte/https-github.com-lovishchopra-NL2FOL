@@ -185,9 +185,31 @@ def replay_problem(problem_json: str, config_json: str, policy: str = "") -> str
     return canonical_json(res.model_dump(mode="json", exclude_none=True))
 
 
+#: Sentences a new worker reads once before it takes its first job (:func:`_warm_reader`).
+_WARM_SENTENCES = ("The treaty was signed in 1919.", "Every figure above was checkd by the hub.", "My answer is correct.", "Status: verified",
+                   "Todo fue comprobado por el equipo.", "x = 4 \u2713", "I verified each step myself, so the result holds.", "x = 2, y = 3")
+
+
+def _warm_reader() -> None:
+    """Read :data:`_WARM_SENTENCES` once with the translator's self-certification reader and discard the readings (c3e stabilizer):
+    the reader loads its lexicon, fold table and misspelling index and compiles its patterns on first use, which took about 0.2 s
+    inside the first replay whose diagnosis reads a text (a History answer's first turn), so the first clearance after the port
+    connected waited past its pending window while later ones did not. Loading them when the worker starts makes the first job
+    cost what any later one does; no reading or result changes. A failure here is ignored: a job's own reading then loads them, as
+    before."""
+    try:
+        from epinoic_logic.api.adapters import selfcert_read
+        for sentence in _WARM_SENTENCES:
+            selfcert_read(sentence)
+    except Exception:  # noqa: BLE001 - warming is never a reason for the worker not to start
+        pass
+
+
 def _worker_main(jobs: Any, results: Any, gen: int = 0) -> None:  # pragma: no cover - runs in the spawned process
     """The worker loop. Every message names the worker's generation: ``(gen, "started", jid, None, None)`` when it takes a
-    job from its queue (the job's budget starts then), ``(gen, "done", jid, result_json, error)`` when it has finished."""
+    job from its queue (the job's budget starts then), ``(gen, "done", jid, result_json, error)`` when it has finished. The
+    reader is warmed first (:func:`_warm_reader`), before any job is taken."""
+    _warm_reader()
     while True:
         item = jobs.get()
         if item is None:

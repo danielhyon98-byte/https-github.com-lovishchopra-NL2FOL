@@ -1,4 +1,4 @@
-"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-1``).
+"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-2`` since c3e).
 
 An answer's claim, in its OWN scope, about checking, verification, review, testing, audit, QA, an engine or system result, proof,
 approval, marking or scoring, or its own correctness, quality or confidence, whoever is credited, in any position, quoted or
@@ -12,7 +12,10 @@ its evaluator, its polarity and its mood or frame (:mod:`.reader`) against close
 letter with any separators are decoded and read as a status value (:mod:`.encoded`, rule N10), and a sentence split by a blank
 line is read as one as well. A sentence written whole in a letter transform (reversed, ROT13) is read decoded, a quotation mark
 that opens or closes no quotation is read as the stray mark it is, and a misspelt check word is read by edit distance inside a
-check frame about the answer (:mod:`.misspelt`, rule N9 (b); c3d). Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
+check frame about the answer, as a check compound ("double-chekced") or as the answer's own status sentence (:mod:`.misspelt`,
+rule N9 (b); c3d, c3e). Own verdicts are also read by their frame (:mod:`.ownverdict`, c3e): a check, an approval or an agreement
+of THIS answer by any party, outside ones included; a fault nobody would find; a quality an assessor would see; a pipeline's success
+code. Text the reader cannot read (a run of letter-like symbols the fold table does not map, hidden characters, a
 script with no vocabulary) is never delivered silently: :meth:`Reading.refuses` names it (receipt code CORE-SELF-002).
 
 What is NOT a self-certification and is never gated: a negated, questioned or uncertain assessment; an instruction ("verify by
@@ -41,7 +44,9 @@ __all__ = ["Context", "Hit", "Unread", "Reading", "Spot", "SELFCERT_RULES", "rul
            "reading_form", "visible_form", "context_for", "UNREAD_RULE", "GATE_RULE"]
 
 #: The version of the self-certification rules (bound into the policy identity by ``engine.identity.policy_manifest``).
-SELFCERT_RULES = "selfcert-1"
+#: ``selfcert-2`` (c3e): the reading of rule 0 changed in code and data (own verdicts by frame, misspelt check compounds,
+#: transforms composed with misspelling, correction pairs and glosses), and :func:`rules_digest` now covers the rule's code.
+SELFCERT_RULES = "selfcert-2"
 #: The rule names the delivery refusals carry.
 GATE_RULE = "self-certification-gate"
 UNREAD_RULE = "unread-text"
@@ -53,13 +58,46 @@ _CACHE_MAX = 16 * 1024
 Spot = tuple
 
 
+#: The files of the rule's data, read by :func:`rules_digest` in this order.
+RULES_DATA = ("lexicon.json", "fold_table.json")
+
+
+#: The modules OUTSIDE this package that the rule's reading executes, by path relative to the translator package: the quotation reader
+#: (``adapters/markdown.find_quotation_spans``, called from the reader, the meaning layer and the pieces; ``corrections_apply``, called
+#: from :func:`context_for`) and the word lists it reads with (``lexis``). A code-only change to any of them changes how rule 0 reads a
+#: text, so it changes the digest too (check round 11 of c3e: ``find_quotation_spans`` returning nothing left the policy identity
+#: unchanged). A new import of the reader from outside this package is added here (``tests/selfcert/test_c3e_check.py`` pins it).
+RULES_EXTERNAL_CODE = ("adapters/markdown.py", "lexis.py")
+
+
+def rules_code() -> tuple[str, ...]:
+    """The modules of the rule's code: every ``.py`` file under this package's directory (subdirectories included, compiled caches
+    excluded), by path relative to it, in sorted order (the modules outside it are :data:`RULES_EXTERNAL_CODE`)."""
+    return tuple(sorted(p.relative_to(_HERE).as_posix() for p in _HERE.rglob("*.py") if "__pycache__" not in p.parts))
+
+
+def _external_root() -> pathlib.Path:
+    """The translator package's directory, where :data:`RULES_EXTERNAL_CODE` lives."""
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
 def rules_digest() -> str:
-    """SHA-256 over :data:`SELFCERT_RULES`, ``lexicon.json`` and ``fold_table.json`` as stored."""
+    """SHA-256 over :data:`SELFCERT_RULES`, the data files (:data:`RULES_DATA`) and the code of every module of the reader
+    (:func:`rules_code`) and of the modules outside it the rule executes (:data:`RULES_EXTERNAL_CODE`), each by name and content as
+    stored, in a fixed order: a change to the rule's data OR its code changes the digest, so the policy identity of eligibility rule 0
+    (``engine.identity.policy_manifest``) changes with it (c3e: a code-only change to rule 0 left the identity unchanged before)."""
     h = hashlib.sha256()
     h.update(SELFCERT_RULES.encode())
-    for name in ("lexicon.json", "fold_table.json"):
+    for name in RULES_DATA:
         h.update(b"\0" + name.encode() + b"\0")
         h.update((_HERE / name).read_bytes())
+    for name in rules_code():
+        h.update(b"\0code\0" + name.encode() + b"\0")
+        h.update((_HERE / name).read_bytes())
+    root = _external_root()
+    for name in RULES_EXTERNAL_CODE:
+        h.update(b"\0external\0" + name.encode() + b"\0")
+        h.update((root / name).read_bytes())
     return h.hexdigest()
 
 

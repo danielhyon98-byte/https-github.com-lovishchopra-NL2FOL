@@ -54,6 +54,9 @@ EXPORTS: dict[str, tuple[str, str | None]] = {
     'OWN_TEXT_RULE': ('epinoic_logic.adapters.own_text', 'OWN_TEXT_RULE'),
     'own_model_spans': ('epinoic_logic.adapters.own_text', 'own_model_spans'),
     'own_text_spans': ('epinoic_logic.adapters.own_text', 'own_text_spans'),
+    # the one reader's decision that a quoted span is the writer's own (a model, a frame, an own correction and the wording it
+    # replaces), with the supplied texts in view (c3d: the auditor's OVS-FID-004 reads what the parser and the channel read; API 1.3)
+    'own_model_words': ('epinoic_logic.adapters.sources', 'own_model_words'),
     'segment': ('epinoic_logic.adapters.english_specialist.parser', 'segment'),
     'self_cert_vocabulary': ('epinoic_logic.adapters.markdown', 'self_cert_vocabulary'),
     'split_sentences': ('epinoic_logic.adapters.english_specialist.parser', 'split_sentences'),

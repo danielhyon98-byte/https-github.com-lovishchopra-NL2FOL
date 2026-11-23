@@ -749,7 +749,7 @@ rate_limited, capacity, rejected, error, malformed, binding_mismatch); decisions
 ## 13. Compatibility and change rules
 
 `integration/COMPATIBILITY.json` pins the protocol, the accepted component versions (IR 1.0, engine 0.4.0, policy
-2026.11-v5, translator 0.4.0, contract 0.6) and the `z3-solver` range, the specialist pairs, the routing contract, the
+2026.11-v6, translator 0.4.0, contract 0.7) and the `z3-solver` range, the specialist pairs, the routing contract, the
 subject-map digest, the named and verdict policies, the STEM branches, the overseer's replay mode, the router's
 non-required status and floor, the limits, the timing figures per website base, the website bases with tested patch
 sets, and the repositories by role (`repositories`): `translator` the organization's translator repository, which

@@ -24,6 +24,7 @@ from typing import Optional
 import functools
 import json
 import pathlib
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -85,8 +86,18 @@ def _decomposed(ch: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
 
 
+#: (the fold table's letter-like blocks and the lowest code point of any of them, derived once per loaded table: a code point below it
+#: is in none of them; data derived from the table, not a memo of any reading)
+_BLOCKS_LOW: list = []
+
+
 def letter_like(cp: int) -> bool:
-    return any(a <= cp <= b for a, b in fold_table()["blocks"])
+    blocks = fold_table()["blocks"]
+    if not _BLOCKS_LOW or _BLOCKS_LOW[0] is not blocks:
+        _BLOCKS_LOW[:] = [blocks, min((a for a, _b in blocks), default=0x110000)]
+    if cp < _BLOCKS_LOW[1]:
+        return False  # (below every block: the same answer as the scan of the blocks, c3e stabilizer)
+    return any(a <= cp <= b for a, b in blocks)
 
 
 def _invisible(cp: int, cat: str) -> bool:
@@ -118,6 +129,9 @@ _BRAILLE_DOTS = {"a": (1,), "b": (1, 2), "c": (1, 4), "d": (1, 4, 5), "e": (1, 5
                  "p": (1, 2, 3, 4), "q": (1, 2, 3, 4, 5), "r": (1, 2, 3, 5), "s": (2, 3, 4), "t": (2, 3, 4, 5), "u": (1, 3, 6),
                  "v": (1, 2, 3, 6), "w": (2, 4, 5, 6), "x": (1, 3, 4, 6), "y": (1, 3, 4, 5, 6), "z": (1, 3, 5, 6)}
 _BRAILLE = {0x2800 + sum(1 << (d - 1) for d in dots): letter for letter, dots in _BRAILLE_DOTS.items()}
+
+
+_ASCII_RUN_RE = re.compile(r"[\x00-\x7f]+")
 
 
 def _pass_one(text: str) -> tuple[list[str], list[int], list[tuple[str, int, int]]]:
@@ -156,9 +170,14 @@ def _pass_one(text: str) -> tuple[list[str], list[int], list[tuple[str, int, int
         if cp < 128:
             close_hidden(i)
             close_ll(i)
-            emit(ch, i)
-            prev_visible_cp = cp
-            i += 1
+            # (a run of ASCII characters is emitted as written, each at its own offset, in one step: what the step per character did,
+            # since closing the runs again at each later character of the run closes nothing; c3e stabilizer)
+            m = _ASCII_RUN_RE.match(text, i)
+            j = m.end()
+            out.extend(text[i:j])
+            origin.extend(range(i, j))
+            prev_visible_cp = ord(text[j - 1])
+            i = j
             continue
         cat = _category(ch)
         if _invisible(cp, cat):
@@ -624,6 +643,7 @@ def fold(text: str, known=None) -> Folded:
 #: RLO (U+202A, U+202B, U+202D, U+202E) and the isolates LRI, RLI, FSI (U+2066 to U+2068); PDF (U+202C) and PDI (U+2069) close them.
 _BIDI_OPEN = frozenset((0x202A, 0x202B, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068))
 _BIDI_CLOSE = frozenset((0x202C, 0x2069))
+_BIDI_ANY_RE = re.compile("[\u202a-\u202e\u2066-\u2069]")
 
 
 def _reordered_runs(text: str) -> tuple[tuple[str, int, int], ...]:
@@ -631,8 +651,8 @@ def _reordered_runs(text: str) -> tuple[tuple[str, int, int], ...]:
     control (or the end of the line) are shown in an order the reader does not read ("\u202e.tcerroc si rewsna sihT" displays
     "This answer is correct."). Such a run is hidden text whatever it spells: never read as written, never delivered silently.
     One pass."""
-    if not any(0x202A <= ord(c) <= 0x202E or 0x2066 <= ord(c) <= 0x2069 for c in text):
-        return ()
+    if not _BIDI_ANY_RE.search(text):
+        return ()  # (the same test as a scan of every character for a control U+202A to U+202E or U+2066 to U+2069; c3e stabilizer)
     out: list[tuple[str, int, int]] = []
     start, depth, letters = -1, 0, False
     for i, c in enumerate(text):

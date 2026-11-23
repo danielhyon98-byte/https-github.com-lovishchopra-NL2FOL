@@ -168,7 +168,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
-from typing import Iterator, Literal, Optional
+from typing import Iterator, Literal, Optional, Sequence
 
 from ...ir.schema import SourceRef
 from ...translate.common import utc_now_rfc3339
@@ -1039,6 +1039,57 @@ def _attribute(excerpt: str, named: list[str], docs: dict[str, SuppliedText], se
     return attribute_excerpt(excerpt, named, docs, text_under_analysis=text_under_analysis(docs), sentence=sentence)
 
 
+def _quotation_credit(excerpt: str, named: list[str], docs: dict[str, SuppliedText], sentences: Sequence[Sentence], i: int, q: Quotation,
+                      own_voice: list[str], text: str, pair_contexts: dict) -> tuple[Optional[str], list[str]]:
+    """``(document_id, assumptions)`` for the quotation ``q`` of ``sentences[i]`` (:func:`_attribute`), read with what the one reader
+    of the writer's own words needs beyond the sentence (c3e, the c3d leftovers on the English branches):
+
+    * a labelled correction PAIR that the segmenter cut into two sentences ('Before: "x". After: "y".', 'Original: "x". Revised:
+      "y".'): the one reader (``own_text.correction_pairs``) names the pair only with both spans in view, so the sentence is read
+      with its neighbour when the two hold one pair across their boundary. Before, both spans were credited to the text under
+      analysis and charged INT-REQ-003 and ES-SRC-001. A supplied text that holds the words, altered or not, still keeps them a
+      quotation of that text (``sources.own_model_words``, INV-Q1);
+    * a quotation its sentence credits to the answer's OWN text in the answer's own voice ('As I said above, "..."', 'In my
+      closing line, "..."': ``own_text.credits_own_text``) that the answer's own words outside quotation marks hold word for word
+      (``own_text.quotes_own_wording``) and that no supplied text holds all but one or two words of: credited to no text, so the
+      channel's own-wording reading decides it, instead of to the text under analysis before that reading ran. An altered one is
+      held by no own wording and is credited as before, and checked.
+
+    ``own_voice`` holds :func:`own_text.unquoted_text` of ``text`` once it is first needed, and ``pair_contexts`` each sentence's
+    pairs across its boundaries once they are first read."""
+    from ..own_text import correction_pairs, credits_own_text, quotes_own_wording, unquoted_text
+    from ..sources import nearest_text, uncredited_assumption
+    sentence = sentences[i]
+    key = (id(sentences), i)
+    if key not in pair_contexts:  # each sentence read once with each neighbour, however many quotations it holds (linear)
+        found: dict[int, str] = {}
+        for j in (i - 1, i + 1):
+            # (the neighbour's own spans, not its quotations: in a feedback task the parser leaves a correction out of those)
+            if not (0 <= j < len(sentences)) or not find_quotation_spans(sentences[j].text):
+                continue
+            first, second = (sentences[j], sentence) if j < i else (sentence, sentences[j])
+            joined = first.text + " " + second.text
+            offset = 0 if j > i else len(first.text) + 1
+            spans = find_quotation_spans(joined)
+            mine = {k for k, sp in enumerate(spans) if offset <= sp[0] < offset + len(sentence.text)}
+            for r, c in correction_pairs(joined, spans):
+                if c is not None and (r in mine) != (c in mine):
+                    found.setdefault(spans[r if r in mine else c][0] - offset, joined)
+        pair_contexts[key] = (sentences, found)  # the list kept alive with its id
+    context = pair_contexts[key][1].get(q.start)
+    paired = context is not None
+    context = context if paired else sentence.text
+    if not paired and docs and credits_own_text(sentence.text, q.start):
+        if not own_voice:
+            own_voice.append(unquoted_text(text))
+        if quotes_own_wording(own_voice[0], sentence.text, q.start, excerpt, credited=True):
+            _near, missing = nearest_text(excerpt, docs)
+            if len(missing) > 2 or len(missing) >= len(excerpt.split()):
+                return None, [uncredited_assumption(excerpt, "the sentence credits these words to the answer's own text, which holds them word "
+                                                             "for word outside quotation marks; no supplied text holds them")]
+    return _attribute(excerpt, named, docs, context)
+
+
 def _claim_text(text: str) -> str:
     return text if len(text) <= _MAX_CLAIM_TEXT_CHARS else text[: _MAX_CLAIM_TEXT_CHARS - 3] + "..."
 
@@ -1181,6 +1232,8 @@ def parse_response(
     pending_conclusion: list[tuple[str, str, list[str]]] = []
     body_point_ids: list[str] = []
     inline_notes: dict[str, list[str]] = {}  # per sentence id: the method's own labels carried inline, recorded as assumptions
+    pair_contexts: dict = {}  # per sentence: its quotations in a labelled correction pair across a sentence boundary (``_quotation_credit``)
+    own_voice: list[str] = []  # the answer's own words, its quotations blanked (``own_text.unquoted_text``), read once when first needed
 
     for para in paragraphs:
         if not para.sentences or para.kind == "meta":
@@ -1198,7 +1251,7 @@ def parse_response(
         support_ids: list[str] = []
         pending_links: list[tuple[str, str, list[str]]] = []
         quotation_count = 0
-        for sentence in para.sentences:
+        for s_at, sentence in enumerate(para.sentences):
             sid = f"p{para.index}-s{sentence.index:02d}{suffix}"
             if (para.is_prose or para.kind == "note") and sentence.role == "other":
                 # self-certification, narrated checking or a JSON-shaped line: recorded, never argued, no source reference;
@@ -1212,7 +1265,8 @@ def parse_response(
                             continue
                         quotation_count += 1
                         qid = f"p{para.index}-q{quotation_count:02d}{suffix}"
-                        doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text) if q.delimited else (None, [_UNDELIMITED_NOTE])
+                        doc_id, notes = (_quotation_credit(q.excerpt, named, docs, para.sentences, s_at, q, own_voice, text, pair_contexts) if q.delimited
+                                         else (None, [_UNDELIMITED_NOTE]))
                         if not q.delimited and para.index not in undelimited_paragraphs:
                             undelimited_paragraphs.append(para.index)
                         add(qid, f'"{q.text}"', "evidence", proposed_claim_kind="factual", materiality="supporting",
@@ -1231,7 +1285,7 @@ def parse_response(
                     quotation_count += 1
                     qid = f"p{para.index}-q{quotation_count:02d}{suffix}"
                     if q.delimited:
-                        doc_id, notes = _attribute(q.excerpt, named, docs, sentence.text)
+                        doc_id, notes = _quotation_credit(q.excerpt, named, docs, para.sentences, s_at, q, own_voice, text, pair_contexts)
                         refs = [SourceRef(document_id=doc_id, excerpt=q.excerpt)] if doc_id else []
                     else:
                         doc_id, refs = None, []

@@ -53,8 +53,13 @@ _CELL_NUMBER_RE = re.compile(r"^\s*+(?P<sign>[−–-])?\s*+(?P<cur>[$£€¥])?
 _BRACKET_UNIT_RE = re.compile(r"\(([^()\n]{1,40})\)\s*+$")
 _SCALES = {"thousand": Fraction(10**3), "million": Fraction(10**6), "billion": Fraction(10**9), "trillion": Fraction(10**12),
            "m": Fraction(10**6), "bn": Fraction(10**9), "k": Fraction(10**3)}
+#: The function words of English: they never name a table's row or column, alone or as the one word only that row holds (c3e: 'and'
+#: of 'Wind and solar power' named that row in 'Energy supply per person was about 38 GJ in 2005 and about 5.5 GJ in 2025').
+FUNCTION_WORDS = frozenset("""a an the and or nor but if so as of in on at to by for from with into onto over under via per than then that this these
+    those which who whom whose what is are was were be been being has have had do does did not no its it their his her our your my each every all any
+    both either neither such same other""".split())
 _STOP = frozenset("""the and of in on at for by to from with a an its their this that these those per total share other data source sources year
-    years value values number numbers amount figure figures""".split())
+    years value values number numbers amount figure figures""".split()) | FUNCTION_WORDS
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]{1,30}")
 #: A figure of a claim: an optional currency sign and sign, digits, decimals, then a per cent sign, 'percentage points' or a scale word.
 _FIGURE_RE = re.compile(
@@ -350,6 +355,21 @@ def _units_agree(f: _Figure, cell: SuppliedCell) -> bool:
     return True
 
 
+#: Units of measure a figure may be written in: a figure in one the cell's unit does not state is another quantity ("about 42 GJ" per
+#: person against a total in PJ; check round 11 of c3e).
+_MEASURE_UNITS = frozenset("kj mj gj tj pj ej j kwh mwh gwh twh w kw mw gw tw t kt mt gt kg g mg mm cm m km ha l ml".split())
+_UNIT_AFTER_RE = re.compile(r"\s*+(?P<u>[A-Za-z]{1,4})\b")
+
+
+def _other_measure_unit(clause: str, f: "_Figure", cell: "SuppliedCell") -> bool:
+    """Whether the figure is written in a unit of measure the cell's unit does not state."""
+    m = _UNIT_AFTER_RE.match(clause, f.end)
+    if m is None:
+        return False
+    u = m.group("u").lower()
+    return u in _MEASURE_UNITS and u not in _unit_words(cell.unit)
+
+
 def _unit_words(unit: str) -> set:
     """The words of a unit, singular ("Population (millions)" states "million")."""
     return {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in re.split(r"[\s,;/]+", unit.lower()) if w}
@@ -426,7 +446,7 @@ def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> li
                 same = [c for c in table.cells if c.entity == entity and (year is None or c.year == year)] if entity else []
                 if entity and year is not None and len(same) == 1:
                     cell = same[0]
-                    if not _units_agree(f, cell):
+                    if not _units_agree(f, cell) or _other_measure_unit(clause, f, cell):
                         continue
                     if credited or f.unit or f.scale != 1 or cell.unit:
                         out.append(_Finding(claim_id, clause.strip(), f, (cell,), table.document_id, table.title, "error",

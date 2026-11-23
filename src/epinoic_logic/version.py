@@ -63,6 +63,12 @@ History of the self-certification bump (round-10 clearance c3 and its hold remed
   and fold table), so a change to them without a version bump still makes every result of another build stale.
   D9/D10 (decision D35): the Geography and Language B branches ship under the same component versions; they add
   deterministic packs only (profiles, aliases, eligibility, prompts and the parser are unchanged).
+* POLICY_VERSION 2026.11-v6 (c3e, the push check of 2be42c48): eligibility rule 0 reads the self-certification rules
+  ``selfcert-2`` (own verdicts read by their frame: a check, an approval or an agreement of this answer by any party, a fault
+  nobody would find, a quality an assessor would see, a pipeline's success code; misspelt check compounds and status sentences;
+  letter transforms composed with misspelling; correction-pair labels, glosses and worked checks read as boundary (b)), and
+  ``selfcert.rules_digest`` now binds the rule's code (every module of ``epinoic_logic.selfcert``, by name and content) besides
+  its lexicon and fold table, so a code-only change to rule 0 changes the policy identity. Contract 0.6 to 0.7.
 
 Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
 integrated translator"):
@@ -78,7 +84,7 @@ integrated translator"):
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.11-v5"
+POLICY_VERSION = "2026.11-v6"
 TRANSLATOR_VERSION = "0.4.0"
 #: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
 ARG_RULES_VERSION = "argdiag-2"

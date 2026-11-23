@@ -75,6 +75,13 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   read without it (rule ``mark-annotation`` reads every other closing annotation out as before). c2 ec-t15 g4.2 was delivered as
   "... linked to paragraph." for the answer's "... linked to paragraph [3].", and an overseer agent's correct
   claim_not_in_response accusation was refuted by this check; the claim now does not occur in the response (FID-001);
+* ``own-correction`` (c3e, FID-004; the c3c and c3d runs' overseer handoff): the wording one of the answer's own corrections
+  replaces (``"x" -> "y"``, an arrow or a double arrow, "should be", "becomes", "rather than", "instead of", ``Wrong: "x". Right:
+  "y"``, one word) quotes no supplied text when the translator's decision, ``own_model_words`` (the one reader of the writer's own
+  words, ``adapters/own_text.py``, with the supplied texts in view), reads it as the writer's own in the claim, in another claim that
+  quotes it or in the paragraph of the response that quotes it (:func:`own_correction_words`); a span a supplied text holds, altered
+  or not, or one the sentence credits to a text, stays FID-004 when no receipt finding names it. Before it, ll-t16 with an own
+  correction drew OVS-FID-004 on the replaced wording the channel no longer charged, and an honest receipt got AUDIT_FAILED;
 * ``emphasis-figures`` (integration gate 3, FID-003): the STEM parser leaves the emphasis markers inside a statement out of
   its claim (``= __5.0 m s⁻²__.`` is delivered as ``= 5.0 m s⁻².``), while the figure reader reads no figure glued to an
   underscore (a word character), so a correct answer was AUDIT_FAILED for a figure "the response states under no
@@ -136,7 +143,7 @@ from typing import Optional
 
 from epinoic_logic.api.adapters import MAX_CLAIM_TEXT_CHARS, find_quotation_spans, is_self_report, label_on_content, not_a_self_report, quotation_only, reading_form
 from epinoic_logic.api.adapters import selfcert_context_for
-from epinoic_logic.api.adapters import OWN_TEXT_RULE, mask_outside_quotations, model_mark_ranges, own_model_spans, own_text_spans, template_form
+from epinoic_logic.api.adapters import OWN_TEXT_RULE, mask_outside_quotations, model_mark_ranges, own_model_spans, own_model_words, own_text_spans, template_form
 from epinoic_logic.api.adapters import check_excerpt
 from epinoic_logic.api.branches import GENERIC_MARK_ALLOC as _MARK_ALLOC, GENERIC_MARK_CODE as _MARK_CODE
 from epinoic_logic.api.branches import absent_mentions as _absent_mentions, quote_key as _quote_key
@@ -153,11 +160,12 @@ from .selfcert import flags_self_certification
 
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
            "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify", "own_model_quotations",
-           "strip_edge_emphasis", "own_text_quotations", "OWN_TEXT_RULE", "writer_credited"]
+           "strip_edge_emphasis", "own_text_quotations", "OWN_TEXT_RULE", "writer_credited",
+           "OWN_CORRECTION_RULE", "own_correction_words"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
                   "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model", "referring-bracket", "own-text",
-                  "emphasis-figures")
+                  "own-correction", "emphasis-figures")
 #: Rules ``own-model`` and ``own-text`` (round-9 clearance c2 and round-10 clearance c3, FID-004): the reader of the writer's own words in
 #: quotation marks is the translator's one reader (``epinoic_logic.adapters.own_text``, through the public API since the round-10
 #: clearance's handoff pass, overseer handoff 1(b)): this module's copy was moved there, so the auditor and the channel's feedback never
@@ -344,6 +352,45 @@ def own_text_quotations(text: str) -> set[str]:
     list continuing any of them, and every span of a paragraph after a sentence calling its example invented), read by the
     translator's one reader (``own_text_spans``, linear in the spans)."""
     return {normalise(inner.strip()) for _start, _end, inner in own_text_spans(text or "") if inner.strip()}
+
+
+#: Rule ``own-correction`` (c3e, the c3c and c3d runs' overseer handoff): the wording one of the answer's own corrections replaces
+#: ('"x" -> "y"', '"x" → "y"', '"x" => "y"', '"x" ⇒ "y"', '"x" should be "y"', '"x" becomes "y"', '"y" rather than "x"', '"y" instead of
+#: "x"', 'Wrong: "x". Right: "y"', a one-word '"greed" -> "thrift"') is the answer's own text, not a quotation of a supplied text, unless a
+#: supplied text holds it, altered or not (INV-Q1). :func:`own_text_quotations` (``own_text_spans``) keeps the replaced wording out by
+#: design (its control: the original of a correction stays a quotation), so OVS-FID-004 named the replaced wording of an own
+#: correction the channel no longer charged (arena c3 ll-t16 plus 'Your thesis is vague: "the adverts are about money" -> "..."') and an
+#: honest receipt got AUDIT_FAILED. The auditor now asks the decision the channel's parser and the merged core pack ask
+#: (``sources.own_model_words``, which reads the span through the one reader of the writer's own words, ``own_text.correction_pairs``
+#: and ``own_text_kinds``, with the supplied texts in view), through the public API, never a copy of it.
+OWN_CORRECTION_RULE = "own-correction"
+#: The sentences read for one quotation besides the claim's own: the report's claims that quote it, longest first (an evidence claim
+#: holds only the quotation; the sentence that quotes it is another claim), then the paragraphs of the response that quote it (a
+#: parser may keep only the evidence claim of a labelled list line, '- Wrong: "x"' over '- Right: "y"').
+_OWN_CORRECTION_HOLDERS = 8
+#: The reader's bound on the sentence it reads (``own_model_words`` reads none longer); a longer paragraph is not read here.
+_OWN_CORRECTION_MAX_CHARS = 4000
+_PARAGRAPH_RE = re.compile(r"\n[ \t]*\n")
+
+
+def own_correction_words(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict) -> bool:
+    """Rule ``own-correction``: whether the quotation ``q`` of claim ``c`` is the writer's own words where the answer quotes it: the
+    translator's decision (``own_model_words``, through the public API) on the claim's own text, then on the report's claims that quote
+    ``q`` (longest first), then on the paragraphs of the response that quote it, read against the supplied texts ``docs``. False when no
+    sentence quotes it or the reader fails (fail closed: the span stays a quotation)."""
+    bare = strip_enclosing_quotes(q)
+    key = normalise(bare)
+    if not key:
+        return False
+    holders = [c.claim_text] + sorted((x.claim_text for x in rep.claims if x.claim_id != c.claim_id and key in normalise(x.claim_text)),
+                                      key=len, reverse=True)[:_OWN_CORRECTION_HOLDERS]
+    holders += [p for p in _PARAGRAPH_RE.split(rep.original_response or "") if len(p) <= _OWN_CORRECTION_MAX_CHARS and key in normalise(p)
+                ][:_OWN_CORRECTION_HOLDERS]
+    try:
+        return any(own_model_words(h, bare, docs) for h in dict.fromkeys(holders)
+                   if any(normalise(inner) == key for _s, _e, inner in find_quotation_spans(h)))
+    except Exception:  # noqa: BLE001 - fail closed: the quotation stays one
+        return False
 
 
 def _credited(c: ClaimRecord, q: str) -> bool:
@@ -645,6 +692,9 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
                 own_here = own_models | own_text_quotations(c.claim_text)
                 unlocated = [q for q in unlocated if writer_credited(c, q) or normalise(q) not in own_here
                              and normalise(strip_enclosing_quotes(q)) not in own_here]
+            if unlocated:  # rule own-correction: the wording one of the writer's own corrections replaces, as the channel reads it
+                docs = {s.document_id: s for s in supplied}
+                unlocated = [q for q in unlocated if writer_credited(c, q) or not own_correction_words(c, q, rep, docs)]
             if unlocated:
                 ctx.ovs(t.seq, "OVS-FID-004", f"claim {c.claim_id} quotes {[q[:80] for q in unlocated[:4]]}, which occur in no supplied text, and no receipt finding names the claim",
                         claim_ids=cid, document_ids=[s.document_id for s in supplied], **ids)

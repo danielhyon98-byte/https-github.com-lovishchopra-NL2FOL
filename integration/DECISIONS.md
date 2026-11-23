@@ -1607,6 +1607,10 @@ rows; it decides nothing about the website. It is not a row of the table above, 
   is still open, so D34 stays open; the simulation was not re-run for this change. The kit's compatibility record accepts only
   policy 2026.11-v5 and contract 0.6 (decision D8 of the c3b design); its generated copies and vectors are regenerated with the
   kit's own tooling by the cross-owner step that follows the D9/D10 subject-map change.
+- **Changed since (c3e, POLICY_VERSION 2026.11-v6, contract 0.7):** the reader's rules are `selfcert-2`, and the policy
+  identity binds the reader's code (every module of `epinoic_logic.selfcert`) besides its lexicon and fold table, so a
+  code-only change to eligibility rule 0 changes `policy_id`. The kit's compatibility record accepts only policy 2026.11-v6 and
+  contract 0.7; its generated copies and vectors are regenerated with the kit's own tooling. D34 stays open as above.
 
 ### D35. Translator branches for Geography and Language B
 

@@ -1204,8 +1204,10 @@ def _spanish_text(s: str, start: int, n: int) -> bool:
     a = max(0, start - 600)  # the span's own sentence and its neighbours: a formula span alone holds no function word
     words = s[a:min(len(s), max(n, start) + 600, a + 4000)].lower().split()
     es = sum(1 for w in words if w.strip(".,;:()¿?¡!") in _ES_FUNCTION_WORDS)
+    if es < 3:
+        return False  # (the English words are counted only when the Spanish ones could decide: c3e stabilizer, the same answer)
     en = sum(1 for w in words if w.strip(".,;:()¿?¡!") in _EN_FUNCTION_WORDS)
-    return es >= 3 and es > 2 * en
+    return es > 2 * en
 
 
 def _log_base(s: str, k: int, n: int, mode: LexMode) -> tuple[int, Optional[int]]:

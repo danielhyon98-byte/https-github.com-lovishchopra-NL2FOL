@@ -1656,12 +1656,19 @@ def _mood(toks: list[Tok], question: bool) -> str:
     if k < len(toks):
         t = toks[k]
         nxt = toks[k + 1] if k + 1 < len(toks) else None
-        headline = any(x.has("v:part", "v:past") and x.fam() and not x.has("v:base") for x in toks[k + 2:]) and not any(
-            x.has("C:aux", "C:copula") for x in toks[k + 1:])
+        # (whether the clause reads as a headline is read only where the condition below comes to it: a pure scan of the clause,
+        # once per clause it decides; c3e stabilizer)
+        headline: Optional[bool] = None
         # a check noun with its participle ("Proof checked by Lean."): a headline, not an instruction
         if nxt is not None and t.has("C:check_noun", "C:genre", "C:part") and nxt.has("v:part") and nxt.fam() and \
                 (k + 2 >= len(toks) or toks[k + 2].punct or toks[k + 2].has("C:by", "C:prep")):
             headline = True
+
+        def is_headline() -> bool:
+            if headline is not None:
+                return headline
+            return any(x.has("v:part", "v:past") and x.fam() and not x.has("v:base") for x in toks[k + 2:]) and not any(
+                x.has("C:aux", "C:copula") for x in toks[k + 1:])
         if t.has("lang:es") and t.has("v:espret1", "v:espret3") and sum(1 for x in toks if x.w in _ES_FUNCTION or (
                 x is not t and x.has("lang:es"))) >= 2:
             return "declarative"  # "Revisé dos veces cada cálculo": a Spanish preterite, never an English imperative
@@ -1675,7 +1682,7 @@ def _mood(toks: list[Tok], question: bool) -> str:
         if (t.has("v:base") or t.has("C:imperative_verbs")) and not t.has("C:pron1", "C:det") and (not t.has("v:part") or base_part) and \
                 not lone and \
                 not (nxt is not None and (nxt.has("C:aux", "C:copula") or _finite(toks, k + 1))) and t.w not in ("ok", "okay") \
-                and not headline and not (nxt is not None and nxt.num and k + 2 < len(toks) and (
+                and not is_headline() and not (nxt is not None and nxt.num and k + 2 < len(toks) and (
                     toks[k + 2].has("C:aux", "C:copula") or (_finite(toks, k + 2) and toks[k + 2].fam()))):
             # ("Answer 3 is correct.": a numbered item as the subject, never an instruction)
             if t.has("lang:es") and not (t.has("v:es3") or t.has("C:imperative_verbs")):
@@ -1722,9 +1729,9 @@ _ES_FUNCTION = frozenset("el la los las esta este esto estos estas todo toda tod
 
 def _spanish(toks: list[Tok]) -> bool:
     """Whether a clause is Spanish (negative concord applies): a Spanish word or two Spanish function words."""
-    words = [w for t in toks for w in (t.w.split() if t.idiom else [t.w])]
     if any(t.has("lang:es") for t in toks):
         return True
+    words = [w for t in toks for w in (t.w.split() if t.idiom else [t.w])]
     return sum(1 for w in words if w in _ES_FUNCTION) >= 2
 
 
@@ -1769,6 +1776,34 @@ def _clause_found(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
     return _clause_found_bounded(cl, ctx, info)
 
 
+def _pair_word_after_cross(toks: list) -> int:
+    """The index of the first word after the clause's first cross (``len(toks)`` when it has no cross, or no word after it): a tick
+    after this index has a word between a cross and itself (:func:`_tick_of_correction_pair`)."""
+    first = next((k for k, x in enumerate(toks) if x.w == "zzmarkneg"), None)
+    if first is None:
+        return len(toks)
+    return next((k for k in range(first + 1, len(toks)) if not toks[k].punct), len(toks))
+
+
+def _tick_of_correction_pair(toks: list, i: int, word_after_cross: int) -> bool:
+    """The tick ``toks[i]`` closes a correction pair marked by a cross before it ('✗ "Ella es cansada" → ✓ "Ella está cansada"'): a
+    cross earlier in the clause with a word between it and the tick (``word_after_cross`` < ``i``, from
+    :func:`_pair_word_after_cross`: the earliest cross has the most words before the tick, so it alone is read), and at most 20
+    words after the tick, none of a family (provenance aside) or an anchor. Each tick reads at most 21 words after it (repair 2 of
+    c3e: the words after every tick of a run of ticks were collected whole, and the clause before it scanned again, so a clause of
+    ticks was read in time quadratic in its length)."""
+    if word_after_cross >= i:
+        return False
+    after: list = []
+    for j in range(i + 1, len(toks)):
+        x = toks[j]
+        if not x.punct and x.w not in _PAIR_QUOTES:
+            after.append(x)
+            if len(after) > 20:
+                return False
+    return bool(after) and not any(x.fam() - {"PROVENANCE"} or x.has("C:anchor", "C:anchor_idioms", "C:genre_strong") for x in after)
+
+
 def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
     toks = _lead_strip(cl.toks)
     if not toks:
@@ -1794,6 +1829,7 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
         if k_res is not None:
             return [_Found("G2", "CHECK", "sentence", toks[k_res].a, toks[k_res].b)]
     skip_rest = False
+    word_after_cross: Optional[int] = None
     for i, t in enumerate(toks):
         if _inert(t.w, t.t, t.num):
             continue  # a word no frame below can start from (no family, frame verb or noun, number, mark or score): read past it
@@ -1974,6 +2010,12 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
             own = any(x.has("C:poss1", "C:anchor", "C:anchor_idioms") for x in toks) or info.get("writer_check", False)
             if ctx.marking and t.w in ("zzmarkpos", "zzrating", "zzscorefull") and not own:
                 continue  # a tick or a score in a marking task marks the student's work (decision D9)
+            if t.w == "zzmarkpos" and word_after_cross is None:
+                word_after_cross = _pair_word_after_cross(toks)  # (once per clause)
+            if t.w == "zzmarkpos" and _tick_of_correction_pair(toks, i, word_after_cross):
+                continue  # a correction pair marked by a cross and a tick ('✗ "Ella es cansada" → ✓ "Ella está cansada"'): the tick
+                # marks the corrected form of the quoted words, the subject matter of a language lesson, never this answer
+                # (boundary (b); check round 11 of c3e)
             found.append(_Found("G6" if len(toks) > 2 else "G5", "MARK", "symbol", t.a, t.b))
             continue
         # production verbs are a check only with a checking signal; otherwise they are read in their other family, if any
@@ -3181,6 +3223,57 @@ def _subject_matter_anchor(toks: list[Tok]) -> bool:
 
 
 # ================================================================================================================== labels
+#: The keys of a command-term label: the task's notation of what a question asks (IB command terms; Spanish "término de instrucción").
+_COMMAND_KEYS = frozenset(("command term", "command terms", "command word", "command words", "command verb", "command", "key command term",
+                           "termino de instruccion", "terminos de instruccion", "termino de mando", "verbo de instruccion",
+                           "palabra de instruccion", "instruction word", "instruction term"))
+#: The command terms (IB, English and Spanish, accent-folded): a label's value of these names a task, never a status.
+_COMMAND_TERMS = frozenset("""analyse analyze annotate apply assess calculate comment compare contrast construct deduce define demonstrate
+derive describe design determine discuss distinguish draw estimate evaluate examine explain explore formulate identify interpret
+investigate justify label list measure outline plot predict prove recognise recognize show sketch solve state suggest summarise
+summarize verify check test review find integrate differentiate hence write down and to what extent
+analizar anotar aplicar calcular comentar comparar contrastar construir deducir definir demostrar derivar describir disenar
+determinar discutir distinguir dibujar estimar evaluar examinar explicar explorar formular identificar interpretar investigar
+justificar rotular enumerar medir resumir esbozar trazar predecir probar reconocer mostrar resolver indicar sugerir verificar
+comprobar revisar hallar y en que medida""".split())
+
+
+_PAIR_QUOTES = frozenset(("\"", "\u201c", "\u00ab", "\u2018", "'", "\u201e"))
+
+
+#: Nouns that name the whole answer (a worked check's key that names one of them is a verdict on the answer, not a check shown).
+_WHOLE_ANSWER_NOUNS = frozenset("answer answers response responses reply replies solution solutions essay everything respuesta "
+                                "respuestas solucion todo".split())
+_OPERATORS = frozenset("× x * + − - / ÷ ·".split())
+
+
+def _shows_working(value: list[Tok]) -> bool:
+    """Whether a label's value shows a computation: an equals sign with an operator between figures before it ("2 × 21 = 42")."""
+    ws = [t.w for t in value]
+    if "=" not in ws:
+        return False
+    k = ws.index("=")
+    return any(ws[m] in _OPERATORS and m > 0 and value[m - 1].num and m + 1 < k + 1 and value[m + 1].num for m in range(1, k)) and \
+        any(t.num for t in value[k + 1:])
+
+
+def _command_term_label(kwords: list[Tok], value: list[Tok]) -> bool:
+    """Whether a label is a command-term label: a command-term key and a value of command terms only (quoted or not, an assessment
+    objective in brackets after it, "(AO3)"). A value with any other word ("Command term: evaluate, verified") is read as usual."""
+    if " ".join(t.w for t in kwords) not in _COMMAND_KEYS:
+        return False
+    ws, depth = [], 0
+    for t in value:
+        if t.w == "(":
+            depth += 1
+        elif t.w == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and not t.punct:
+            ws.append(t.w)
+    return 0 < len(ws) <= 5 and all(w in _COMMAND_TERMS or (len(w.split()) > 1 and all(x in _COMMAND_TERMS for x in w.split()))
+                                    for w in ws)
+
+
 def _key_class(key: list[Tok]) -> str:
     if any(t.w == "(" for t in key[1:]):
         key = key[:next(k for k, t in enumerate(key) if t.w == "(" and k > 0)]  # the key's words before its bracket
@@ -3474,6 +3567,10 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
                 continue
             kc = _key_class(key)
             kwords = [t for t in key if not t.punct]
+            if value and _command_term_label(kwords, value):
+                continue  # a command-term label ("Command term: 'evaluate' (AO3).", "Command term: verify.", "Término de instrucción:
+                # evaluar."): the task's notation of what the question asks, never an assessment of this answer (boundary (b);
+                # check round 11 of c3e)
             if value and not computation and _apparatus_key(kwords):
                 tail = _trailing_status(value)
                 if tail is not None:
@@ -3499,8 +3596,12 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
             if any(t.w in ("zzmarkpos", "zzapprove", "zzscorefull") for t in key) and not ctx.marking:
                 found.append(_Found("G6", "MARK", "label_before", part[0].a, key[-1].b))
                 continue
-            # the key read as a clause (a key can itself be a self-assessment: "Nothing to fix:", "Good to go:")
-            if kc not in ("assess", "defect", "output"):
+            # the key read as a clause (a key can itself be a self-assessment: "Nothing to fix:", "Good to go:"); a key whose value
+            # shows the computation it reports ("The calculation checks out: 2 × 21 = 42.") is a worked check, material for the
+            # engine (boundary (b); check round 11 of c3e), unless the key names the whole answer or all of it
+            worked_key = _shows_working(value) and not any(
+                t.w in _WHOLE_ANSWER_NOUNS or t.has("C:anchor", "C:anchor_idioms", "C:poss1", "C:dist") for t in key)
+            if kc not in ("assess", "defect", "output") and not worked_key:
                 for seg in _comma_split(key):
                     found += _clause_found(Clause(seg, role="key", question=question), ctx, info)
             # a bracket inside the key: "Answer (verified):", "Working (fine):"
@@ -4552,15 +4653,19 @@ def _folded_letters(w: str) -> str:
     return "".join(out)
 
 
+@functools.lru_cache(maxsize=4096)
 def _net_found(orig: str, masked: str, es_context: bool = False, short_line: bool = True) -> tuple[bool, bool]:
     """(gated by G9, unread by U3) for one sentence: the strong-word net of other languages (Latin-script nets read the folded
     text; the nets of other scripts and the script count read the ORIGINAL sentence, before look-alike letters are folded) and the
-    scripts with no vocabulary."""
+    scripts with no vocabulary. A pure function of its arguments and the loaded lexicon, so memoised: a sentence that recurs (a
+    list of equal items, a run of equal lines) is read once (stabilizer of c3e)."""
     net = lexicon().net
     net_sets = _net_sets(net)
     raw = orig.lower()
     scripts: dict[str, int] = {}
     for w0 in orig.split():
+        if w0.isascii():
+            continue  # (an ASCII word has no letter of any script counted below, and no CJK letter: it counts for none; c3e stabilizer)
         # a letter the fold table maps (fullwidth, mathematical, small-capital, circled letters: rule N3) is read as the letter it
         # folds to, so a folded run is read as text, never as a script with no vocabulary (attack round 6: every fullwidth or
         # mathematical-italic sentence was refused, "𝑓(𝑥) = 3𝑥²" included); Cyrillic and Greek look-alikes (N4) keep their script
@@ -4610,11 +4715,15 @@ def _net_found(orig: str, masked: str, es_context: bool = False, short_line: boo
             if gated:
                 break
             continue
+        positives, negs, defects, func = net_sets[lang]
+        if positives.isdisjoint(ws) and defects.isdisjoint(ws):
+            # (every way below that a Latin-script net gates a sentence reads one of its positive or defect words: a sentence with
+            # neither is passed over at once, as the steps below would pass it; c3e stabilizer)
+            continue
         if es_markers is None:
             es_markers = sum(1 for w in ws if w in _ES_MARKERS)
         if (es_markers >= 2 or es_context) and lang in ("pt", "ca", "it", "fr"):
             continue  # (a clause of a Spanish sentence is Spanish: "La forma correcta es «haya»" is no Catalan)
-        positives, negs, defects, func = net_sets[lang]
         hits = sum(1 for w in ws if w in func or w in positives or w in defects)
         words = [w for w in ws if w]
         # a negator of the reader's own classes (English and Spanish: "no", "sin", "nunca") right before the word negates it in
@@ -5005,6 +5114,9 @@ def _runon_breaks(text: str, head_only: Optional[list] = None) -> Optional[str]:
                 brk = None  # a minus sign between two operands ("Check: 30 - 10 = 20.", "6% - 2% = 4%", "3 – 2 = 1"; a currency
                 # sign written after the figure, "45 € - 9 € = 36 €", check round 9 of c3c): the computation goes on (attack
                 # round 7: a worked check is material, boundary (b))
+            elif y.rstrip(".,;:") in ("%", "‰", "°", "°C", "°F") and x[-1:].isdigit():
+                brk = None  # a per-cent sign or a degree written apart from its figure ("Comprobación: 25 % de 80 = 20"): the figure's
+                # unit, the computation goes on (c3e, an over-block of 2be42c48: a worked check under boundary (b))
             elif x in ("-", "–", "—") and k >= 2 and dashes == 1:
                 brk = a1  # a spaced dash: what follows it is read on its own too ("... parques - 100% correct")
             elif x[-1] in ".!?:;" or (x[-1] in "\"'»”’)" and len(x) > 1 and x[-2] in ".!?:;"):
@@ -5740,6 +5852,10 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
                     f2 = _sentence_found(bare, sctx, question, info)
                     f2, extra2 = _meaning_review(bare, sctx, question, f2, _Found, s, a, b, kind)
                     fnd += f2 + extra2
+            if fnd and len(toks) <= 24:
+                kl = _label(toks)
+                if kl is not None and _command_term_label([t for t in toks[:kl] if not t.punct], toks[kl + 1:]):
+                    fnd = []  # (a command-term label, read whole: no layer reads its command verb as a check; c3e)
             if heading_spans:
                 fnd = [f for f in fnd if not (f.family in ("CHECK", "STATUS", "AGREE", "MARK") and
                                               any(ls <= f.a < le for ls, le in heading_spans))]

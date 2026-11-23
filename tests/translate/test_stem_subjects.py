@@ -67,7 +67,7 @@ def test_versions_are_bumped_and_the_pinned_prompt_is_unchanged():
     from epinoic_logic.translate import prompts
     # The STEM bump (0.3.0, 2026.10-v3) was followed by the review-fix bump of 2026-10-12 (version.py history); the pin
     # moves with each release and stays exact.
-    assert TRANSLATOR_VERSION == "0.4.0" and POLICY_VERSION == "2026.11-v5"  # pin moved: POLICY_VERSION 2026.11-v5 (eligibility rule 0, c3b)
+    assert TRANSLATOR_VERSION == "0.4.0" and POLICY_VERSION == "2026.11-v6"  # pin moved: POLICY_VERSION 2026.11-v6 (eligibility rule 0, c3e)
     # rewritten (12 Oct 2026 review fixes), stricter: the prompt in use moved to translate_v2 (exactness, task authority,
     # definitions), and the pinned translate_v1 the STEM work left unchanged is still packaged byte for byte, so every
     # recorded prompt_version names the exact instructions it was produced with

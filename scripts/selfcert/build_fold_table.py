@@ -180,7 +180,7 @@ def build() -> dict:
         if n:
             fold[f"{cp:04X}"] = n
     return {
-        "rules": "selfcert-1",
+        "rules": "selfcert-2",
         "unicode": unicodedata.unidata_version,
         "fold": dict(sorted(fold.items(), key=lambda kv: int(kv[0], 16))),
         "combining_letters": sorted([f"{cp:04X}" for cp in list(range(0x0363, 0x0370)) + list(range(0x1DD3, 0x1DF5))

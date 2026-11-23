@@ -697,6 +697,32 @@ roles) and runs deterministic structural checks that produce `StructuralFinding`
     ('your draft says', 'you wrote', 'the task asks'). The channel's uncredited-quotation check reads it as neither an altered
     quotation of the request nor an invented one; an altered quotation of a supplied text, or one credited by kind to the text under
     analysis, stays charged whatever the answer's own voice holds (`tests/channel/test_c3c_own_correction.py` pins both directions).
+  - Who a quotation is credited to (push checks of af6dfe04, reason 5, and of 2be42c48, critical_open 3). `own_text.credits_own_text`
+    is the one reader of a quotation credited to the answer's OWN text, and only the answer's own voice credits it: a first-person
+    possessive before a kind or a part of a piece of writing, at most two words between ('my closing line', 'mi carta', 'mon article';
+    never a possessive before anything else: 'our teacher', 'mi profesora', and 'nos' before a verb in 'Se nos pide'), a first-person
+    verb of writing or saying ('As I wrote above', 'como escribí'), a kind of the answer's own writing ('The article opens with', 'The
+    model opens with'), or a part of a piece of writing in a clause with no verb of a text's saying ('The second sentence, "..."'; 'The
+    heading reads', 'The opening line reads' and 'La primera línea dice:' may be the task's and credit nothing). A word that only
+    points back ('above', 'Como se indica arriba:') credits nothing by itself. A cue of the reader, the task, a text under analysis,
+    whoever sets or marks the task (teacher, examiner, marker, profesor/a, professeur) or the request by its verb, active, passive or
+    impersonal ('asks', 'We were asked', 'Se nos pide', 'Nos piden', 'On nous demande') overrides it, in `credits_own_text` and in
+    `quotes_own_wording` alike. `quotes_own_wording(..., credited=True)` asks for that credit: the channel asks it of a quotation the
+    request holds all but one or two words of, so such a quotation credited to the task in any frame and language is checked against
+    the task whatever the answer writes elsewhere (`tests/channel/test_c3d_quotation_frames.py`,
+    `tests/channel/test_c3e_quotation_credit.py`).
+  - Labelled correction pairs. `own_text.correction_pairs` pairs a span under the label of a replaced wording ('Wrong:', 'Incorrect:',
+    'Mal:', 'Incorrecto:', 'Faux :', 'Error:') with the correction under a label of the one class `markdown.CORRECTION_RIGHT_LABELS`
+    ('Right:', 'Correct form:', 'Better:', 'After:', 'Bien:', 'Correcto:', 'Mejor:', 'Después:', 'Juste :', 'Après :'), an arrow
+    between the two allowed ('"x" → Bien: "y"'); with the correction outside the text read, the replaced span pairs with None. A
+    neutral label ('Before:', 'Original:', 'Antes:') marks a replaced wording only with its correction in view. The markdown
+    quotation-role reader reads the same class in a feedback task: a label of it right after the wording it replaces, or opening the
+    sentence with its colon right after it ('Bien: "..."'; never a longer head such as 'Bien, pero ...:'), makes the span a correction
+    (c3e, the c3d leftover '- Mal: "x". Bien: "y"' on sp-t16). The English parser reads a sentence with its neighbour when the two
+    hold one labelled pair across their boundary ('Before: "x". After: "y".'; `english_specialist.parser._quotation_credit`), and
+    credits to no text a quotation credited in the answer's own voice that the answer's own words hold word for word and no supplied
+    text holds all but one or two words of ('As I said above, "..."'), so the channel's own-wording reading decides it instead of the
+    text under analysis taking it. A supplied text that holds the words, altered or not, keeps them a quotation of that text (INV-Q1).
   - A question back to the student or the router ("Would you like me to say more about the reparations?", "Which edition are you
     using?", `markdown.is_question_back`) in a body or conclusion block of its own is a note (role other) on the English branches, as on
     every other branch (combinator handoff H2); the questions an answer sets the student under an "answer these ...:" lead stay

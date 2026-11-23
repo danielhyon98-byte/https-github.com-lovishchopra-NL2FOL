@@ -77,8 +77,10 @@ def test_every_exclusion_is_a_word_of_the_committed_cited_source():
     header = (ROOT / "scripts" / "selfcert" / "real_words.txt").read_text(encoding="utf-8")
     assert "SCOWL" in header and "Kevin Atkinson" in header and "wspanish 1.0.30" in header  # cited, with the notice
     # (70 since check round 9 of c3c: "infalible" is a Spanish word of the class, read by the lexicon and no longer exempt; the
-    # answer's genre nouns are read misspelt, and the real Spanish words "repuesta", "repuestas" one edit from "respuesta" are exempt)
-    assert len(raw["fuzzy_excluded"]) == 70
+    # answer's genre nouns are read misspelt, and the real Spanish words "repuesta", "repuestas" one edit from "respuesta" are exempt;
+    # 68 since c3e: "complain" and "complains" are words of the lexicon's defect class, read as themselves, so no longer exempt
+    # variants of another word: fewer exemptions, a stricter reading)
+    assert len(raw["fuzzy_excluded"]) == 68
     assert "infalible" not in raw["fuzzy_excluded"] and {"repuesta", "repuestas"} <= set(raw["fuzzy_excluded"])
 
 
