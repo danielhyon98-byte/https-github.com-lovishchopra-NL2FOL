@@ -2876,3 +2876,16 @@ Measured results only.
   correct sentences gated, and 0 misses and 0 false positives on the held-out sets.
 - Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
   pending the owner's decision on a meaning check.
+
+### Progress, 03:00 UTC (23 November)
+- A third follow-up "Fix the c3 clearance findings" commit (`a9129c78`) is verified: the full suite has 46,348
+  passed, 1 skipped, 29 deselected and 1 xfailed, with 0 failed, of 46,350 collected in two shards; the harness
+  replays every recorded round as before (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203,
+  c2 188/188, c3 164/176).
+- It fixes the holds of the previous commit's push check that need no owner decision (near variants of fixed items,
+  misses by class, the own-wording quotation frames, over-blocks of correct work, branch misses, the version
+  discipline of eligibility rule 0, a Geography row lookup that let a wrong figure be checked as ENTAILED) and open
+  items of the last run. Its verification also carries exact speed-ups of slow reading paths, each shown to change no
+  reading on every recorded round; no test bound was changed.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.
