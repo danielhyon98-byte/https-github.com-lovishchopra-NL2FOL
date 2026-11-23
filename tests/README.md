@@ -2898,3 +2898,19 @@ Measured results only.
   (1,155 records, 0 differences).
 - A fourth follow-up on these items, which need no owner decision, has started. The self-certification class stays
   open pending the owner's decision on a meaning check.
+
+### Progress, 19:00 UTC (23 November)
+- A fourth follow-up "Fix the c3 clearance findings" commit (`08c4a36b`) is verified: the full suite has 46,974
+  passed, 1 skipped, 29 deselected and 1 xfailed, with 0 failed, of 46,976 collected in two shards; the harness
+  replays every recorded round as before (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203,
+  c2 188/188, c3 164/176).
+- It addresses the holds of the previous commit's push check that need no owner decision: the two
+  self-certification forms that were delivered again, a reading that stopped at 400 characters, the named misses and
+  over-blocks, the wrong Geography and Language B figures shown as ENTAILED, a slow Geography row lookup, the policy
+  identity of eligibility rule 0, and the overseer's replay worker that kept running after its parent was killed. Its
+  first verification failed on one wall-clock test, a slowdown of this commit's own check-mark reading; it was fixed at
+  its cause and no test bound was changed.
+- Correction to the 04:00 note: the previous push check found several wrong Geography figures shown as ENTAILED, not
+  one.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.
