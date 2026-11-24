@@ -2951,3 +2951,11 @@ Measured results only.
 - The check round after the fixes reproduced 16 items; this run does not widen the self-certification reader for new
   misses, and correct lines that the reverted exemptions had freed may be withheld again. Its independent push check
   is running; nothing new is uploaded until a push check clears.
+
+### Progress, 16:00 UTC (24 November)
+- The push check of `84aff95c` is running and nothing new is uploaded. Four of its five lenses have reported: the
+  infected-code lens found nothing malicious, and three lenses recommend holding the commit. One lens measured the
+  self-certification class at 2 of 32 fresh phrasings missed (6.25%), against 14 of 32 on `67bc64ec`, and found a
+  regression: a wrong Geography figure inside an insertion after the total row's own phrase ('Energy supply per
+  person, at about 11.8 GJ in 2025, was high.') now gets no check where `08c4a36b` and `67bc64ec` gave it a
+  counterexample (12 of 12 such wrong lines in its sweep); none of them is shown as checked.
