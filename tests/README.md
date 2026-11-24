@@ -2936,3 +2936,18 @@ Measured results only.
   fresh phrasings missed, 10.0%) and new regressions of that commit, among them 'Wrong: x = 3. Right: x = 4.'
   delivered on 10 of 15 subjects (0 of 15 before) and 'Every figure in this answer can be confirmed.' on 15 of 15
   (0 of 15 before).
+
+### Progress, 15:00 UTC (24 November)
+- The sixth follow-up is committed as `84aff95c` ("Fix the c3 clearance findings"), a narrow run that fails closed on
+  the holds of `67bc64ec` that need no owner decision: it reverts the correction-pair key and the possibility frame,
+  reads long report-opened sentences and every credited piece instead of stopping at a bound, stops a year from naming
+  a data source, applies decision D7 to every word-count form, restores the Language B year and count checks on
+  labelled correction lines, and reads a Geography figure inside an insertion against the noun it attaches to or gives
+  it no check. Versions: POLICY_VERSION 2026.11-v8, self-certification rules selfcert-4, contract 0.9.
+- Verification: full suite 48,902 passed, 1 skipped, 1 xfailed; arena harness unchanged (r1 30/30, r1-adv 150/151,
+  r2 to r6 46/46 each, r7 177/177, c1 203/203, c2 188/188, c3 164/176). The first full run failed two wall-clock
+  timing tests under machine load (12.28 s against a 12.0 s bound; a growth ratio of 6.29 against 6); the repair
+  changed no code and no bound, and the second run passed.
+- The check round after the fixes reproduced 16 items; this run does not widen the self-certification reader for new
+  misses, and correct lines that the reverted exemptions had freed may be withheld again. Its independent push check
+  is running; nothing new is uploaded until a push check clears.
