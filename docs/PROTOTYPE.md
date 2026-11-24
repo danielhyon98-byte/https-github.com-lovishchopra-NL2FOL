@@ -37,7 +37,7 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    data: it is parsed strictly, validated against a closed schema and never executed. The engine checks consistency
    before entailment, signs every result (HMAC) and lists every premise the proof relied on that no check established.
    The release assessment is a separate record from the formal status. Versions on this tree (`epinoic-logic version`):
-   engine 0.4.0, policy 2026.11-v6, translator 0.4.0, IR 1.0, z3 5.1.0 (contract 0.7; self-certification rules `selfcert-2`).
+   engine 0.4.0, policy 2026.11-v7, translator 0.4.0, IR 1.0, z3 5.1.0 (contract 0.8; self-certification rules `selfcert-3`).
 2. **STEM support** (`src/epinoic_logic/stem/`, the `sciences`, `mathematics` and `computer_science` branches). A
    front end reads answers that mix equations and prose in LaTeX, Unicode, ASCII and words, and evaluates no text. It
    turns each relation it recognises into an IR problem the engine decides: written arithmetic, substitutions, unit

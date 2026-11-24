@@ -64,6 +64,7 @@ from typing import Optional
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from .base import FormalCheck
 from .grounded_figures import FUNCTION_WORDS as _FUNCTION_WORDS
+from .insertions import insertion_spans, masked, span_holding
 
 __all__ = ["GeographyPack", "decided_statements", "unknown_supports_findings"]
 
@@ -909,6 +910,18 @@ def _table_figures(ctx: _Ctx, s: _Sentence, tables: list[_AttrTable]) -> None:
         if figure is None:
             _table_cells(ctx, s, table, credited)  # a figure further from its column word ("66% of ground-floor units at Site 4")
             continue
+        spans = insertion_spans(s.text)
+        if spans:
+            # the column word and the row are the figure's own clause's: a figure outside every insertion takes neither from inside one,
+            # a figure inside one takes its column word from that one (push check of 08c4a36b: 'The pedestrian count, as retail use
+            # fell, was 60 at site 4.'); otherwise each figure is read with its own row and column
+            starts_ = [a for a, _b in spans]
+            home = span_holding(spans, starts_, figure.start())
+            col_home = span_holding(spans, starts_, toks[idx].start())
+            row_out = home is not None or rows[0] in _row_named(table, masked(s.text, spans))
+            if col_home != home or not row_out:
+                _table_cells(ctx, s, table, credited)
+                continue
         shown = figure.group(0)
         try:
             stated = Fraction(shown.replace(",", ""))
@@ -970,12 +983,23 @@ def _table_cells(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bool) -> 
     noun = table.row_noun
     if re.search(rf"\b{re.escape(noun)}s\s++[a-z0-9]{{1,3}}\s*+(?:,|and|or|&|to)\s*+[a-z0-9]", s.text, re.IGNORECASE):
         return  # a list of rows ("Sites 1 and 2 had 214 and 186"): no figure has one row of its own
-    # each clause of a contrast is read alone ("... at Site 10, while retail use fell from 92% to 0%")
-    at = 0
-    for part in _CONTRAST_SPLIT_RE.split(s.text):
+    # each clause of a contrast is read alone ("... at Site 10, while retail use fell from 92% to 0%"); a contrast inserted between a
+    # subject and its verb ("The pedestrian count at site 2, although the EQS was low, was 186") is an insertion of the clause around
+    # it, which reads it blanked (push check of 08c4a36b)
+    spans = insertion_spans(s.text)
+    starts_ = [a for a, _b in spans]
+    pos = 0
+    for m in _CONTRAST_SPLIT_RE.finditer(s.text):
+        held = span_holding(spans, starts_, m.start()) if m.group(0) != ";" else None
+        if held is not None and s.text[held[1]:].strip(" .!?;:\n") and s.text[:held[1]].rstrip()[-1:] in ",–—-":
+            continue  # (an insertion closed by its comma or dash, the main clause going on after it)
+        part = s.text[pos:m.start()]
         if part.strip():
             _table_cells_clause(ctx, s, table, credited, part)
-        at += len(part)
+        pos = m.end()
+    part = s.text[pos:]
+    if part.strip():
+        _table_cells_clause(ctx, s, table, credited, part)
 
 
 _UNIT_WORDS = {"m": "m", "metre": "m", "metres": "m", "meter": "m", "meters": "m", "km": "km", "kilometres": "km", "%": "%", "per cent": "%",
@@ -1042,12 +1066,34 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
     for k, (_h, st) in enumerate(table.columns):
         for x in st:
             colstem.setdefault(x, set()).add(k)
-    colpos = [(i, next(iter(colstem[_stem(t.group(0))]))) for i, t in enumerate(toks)
-              if t.group(0)[0].isalpha() and len(colstem.get(_stem(t.group(0)), ())) == 1]
+    colpos_all = [(i, next(iter(colstem[_stem(t.group(0))]))) for i, t in enumerate(toks)
+                  if t.group(0)[0].isalpha() and len(colstem.get(_stem(t.group(0)), ())) == 1]
+    # a figure outside every insertion (a subordinate or parenthetical clause, an apposition) is read with no column word and no row
+    # of one, and its clause cuts are read with the insertions blanked ('At site 2 the EQS, with pedestrian numbers high, was 186.' is
+    # the EQS: push check of 08c4a36b); a figure inside one keeps its own clause's words
+    spans = insertion_spans(text)
+    starts_ = [a for a, _b in spans]
+    plain_text, plain_mentions = text, mentions
+    if spans:
+        blank = masked(text, spans)
+        inside = [span_holding(spans, starts_, t.start()) is not None for t in toks]
+        colpos_out = [(j, c) for j, c in colpos_all if not inside[j]]
+        mentions_out = [m for m in mentions if not inside[m[0]]]
+        rank_out, n_out = [], 0
+        for x in inside:
+            rank_out.append(n_out)
+            n_out += 0 if x else 1
+    rank_all = range(len(toks))
     last_col = None
     for i, t in enumerate(toks):
         if i in in_mention or not t.group(0)[0].isdigit():
             continue
+        if spans and not inside[i]:
+            colpos, text, mentions, rk = colpos_out, blank, mentions_out, rank_out  # (distances counted in the words outside)
+            if not mentions:
+                continue
+        else:
+            colpos, text, mentions, rk = colpos_all, plain_text, plain_mentions, rank_all
         shown = t.group(0)
         if re.fullmatch(r"(?:1[89]\d{2}|20\d{2})", shown):
             continue
@@ -1059,9 +1105,10 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
         # a column named after the figure beyond a clause cut is another clause's ('The pedestrian count at site 4 was 97, and the EQS
         # fell by 13 points' reads 97 as the count, never as the EQS: check round 12 of c3f); with no column near, the one its own clause
         # names before it
-        near = sorted((abs(j - i), c) for j, c in colpos if abs(j - i) <= 4 and not (j > i and _CELL_CLAUSE_CUT_RE.search(text, t.end(), toks[j].start())))
+        near = sorted((abs(rk[j] - rk[i]), c) for j, c in colpos
+                      if abs(rk[j] - rk[i]) <= 4 and not (j > i and _CELL_CLAUSE_CUT_RE.search(text, t.end(), toks[j].start())))
         if not near:
-            own = [(i - j, c) for j, c in colpos if i - 8 <= j < i and not _CELL_CLAUSE_CUT_RE.search(text, toks[j].end(), t.start())]
+            own = [(rk[i] - rk[j], c) for j, c in colpos if rk[i] - 8 <= rk[j] and j < i and not _CELL_CLAUSE_CUT_RE.search(text, toks[j].end(), t.start())]
             near = own[-1:]
         if near and len(near) > 1 and near[0][0] == near[1][0] and near[0][1] != near[1][1]:
             continue
@@ -1077,12 +1124,12 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
         if col is None:
             prev = [m for m in mentions if m[1] < i]
             nxt = [m for m in mentions if m[0] > i]
-            row_adjacent = (prev and i - prev[-1][1] <= 2) or (nxt and nxt[0][0] - i <= 2)
+            row_adjacent = (prev and rk[i] - rk[prev[-1][1]] <= 2) or (nxt and rk[nxt[0][0]] - rk[i] <= 2)
             if last_col is None or not (row_adjacent or i in respective):
                 continue
             col = last_col
         last_col = col
-        dist = sorted((min(abs(a - i), abs(b - i)), a, r) for a, b, r in mentions)
+        dist = sorted((min(abs(rk[a] - rk[i]), abs(rk[b] - rk[i])), a, r) for a, b, r in mentions)
         linked_after = [r for a, _b, r in mentions if a > i and _AT_ROW_RE.fullmatch(text[t.end():toks[a].start()])]
         before = [m for m in mentions if m[1] < i]
         if i in respective:
@@ -1652,7 +1699,7 @@ def _year_table_credited(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
     """A figure the sentence credits to a supplied table with years, of a row the sentence names by its distinctive words only (the row's
     words no other row has: 'imported' of 'Share of primary energy supply that is imported (%)'), against that row's cell for the year
     the sentence names. A row the sentence names by all its words is the shared table reader's; this reader takes only the rest."""
-    from .grounded_figures import _entity_at, _half, _word_positions
+    from .grounded_figures import _entity_at, _half, _intervening_spans, _outside, _word_positions
     if not _YT_CREDIT_RE.search(s.text):
         return
     years = {int(y) for y in re.findall(r"(?<![\d.,])(1[89]\d{2}|20\d{2})(?![\d,]\d|\.\d)", s.text)}
@@ -1661,6 +1708,9 @@ def _year_table_credited(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
         return
     year, f = years.pop(), figs[0]
     where = _word_positions(s.text)
+    spans = _intervening_spans(s.text)
+    if spans:
+        where = _outside(where, spans, f.start())  # (a row named only inside an insertion is not the figure's: push check of 08c4a36b)
     for table in year_tables:
         entity, _n = _entity_at(table, where, f.start())
         if entity:
@@ -1752,7 +1802,7 @@ _YT_VERB_RE = re.compile(r"\b(?:was|were|is|are|rose|rises|fell|falls|grew|grows
                          r"declined|went|accounted|accounts|equalled|equaled|equals)\b", re.IGNORECASE)
 _YT_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'’-]{0,30}")
 _YT_DIGIT_RE = re.compile(r"\d")
-_YT_NUMBER_RE = re.compile(r"(?<![\d.,])\d[\d,.]*")
+_YT_NUMBER_RE = re.compile(r"(?<![\d.,])\d++(?:[,.]\d++)*+")  # (never a trailing comma or stop: "In 2025, ..." is a year)
 #: Working in brackets right after a figure ("251 PJ (22% of 1,050 PJ)", "123 PJ in 2005 (0.15 × 820)"): the figure is the worked reader's.
 _YT_WORKING_AFTER_RE = re.compile(r"[^.;()\d]{0,24}\(\s*+[^()]{0,40}?\d")
 #: Words that never make a clause's own subject: function words, approximators, verbs of stating a figure and pronouns ("and in 2025
@@ -1813,8 +1863,15 @@ class _YtIndex:
     searches per row, so a sentence of k figures costs O(k log n), never a walk back over every earlier clause (the push check of
     a9129c78 timed 'Energy supply per person was ' + 'about 38 GJ in 2005, ' * k at 438 s for 40k characters)."""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, _outer: bool = False):
         self.text = text
+        # the sentence with its insertions blanked (subordinate and parenthetical clauses, appositions: push check of 08c4a36b, where
+        # 'Energy supply per person, while coal declined, was about 11.8 GJ' read 'coal' as the subject): a figure outside every insertion
+        # is read on it, so no word of an insertion names its row and no verb of one is the subject's; a figure inside one keeps its own
+        # clause's reading here
+        self._spans = () if _outer else insertion_spans(text)
+        self._span_starts = [a for a, _b in self._spans]
+        self._out = _YtIndex(masked(text, self._spans), _outer=True) if self._spans else None
         self.toks = [(m.start(), _yt_word(m.group(0))) for m in _YT_WORD_RE.finditer(text)]
         self.starts = [p for p, _w in self.toks]
         cuts = list(_YT_CLAUSE_CUT_RE.finditer(text))
@@ -1847,7 +1904,15 @@ class _YtIndex:
             # round 12 of c3f, where the PJ figure had lost its row and its check)
             if not any(not _YEAR_IN_RE.fullmatch(n) for n in _YT_NUMBER_RE.findall(text, span[0], span[1])):
                 self.subject = span
+        if self._out is not None:
+            self.subject = self._out.subject  # (the subject read with the insertions blanked)
         self._named: dict = {}
+
+    def _outside(self, at: int) -> Optional["_YtIndex"]:
+        """The blanked reading for a figure at ``at`` outside every insertion; None when there is none or the figure is inside one."""
+        if self._out is None or span_holding(self._spans, self._span_starts, at) is not None:
+            return None
+        return self._out
 
     def _numbers(self) -> tuple[list[int], list[bool]]:
         """The start of each number of the sentence and whether it is a year (read once)."""
@@ -1943,6 +2008,9 @@ class _YtIndex:
     def group(self, table, at: int) -> list[str]:
         """The rows a figure at ``at`` is stated for as a list of two or more (its own clause's rows, as :meth:`_is_list` reads them); []
         otherwise."""
+        out = self._outside(at)
+        if out is not None:
+            return out.group(table, at)
         found = self._rows_in(table, self.clause_start(at), at)
         return [e for _p, e in found] if self._is_list(found, at) else []
 
@@ -1953,6 +2021,9 @@ class _YtIndex:
         gas, was about 567 PJ"). A row named only inside another clause (an apposition, a 'with', 'as', 'despite' or 'after' clause, a
         contrast or a comparison) never takes the figure; None when no one row is named (none, a list of rows, or two rows named by the
         same words)."""
+        out = self._outside(at)
+        if out is not None:
+            return out.row(table, at)
         lo = self.clause_start(at)
         found = self._rows_in(table, lo, at)
         if not found:
@@ -1971,6 +2042,9 @@ class _YtIndex:
 
     def row_after(self, table, at: int) -> Optional[str]:
         """The one row the figure's own clause names after it, up to the clause's next cut ("45% of supply was imported in 2025")."""
+        out = self._outside(at)
+        if out is not None:
+            return out.row_after(table, at)
         k = bisect_right(self.cut_starts, at)
         hi = self.cut_starts[k] if k < len(self.cut_starts) else len(self.text)
         found = self._rows_in(table, at, hi)
@@ -1978,6 +2052,9 @@ class _YtIndex:
 
     def changes_before(self, at: int) -> bool:
         """Whether the figure's own clause states a change before it ('growth in supply per person reached 9.3 GJ')."""
+        out = self._outside(at)
+        if out is not None:
+            return out.changes_before(at)
         self._numbers()
         ps = self._changes
         j = bisect_left(ps, at) - 1
@@ -2852,11 +2929,21 @@ def _fact_key(text: str, at: int, end: Optional[int] = None) -> Optional[str]:
             if w not in _FACT_SKIP and w not in _FACT_FRAME:
                 return _fact_noun(w)
     toks = _FACT_WORD_RE.findall(text[max(0, at - 80):at])
-    for t in reversed(toks):
+    skip_to = None
+    for k in range(len(toks) - 1, -1, -1):
+        if skip_to is not None and k >= skip_to:
+            continue
+        t = toks[k]
         w = t.lower().strip("'’-")
         if not w or not w[0].isalpha():
             return None
         if w in _FACT_SKIP:
+            continue
+        # a time qualifier between the noun and its figure ('base flow before the storm 1.2 m³ s⁻¹'): the noun is the word before it
+        # (c3f left, ge-p9c: the request's base flows were keyed 'storm', so a wrong restated base flow was never compared)
+        q = k - 1 - (1 if k >= 1 and toks[k - 1].lower() in ("the", "a", "an", "each", "every") else 0)
+        if q >= 1 and toks[q].lower() in ("before", "after", "during") and toks[q - 1][:1].isalpha():
+            skip_to = q
             continue
         if w in _FACT_FRAME or w == "s":
             return None  # (c3e: the 's of a possessive, "Storm 1's 36 mm", is no noun; the labelled possessive is read by the caller)
@@ -2967,12 +3054,53 @@ def _not_the_requests_object(ctx: _Ctx, text: str, m: "re.Match[str]", key: str,
     return False
 
 
+#: A change of a request's figure from its first label's value to its second's, the unit written after the second ("Base flow fell
+#: from 1.2 to 1.0 m³ s⁻¹ between the two storms"; check round 13 of c3g).
+_REQ_FROM_TO_RE = re.compile(r"\b(?P<verb>fell|rose|dropped|increased|decreased|declined|went|changed|grew|shrank|climbed|was|were)\s++"
+                             r"(?:\w+\s+){0,2}?from\s++(?P<a>" + _NUM + r")\s++to\s++(?P<b>" + _NUM + r")\s*+"
+                             r"(?P<u>km²|km2|m³\s?s⁻¹|m3\s?s-1|m³/s|m3/s|cumecs|m²|m2|hectares|ha|mm|cm|km|m|°C|PJ|GJ|MJ|tonnes|kg)(?![\w²³⁻/])",
+                             re.IGNORECASE)
+
+
+def _request_from_to(ctx: _Ctx, s: _Sentence, facts: dict) -> None:
+    """A from-to pair of a request's figure across its two labels ("Base flow fell from 1.2 to 1.0 m³ s⁻¹ between the two storms"):
+    when the first figure is the first label's value, the second is read against the second label's (a misread second figure is named,
+    never left with only its direction checked). A pair in any other order is not read."""
+    from .grounded_figures import _half
+    for m in _REQ_FROM_TO_RE.finditer(s.text):
+        unit = _FACT_UNITS.get(" ".join(m.group("u").lower().split()))
+        key = _fact_key(s.text, m.start("verb"))
+        if unit is None or key is None:
+            continue
+        per: dict = {}
+        for (l2, k2, u2), xs in facts.items():
+            if k2 == key and u2 == unit and l2 is not None:
+                per.setdefault(l2, []).extend(xs)
+        if len(per) != 2 or any(len(xs) != 1 for xs in per.values()):
+            continue
+        order = sorted(per, key=lambda lab: (re.sub(r"\d", "", lab), int(re.search(r"\d+", lab).group(0)) if re.search(r"\d+", lab) else 0))
+        (c1, h1, sh1), (c2, h2, sh2) = per[order[0]][0], per[order[1]][0]
+        a, b = Fraction(m.group("a").replace(",", "")), Fraction(m.group("b").replace(",", ""))
+        ha, hb = _half(m.group("a").replace(",", "")), _half(m.group("b").replace(",", ""))
+        if abs(a - c1) > max(ha, h1) or abs(b - c2) <= max(hb, h2) or not ctx.room("geo_request_figure"):
+            continue
+        lab2 = order[1]
+        ctx.decided.add(" ".join(s.text.split()))
+        ctx.add("geo_request_figure", lambda cid, b=b, m=m, c2=c2, tol=max(hb, h2), sh2=sh2, key=key, lab2=lab2: make_check(
+            ctx.report, check_id=cid, kind="geo_request_figure", inputs=[("stated", b, f"the figure restated ({m.group('b')} {m.group('u')})")],
+            conclusion={"op": "le", "left": _abs({"op": "sub", "left": _var("stated"), "right": _real(c2)}), "right": _real(tol)},
+            label=f"the {key} of {lab2} restated as {m.group('b')} {m.group('u')} against the request's {sh2}",
+            description=f"{_excerpt(s.text)} [a change from the first label's figure to the second's restates the second label's figure]",
+            claim_ids=_claims(ctx.report, s.text, m.group(0)), severity="warning", defect="source_mismatch"))
+
+
 def _request_figures(ctx: _Ctx, s: _Sentence, facts: dict, dates: dict) -> None:
     """A figure of the request restated in the answer (attack round 8, ge-p9c): 'drains a catchment of 42 km²' against the request's
     'drains a catchment of 24 km²', 'Storm 1 fell on 21 October 2006' against 'Storm 1, on 14 October 2006'. A figure is compared only
     with the request's figures of the same noun (the content word right before it) and unit, and of the same label when both name one;
     a figure after a change or comparison word is derived, never compared. The restated figure must be one of them (half a unit)."""
     from .grounded_figures import _half
+    _request_from_to(ctx, s, facts)
     labels = _labels_at(s.text)
     distinct = {lab for _p, lab in labels}
     grouped = _REQ_GROUP_RE.search(s.text) is not None  # (read once per sentence)

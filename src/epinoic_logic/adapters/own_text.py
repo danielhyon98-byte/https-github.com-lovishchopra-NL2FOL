@@ -23,6 +23,7 @@ from typing import Optional, Sequence
 
 from .markdown import _ATTRIBUTION_BEFORE_RE
 from .markdown import INSTEAD_OF_WORDS as _MD_INSTEAD_OF_WORDS
+from .markdown import CORRECTION_IMPERATIVES as _MD_CORRECTION_IMPERATIVES
 from .markdown import INSTEAD_IMPERATIVE_GAP_RE as _MD_INSTEAD_IMPERATIVE_GAP_RE
 from .markdown import INSTEAD_OF_LEAD_RE as _MD_INSTEAD_OF_LEAD_RE
 from .markdown import _BECOMES_GAP_RE as _MD_BECOMES_GAP_RE
@@ -159,6 +160,7 @@ def _form_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
     invented_at: Optional[int] = None
     scanned_to = 0
     breaks = [m.start() for m in _PARAGRAPH_BREAK_AT_RE.finditer(text)]
+    cues: dict[tuple[str, str, str], tuple[bool, bool]] = {}
     for k, (a, b, _inner) in enumerate(spans):
         i = bisect.bisect_left(breaks, a - 1)  # the last break that ends before the span ('\n\n' wholly before a)
         p = breaks[i - 1] if i > 0 else -1
@@ -175,10 +177,17 @@ def _form_flags(text: str, spans: Sequence[tuple[int, int, str]]) -> list[bool]:
         if invented_at is not None and invented_at < a:
             out[k] = True
             continue
-        if (_MD_GLOSS_BEFORE_RE.search(before[-60:]) or _MD_MODAL_FORM_BEFORE_RE.search(line_before[-120:])
-                or _MD_FORM_NAMED_AFTER_RE.match(text, b, b + 80)):
+        key = (before[-60:], line_before[-120:], text[b:b + 120])
+        cue = cues.get(key)
+        if cue is None:
+            # (pure functions of the windows: read once per distinct window, the readings unchanged; check round 13 of c3g)
+            after = text[b:b + 120]
+            cue = (bool(_MD_GLOSS_BEFORE_RE.search(before[-60:]) or _MD_MODAL_FORM_BEFORE_RE.search(line_before[-120:])
+                        or _MD_FORM_NAMED_AFTER_RE.match(after, 0, 80)), _MD_TRIGGER_AFTER_RE.match(after) is not None)
+            cues[key] = cue
+        if cue[0]:
             out[k] = True
-        elif _MD_TRIGGER_AFTER_RE.match(text, b, b + 120):
+        elif cue[1]:
             out[k] = True
             j = k  # the forms listed before it belong to the list
             while j > 0 and spans[j - 1][1] <= spans[j][0] and _MD_FORM_JOIN_RE.match(text[spans[j - 1][1]:spans[j][0]]):
@@ -205,7 +214,12 @@ _NOT_THE_OTHER_AFTER_RE = re.compile(r"\A[*_ \t]{0,3},?[ \t]{0,3}(?:not|no)[ \t:
 
 
 #: What may stand before a feedback frame's lead in the gap between two spans ('"x"; a stronger version is "y"').
-_FEEDBACK_LEAD_PREFIX_RE = re.compile(r"[\s*_`,;:.]*+(?:(?:a|an|the|una?|la|el|une|le)[ \t]{1,3})?", re.IGNORECASE)
+#: (follow-up c3g: also a conjunction and the pronoun that resumes the student's wording, '"x"; it should be "y"', '"x", but it
+#: should be "y"', '«x», pero debería ser «y»', '"x" - this should read "y"', which the role reader reads as a correction in a feedback
+#: task: the auditor named the correction OVS-FID-004 and failed correct marking feedback)
+_FEEDBACK_LEAD_PREFIX_RE = re.compile(r"[\s*_`,;:.—–-]*+(?:(?:but|and|so|yet|pero|y|mais|et)[ \t]{1,3})?"
+                                      r"(?:(?:it|this|that|this[ \t]{1,3}one|esto|eso|ça|cela|il|elle)[ \t]{1,3})?"
+                                      r"(?:(?:a|an|the|una?|la|el|une|le)[ \t]{1,3})?", re.IGNORECASE)
 #: How many characters a feedback correction's gap may hold.
 _FEEDBACK_GAP_MAX = 60
 
@@ -262,8 +276,10 @@ _STUDENT_WROTE_BEFORE_RE = re.compile(r"(?:\byou(?:[ \t]{1,3}have)?[ \t]{1,3}(?:
 
 
 #: The gap between the student's wording and the imperative that gives its correction ('You wrote "x"; write "y" instead').
-_WROTE_THEN_WRITE_GAP_RE = re.compile(r"[\s*_`]*+[;,.][ \t]{0,3}(?:(?:so|then|instead|please),?[ \t]{1,3})?(?:write|use|put|say|try|escribe|escriba|"
-                                      r"usa|pon|di|écris|écrivez|mets|mettez)[ \t]{0,3}:?[\s*_`]*+", re.IGNORECASE)
+#: (follow-up c3g: a colon or a dash may stand before the imperative, 'You wrote "x": write "y"'; the imperatives are the role reader's
+#: class, ``markdown.CORRECTION_IMPERATIVES``)
+_WROTE_THEN_WRITE_GAP_RE = re.compile(r"[\s*_`]*+[;,.:—–-][ \t]{0,3}(?:(?:so|then|instead|please|alors|puis|mejor),?[ \t]{1,3})?(?:"
+                                      + _MD_CORRECTION_IMPERATIVES + r")[ \t]{0,3}:?[\s*_`]*+", re.IGNORECASE)
 
 
 def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = None) -> list[Optional[str]]:
@@ -285,6 +301,10 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
     breaks = [m.end() for m in _PARAGRAPH_BREAK_RE.finditer(text)]
     invented = [m.start() for m in _INVENTED_EXAMPLE_RE.finditer(text)]
     kinds: list[Optional[str]] = [OWN_FORM if f else None for f in form]
+    # (the window cues are pure functions of the window's characters: read once per distinct window, so a run of equal spans, '"a"
+    # "a" "a" ...', reads each window once; the readings are unchanged. Optimisation of check round 13 of c3g: the meta-note reader's
+    # hostile run of 4,900 quotations stood under 25% of its time bound)
+    window_kind: dict[tuple[str, str, str], Optional[str]] = {}
     for i, (start, end, inner) in enumerate(spans):
         if not inner.strip():
             kinds[i] = None
@@ -293,13 +313,23 @@ def own_text_kinds(text: str, spans: Optional[Sequence[tuple[int, int, str]]] = 
             continue
         before = text[max(0, start - _OWN_TEXT_BEFORE):start]
         after = text[end:end + _OWN_TEXT_AFTER]
-        if (_GLOSS_BEFORE_RE.search(before) or _FORM_BEFORE_RE.search(before) or _LANGUAGE_BEFORE_RE.search(before)
-                or _SUGGEST_BEFORE_RE.search(before) or _PHRASE_ONLY_AFTER_RE.match(after)):
+        model_window = text[max(0, start - _OWN_MODEL_WINDOW):start]
+        key = (before, after, model_window)
+        cue = window_kind.get(key, "")
+        if cue == "":
+            if (_GLOSS_BEFORE_RE.search(before) or _FORM_BEFORE_RE.search(before) or _LANGUAGE_BEFORE_RE.search(before)
+                    or _SUGGEST_BEFORE_RE.search(before) or _PHRASE_ONLY_AFTER_RE.match(after)):
+                cue = OWN_FORM
+            elif (_CORRECTION_BEFORE_RE.search(before, max(0, len(before) - _CORRECTION_TAIL)) or _OWN_LABEL_BEFORE_RE.search(before)
+                  or _PHRASE_AFTER_RE.match(after) or _OWN_MODEL_LEAD_RE.search(model_window)
+                  or (_USE_BEFORE_RE.search(before) and _NOT_THE_OTHER_AFTER_RE.match(after))):
+                cue = OWN_FRAME
+            else:
+                cue = None
+            window_kind[key] = cue
+        if cue == OWN_FORM:
             kinds[i] = OWN_FORM
-        elif (_CORRECTION_BEFORE_RE.search(before, max(0, len(before) - _CORRECTION_TAIL)) or _OWN_LABEL_BEFORE_RE.search(before) or _PHRASE_AFTER_RE.match(after)
-              or _OWN_MODEL_LEAD_RE.search(text[max(0, start - _OWN_MODEL_WINDOW):start])
-              or (_USE_BEFORE_RE.search(before) and _NOT_THE_OTHER_AFTER_RE.match(after))
-              or (i > 0 and _feedback_pair(text, spans, i - 1, i, fb))):
+        elif cue == OWN_FRAME or (i > 0 and _feedback_pair(text, spans, i - 1, i, fb)):
             kinds[i] = OWN_FRAME
         elif i > 0 and kinds[i - 1] is not None and _LIST_GAP_RE.match(text[spans[i - 1][1]:start][:_OWN_TEXT_BEFORE]):
             kinds[i] = kinds[i - 1]  # a list continuing an own span ('"Y" or "Z"', '"a", "b", "c"')
@@ -409,7 +439,7 @@ _SOURCE_CORRECTION_MIN_WORDS = 3
 
 
 def correction_reading(text: str, docs: "dict[str, str]", spans: Optional[Sequence[tuple[int, int, str]]] = None,
-                       kinds: Optional[Sequence[Optional[str]]] = None) -> dict[int, str]:
+                       kinds: Optional[Sequence[Optional[str]]] = None, *, task_type: Optional[str] = None) -> dict[int, str]:
     """The halves of the answer's own corrections read by ROLE against the supplied texts (``docs``: document id -> text), by span
     index of ``text`` (``spans``, default :func:`markdown.find_quotation_spans`). Push check of a9129c78 (the critical-fixes lens and the
     challenger, ll-t16): the replaced half and the corrected half were read alike, so a correction that restores a source's exact
@@ -429,7 +459,12 @@ def correction_reading(text: str, docs: "dict[str, str]", spans: Optional[Sequen
       quotation marks (the advert's slogan the notes quote, 'Before: "Every kitchen has a story." After: "Every kitchen has a
       secret."'), whose wording is the quoted source's and never the student's to correct.
 
-    Every other half keeps its reading. Linear in the spans; each half is read against each text once."""
+    Every other half keeps its reading. Linear in the spans; each half is read against each text once. ``task_type`` as for
+    :func:`own_text_spans` (follow-up c3g)."""
+    if task_type is not None:
+        from .markdown import quotation_task
+        with quotation_task(task_type):
+            return correction_reading(text, docs, spans, kinds)
     from ..translate.grounding import locate_excerpt
     from .sources import SuppliedText, nearest_text
     text = text or ""
@@ -459,6 +494,15 @@ def correction_reading(text: str, docs: "dict[str, str]", spans: Optional[Sequen
         key = ex.casefold()
         return any(key in inner for inner in quoted_cache[doc_id])
 
+    def near_quoted(ex: str, doc_id: str) -> bool:
+        # whether the text's wording ``ex`` varies stands inside the text's own quotation marks (a quoted source's wording, the
+        # advert's slogan, never the student's own to correct)
+        inner = " … ".join(i for _a, _b, i in find_quotation_spans(docs[doc_id]))
+        if not inner:
+            return False
+        doc, missing = nearest_text(ex, {doc_id: SuppliedText(document_id=doc_id, title=None, author=None, text=inner)})
+        return doc is not None and len(missing) <= 2
+
     out: dict[int, str] = {}
     for r, c in pairs:
         ex_r, ex_c = strip(spans[r][2]), strip(spans[c][2])
@@ -473,7 +517,13 @@ def correction_reading(text: str, docs: "dict[str, str]", spans: Optional[Sequen
             continue
         if holders_r and not any(held_quoted(ex_r, d) for d in holders_r):
             continue  # the student's own wording corrected: the writer's correction
-        if near(ex_c) is not None:
+        near_c = near(ex_c)
+        if not holders_r and near_c is not None and near(ex_r) == near_c and not near_quoted(ex_c, near_c):
+            # both halves are versions of one text's wording, neither exact ('Wrong: "La primer semana fue difícil". Right: "La primera
+            # semana fue difícil"' on the student's "El primer semana fue difícil"): the replaced half is the misquotation, charged as
+            # one, and the corrected half the writer's correction of it (check round 13 of c3g)
+            continue
+        if near_c is not None:
             out[c] = CORRECTION_QUOTATION
     return out
 
@@ -627,12 +677,18 @@ def quotes_own_wording(own_unquoted: str, sentence: str, span_start: int, excerp
     return locate_excerpt(excerpt.casefold(), (own_unquoted or "").casefold()) is not None
 
 
-def own_text_spans(text: str) -> list[tuple[int, int, str]]:
+def own_text_spans(text: str, *, task_type: Optional[str] = None) -> list[tuple[int, int, str]]:
     """Rule ``own-text`` (round-10 clearance c3): the quotation spans ``text`` presents as the writer's own words, as ``(start, end,
     inner)``: every span :func:`own_text_kinds` reads as a FORM or a FRAME (rule ``own-model``'s included); the wording a
     correction replaces stays out (the auditor's control: the original of a correction stays a quotation). The transfer auditor
     reads these; the channel reads the same kinds (``markdown.own_form_flags`` the FORMs, ``sources.own_model_words`` the FRAMEs
-    with the supplied texts in view). Linear in the spans."""
+    with the supplied texts in view). Linear in the spans. ``task_type`` (follow-up c3g) reads the frames in that task when no
+    enclosing call set one (``markdown.quotation_task``; a reader outside the channel, the transfer auditor, has none in context, so a
+    feedback-only frame such as '"x"; it should be "y"' was read as in no task)."""
+    if task_type is not None:
+        from .markdown import quotation_task
+        with quotation_task(task_type):
+            return own_text_spans(text)
     text = text or ""
     spans = find_quotation_spans(text)
     return [sp for sp, kind in zip(spans, own_text_kinds(text, spans)) if kind is not None]

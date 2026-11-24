@@ -1501,7 +1501,7 @@ def self_certifying_sentences(text: Any, ctx: Any = None) -> list[str]:
         return [f"the answer as a whole (the reader failed: {type(exc).__name__})"]
 
 
-def self_certifying_meta(findings: Iterable[Any], report: Any) -> list[Any]:
+def self_certifying_meta(findings: Iterable[Any], report: Any, ctx: Any = None) -> list[Any]:
     """Rule ``self-certification-gate`` on the English pack's ES-META-001 in ``findings``: one whose paragraph (a paragraph-level
     finding) or sentence (a sentence-level one) of the journaled ``report``'s answer, as the English parser segments it,
     :func:`self_report_reading` names; one whose text cannot be found is kept (fail closed). A study suggestion, a caveat or the
@@ -1533,7 +1533,9 @@ def self_certifying_meta(findings: Iterable[Any], report: Any) -> list[Any]:
             read = sentences.get((int(m.group(1)), int(m.group(2))))
         else:
             read = None
-        if read is None or self_report_reading(read) is not None:
+        # (read with the context the router's journaled request gives, as every other reading of the gate is: in a marking or
+        # feedback task a tick on the student's language use is the marking, decision D-b; check round 13 of c3g)
+        if read is None or self_report_reading(read, ctx=ctx) is not None:
             out.append(f)
     return out
 

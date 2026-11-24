@@ -969,18 +969,43 @@ def _judged_or_reply(sentence: str, excerpt: str) -> bool:
     return any(_mention_key(inner) == key and judged_or_reply_mention(sentence, a, b) for a, b, inner in find_quotation_spans(sentence))
 
 
-def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText]) -> bool:
+@functools.lru_cache(maxsize=256)
+def _correction_reading_of(sentence: str, docs: tuple[tuple[str, str], ...], feedback: bool) -> tuple[tuple[int, str], ...]:
+    """``own_text.correction_reading`` of ``sentence`` against ``docs`` (document id, text), read once per sentence, texts and task
+    (``feedback``: whether the frames are read in a feedback task, the context the reading runs in) for :func:`own_model_words`, which
+    a caller asks once per quotation of the same sentence (without it a sentence of many corrections was read again for each of its
+    quotations, quadratic in the sentence)."""
+    from .own_text import correction_reading
+    return tuple(sorted(correction_reading(sentence, dict(docs)).items()))
+
+
+def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText], *, task_type: Optional[str] = None) -> bool:
     """True when ``sentence`` gives the quoted ``excerpt`` as the writer's own model or rewrite ('Model: "Both novels exclude ..."'):
     the sentence opens with a model label (:data:`_OWN_MODEL_LABEL_RE`) right before the quotation's opening mark, the span holds at
     least :data:`_OWN_MODEL_MIN_WORDS` words, and it is no altered quotation of a supplied text: none holds all its words but one or
     two (:func:`nearest_text`) and none holds :data:`_OWN_MODEL_SHARED_RUN` of its words in a row. A model label before words taken
-    from a text, altered or not, leaves them a quotation, checked as any other (repair round 4, INV-Q1)."""
+    from a text, altered or not, leaves them a quotation, checked as any other (repair round 4, INV-Q1).
+
+    A half of one of the answer's own corrections is decided by the one reading of the halves by role (``own_text.correction_reading``,
+    called here, never copied; follow-up c3g, a c3f leftover: the transfer auditor and the packs read this function while the channel
+    and the English parser read that one, so they could disagree on a correction's halves): the replaced half of a correction that
+    restores a supplied text's exact wording (``CORRECTION_FREE``) is the writer's own, and a corrected half that presents a supplied
+    text's wording altered (``CORRECTION_QUOTATION``) is a quotation, whatever the rules below read.
+
+    ``task_type`` (follow-up c3g) reads the frames in that task when no enclosing call set one (``markdown.quotation_task``, never
+    widening the channel's plan): a reader outside the channel, the transfer auditor, has no task in context, so a feedback-only frame
+    ('"x"; it should be "y"', 'Your sentence "x" could become "y"') was read as in no task and its correction named a quotation."""
+    if task_type is not None:
+        from .markdown import quotation_task
+        with quotation_task(task_type):
+            return own_model_words(sentence, excerpt, docs)
     import unicodedata
     from .markdown import find_quotation_spans
     key = strip_trailing_punctuation(excerpt).casefold()
     if not key or len(sentence) > 4000:
         return False
-    from .own_text import correction_pairs, own_text_kinds
+    from .markdown import feedback_task
+    from .own_text import CORRECTION_FREE, CORRECTION_QUOTATION, correction_pairs, own_text_kinds
     spans = find_quotation_spans(sentence)
     at = next((k for k, sp in enumerate(spans) if strip_trailing_punctuation(sp[2]).casefold() == key), None)
     if at is None:
@@ -995,6 +1020,12 @@ def own_model_words(sentence: str, excerpt: str, docs: Mapping[str, SuppliedText
         in_correction = any(at in pair for pair in correction_pairs(sentence, spans, kinds))
         if kinds[at] is None and not in_correction:
             return False
+        if in_correction and docs:
+            role = dict(_correction_reading_of(sentence, tuple((d, t.text) for d, t in docs.items()), feedback_task(None))).get(at)
+            if role == CORRECTION_FREE:
+                return True
+            if role == CORRECTION_QUOTATION:
+                return False
     words = _WORD_RE.findall(excerpt)
     # a correction pair is the writer's own at any length ('"greed" -> "thrift"'): the run rule below keeps a span a supplied text
     # holds half of in a row, or one word of, a quotation

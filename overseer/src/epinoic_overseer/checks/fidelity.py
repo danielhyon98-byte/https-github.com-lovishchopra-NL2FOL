@@ -91,6 +91,13 @@ collapsed; no case folding, no similarity threshold). Named rules extending it, 
   that restores a text's exact wording ('Wrong: "Not every kitchen has a home." Right: "Not every kitchen has a door."') is the
   writer's own example of the misquotation it corrects, which the channel no longer charges, so it is no FID-004 (before, an
   honest receipt got AUDIT_FAILED). A reading that fails leaves the span a quotation (fail closed);
+  rules ``own-text``, ``own-correction`` and ``correction-role`` read the frames IN THE PLAN'S TASK TYPE for the agent (follow-up c3g,
+  a c3f leftover: :func:`plan_task_type`, the type the channel reads them in, ``plan.agent_task_types`` else ``plan.task_type``; never
+  the report's own ``task_type``, which may not widen the roles), so a feedback-only frame ('Your sentence "x" could become "y"',
+  'Not "x" but "y"', '"x"; it should be "y"') is the writer's own correction in a marking or feedback task, where the channel frees
+  it, and a quotation in every other task, where the channel charges it. Before, the auditor read them with no task in context and
+  named the correction OVS-FID-004 (AUDIT_FAILED) in a marking_feedback task on a receipt the channel had cleared. With no plan the
+  frames are read in no task (the conservative reading: every such span is a quotation);
 * ``emphasis-figures`` (integration gate 3, FID-003): the STEM parser leaves the emphasis markers inside a statement out of
   its claim (``= __5.0 m s⁻²__.`` is delivered as ``= 5.0 m s⁻².``), while the figure reader reads no figure glued to an
   underscore (a word character), so a correct answer was AUDIT_FAILED for a figure "the response states under no
@@ -171,7 +178,7 @@ from .selfcert import flags_self_certification
 __all__ = ["check_fidelity", "check_reparse", "claim_occurs", "strip_enclosing_quotes", "strip_trailing_punctuation", "located_anywhere", "FIDELITY_RULES",
            "uncut_text", "unmarked_cut_text", "response_list_numbers", "strip_mark_annotations", "figure_text", "no_quotation_to_verify", "own_model_quotations",
            "strip_edge_emphasis", "own_text_quotations", "OWN_TEXT_RULE", "writer_credited",
-           "OWN_CORRECTION_RULE", "own_correction_words", "CORRECTION_ROLE_RULE", "correction_role"]
+           "OWN_CORRECTION_RULE", "own_correction_words", "CORRECTION_ROLE_RULE", "correction_role", "plan_task_type"]
 
 FIDELITY_RULES = ("enclosing-quotes", "folded-tail", "trailing-punctuation", "contract-cut", "joined-list-markers", "context-free", "carried-list-number",
                   "invisible", "mark-annotation", "same-form-figures", "no-quotation-to-verify", "own-model", "referring-bracket", "own-text",
@@ -355,13 +362,29 @@ def own_model_quotations(text: str) -> set[str]:
     return {normalise(inner.strip()) for _start, _end, inner in own_model_spans(text or "") if inner.strip()}
 
 
-def own_text_quotations(text: str) -> set[str]:
+def own_text_quotations(text: str, task_type: Optional[str] = None) -> set[str]:
     """Rule ``own-text`` (round-10 clearance c3; module docstring): the inner texts (normalised) of the quotations ``text`` presents as
     the writer's own words: rule ``own-model``'s, and those a cue of :data:`OWN_TEXT_RULE` reads around the span (a correction, a
     labelled model, topic or line of inquiry, a gloss, a dictionary form, a language's form, a recommended form, a class of forms, a
     list continuing any of them, and every span of a paragraph after a sentence calling its example invented), read by the
-    translator's one reader (``own_text_spans``, linear in the spans)."""
-    return {normalise(inner.strip()) for _start, _end, inner in own_text_spans(text or "") if inner.strip()}
+    translator's one reader (``own_text_spans``, linear in the spans) in the task ``task_type`` (:func:`plan_task_type`; None: in no
+    task, the conservative reading)."""
+    return {normalise(inner.strip()) for _start, _end, inner in own_text_spans(text or "", task_type=task_type) if inner.strip()}
+
+
+def plan_task_type(ctx: CheckContext, t: Transfer, rep: SpecialistReport) -> Optional[str]:
+    """The task type the channel read the transfer's quotation frames in (follow-up c3g; module docstring, rule ``own-correction``):
+    the journaled plan's type for the reporting agent (``agent_task_types``, else the plan's ``task_type``), never the report's own.
+    None when no plan is journaled or it cannot be read (the frames are then read in no task: every such span is a quotation)."""
+    try:
+        plan = ctx.view.plan_at(t.seq)
+        if plan is None:
+            return None
+        agent = (t.call or {}).get("agent_id") or rep.agent_id or ""
+        tt = plan.agent_task_types.get(agent, plan.task_type)
+        return tt if isinstance(tt, str) else None
+    except Exception:  # noqa: BLE001 - no task: the conservative reading
+        return None
 
 
 #: Rule ``own-correction`` (c3e, the c3c and c3d runs' overseer handoff): the wording one of the answer's own corrections replaces
@@ -383,17 +406,18 @@ _OWN_CORRECTION_MAX_CHARS = 4000
 _PARAGRAPH_RE = re.compile(r"\n[ \t]*\n")
 
 
-def own_correction_words(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict) -> bool:
+def own_correction_words(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict, task_type: Optional[str] = None) -> bool:
     """Rule ``own-correction``: whether the quotation ``q`` of claim ``c`` is the writer's own words where the answer quotes it: the
     translator's decision (``own_model_words``, through the public API) on the claim's own text, then on the report's claims that quote
-    ``q`` (longest first), then on the paragraphs of the response that quote it, read against the supplied texts ``docs``. False when no
-    sentence quotes it or the reader fails (fail closed: the span stays a quotation)."""
+    ``q`` (longest first), then on the paragraphs of the response that quote it, read against the supplied texts ``docs`` in the task
+    ``task_type`` (:func:`plan_task_type`; None: in no task). False when no sentence quotes it or the reader fails (fail closed: the span
+    stays a quotation)."""
     bare = strip_enclosing_quotes(q)
     key = normalise(bare)
     if not key:
         return False
     try:
-        return any(own_model_words(h, bare, docs) for h in _correction_holders(c, key, rep)
+        return any(own_model_words(h, bare, docs, task_type=task_type) for h in _correction_holders(c, key, rep)
                    if any(normalise(inner) == key for _s, _e, inner in find_quotation_spans(h)))
     except Exception:  # noqa: BLE001 - fail closed: the quotation stays one
         return False
@@ -415,14 +439,15 @@ def _correction_holders(c: ClaimRecord, key: str, rep: SpecialistReport) -> list
 CORRECTION_ROLE_RULE = "correction-role"
 
 
-def correction_role(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict, cache: Optional[dict] = None) -> Optional[str]:
+def correction_role(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict, cache: Optional[dict] = None, task_type: Optional[str] = None
+                    ) -> Optional[str]:
     """Rule ``correction-role``: the role the translator's reading gives the quotation ``q`` of claim ``c`` as a half of one of the
     answer's own corrections, read against the supplied texts ``docs`` in each sentence that quotes it (:func:`_correction_holders`):
     ``CORRECTION_QUOTATION`` when any of them reads it as a corrected half presenting a supplied text's wording (it is checked as a
     quotation, whatever rule ``own-model``, ``own-text`` or ``own-correction`` reads), else ``CORRECTION_FREE`` when one reads it as
     the replaced half of a correction that restores a text's exact wording (the writer's own example of the misquotation), else None.
-    A reading that fails is ``CORRECTION_QUOTATION`` (fail closed: the span stays a quotation). ``cache`` keeps each sentence's reading
-    for one transfer."""
+    A reading that fails is ``CORRECTION_QUOTATION`` (fail closed: the span stays a quotation). The frames are read in the task
+    ``task_type`` (:func:`plan_task_type`; None: in no task). ``cache`` keeps each sentence's reading for one transfer (one task)."""
     key = normalise(strip_enclosing_quotes(q))
     if not key:
         return None
@@ -433,7 +458,7 @@ def correction_role(c: ClaimRecord, q: str, rep: SpecialistReport, docs: dict, c
         for h in _correction_holders(c, key, rep):
             if h not in cache:
                 spans = find_quotation_spans(h)
-                cache[h] = (spans, correction_reading(h, texts, spans) if spans else {})
+                cache[h] = (spans, correction_reading(h, texts, spans, task_type=task_type) if spans else {})
             spans, reading = cache[h]
             roles |= {reading[k] for k, (_s, _e, inner) in enumerate(spans) if k in reading and normalise(inner) == key}
     except Exception:  # noqa: BLE001 - fail closed: the quotation stays one
@@ -705,7 +730,8 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
     named = _named_claims(t)
     request_text = _request_text(ctx, t)
     mention_keys = {_quote_key(q) for q in _absent_mentions(rep.original_response, find_quotation_spans(rep.original_response))}
-    own_models = own_text_quotations(rep.original_response)  # rules own-model and own-text
+    task_type = plan_task_type(ctx, t, rep)  # the frames are read in the plan's task, as the channel reads them (follow-up c3g)
+    own_models = own_text_quotations(rep.original_response, task_type)  # rules own-model and own-text
     reading_ctx = _reading_context(ctx, t)  # FID-005 / FID-009 read in the context of the ROUTER's journaled request
     self_named = _self_report_named_claims(t)
     role_cache: dict = {}  # rule correction-role: each sentence's reading of its own corrections, once per transfer
@@ -742,15 +768,15 @@ def check_fidelity(ctx: CheckContext, t: Transfer) -> None:
             docs = {s.document_id: s for s in supplied}
             roles: dict[str, Optional[str]] = {}
             if unlocated:  # rule correction-role: the halves of the writer's own corrections by role, as the parser and the channel read them
-                roles = {q: correction_role(c, q, rep, docs, role_cache) for q in unlocated}
+                roles = {q: correction_role(c, q, rep, docs, role_cache, task_type) for q in unlocated}
                 unlocated = [q for q in unlocated if roles[q] != CORRECTION_FREE]
             if unlocated:  # rules own-model and own-text: the writer's own words, credited to no text, quote nothing
-                own_here = own_models | own_text_quotations(c.claim_text)
+                own_here = own_models | own_text_quotations(c.claim_text, task_type)
                 unlocated = [q for q in unlocated if writer_credited(c, q) or roles.get(q) == CORRECTION_QUOTATION or normalise(q) not in own_here
                              and normalise(strip_enclosing_quotes(q)) not in own_here]
             if unlocated:  # rule own-correction: the wording one of the writer's own corrections replaces, as the channel reads it
                 unlocated = [q for q in unlocated if writer_credited(c, q) or roles.get(q) == CORRECTION_QUOTATION
-                             or not own_correction_words(c, q, rep, docs)]
+                             or not own_correction_words(c, q, rep, docs, task_type)]
             if unlocated:
                 ctx.ovs(t.seq, "OVS-FID-004", f"claim {c.claim_id} quotes {[q[:80] for q in unlocated[:4]]}, which occur in no supplied text, and no receipt finding names the claim",
                         claim_ids=cid, document_ids=[s.document_id for s in supplied], **ids)

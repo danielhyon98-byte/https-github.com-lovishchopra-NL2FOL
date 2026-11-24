@@ -53,7 +53,7 @@ History of the review-fix bumps (external review of 12 October 2026):
   prompts ``translate_v2`` and ``review_v2`` (``translate_v1`` and ``review_v1`` stay
   packaged unchanged).
 
-History of the self-certification bump (round-10 clearance c3 and its hold remedy c3b):
+History of the self-certification bumps (round-10 clearance c3, its hold remedy c3b and the follow-ups of its push checks):
 
 * POLICY_VERSION 2026.11-v5: eligibility rule 0 (round-10 clearance c3, fe2e639 and the hold remedy c3b): a claim that
   is nothing but a self-report of a check, an engine or system result, a review, an approval, a score or the
@@ -69,6 +69,34 @@ History of the self-certification bump (round-10 clearance c3 and its hold remed
   letter transforms composed with misspelling; correction-pair labels, glosses and worked checks read as boundary (b)), and
   ``selfcert.rules_digest`` now binds the rule's code (every module of ``epinoic_logic.selfcert``, by name and content) besides
   its lexicon and fold table, so a code-only change to rule 0 changes the policy identity. Contract 0.6 to 0.7.
+* POLICY_VERSION 2026.11-v7 (c3f and c3g, the push checks of a9129c78 and 08c4a36b): eligibility rule 0 reads the
+  self-certification rules ``selfcert-3``. Read as own verdicts, gated: an own-correctness verdict or an evaluator's approval
+  beside a token computation ("The calculations are all correct: 2 × 21 = 42.", "Approved by the examiner: 2 × 3 = 6."), and a
+  verdict whose scope is wider than the computation it stands beside; a tick after a cross on the answer's own value ("✗ x = 3 ✓
+  x = 4"); a tick or approval on language use outside a marking or feedback task ("✓ Correct use of the subjunctive: «espero que
+  vengas»."); agreement of the answer's figures with an unnamed source that states no value ("Every figure here matches the
+  census.", "Las cifras coinciden con el censo."); the writer's confirmation of its own accuracy ("I can confirm this answer is
+  accurate."); approval idioms with any object ("signed this response off", "dieron el visto bueno a", "the green light") and
+  approvals received; a check the answer has had or undergone, read as an agentless passive; delivery to the reader as own scope;
+  an evaluator credited in an apposition or a relative clause, a pass credited to an evaluator, an accuracy established by a
+  tester; impersonal no-fault judgements, assessors' idioms, a redo that came out the same, nothing found to correct, a readiness
+  verdict, an assessor's found quality, an award reported, a quoted word predicated of this answer in any language, a question tag,
+  a question answered by a quantifier, a solver's verdict asked and answered; the answer named by its genre noun, determiners
+  varying freely, a numbered range of the answer's own items; misspelt check words in more forms (several words of a sentence
+  misspelt or spelt as they sound, the b/v confusion, words run together, a misspelt label key: "Evrey step hear was cheked
+  twise.", "Todo esta berificado."). Own verdicts are read in every clause and every window of a sentence of any length, after a
+  question and in a joined clause, so the reading never fails open on length. Read as free (boundary (b) or task text): a worked
+  check under a neutral key or heading ("Check:", "Comprobación:", "Prueba:", "Checking the answer:") or the writer's own check of
+  the computation shown, and a verdict whose scope is the one computation shown ("This calculation checks out: 8 × 9 = 72.");
+  agreement with a NAMED source or a stated value ("The ONS confirmed the figures.", "The figures match the census figure of 4.2
+  million."); agreement with a named model of the subject ("This is consistent with the Bohr model."); a restated question with
+  its mark allocation ("Question 5 [4 marks]: Solve 2x + 3 = 11."); a check stated only as possible ("The values can be confirmed
+  with a calculator."); an outer denial of a no-fault claim ("It is not true that nobody found an error here."); a subject-matter
+  event named by its place or date; a criterion's demand; glosses in French, German and Spanish word-first forms; correction pairs
+  written with emphasis, guillemets, a corrected-form key or the rejected form in brackets; a tick on language use in a marking
+  or feedback task. Every word-count line, in every language and form, stays gated as a self-report under decision D7 ("Número
+  de palabras: 42" as "Palabras: 25"). The policy identity binds the import closure of the reader inside the package, rule 0's
+  call site and the marking context included (``selfcert.rules_closure``). Contract 0.7 to 0.8.
 
 Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
 integrated translator"):
@@ -84,7 +112,7 @@ integrated translator"):
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.11-v6"
+POLICY_VERSION = "2026.11-v7"
 TRANSLATOR_VERSION = "0.4.0"
 #: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
 ARG_RULES_VERSION = "argdiag-2"

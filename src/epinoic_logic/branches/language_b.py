@@ -60,6 +60,7 @@ from typing import Optional
 from ..translate.contracts import SpecialistReport, StructuralFinding
 from . import spanish_lexicon as es
 from .base import FormalCheck
+from .insertions import insertion_spans, masked, span_holding
 from .geography import _real, _var, make_check
 
 __all__ = ["LanguageBPack", "Regions", "classify_task", "model_regions"]
@@ -855,6 +856,17 @@ _CONNECTOR_LIST_RE = re.compile(r"\b(?P<n>" + _NUMBER_WORD + r"|\d{1,2})\s+(?:co
                                 r"(?:\s{1,3}[^\W\d_]{1,20}){0,6}?\s*+(?:\(|:)(?P<rest>[^\n]{0,400})", re.IGNORECASE)
 
 
+#: A correction written with a replaced label and a corrected one on one line, with or without quotation marks ('Mal: x. Bien: y',
+#: 'Incorrecto: x. Correcto: y', 'Wrong: x Right: y', '✗ x ✓ y'): check round 12 of c3f (sp-t16), where such a line went uncounted and
+#: the answer's correct count of its corrections drew a COUNTEREXAMPLE.
+_REPLACED_LABEL = r"(?:(?:wrong|incorrect[oa]?|error|mal|antes|before|original|you\s+wrote|escribiste|student)\s*+:|[✗✘❌])"
+_RIGHT_LABEL = r"(?:(?:right|correct(?:ed|o|a)?|bien|despu[eé]s|after|better|mejor)\s*+:|[✓✔✅])"
+_LINE_HEAD = r"^[ \t]*+(?:[-*•]|\d{1,2}[.)])?[ \t]*+(?:\*\*|__)?[ \t]*+"
+_LABEL_PAIR_RE = re.compile(_LINE_HEAD + _REPLACED_LABEL + r"(?:\*\*|__)?[ \t]*+\S[^\n]{0,400}?(?<![^\W\d_])" + _RIGHT_LABEL + r"[ \t]*+\S", re.IGNORECASE)
+_REPLACED_LABEL_START_RE = re.compile(_LINE_HEAD + _REPLACED_LABEL + r"(?:\*\*|__)?[ \t]*+\S", re.IGNORECASE)
+_RIGHT_LABEL_START_RE = re.compile(_LINE_HEAD + _RIGHT_LABEL + r"(?:\*\*|__)?[ \t]*+\S", re.IGNORECASE)
+
+
 def _correction_lines(text: str) -> list[str]:
     """The answer's correction lines: a line that writes a correction with an arrow or an English label (:data:`_ARROW_LINE_RE`), or a
     line holding one of the answer's own corrections as the channel's own-text reader reads them (``own_text.correction_pairs``: 'Mal:
@@ -863,13 +875,38 @@ def _correction_lines(text: str) -> list[str]:
     from ..adapters.own_text import correction_pairs
     arrows = {m.start() for m in _ARROW_LINE_RE.finditer(text)}
     out, pos = [], 0
+    pending = False  # (a line that opens with a replaced label and has no corrected one: its correction may stand on the next line)
     for line in text.split("\n"):
         start, pos = pos, pos + len(line) + 1
         if any(start <= a < pos for a in arrows):
             out.append(line)
+            pending = False
         elif sum(line.count(q) for q in ('"', "«", "“")) >= 2 and len(out) < 400 and any(c is not None for _r, c in correction_pairs(line[:2000])):
             out.append(line)
-    return out
+            pending = False
+        elif _LABEL_PAIR_RE.match(line[:600]):
+            out.append(line)  # (labels with or without quotation marks: 'Mal: x. Bien: y', '✗ x ✓ y': check round 12 of c3f)
+            pending = False
+        elif pending and _RIGHT_LABEL_START_RE.match(line[:200]):
+            out[-1] = out[-1] + " " + line.strip()  # ('Mal: «x»' then 'Bien: «y»' on the next line: one correction)
+            pending = False
+        elif _REPLACED_LABEL_START_RE.match(line[:200]):
+            out.append(line)
+            pending = True
+        else:
+            pending = False
+    return _drop_unpaired(out)  # (a replaced label with no correction after it is no correction line)
+
+
+def _drop_unpaired(lines: list[str]) -> list[str]:
+    """The correction lines without a replaced label left with no corrected half (a label line whose next line was no correction)."""
+    return [ln for ln in lines if not (_REPLACED_LABEL_START_RE.match(ln[:200]) and not _LABEL_PAIR_RE.match(ln[:1200])
+                                       and not _ARROW_LINE_RE.match(ln) and not _has_pair(ln))]
+
+
+def _has_pair(line: str) -> bool:
+    from ..adapters.own_text import correction_pairs
+    return sum(line.count(q) for q in ('"', "«", "“")) >= 2 and any(c is not None for _r, c in correction_pairs(line[:2000]))
 
 
 def _listed_counts(ctx: _Ctx, statements: list[_Stmt]) -> None:
@@ -1531,6 +1568,9 @@ class _Fig:
     #: paragraph states no year, in the paragraph: "Hoy viven en Valdeoca 268 personas. ... la escuela volvió a abrir sus puertas con
     #: catorce alumnos"); push check of a9129c78: an undated cell had matched an answer's figure dated 1960
     present: bool = False
+    #: the concepts of the supplied text's sentence that states the figure (what dates or places it: "el pasado mes de septiembre la
+    #: escuela volvió a abrir sus puertas con catorce alumnos"); empty for an answer's figure
+    sentence: frozenset = frozenset()
 
 
 #: Small Spanish number words read before a plural noun ("tres hijos", "diez viviendas", "once puestos"): the ledger's reader reads them
@@ -1556,6 +1596,7 @@ def _figures(text: str, language: Optional[str], skip: list[tuple[int, int]], se
         best = max(best, y)
         sk_reach.append(best)
     sent_years: dict[int, Optional[str]] = {}
+    sent_concepts: dict[tuple, frozenset] = {}
     if language == "es" and sentence_years:
         # (a supplied text only: an answer's figure keeps its own nearby year) the one year of a sentence dates every figure of the sentence that has no year of its own nearby ("En 1960, Valdeoca tenía
         # 1.250 habitantes, dos panaderías y una escuela con más de cien alumnos.")
@@ -1619,13 +1660,138 @@ def _figures(text: str, language: Optional[str], skip: list[tuple[int, int]], se
                 present = year is None and sent_now.get(sent_starts[_br(sent_starts, a) - 1], False)
             ctx_words = tuple(t[3].casefold() for t in toks[max(0, k - 8):k] if t[3] and t[3].casefold() not in _CONTEXT_STOP)
             after = tuple(t[3].casefold() for t in toks[nxt + 1:nxt + 9] if t[3] and t[3].casefold() not in _CONTEXT_STOP)
-            out.append(_Fig(vals, shown, noun, year, ctx_words[-6:], a, after[:6], tuple(y for _d, y in years), present))
+            sentence: frozenset = frozenset()
+            if sent_years:
+                from bisect import bisect_right as _br
+                st0 = sent_starts[_br(sent_starts, a) - 1]
+                # (the sentence's own words: a heading or a line before it, with no stop, is another sentence's)
+                lo_s = max(st0, text.rfind("\n", 0, a) + 1)
+                nl = text.find("\n", a)
+                j0 = _br(sent_starts, a)
+                hi_s = sent_starts[j0] if j0 < len(sent_starts) else len(text)
+                hi_s = min(hi_s, nl) if nl >= 0 else hi_s
+                if (lo_s, hi_s) not in sent_concepts:
+                    sent_concepts[(lo_s, hi_s)] = _dating_concepts(text[lo_s:hi_s])
+                sentence = sent_concepts[(lo_s, hi_s)]
+            out.append(_Fig(vals, shown, noun, year, ctx_words[-6:], a, after[:6], tuple(y for _d, y in years), present, sentence))
         k = nxt if vals else k + 1
     return out
 
 
 def _stem(w: str) -> str:
     return w[:5]
+
+
+#: The forms of one event written with different words ("volvió a abrir", "reabrió", "su reapertura", "al reabrir"): read as one concept.
+_REOPEN_RE = re.compile(r"\b(?:volv(?:i[óo]|er|ía|ieron|ió)\s+a\s+abrir|vuelve[n]?\s+a\s+abrir|reabr[^\W\d_]*|reapertura)\b", re.IGNORECASE)
+_DATING_STOP = frozenset("tiene tienen tenía tenían había hay habían cuenta contaba contaban viven vivían recibió recibe acogió acoge".split())
+
+
+def _dating_concepts(text: str) -> frozenset:
+    """The content concepts of a sentence that can place a figure in time or in an event (four letters or more; function words, verbs
+    of having and the words of the text's apparatus set aside; one event written with different words read as one concept)."""
+    t = text[:2000]
+    numbers = [(a, b) for a, b, _v in es.spanish_number_figures(t)]
+    if numbers:  # (a figure written in words is the figure, never what places it: 'cien', 'catorce')
+        t = "".join(" " * (b - a) if k % 2 else t[a:b] for k, (a, b) in enumerate(_alternate(numbers, len(t))))
+    t = _REOPEN_RE.sub(" reopened ", t)
+    return frozenset(es.concept(w) for w in re.findall(r"[^\W\d_]{4,40}", t)
+                     if w.casefold() not in _CONTEXT_STOP and w.casefold() not in _EVENT_STOP and w.casefold() not in _DATING_STOP
+                     and w.casefold() not in _ES_NUMBERS and w.casefold() not in _EN_NUMBERS)
+
+
+def _alternate(spans: list, n: int) -> list:
+    """The pieces of ``range(n)`` between and at ``spans`` (sorted, disjoint): kept, span, kept, span, ..., kept."""
+    out, pos = [], 0
+    for a, b in sorted(spans):
+        a = max(a, pos)
+        out.append((pos, a))
+        out.append((a, max(a, b)))
+        pos = max(a, b)
+    out.append((pos, n))
+    return out
+
+
+#: Where two clauses of an answer's line meet: a semicolon, or a coordinating conjunction with a finite verb on each side ('La fibra
+#: llegó en 2021 y la escuela reabrió con catorce alumnos'); 'catorce alumnos y dos panaderías' joins two figures of one clause.
+_CLAUSE_JOIN_RE = re.compile(r";|\s(?:y|e|pero|mientras\s+que|and|but)\s", re.IGNORECASE)
+_ES_FINITE_LB_RE = re.compile(r"(?<![^\W\d_])(?:es|son|era|eran|fue|fueron|est[aá]|est[aá]n|estaba|estaban|hay|hab[ií]a|tiene|tienen|"
+                              r"ten[ií]a|ten[ií]an|tuvo|llevaba|viven|vive|quedaban|[^\W\d_]{2,20}(?:ó|ió|aba|aban|aron|ieron))(?![^\W\d_])",
+                              re.IGNORECASE)
+
+
+@lru_cache(maxsize=256)
+def _line_clauses(line: str) -> tuple[tuple[int, ...], tuple[int, ...], int]:
+    """The clause cuts of an answer's ``line`` (a semicolon, or a conjunction with a finite verb on each side), the semicolons' ends and
+    the start of its first finite verb (-1 when none). One pass over the joins and one over the verbs, each lookup a bisection (linear)."""
+    from bisect import bisect_left
+    verbs = [m.start() for m in _ES_FINITE_LB_RE.finditer(line)]
+    joins = list(_CLAUSE_JOIN_RE.finditer(line))
+    cuts = [0]
+    for n, m in enumerate(joins):
+        nxt = joins[n + 1].start() if n + 1 < len(joins) else len(line)
+        k_left = bisect_left(verbs, cuts[-1])
+        left = k_left < len(verbs) and verbs[k_left] < m.start()
+        k_right = bisect_left(verbs, m.end())
+        right = k_right < len(verbs) and verbs[k_right] < nxt
+        if m.group(0) == ";" or (left and right):
+            cuts.append(m.end())
+    semis = tuple(m.end() for m in joins if m.group(0) == ";")
+    return tuple(cuts), semis, (verbs[0] if verbs else -1)
+
+
+@lru_cache(maxsize=1024)
+def _year_spots(line: str, year: str) -> tuple[int, ...]:
+    return tuple(m.start() for m in re.finditer(r"(?<![\d.,])" + re.escape(str(year)) + r"(?![\d.,]\d|\d)", line))
+
+
+def _year_in_clause(line: str, at: int, year: str) -> bool:
+    """Whether ``year`` stands in the clause of the answer's ``line`` that holds the figure at ``at``: not in another clause joined by a
+    semicolon or by a conjunction between two finite verbs, and not inside an insertion (a relative clause, a bracket) that does not
+    hold the figure ('La escuela, que cerró en 2009, reabrió con catorce alumnos': 2009 dates the closure, never the reopening). A year
+    fronted before the line's first verb ('En 1960 había ... y el pueblo tenía 1.250 habitantes') sets the time of every clause it heads
+    up to a semicolon. Linear in the line: its cuts, verbs and insertions are read once per line."""
+    from bisect import bisect_right
+    spots = _year_spots(line, str(year))
+    if not spots:
+        return True  # (a year the reader took from elsewhere: no clause of this line to test)
+    cuts, semis, first_verb = _line_clauses(line)
+    k = bisect_right(cuts, at) - 1
+    lo = cuts[k] if k >= 0 else 0
+    hi = cuts[k + 1] if k + 1 < len(cuts) else len(line)
+    if first_verb >= 0 and spots[0] < first_verb and not any(spots[0] < c <= at for c in semis):
+        lo = 0
+        j = bisect_right(semis, at)
+        hi = semis[j] if j < len(semis) else len(line)
+    spans = insertion_spans(line)
+    starts = [x for x, _y in spans]
+    own = span_holding(spans, starts, at) if spans else None
+    for y in spots:
+        if not (lo <= y < hi):
+            continue
+        ins = span_holding(spans, starts, y) if spans else None
+        if ins is not None and ins != own:
+            continue
+        return True
+    return False
+
+
+def _placed_by_line(line: str, f: "_Fig", cands: list) -> Optional[tuple]:
+    """The one supplied figure of the noun whose sentence shares a concept with the answer's line that no sentence of a differing figure
+    of that noun holds; None when no one figure is so placed (none, or two with differing figures)."""
+    mine = _dating_concepts(line) - {es.concept(f.noun), _stem(f.noun)}
+    best: list = []
+    top = 0
+    for c, d in cands:
+        others = frozenset().union(*(o.sentence for o, _d in cands if frozenset(o.values) != frozenset(c.values)))
+        score = len(mine & (c.sentence - others))
+        if score > top:
+            top, best = score, [(c, d)]
+        elif score == top and score:
+            best.append((c, d))
+    if not best or len({frozenset(c.values) for c, _d in best}) != 1:
+        return None
+    return best[0]
 
 
 def _supplied_figures(ctx: _Ctx) -> None:
@@ -1685,15 +1851,24 @@ def _supplied_figures(ctx: _Ctx) -> None:
             for f in _figures(line, "es", skip):
                 if f.values & framed:
                     continue  # (c3e left: the total or part of the answer's own share or rate, "El 25 % de los 80 alumnos", is no figure of the text)
+                if f.year and not _year_in_clause(line, f.start, f.year):
+                    # (a year of another clause or event dates no figure: '6. La fibra llegó en 2021 y la escuela reabrió con catorce
+                    # alumnos.', '6. La escuela, que cerró en 2009, reabrió con catorce alumnos.'; check round 13 of c3g)
+                    f = replace(f, year=None, near_years=tuple(y for y in f.near_years if _year_in_clause(line, f.start, y)))
                 if any(w in _NOW_WORDS for w in f.after[:2] + f.context[-2:]):
                     f = replace(f, year=None, near_years=())  # (a figure the answer dates 'hoy' is the present's: "a 268 personas hoy")
-                elif f.year is None and line_year is not None:
+                elif f.year is None and line_year is not None and _year_in_clause(line, f.start, line_year):
                     f = replace(f, year=line_year, near_years=(line_year,))
                 cands = index.get(_stem(f.noun), [])
                 if f.year and _stem(f.noun) in _POPULATION_STEMS and not any(c.year == f.year for c, _d in cands):
                     # a population counted with another of its nouns for the year the answer gives ("... a 268 en 2015" after
                     # "1.250 habitantes", the text's "212 vecinos" of 2015): the text's figure of that year (check round 12 of c3f)
                     cands = cands + [x for st in sorted(_POPULATION_STEMS - {_stem(f.noun)}) for x in index.get(st, []) if x[0].year == f.year]
+                if f.year is None and not line_years and _NOW_RE.search(line) and _stem(f.noun) in _POPULATION_STEMS and \
+                        not any(c.present for c, _d in cands):
+                    # a population of the present counted with another of its nouns ('Actualmente Valdeoca tiene 212 habitantes.',
+                    # the text's present '268 personas'): the text's present figure of the place (check round 13 of c3g)
+                    cands = cands + [x for st in sorted(_POPULATION_STEMS - {_stem(f.noun)}) for x in index.get(st, []) if x[0].present]
                 if not cands or len(cands) > 64:
                     continue
                 if _derived_figure(line, f, cands):
@@ -1734,9 +1909,34 @@ def _supplied_figures(ctx: _Ctx) -> None:
                         # text's present one ('catorce alumnos'), never the dated 'cien alumnos' of 1960 (check round 12 of c3f)
                         _add_figure(ctx, line, f, pres[0][0], pres[0][1], credited)
                         continue
+                    if f.year is None and len({frozenset(c.values) for c, _d in cands}) > 1 and not line_years and _NOW_RE.search(line):
+                        # a line of the present ('Hoy ...') places its figure among the text's figures of the present, when they agree
+                        now_vals = {frozenset(c.values) for c, _d in pres}
+                        if len(now_vals) == 1:
+                            _add_figure(ctx, line, f, pres[0][0], pres[0][1], credited)
+                        continue
+                    if f.year is None and len({frozenset(c.values) for c, _d in cands}) > 1:
+                        # push check of 08c4a36b ('6. Al reabrir, la escuela acogió a cien alumnos.': the school reopened with catorce
+                        # alumnos; 'más de cien' is the 1960 figure): the text gives this noun differing figures, so a check that took
+                        # whichever one the answer's figure equals would accept either and check nothing. An undated figure is read
+                        # only against the figure its own line places (a reopening, 'en septiembre': the sentence of the text that shares
+                        # a word of the event with the line and no other figure's sentence does), and is left unread otherwise
+                        placed = _placed_by_line(line, f, cands)
+                        if placed is not None:
+                            _add_figure(ctx, line, f, placed[0], placed[1], credited)
+                        continue
                     if f.year and all(c.year and c.year not in f.near_years for c, _d in match):
                         _add_year(ctx, line, f, pick[0], pick[1], credited)  # the text's figure, given for another year
                         continue
+                elif f.year is None and not line_years and _NOW_RE.search(line) and \
+                        len({frozenset(c.values) for c, _d in cands if c.present}) == 1:
+                    # a line of the present ('6. Hoy viven en Valdeoca 212 personas.') whose figure is none of the text's figures of
+                    # the noun: read against the text's present figure ('268 personas'), even when the text states the figure for
+                    # another time ('212 vecinos' in 2015): a figure of another time given as the present's is misread (check round 13
+                    # of c3g)
+                    pres = next((c, d) for c, d in cands if c.present)
+                    _add_figure(ctx, line, f, pres[0], pres[1], credited)
+                    continue
                 elif f.values & stated_values or any(_series_key(f.noun) in stated_series.get(v, ()) for v in f.values):
                     continue  # the text states the answer's figure (with no noun, or in this figure's series): nothing misread
                 else:
@@ -1812,8 +2012,9 @@ def _derived_figure(line: str, f: _Fig, cands: list) -> bool:
     if re.search(r"\b(?:llevaba|llevaban|lleva|llevan|hace|hacía|desde\s+hac[ií]a)\s*+$", head[-20:], re.IGNORECASE):
         return True  # "llevaba seis años cerrada", "hace doce años": a duration worked out from the text's dates
     if _NOW_RE.search(head[-30:]) and not f.year and cands and not any(
-            any(w in ("hoy", "ahora", "actualmente", "today", "now") for w in c.context) for c, _d in cands):
-        return True  # a figure of today against figures the text gives for other times
+            any(w in ("hoy", "ahora", "actualmente", "today", "now") for w in c.context) or c.present for c, _d in cands):
+        return True  # a figure of today against figures the text gives for other times (none of the text's present: push check of
+        # 08c4a36b, where 'Hoy la escuela tiene más de cien alumnos' went unread beside the text's present 'catorce alumnos')
     return False
 
 
@@ -1876,7 +2077,7 @@ def _event_years(ctx: _Ctx) -> None:
             # a line credited to the text is an error when wrong; an uncredited line, Spanish or English, a warning (attack round 8:
             # "La fibra óptica llegó en 2012.", "The school had been closed since 2003.")
             credited = es.SPANISH_CREDIT_RE.search(line) is not None or re.search(r"\b(?:according\s+to|the\s+(?:text|article)\s+(?:says|states))\b", line, re.IGNORECASE) is not None
-            if _ARROW_LINE_RE.match(line) or (ctx.task not in ("reading", "notes") and not credited):
+            if _ARROW_LINE_RE.match(line) or _LABEL_PAIR_RE.match(line[:600]) or (ctx.task not in ("reading", "notes") and not credited):
                 continue
             for clause in _CLAUSE_SPLIT_RE.split(line):
                 ys = _YEAR_IN_RE.findall(clause)
@@ -2677,7 +2878,7 @@ def _cross_counts(ctx: _Ctx) -> None:
         if pi in excluded:
             continue
         for line in para.split("\n"):
-            if _ARROW_LINE_RE.match(line):
+            if _ARROW_LINE_RE.match(line) or _LABEL_PAIR_RE.match(line[:600]):
                 continue  # a correction line quotes the student's forms, never a count of the text
             from bisect import bisect_right
 
@@ -2706,10 +2907,16 @@ def _cross_counts(ctx: _Ctx) -> None:
                         continue  # the text gives the answer's count with this noun: nothing misread
                     if mine is None:
                         # the concepts of the count's own clause (check round 12 of c3f: "You returned to England two weeks ago, after an
-                        # exchange of three weeks" had read 'two weeks' with the exchange of the other clause)
-                        lo = max(line.rfind(",", 0, m.start()), line.rfind(";", 0, m.start()), -1) + 1
-                        hi_c = [x for x in (line.find(",", m.end()), line.find(";", m.end())) if x >= 0]
-                        mine = frozenset(_cc_concepts(line[lo:min(hi_c) if hi_c else len(line)])) - {key}
+                        # exchange of three weeks" had read 'two weeks' with the exchange of the other clause), read with every
+                        # insertion that does not hold the count blanked (push check of 08c4a36b: "El intercambio, según la consigna,
+                        # duró dos semanas." had cut the subject off at the insertion's comma)
+                        view = line
+                        spans = insertion_spans(line)
+                        if spans and span_holding(spans, [a for a, _b in spans], m.start()) is None:
+                            view = masked(line, spans)
+                        lo = max(view.rfind(",", 0, m.start()), view.rfind(";", 0, m.start()), -1) + 1
+                        hi_c = [x for x in (view.find(",", m.end()), view.find(";", m.end())) if x >= 0]
+                        mine = frozenset(_cc_concepts(view[lo:min(hi_c) if hi_c else len(view)])) - {key}
                     held = {ev for ev, c in entries if c & mine}
                     if len(held) != 1:
                         continue

@@ -6,9 +6,9 @@
   "components": {
     "ir": ["1.0"],
     "engine": ["0.4.0"],
-    "policy": ["2026.11-v6"],
+    "policy": ["2026.11-v7"],
     "translator": ["0.4.0"],
-    "contract": ["0.7"],
+    "contract": ["0.8"],
     "z3_solver": {"min": "5.1.0", "below": "5.2"}
   },
   "build_identity": "recorded in every capabilities response and verdict, never required to match: every source change alters build_id",
