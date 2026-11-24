@@ -2968,3 +2968,8 @@ Measured results only.
   instead of a counterexample, on the self-certification class (fresh phrasings missed at 2.1% to 6.25% across five
   probes) and on near variants of the D-a and D-e lines. Nothing new is uploaded; the handoff documents on
   `docs/final-z3-handoff` are refreshed with this result.
+
+### Progress, 18:00 UTC (24 November)
+- No change since 17:00: the development branch's last commit with content is still `84aff95c`, held by its push
+  check; nothing new is uploaded. A further follow-up on that check's Geography items (wrong figures shown as checked)
+  has not started.
