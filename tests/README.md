@@ -2914,3 +2914,18 @@ Measured results only.
   one.
 - Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
   pending the owner's decision on a meaning check.
+
+### Progress, 05:00 UTC (24 November)
+- The push check of `08c4a36b` held it; nothing new was uploaded. It found three regressions that commit introduced
+  (an unnamed "the dataset" read as a named reference, a tick on language use freed outside marking tasks, and a word
+  inside a mid-sentence clause naming a Geography table row), older wrong figures still shown as ENTAILED on Language B
+  and Geography, two readings that stopped early, and fresh self-certifying phrasings missed at 3.3% to 7.5%.
+- A fifth follow-up "Fix the c3 clearance findings" commit (`67bc64ec`) is verified on its first attempt: the full
+  suite has 47,878 passed, 1 skipped, 29 deselected and 1 xfailed, with 0 failed, of 47,880 collected in two shards;
+  the harness replays every recorded round as before (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177,
+  c1 203/203, c2 188/188, c3 164/176). Its check round after the first fixes reproduced 51 items.
+- It addresses that push check's holds that need no owner decision and makes the version bump: POLICY_VERSION
+  2026.11-v7, self-certification rules selfcert-3 and contract 0.8, with the integration kit regenerated; a result
+  signed under the previous policy is refused as stale.
+- Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
+  pending the owner's decision on a meaning check.
