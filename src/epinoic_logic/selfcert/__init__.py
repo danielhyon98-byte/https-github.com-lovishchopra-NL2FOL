@@ -1,4 +1,4 @@
-"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-2`` since c3e).
+"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-3`` since c3g).
 
 An answer's claim, in its OWN scope, about checking, verification, review, testing, audit, QA, an engine or system result, proof,
 approval, marking or scoring, or its own correctness, quality or confidence, whoever is credited, in any position, quoted or
@@ -48,7 +48,11 @@ __all__ = ["Context", "Hit", "Unread", "Reading", "Spot", "SELFCERT_RULES", "rul
 #: The version of the self-certification rules (bound into the policy identity by ``engine.identity.policy_manifest``).
 #: ``selfcert-2`` (c3e): the reading of rule 0 changed in code and data (own verdicts by frame, misspelt check compounds,
 #: transforms composed with misspelling, correction pairs and glosses), and :func:`rules_digest` now covers the rule's code.
-SELFCERT_RULES = "selfcert-2"
+#: ``selfcert-3`` (c3f and c3g, the push checks of a9129c78 and 08c4a36b; POLICY_VERSION 2026.11-v7): the reading of rule 0
+#: changed again in code (the decided boundary lines on worked checks, ticks, unnamed sources and restated questions, own verdicts
+#: read at any length and the misses by class; ``epinoic_logic.version`` lists them), and :func:`rules_digest` covers the import
+#: closure of the reader, rule 0's call site included (:func:`rules_closure`).
+SELFCERT_RULES = "selfcert-3"
 #: The rule names the delivery refusals carry.
 GATE_RULE = "self-certification-gate"
 UNREAD_RULE = "unread-text"

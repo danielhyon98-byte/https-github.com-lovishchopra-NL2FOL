@@ -701,6 +701,16 @@ def _mood_of(seg: list, question: bool, first: bool) -> str:
                 t.w in ("must", "deben", "debe", "debes", "hay que", "tienen que", "tiene que", "need to", "needs to", "have to", "has to"):
             if any(x.fam() & {"CHECK", "STATUS", "APPROVE"} or x.has("C:m_check") for x in words[k + 1:k + 5]):
                 return "weak"  # "deben ser comprobadas", "must be checked": an obligation, no check reported (deontic)
+    for k, t in enumerate(words[:-2]):
+        parts = t.w.split()
+        if parts[0] in ("can", "could", "may", "might", "puede", "pueden", "podria", "podrian") and \
+                (parts[1:] == ["be"] or (len(parts) == 1 and words[k + 1].w in ("be", "ser"))):
+            q = k + 1 if len(parts) > 1 else k + 2
+            if q < len(words) and words[q].fam() & {"CHECK"} and words[q].has("v:part") and not any(
+                    x.w in ("as", "to", "como") and any(y.fam() & {"OUTCOME", "QUALITY"} for y in words[m + 1:m + 4])
+                    for m, x in enumerate(words[q + 1:], start=q + 1)):
+                return "weak"  # "The values can be confirmed with a calculator.": a method the reader may use, a possibility, no
+                # check reported (boundary (b); "can be verified as correct" still says the answer is correct; check round 13 of c3g)
     for k, t in enumerate(words):
         if t.has("C:weak_idioms"):
             if t.w.split()[0] in _POSSIBILITY and t.w.split()[0] not in ("may", "might") and any(
@@ -1437,10 +1447,85 @@ class _QuoteTok:
         return set()
 
 
-#: Data sources of the subject a value is compared with, read as a named reference after a determiner ("matches the census", "coincide
-#: con el censo"; c3f): the comparand only, never a modifier of the answer's own figures ("These census figures ...").
+#: Data sources of the subject a value is compared with, read as a named reference after a determiner (c3f) when the source is NAMED
+#: or the comparand states a value (decision D-a of c3g: "matches the ONS census", "matches the 2021 census"; an unnamed "the census",
+#: "el censo" is gated): the comparand only, never a modifier of the answer's own figures ("These census figures ...").
 _DATA_SOURCE_HEADS = frozenset("census censuses survey surveys dataset datasets almanac yearbook atlas encyclopedia encyclopaedia "
                                "gazetteer register registry censo censos encuesta encuestas anuario enciclopedia padron".split())
+
+
+_CREDIT_TAGS = ("C:tool", "C:eval_int", "C:eval_asr", "C:eval_int_agentive", "C:m_eval")
+
+
+def _credited_piece(toks: list, f) -> bool:
+    """Whether the finding ``f`` stands in a piece of the sentence (between commas, semicolons or brackets) that credits a party or
+    a tool with the check by "by"/"por" ("..., verified by Z3", "..., checked by the examiner"; c3g)."""
+    from bisect import bisect_left
+    k = bisect_left([t.a for t in toks], f.a) if len(toks) < 4096 else next((m for m, t in enumerate(toks) if t.a >= f.a), None)
+    if k is None or k >= len(toks):
+        return False
+    # (the piece is looked for at most 48 tokens each side: a credit stands next to its check, and the reading stays linear)
+    lo = k
+    while lo > 0 and k - lo < 48 and toks[lo - 1].w not in (",", ";", "(", ")", ":"):
+        lo -= 1
+    hi = k
+    while hi < len(toks) and hi - k < 48 and toks[hi].w not in (",", ";", "(", ")", ".", "!", "?"):
+        hi += 1
+    piece = toks[lo:hi]
+    return any(t.w in ("by", "por") for t in piece) and any(t.has(*_CREDIT_TAGS) or t.w in ("z3", "smt", "solver", "gdc", "cas")
+                                                           for t in piece)
+
+
+def _neutral_worked_label(toks: list) -> bool:
+    """Whether ``toks`` is a label whose key is a neutral check key (:func:`reader._neutral_check_key`: "Check:", "Checking the
+    answer:", "Comprobación:") and whose value shows the computation (:func:`reader._shows_working`) with no verdict word of its own."""
+    from .reader import _neutral_check_key, _shows_working
+    colon = next((k for k, t in enumerate(toks[:12]) if t.w == ":"), None)
+    if colon is None or colon == 0:
+        return False
+    key = [t for t in toks[:colon] if not t.punct and t.w not in ("#", "*")]
+    value = toks[colon + 1:]
+    ws = [t.w for t in value]
+    eq = ws.index("=") if "=" in ws else -1
+    shown = _shows_working(value) or (eq > 0 and sum(1 for t in value[:eq] if t.num) >= 2 and any(
+        t.w in ("+", "-", "−", "×", "*", "/", "÷", "·", "^") for t in value[:eq]) and any(t.num for t in value[eq + 1:]))
+    return bool(key) and _neutral_check_key(key) and shown and not any(
+        t.fam() & {"OUTCOME", "QUALITY", "APPROVE", "STATUS", "AGREE"} for t in value)
+
+
+def _one_computation_verdict(toks: list, hit) -> bool:
+    """Whether ``hit`` stands in a label key that gives its verdict over the ONE computation its value shows ("The/This calculation
+    checks out: 8 × 9 = 72.", "La cuenta cuadra: ..."; :func:`reader._computation_verdict_key`, :func:`reader._shows_working`)."""
+    from .reader import _computation_verdict_key, _shows_working
+    colon = next((k for k, t in enumerate(toks) if t.w == ":" and t.a >= hit.b), None)
+    if colon is None or colon > 10 or any(t.w == ":" for t in toks[:colon]):
+        return False
+    key = [t for t in toks[:colon] if not t.punct]
+    return bool(key) and _computation_verdict_key(key) and _shows_working(toks[colon + 1:])
+
+
+def _named_source(words: list, k: int) -> bool:
+    """Whether the data source ``words[k]`` ("census", "dataset", "survey") is NAMED: a proper name, an acronym or a year beside it
+    ("the ONS census", "the 2021 census", "the census of England and Wales", "el censo del INE"). An unnamed "the dataset", "the
+    census", "el censo" names no source: the answer's agreement with it is its own verification claim, gated (decision D-a of
+    c3g, the push check of 08c4a36b: "All the numbers here match the dataset." was delivered). A value the comparand states
+    ("the census figure of 4.2 million") is read by the caller as a stated value."""
+    lo = max(0, k - 3)
+    for m in range(lo, min(len(words), k + 6)):
+        if m == k:
+            continue
+        y = words[m]
+        if y.punct:
+            if m > k:
+                break
+            continue
+        if y.upper and len(y.w) >= 2 and y.w.isalpha():
+            return True  # an acronym ("the ONS census", "del INE")
+        if y.cap and not y.init and y.w.isalpha():
+            return True  # a proper name ("of England and Wales", "the Eurostat dataset")
+        if y.num and y.w.isdigit() and len(y.w) == 4:
+            return True  # a year ("the 2021 census", "el censo de 2021")
+    return False
 
 
 def _reference_agreement(toks: list, i: int) -> bool:
@@ -1494,7 +1579,8 @@ def _reference_agreement(toks: list, i: int) -> bool:
         # matched against the answer's items ("The GDC output matched each of the results"): an evaluator's agreement with this
         # answer, never a subject-matter reference (check round 10 of c3d)
         return False
-    if any(x.has(_REF_HEADS_TAG) or (x.w in _DATA_SOURCE_HEADS and k > 0 and words[k - 1].has("C:definite", "C:det"))
+    if any(x.has(_REF_HEADS_TAG) or (x.w in _DATA_SOURCE_HEADS and k > 0 and words[k - 1].has("C:definite", "C:det") and
+                                     _named_source(words, k))
            for k, x in enumerate(words)):
         return True
     contentful = [x for x in words if not x.punct and not x.has("C:det", "C:prep", "C:dist", "C:definite", "C:indefinite") and
@@ -1865,7 +1951,8 @@ def _subject_frames(toks: list, words: list, segs: list[list], ctx, s: str, a: i
                     det2 is not None and det2.w in ("a", "an", "any", "every", "un", "una") and not det.has("C:det")))
                 bare_plural = t.w.endswith("s") and (det is None or not det.has("C:det", "C:poss1", "C:poss2", "C:poss3")) and \
                     v.has("v:base") and not v.has("v:past", "v:3sg")
-                if (indefinite and (v.has("v:3sg") or (v.w.endswith("s") and v.fam() & {"CHECK", "AGREE"}))) or bare_plural:
+                if ((indefinite and (v.has("v:3sg") or (v.w.endswith("s") and v.fam() & {"CHECK", "AGREE"}))) or bare_plural) and \
+                        not _work_parts_after(sw, m + 2):
                     lo, hi = sw[0].a, sw[-1].b
                     clear(lambda f, lo=lo, hi=hi: lo <= f.a < hi and f.rule in ("G1", "G2", "G3", "G5"), lo, hi + 1)
                     break
@@ -2325,7 +2412,11 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
     # a check by a stated mathematical method with the computation shown (X1/X4: "verified by substitution: 2(4) + 3 = 11")
     if any(t.w in ("=", "≈") for t in toks) and sum(1 for t in toks if t.num) >= 2:
         for k, t in enumerate(toks):
-            if t.fam() & {"CHECK"} and any(x.has("C:m_method") for x in toks[k + 1:k + 4]):
+            if t.fam() & {"CHECK"} and any(x.has("C:m_method") for x in toks[k + 1:k + 4]) and not any(
+                    (x.w.split() or [""])[0] in _WIDE_CHECK_SCOPE or x.has("C:anchor", "C:anchor_idioms", "C:dist_idioms")
+                    for x in toks[max(0, k - 6):k]):
+                # (a check of a wider scope than the computation shown, "Each value above was checked by substitution: ...", is the
+                # answer's own verdict on all of it: decision D-d of c3g)
                 clear(lambda f, t=t: f.a <= t.a < max(f.b, t.a + 1))
     # a subject's outcome: an outcome whose subject is a subject-matter noun ("the code is correct")
     for k, t in enumerate(toks):
@@ -2361,9 +2452,12 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
             if any(_content(x, ctx) for x in value) or any(x.w in ("=", "≈", ":") for x in toks[colon + 1:]) or sum(
                     1 for x in value if x.num) >= 2:
                 # a worked check that shows its content (material for the engine): the check word is the working's label
+                # (a piece beside the computation that credits a party or a tool with the check, "Proof: 2 + 2 = 4, verified by Z3.",
+                # is no part of the working: decision D-d of c3g)
                 clear(lambda f: f.form in ("label_before", "label_inside", "fragment", "sentence") and f.a < toks[colon].b and
-                      f.rule in ("G2", "G4", "G5", "G6"))
-                clear(lambda f: f.family in ("AGREE", "CHECK", "STATUS", "MARK") and f.rule in ("G2", "G3", "G5", "G6"))
+                      f.rule in ("G2", "G4", "G5", "G6") and not _credited_piece(toks, f))
+                clear(lambda f: f.family in ("AGREE", "CHECK", "STATUS", "MARK") and f.rule in ("G2", "G3", "G5", "G6") and
+                      not _credited_piece(toks, f))
         if key_w.startswith(("for checking", "for reference", "to check", "para comprobar", "for comparison")):
             clear(lambda f: f.a < toks[colon].b)
         if key and _imperative(value, ctx) and not any(x.fam() & {"ASSURE", "APPROVE"} for x in value):
@@ -2427,6 +2521,13 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
     for m, seg in enumerate(segs):
         if not _assessment_of(seg) or not _assessment_of([x for k, x in enumerate(seg) if not _motion_pass(seg, k)]):
             continue  # ("Only about 10% passes to the next level.": a "pass" of motion, no outcome; check round 12 of c3f)
+        # (a cross negates only its own half: after a tick that follows it, "✗ draft ✓ verified final answer", the half the tick
+        # marks is read for its own polarity; c3g)
+        tick_after_cross = next((q for q, x in enumerate(seg) if x.w == "zzmarkpos" and any(y.w == "zzmarkneg" for y in seg[:q])), None)
+        if tick_after_cross is not None and any(x.fam() - {"PROVENANCE"} for x in seg[tick_after_cross + 1:]) and \
+                _assessment_of(seg[tick_after_cross:]):
+            seg = seg[tick_after_cross:]  # (a tick half with an assessment word of its own; a corrected form of language, "✓ I have
+            # gone", keeps the pair's reading)
         sign, pos, dfc, negated = _polarity(seg)
         mood = _mood_of(seg, question, m == 0)
         sw = [t for t in seg if not t.punct]
@@ -2488,8 +2589,12 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
     asserted_pos = [r for r in readings if r[0] > 0 and (r[1] or (r[2] and r[3])) and r[4] in ("declarative", "strong")]
     others = [r for r in readings if r not in asserted_pos]
     # protasis readings that precede a positive apodosis belong to it (the counterfactual), handled by cf
-    if content_free and s and not ctx.marking and words and all(t.w == "zzmarkpos" for t in words) and _example_mark_at(s, b):
-        content_free = False  # ("✓ Correct use of the subjunctive: «espero que vengas».": the tick heads a quoted example; c3f)
+    if content_free and s and ctx.marking and words and all(t.w == "zzmarkpos" for t in words) and _example_mark_at(s, b):
+        content_free = False  # ("✓ Correct use of the subjunctive: «espero que vengas».": in a marking or feedback task the tick heads
+        # the student's quoted example, D9; outside one it is the writer's verdict mark, gated: decision D-b of c3g)
+    if content_free and _neutral_worked_label(toks):
+        content_free = False  # ("Checking the answer: 2(4) + 3 = 8 + 3 = 11.": a neutral check key over the computation it shows,
+        # a worked check whose computation goes to the engine, no verdict wider than it; decision D-d, check round 13 of c3g)
     if content_free:
         if cf or asserted_pos:
             seg = asserted_pos[0][5] if asserted_pos else segs[0]
@@ -2507,6 +2612,9 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
             hit = _answer_subject(toks, segs, ctx, question)
             if hit is None:
                 hit = _recheck_headline(segs, question)
+            if hit is not None and _one_computation_verdict(toks, hit):
+                hit = None  # ("This calculation checks out: 8 × 9 = 72.": a verdict whose scope is the ONE computation shown, a
+                # worked check, decision D-d of c3g; the reader frees its key, and the sentence layer reads it so too)
             if hit is not None and "AGREE" in hit.fam():
                 k_hit = next((k for k, x in enumerate(toks) if x is hit), None)
                 if k_hit is not None and _reference_agreement(toks, k_hit):
@@ -2683,6 +2791,13 @@ def _marking_criterion(words: list) -> bool:
                                                          "below") for t in words):
         return False
     ws = [t.w for t in words]
+    # what a criterion, a rubric or a mark scheme requires or rewards ("Criterion B requires a method that is checked against a
+    # second source.", "The rubric rewards a clear thesis."): a criterion's demand, said of no answer in particular (c3g)
+    v = next((m for m in range(1, min(len(ws), 5)) if ws[m] in _CRITERION_VERBS), None)
+    if v is not None and any(w in _CRITERION_SUBJECTS or w.endswith("scheme") for w in ws[:v]) and \
+            not any(x.w in ("was", "were", "has", "have", "been", "fue", "fueron", "ha", "han", "awarded", "gave", "given")
+                    for x in words[v + 1:]):
+        return True
     if ws[0] in _AWARD_SUBJECTS and len(ws) > 2 and ws[1] in ("are", "is", "were", "can", "may", "will", "se") and \
             any(w in _AWARD_VERBS for w in ws[1:4]) and ("for" in ws[2:6] or "para" in ws[2:6] or "por" in ws[2:6]):
         return True
@@ -2694,6 +2809,10 @@ def _marking_criterion(words: list) -> bool:
 
 
 _SCHEME_NOUNS = frozenset("scheme markscheme mark-scheme rubric rubrics criteria".split())
+_CRITERION_SUBJECTS = frozenset("criterion criteria rubric rubrics descriptor descriptors band strand scheme markscheme mark-scheme "
+                                "criterio criterios rubrica descriptor".split())
+_CRITERION_VERBS = frozenset("requires require expects expect rewards reward demands demand asks wants values credits needs "
+                             "requiere requieren exige exigen premia premian valora valoran pide piden".split())
 _ALLOCATE_VERBS = frozenset("awards award allocates allocate gives give allows allow assigns assign carries carry otorga asigna da".split())
 _COUNT_WORDS = frozenset("one two three four five six seven eight nine ten a an 1 2 3 4 5 6 7 8 9 10 11 12 un una dos tres cuatro cinco "
                          "seis siete ocho nueve diez".split())
@@ -2733,6 +2852,14 @@ _FIND_DEFECT_RE = re.compile(r"\b(?:find|finds|found|spot|spots|spotted|catch|ca
                              r"documento|texto|fuente|poema|art[ií]culo))", re.I)
 _NO_ONE_RE = re.compile(r"\b(?:won't|will\s+not|wouldn't|would\s+not|can't|cannot|couldn't|could\s+not|never|nobody|no\s+one|no-one|"
                         r"nadie|nunca|no\s+(?:encontrar|hallar)|jam[aá]s)\b", re.I)
+#: A denial over the no-fault claim that follows it ("It is not true that nobody found an error here.", "I wouldn't say nobody found
+#: an error here.", "No es cierto que nadie encontrara un error aquí."): its meaning stays negative, someone found one, boundary (b)
+#: (check round 13 of c3g).
+_DENIED_NO_FAULT_RE = re.compile(r"\b(?:it\s+is\s+not\s+(?:true|the\s+case)|it\s+isn['’]t\s+(?:true|the\s+case)|it['’]s\s+not\s+"
+                                 r"(?:true|the\s+case)|(?:i|we)\s+(?:would\s+not|wouldn['’]t|would\s+never|cannot|can['’]t|could\s+not|"
+                                 r"couldn['’]t|do\s+not|don['’]t)\s+(?:say|claim|agree)|it\s+is\s+false|it\s+is\s+untrue|"
+                                 r"no\s+es\s+(?:cierto|verdad)|es\s+falso|no\s+(?:dir[ií]a|dir[ée]|afirmar[ií]a))\b[^.;!?]{0,6}"
+                                 r"(?:\bthat\b|\bque\b)?\s*(?:nobody|no\s+one|no-one|nadie)\b", re.I)
 _AMAZED_IF_RE = re.compile(r"\b(?:amazed|astonished|stunned|shocked|surprised|sorprender[ií]a|asombrar[ií]a)\b[^.;!?]{0,12}\b(?:if|si)\b", re.I)
 
 
@@ -2769,7 +2896,7 @@ def _own_verdict_c3d_one(sentence: str, ctx) -> Optional[tuple[str, str]]:
     m = _FIND_DEFECT_RE.search(sentence)
     if m is not None:
         before = sentence[:m.start()]
-        if _NO_ONE_RE.search(before) or _AMAZED_IF_RE.search(before):
+        if (_NO_ONE_RE.search(before) or _AMAZED_IF_RE.search(before)) and not _DENIED_NO_FAULT_RE.search(before):
             return ("G8", "DEFECT")
     if _AMAZED_WRONG_RE.search(sentence) or _NO_POINT_OFF_RE.search(sentence):
         return ("G8", "DEFECT")
@@ -3153,7 +3280,28 @@ def _generic_present(words: list) -> bool:
         if t.has("C:demonstrative", "C:poss2", "C:anaph") and k + 1 < len(words) and words[k + 1].has("C:genre", "C:genre_strong",
                                                                                                          "C:part"):
             return False
+    if _work_parts_after(words, verb + 1):
+        return False  # (every line, each step: the parts of the work in reach; c3g)
     return True
+
+
+#: Words of a scope wider than one computation (reader._WIDE_SCOPE_WORDS's English and Spanish quantifiers).
+_WIDE_CHECK_SCOPE = frozenset("all every each everything todo toda todos todas whole entire cada".split())
+
+
+def _work_parts_after(words: list, start: int) -> bool:
+    """Whether a distributive quantifier over a part noun ("every line", "each step", "all figures") stands at or after ``start``
+    with nothing the parts are of ("every line of the algorithm" is the subject's): the parts of the work in reach, the answer's
+    own, as "the" makes them. A generic reading of an indefinite agent ("A QA team tests software") never holds over them, so "A
+    second-opinion agent concurs with every line." reads as its "the" form does: determiners vary freely (c3g, the push check of
+    08c4a36b)."""
+    for k in range(max(0, start), len(words)):
+        t = words[k]
+        part_at = k + 1 if t.has("C:dist") and k + 1 < len(words) and words[k + 1].has("C:part") else (
+            k if t.has("C:dist_idioms") else None)
+        if part_at is not None and not (part_at + 1 < len(words) and words[part_at + 1].w in ("of", "de", "del", "in", "en")):
+            return True
+    return False
 
 
 def _system_generic(seg: list) -> bool:

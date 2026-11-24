@@ -79,7 +79,9 @@ _LOCATOR_BEFORE_RE = re.compile(r"\b(?:tables?|figures?|figs?|sources?|paragraph
 _YEAR_AFTER_RE = re.compile(r"\s*+(?:in|for|of|during|at\s+the\s+end\s+of)?\s*+\(?\s*+(1[0-9]{3}|20[0-9]{2})\b")
 _RESULT_BEFORE_RE = re.compile(r"[=≈]\s*+$")
 #: A from-to pair of figures with no year between them ("coal down from 46% to 28%").
-_FROM_TO_FIG_RE = re.compile(r"\bfrom\s++(?P<a>\d[\d,.]*+)\s*+(?:%|per\s?cent)?\s++to\s++(?P<b>\d[\d,.]*+)", re.IGNORECASE)
+_FROM_TO_FIG_RE = re.compile(r"\bfrom\s++(?P<a>\d[\d,.]*+)\s*+(?:%|per\s?cent)?(?:(?<=\s)(?!to\b)[^\W\d][^\s\d]{0,15}+[ \t]++){0,2}+"
+                             # (a scale or unit word after the first figure, "from 21.4 million to 28.0 million"; check round 13 of c3g)
+                             r"\s*+to\s++(?P<b>\d[\d,.]*+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -266,9 +268,19 @@ def _clauses(text: str) -> list[tuple[int, str]]:
             d += 1
         elif ch == ")" and d:
             d -= 1
+    from bisect import bisect_right
+    from .insertions import insertion_spans
+    spans = insertion_spans(text) if "," in text else ()
+    starts = [a for a, _b in spans]
     for m in _CLAUSE_SPLIT_RE.finditer(text):
         if m.group(0).startswith(",") and depth_at[m.start()] > 0:
             continue  # a comma inside brackets lists the bracket's items: no clause boundary (attack round 5)
+        if m.group(0).startswith(",") and spans:
+            k = bisect_right(starts, m.start()) - 1
+            if k >= 0 and spans[k][0] <= m.start() < spans[k][1] and text[:spans[k][1]].rstrip()[-1:] == "," \
+                    and re.match(r"[^.;\n]*?[^\W\d_]", text[spans[k][1]:]):
+                continue  # a contrast inserted between a subject and its verb ('Imports, while coal declined, made up 54%'): an
+                # insertion of the clause around it, which reads it blanked (push check of 08c4a36b)
         out.append((pos, text[pos:m.start()]))
         pos = m.end()
     out.append((pos, text[pos:]))
@@ -306,6 +318,18 @@ def _entity_at(table: SuppliedTable, where: dict[str, list[int]], at: int) -> tu
             return widest[0], len(named)
         return None, len(named)  # two rows named by the same words ('primary energy' of two rows): no one row
     return (best[1] if best[0] >= 0 or len(named) == 1 else None), len(named)
+
+
+def _unique_entity(table: SuppliedTable, where: dict[str, list[int]]) -> Optional[str]:
+    """The one entity of ``table`` whose own words (those no other entity of any of its tables holds) all stand in the clause, at least one
+    such word and at least half of its words standing there; None when none or two are."""
+    ents = dict(table.entities)
+    hits = []
+    for entity, words in table.entities:
+        own = {w for w in words if not any(w in o for e2, o in table.entities if e2 != entity)}
+        if own and all(w in where for w in own) and 2 * sum(1 for w in words if w in where) >= len(words):
+            hits.append(entity)
+    return hits[0] if len(hits) == 1 and ents.get(hits[0]) else None
 
 
 _TOGETHER_RE = re.compile(r"\b(?:together|combined|altogether|jointly|between\s+them|in\s+total|in\s+all|sources|both)\b", re.IGNORECASE)
@@ -412,30 +436,33 @@ _DERIVED_FIG_BEFORE_RE = re.compile(r"\b(?:an?\s++)?(?:fall|rise|drop|decrease|i
 
 
 #: A word that opens an intervening clause or phrase ("After coal declined, imports made up 54%", "Imports made up 54%, after coal
-#: declined, in 2025", "with natural gas growing"): a row it names is that clause's, never a figure's outside it (push check of a9129c78,
-#: the sweep of every row lookup: 'coal' of the opening clause had named the row of 'imports made up 28%', ENTAILED against Coal 2025).
-_INTERVENING_RE = re.compile(r"\b(?:after|as(?!\s+well\s+as)|with|without|despite|since|before|when|whenever|while|whilst|although|though|because|"
-                             r"compared\s+(?:with|to)|unlike|than|in\s+spite\s+of)\b", re.IGNORECASE)
-_INTERVENING_END_RE = re.compile(r"[,;:()]|\s[-–—]\s")
+#: declined, in 2025", "with natural gas growing"), a bracket, a pair of dashes or an apposition: a row it names is that insertion's,
+#: never a figure's outside it (push check of a9129c78, the sweep of every row lookup; push check of 08c4a36b, the shared reader of
+#: :mod:`.insertions`).
 
 
 def _intervening_spans(clause: str) -> list[tuple[int, int]]:
-    """The spans of the clause's intervening clauses: from the opening word to the next comma, semicolon, colon, bracket or dash."""
-    out = []
-    for m in _INTERVENING_RE.finditer(clause):
-        e = _INTERVENING_END_RE.search(clause, m.end())
-        out.append((m.start(), e.start() if e else len(clause)))
-        if len(out) >= 64:
-            break
-    return out
+    """The spans of the clause's insertions (:func:`.insertions.insertion_spans`): an intervening clause or phrase from its opening word
+    (anywhere in the clause) to the next delimiter or to where the main clause resumes, a bracket, a pair of dashes or a comma-delimited
+    apposition (push check of 08c4a36b: every row lookup reads its figure's own clause only; no cap on their number, so none is left
+    unread)."""
+    from .insertions import insertion_spans
+    return list(insertion_spans(clause, True))
 
 
 def _outside(where: dict[str, list[int]], spans: list[tuple[int, int]], at: int) -> dict[str, list[int]]:
-    """``where`` without the words inside an intervening clause that does not hold the figure at ``at``."""
-    drop = [(a, b) for a, b in spans if not a <= at < b]
-    if not drop:
-        return where
-    return {w: kept for w, ps in where.items() for kept in [[p for p in ps if not any(a <= p < b for a, b in drop)]] if kept}
+    """``where`` without the words inside an insertion that does not hold the figure at ``at`` (spans sorted and disjoint: each word is
+    placed by bisection)."""
+    from bisect import bisect_right
+    starts = [a for a, _b in spans]
+    k = bisect_right(starts, at) - 1
+    own = spans[k] if k >= 0 and spans[k][0] <= at < spans[k][1] else None
+
+    def kept(p: int) -> bool:
+        j = bisect_right(starts, p) - 1
+        return j < 0 or not (spans[j][0] <= p < spans[j][1]) or spans[j] == own
+    out = {w: ks for w, ps in where.items() for ks in [[p for p in ps if kept(p)]] if ks}
+    return out if len(out) != len(where) or any(len(out[w]) != len(where[w]) for w in out) else where
 
 
 def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> list[_Finding]:
@@ -462,8 +489,13 @@ def _table_findings(claim_id: str, text: str, tables: list[SuppliedTable]) -> li
                 continue  # "77% in 2025 (28 + 27 + 22)": a total worked from its parts in brackets, no cell (attack round 4)
             credited = credit is not None and credit.start() < f.start
             alike = sum(1 for g in figures if (g.unit, g.scale) == (f.unit, f.scale))
+            named_any = any(_entity_at(t, where, f.start)[1] for t in tables)
             for table in tables:
                 entity, count = _entity_at(table, where, f.start)
+                if not named_any and entity is None:
+                    # no row of any table is named whole: the one row named by the words only it holds ("46% of energy was
+                    # imported": the share row's "imported"; check round 13 of c3g)
+                    entity, count = _unique_entity(table, where), 1
                 if count > 1 and _group_figure(table, where, clause, f, figures):
                     continue  # a figure stated for two or more named rows together ("oil and natural gas together supplied 49%",
                     # "Low-carbon sources (hydroelectric, wind and solar, and nuclear power) rose ... to 23%": attack round 5)

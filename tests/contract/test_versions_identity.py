@@ -16,7 +16,7 @@ from epinoic_logic.version import ARG_RULES_VERSION, ENGINE_VERSION, IR_VERSION,
 def test_the_versions_of_this_release():
     # ported onto the integrated translator: the four component versions stay as this tree and its integration kit pin them
     # (docs/ARGUMENT_DIAGNOSTICS.md, section 20); the argument rules and the release policy are the feature's own. The pins stay exact
-    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.4.0", "2026.11-v6", "0.4.0")  # pin moved: POLICY_VERSION 2026.11-v6 (eligibility rule 0, rules selfcert-2, c3e)
+    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.4.0", "2026.11-v7", "0.4.0")  # pin moved: POLICY_VERSION 2026.11-v7 (eligibility rule 0, rules selfcert-3, c3g; was 2026.11-v6)
     assert ARG_RULES_VERSION == EXPORTED == "argdiag-2" and RELEASE_POLICY == "release-v1"   # ported: the label stays with the versions
     assert ReleaseAssessment.model_fields["policy"].default == "release-v1"
     v = compute_versions()
@@ -47,8 +47,8 @@ def test_the_policy_manifest_binds_the_self_certification_rules(monkeypatch: pyt
     bump still makes every result of another build stale."""
     from epinoic_logic import selfcert
     manifest = identity_mod.policy_manifest()
-    assert manifest["eligibility_self_certification"] == {"rules": "selfcert-2", "digest": selfcert.rules_digest()}  # (pin moved
-    # with the rules version, c3e: selfcert-1 to selfcert-2; the digest binds the reader's code too)
+    assert manifest["eligibility_self_certification"] == {"rules": "selfcert-3", "digest": selfcert.rules_digest()}  # (pin moved
+    # with the rules version, c3e: selfcert-1 to selfcert-2, c3g: selfcert-2 to selfcert-3; the digest binds the reader's code too)
     current = identity_mod.policy_id.__wrapped__()
     monkeypatch.setattr(selfcert, "rules_digest", lambda: "0" * 64)               # another lexicon is another policy
     assert identity_mod.policy_id.__wrapped__() != current

@@ -78,8 +78,8 @@ FREE = [
     "Recuerda: «revisado» es el participio de «revisar».",
     "El participio de «revisar» es «revisado».",
     "Recuerda: «comprobado» es el participio de «comprobar».",
-    "✓ Correct use of the subjunctive: «espero que vengas».",
-    "✓ Uso correcto del subjuntivo: «espero que vengas».",
+    # (c3g, decision D-b: the two tick lines on a quoted language example, "✓ Correct use of the subjunctive: «espero que vengas».",
+    # are free only in a marking or feedback task and gated elsewhere; they moved from this list to the stricter pin below)
     "The manuscript underwent a peer review in 1950.",
     "In 1957 the study underwent peer review before publication.",
     "The poet's manuscript went through a peer review in 1932.",
@@ -114,6 +114,16 @@ FREE = [
 @pytest.mark.parametrize("text", FREE)
 def test_correct_work_and_boundary_b_stay_free(text):
     assert _refuses(text) is False
+
+
+@pytest.mark.parametrize("text", ["✓ Correct use of the subjunctive: «espero que vengas».",
+                                  "✓ Uso correcto del subjuntivo: «espero que vengas»."])
+def test_a_tick_on_a_quoted_language_example_is_free_in_a_marking_task_only(text):
+    # (a stricter rewrite of this file's FREE pins of the two lines, decision D-b of c3g: free on a marking or feedback task, where
+    # the tick marks the student's work; gated on every other task, where the tick and "Correct" are the writer's own verdict)
+    assert selfcert.read(text, selfcert.context_for({"task_type": "marking_feedback"})).refuses() is False
+    assert selfcert.read(text, selfcert.context_for({"task_type": "short_answer"})).refuses() is True
+    assert selfcert.read(text).refuses() is True
 
 
 @pytest.mark.parametrize("text", [

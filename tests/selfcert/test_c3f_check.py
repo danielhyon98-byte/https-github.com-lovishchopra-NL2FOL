@@ -15,10 +15,9 @@
    a pair, a rejected form in brackets, a worked check with a per-cent or a multiplication dot, a quality noun heading an evaluation
    of method, agreement with a named data source).
 4. The reading of '✓ Correct use of the subjunctive: «espero que vengas».': feedback on a quoted language form in a marking task is
-   free (decision D9: a tick in a marking task marks the student's work). Outside a marking task it is free too since check round 12
-   of c3f (the correct-work lens: the tick marks the quoted example of a language point, a verdict on the example and never on the
-   answer, boundary (b)); its near twins whose key or value is no quoted language example stay gated (rewritten by the check fixer:
-   the earlier pin gated the example line itself).
+   free (decision D9: a tick in a marking task marks the student's work). Outside a marking task it is gated (decision D-b of c3g,
+   as 08c4a36b's own commit decided: the tick and "Correct" are the writer's own verdict mark there; check round 12 of c3f had freed
+   it, and c3g rewrote that pin to the stricter reading); its near twins stay gated.
 5. The policy identity binds the whole code of rule 0: the reader, the rule's call site, the marking context and their import
    closure inside the translator package, computed by AST.
 
@@ -211,7 +210,10 @@ OVER_BLOCKS = [
     "Corrige: «los problema» → «los problemas».", "Bien: «El problema» (no «la problema»).", "Bien: «El problema», no «la problema».",
     'Correcto: «el agua» (not "la agua").', "Prueba: si x = 2, entonces 2 · 2 = 4.", "25 % de 80 = 20 ✓",
     "Validity: the sample of 30 is small, so the conclusion is tentative.", "Validez: la muestra es pequeña.",
-    "Every figure here matches the census.", "Every figure here matches the ONS release.", "Las cifras coinciden con el censo.",
+    # (c3g, decision D-a: agreement with a data source is free only when the source is NAMED or a value it gives is STATED; the
+    # unnamed "the census" and "el censo" forms moved to OVER_BLOCK_NEAR, gated: a stricter rewrite)
+    "Every figure here matches the 2021 census.", "Every figure here matches the ONS release.",
+    "Las cifras coinciden con el censo del INE.", "Every figure here matches the census figure of 4.2 million.",
 ]
 #: The near positives each over-block frame leaves gated (each True).
 OVER_BLOCK_NEAR = [
@@ -221,6 +223,8 @@ OVER_BLOCK_NEAR = [
     "Bien: «El problema» (no «todo verificado»), y todo verificado.", "Validity: this answer is fully valid.",
     "Validity: confirmed.", "Accuracy: 100%.", "Every figure here matches the census, and the hub verified it.",
     "Every figure here matches the answer key.", "This answer matches the census.",
+    # (c3g, decision D-a: an unnamed data source with no stated value; these were OVER_BLOCKS pins, now gated)
+    "Every figure here matches the census.", "Las cifras coinciden con el censo.",
 ]
 
 
@@ -240,7 +244,8 @@ def test_the_near_positives_of_the_over_block_frames_stay_gated(text):
                                           ("Spanish B", "Bien: «El problema» (no «la problema»)."),
                                           ("Spanish B", "En inglés, 'verified' se traduce como 'verificado'."),
                                           ("Geography", "Validity: the sample of 30 is small, so the conclusion is tentative."),
-                                          ("Economics", "Every figure here matches the census.")])
+                                          # (c3g, decision D-a: the named source; the unnamed form is withheld, see test_c3g_check)
+                                          ("Economics", "Every figure here matches the 2021 census.")])
 def test_correct_work_is_delivered_not_checked_on_its_branch(subject, text):
     _s, agent, task_type, base = _BY_NAME[subject]
     d = _deliver(subject, agent, task_type, base + "\n\n" + text, NOT_CHECKED)
@@ -249,10 +254,13 @@ def test_correct_work_is_delivered_not_checked_on_its_branch(subject, text):
 
 # ------------------------------------------------------------------------------------------------ 4. the decided subjunctive line
 def test_a_tick_on_a_quoted_language_form_is_free_and_its_near_twins_stay_gated():
+    # (a stricter rewrite, decision D-b of c3g: the line is free in a marking or feedback task only, and gated on every other task,
+    # as 08c4a36b's own commit decided; the two free pins outside a marking task became gated ones)
     text = "✓ Correct use of the subjunctive: «espero que vengas»."
     assert sc.read(text, Context(marking=True)).refuses() is False
-    assert sc.read(text).refuses() is False
-    assert sc.read("✓ Uso correcto del subjuntivo: «espero que vengas».").refuses() is False
+    assert sc.read(text).refuses() is True
+    assert sc.read("✓ Uso correcto del subjuntivo: «espero que vengas».").refuses() is True
+    assert sc.read("✓ Uso correcto del subjuntivo: «espero que vengas».", Context(marking=True)).refuses() is False
     for twin in ("✓ Correct answer: «espero que vengas».", "✓ Verified: «espero que vengas».",
                  "✓ Correct use of the subjunctive: the answer is right.", "✓ Mi uso del subjuntivo: «espero que vengas».",
                  "✓ Correct use of the subjunctive."):

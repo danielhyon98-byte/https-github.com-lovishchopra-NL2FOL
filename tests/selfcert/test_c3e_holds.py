@@ -15,7 +15,8 @@ value fixed here:
    ('Comprobación: 25 % de 80 = 20'), a laboratory method in Spanish.
 4. Version discipline of rule 0: the rules are ``selfcert-2``, ``rules_digest`` covers the rule's code (every module of the
    reader, by name and content, in a fixed order), POLICY_VERSION is 2026.11-v6 and the contract 0.7, and a result bound to the
-   previous policy identity is stale, never current.
+   previous policy identity is stale, never current. (Pins moved with the c3g bump: the rules are now ``selfcert-3``,
+   POLICY_VERSION 2026.11-v7 and the contract 0.8; each pin stays exact.)
 
 Every named sentence of the push check is pinned at reader level and, where it measured the sentence delivered, withheld on every
 branch through RouterHub with an auditor and a DeliveryPolicy session and through the not-checked fallback (the helpers of
@@ -239,10 +240,11 @@ def test_a_correction_pair_is_delivered_not_checked_on_language_b(text):
 # ------------------------------------------------------------------------------------------------ 4. version discipline of rule 0
 
 def test_the_rules_are_selfcert_2_in_code_and_data():
-    assert sc.SELFCERT_RULES == "selfcert-2"
+    # pin moved with the c3g bump (selfcert-2 to selfcert-3), exact in code and in both data files
+    assert sc.SELFCERT_RULES == "selfcert-3"
     here = Path(sc.__file__).resolve().parent
-    assert json.loads((here / "lexicon.json").read_text(encoding="utf-8"))["rules"] == "selfcert-2"
-    assert json.loads((here / "fold_table.json").read_text(encoding="utf-8"))["rules"] == "selfcert-2"
+    assert json.loads((here / "lexicon.json").read_text(encoding="utf-8"))["rules"] == "selfcert-3"
+    assert json.loads((here / "fold_table.json").read_text(encoding="utf-8"))["rules"] == "selfcert-3"
 
 
 def test_the_digest_covers_every_module_of_the_reader_in_a_fixed_order():
@@ -286,11 +288,12 @@ def test_a_new_module_of_the_reader_changes_the_digest(tmp_path, monkeypatch):
 def test_the_component_and_contract_versions_moved_with_the_rules():
     from epinoic_logic.integration.protocol import INTEGRATION_CONTRACT_VERSION
     from epinoic_logic.version import POLICY_VERSION
-    assert POLICY_VERSION == "2026.11-v6" and INTEGRATION_CONTRACT_VERSION == "0.7"
+    # pins moved with the c3g bump (2026.11-v6 to 2026.11-v7, contract 0.7 to 0.8), exact
+    assert POLICY_VERSION == "2026.11-v7" and INTEGRATION_CONTRACT_VERSION == "0.8"
     compat = json.loads((ROOT / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
-    assert compat["components"]["policy"] == ["2026.11-v6"] and compat["components"]["contract"] == ["0.7"]
+    assert compat["components"]["policy"] == ["2026.11-v7"] and compat["components"]["contract"] == ["0.8"]
     head = (ROOT / "docs" / "integration-contract.md").read_text(encoding="utf-8")[:2000]
-    assert "**Contract version:** 0.7" in head and "policy `2026.11-v6`" in head
+    assert "**Contract version:** 0.8" in head and "policy `2026.11-v7`" in head
 
 
 def test_a_result_bound_to_the_previous_rule_0_identity_is_stale_and_never_current(monkeypatch):

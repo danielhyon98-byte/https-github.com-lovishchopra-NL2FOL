@@ -1754,7 +1754,7 @@ class DeliveryPolicy:
                 out.append(f"clearance {state}: {refusal}")
         certs = _receipt_findings_of(t.receipt, SELF_CERTIFICATION_CODES) if t.receipt is not None else []
         try:  # an ES-META-001 or a set-aside claim a self-report reader names (fail closed: a reader that fails withholds)
-            certs += self_certifying_meta(_receipt_findings_of(t.receipt, _META_CODES), t.report) if t.receipt is not None else []
+            certs += self_certifying_meta(_receipt_findings_of(t.receipt, _META_CODES), t.report, ctx) if t.receipt is not None else []
             notes = [f"claim {cid}" for cid in self_reporting_notes(t.report, ctx)]
             notes += self_reporting_note_blocks(getattr(t.report, "original_response", None) if t.report is not None else None, ctx)
             notes += [x for x in _self_certification_refusals(t, ctx) if x not in notes and x.split(" (")[0] not in notes]

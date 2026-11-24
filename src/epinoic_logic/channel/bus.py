@@ -1009,9 +1009,10 @@ def _word_grams(text: str, *, first_only: bool = False) -> set:
 
 #: A markdown blockquote line ('> ...', at most three spaces before the mark), its text in group 1 (``Hub._blockquote_quotations``).
 _BLOCKQUOTE_LINE_RE = re.compile(r"[ \t]{0,3}>[ \t]?([^\n]*)")
-#: How many blockquotes, and how long each, the blockquote reader reads.
-_BLOCKQUOTE_MAX = 64
-_BLOCKQUOTE_MAX_CHARS = 2000
+#: The sentence ends at which the blockquote reader reads a block of more than one sentence sentence by sentence (push check of
+#: 08c4a36b, reason 7: the reader read only the first 64 blocks of at most 2,000 characters each, so an altered task sentence after 64
+#: benign blocks, or inside one long block, drew nothing; every block and every sentence of a block is now read).
+_BLOCKQUOTE_SENTENCE_END_RE = re.compile(r"(?<=[.!?…;])\s+")
 
 
 def _located(excerpt: str, text: str, document_id: Optional[str] = None) -> bool:
@@ -3313,7 +3314,10 @@ class TranslatorChannel:
         supplied text nor the request holds, while one of them holds all its words but one or two, half of them in a run, is an altered
         quotation of that text, whatever the answer writes elsewhere; one quoted exactly, one holding quotation marks (the quotation
         readers read those), and one of the writer's own words (no text holds most of it) draw nothing. Consecutive '>' lines are one
-        block; at most :data:`_BLOCKQUOTE_MAX` blocks of at most :data:`_BLOCKQUOTE_MAX_CHARS` characters are read (linear)."""
+        block. Every block is read, and a block of more than one sentence is read whole and sentence by sentence
+        (:data:`_BLOCKQUOTE_SENTENCE_END_RE`), so an altered sentence inside a long block of other words is read as itself (push check
+        of 08c4a36b, reason 7: no bound on the blocks or their length, so nothing is left unread). One finding per altered unit, each
+        unit read once against each text (linear in the answer)."""
         from ..adapters.markdown import find_quotation_spans
         from ..adapters.sources import holds_half_in_a_run, is_peer_text, nearest_text
         text = report.original_response or ""
@@ -3329,18 +3333,21 @@ class TranslatorChannel:
             if current:
                 blocks.append(" ".join(x for x in current if x))
                 current = []
-            if len(blocks) >= _BLOCKQUOTE_MAX:
-                break
-        if current and len(blocks) < _BLOCKQUOTE_MAX:
+        if current:
             blocks.append(" ".join(x for x in current if x))
         docs = {t.document_id: t for t in supplied}
         candidates = {d: t for d, t in docs.items() if not is_peer_text(t)} or dict(docs)
         if request_text:
             candidates["the request"] = SuppliedText(document_id="the request", title=None, author="router", text=request_text)
-        out: list[IntegrityFinding] = []
+        units: list[str] = []
         for block in blocks:
-            ex = block.strip(" \t*_`").strip()
-            if not ex or len(ex) > _BLOCKQUOTE_MAX_CHARS or find_quotation_spans(ex):
+            whole = block.strip(" \t*_`").strip()
+            parts = [p.strip(" \t*_`").strip() for p in _BLOCKQUOTE_SENTENCE_END_RE.split(whole)] if whole else []
+            units.extend(dict.fromkeys([whole, *parts] if len(parts) > 1 else [whole]))
+        out: list[IntegrityFinding] = []
+        named: set[str] = set()
+        for ex in units:
+            if not ex or ex in named or find_quotation_spans(ex):
                 continue
             words = len(ex.split())
             if words < 4 or any(_located(ex, t.text, d) for d, t in candidates.items()):
@@ -3353,6 +3360,7 @@ class TranslatorChannel:
                     break
             if hit is None:
                 continue
+            named.add(ex)
             key = ex.casefold()[:60]
             ids = [c.claim_id for c in report.claims if key in c.claim_text.casefold()][:1]
             out.append(IntegrityFinding(code="INT-REQ-003", severity="error",

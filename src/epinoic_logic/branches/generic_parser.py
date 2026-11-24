@@ -119,7 +119,8 @@ from ..adapters.markdown import (JUDGEMENT_LABEL_RE,
     split_json_spans, split_note_clauses, strip_markup, truncate_claim_text,
 )
 from ..adapters.self_report import self_report_note
-from ..adapters.sources import attribute_excerpt, strip_trailing_punctuation
+from ..adapters.own_text import CORRECTION_FREE, CORRECTION_QUOTATION, correction_reading
+from ..adapters.sources import OWN_MODEL_NOTE, attribute_excerpt, nearest_text, strip_trailing_punctuation
 from ..ir.schema import SourceRef
 from ..stem.layout import ANNOTATION_RUN_CONTINUATION_RE, JoinedLine, strip_trailing_annotations, trailing_annotation_span
 from ..translate.contracts import ClaimRecord, SpecialistReport, SuppliedText, sha256_text
@@ -732,6 +733,35 @@ def _classify(u: _Unit, heading: bool) -> _Unit:
     return u
 
 
+def _correction_roles(flat: list, i: int, docs: dict, cache: dict) -> dict[int, tuple[str, Optional[str]]]:
+    """The roles ``own_text.correction_reading`` gives the quotations of ``flat[i]`` (by their opening offset in it), with the supplied text
+    a corrected half alters (``sources.nearest_text``): read in the sentence alone, then with the sentence before or after it in the same
+    paragraph (a pair the segmenter cut in two). Each context is read once (``cache``); empty when the sentence holds fewer than two
+    quotations of its own or a neighbour's."""
+    sent = flat[i].text
+    own = find_quotation_spans(sent)
+    if not own:
+        return {}
+    texts = {d: t.text for d, t in docs.items()}
+    out: dict[int, tuple[str, Optional[str]]] = {}
+    contexts = [(sent, 0)]
+    for j in (i - 1, i + 1):
+        if 0 <= j < len(flat) and flat[j].para == flat[i].para and not flat[j].is_json:
+            first, second = (flat[j].text, sent) if j < i else (sent, flat[j].text)
+            contexts.append((first + " " + second, 0 if j > i else len(first) + 1))
+    for context, offset in contexts:
+        if context not in cache:
+            spans = find_quotation_spans(context)
+            cache[context] = (spans, correction_reading(context, texts, spans) if len(spans) >= 2 else {})
+        spans, reading = cache[context]
+        for k, role in reading.items():
+            at = spans[k][0] - offset
+            if 0 <= at < len(sent) and at not in out:
+                near = nearest_text(strip_trailing_punctuation(spans[k][2]), docs)[0] if role == CORRECTION_QUOTATION else None
+                out[at] = (role, near)
+    return out
+
+
 def _mask_quotations(sentence: str) -> str:
     """``sentence`` with its quoted spans blanked, so a name inside a quotation never names a source."""
     out = list(sentence)
@@ -1025,11 +1055,38 @@ class GenericTextParser:
         refs_of: list[list[SourceRef]] = [[] for _ in range(n)]
         assumptions_of: list[list[str]] = [[] for _ in range(n)]
         quoted: list[bool] = [False] * n
+        roles_cache: dict = {}
         for i, u in enumerate(flat):
             sent = u.text
             excerpts = quotations_in(sent) if not u.is_json else []
             named = documents_named(_mask_quotations(sent), docs) if (docs and excerpts) else []
+            # the halves of the answer's own corrections read by role against the supplied texts (``own_text.correction_reading``, as
+            # the English parser reads them; c3f left): a corrected half that presents a text's wording altered is checked as a
+            # quotation of that text, also when the quotation reader left it out as the writer's correction in a feedback task
+            roles = _correction_roles(flat, i, docs, roles_cache) if docs and not u.is_json else {}
+            if roles:
+                kept = {inner for _a, _b, inner in parser_quotation_spans(sent)}
+                for _a, _b, inner in find_quotation_spans(sent):
+                    role, near = roles.get(_a, (None, None))
+                    if inner not in kept and role == CORRECTION_QUOTATION and near is not None and len(inner.strip()) >= _MIN_QUOTE_CHARS:
+                        refs_of[i].append(SourceRef(document_id=near, excerpt=(strip_trailing_punctuation(inner) or inner)[:2000]))
+                        assumptions_of[i].append(f"the corrected half of the answer's own correction presents the wording of {near}: it is "
+                                                 "checked as a quotation of that text")
+                        excerpts = excerpts + [inner] if inner not in excerpts else excerpts
+                role_of = {inner: roles[a] for a, _b, inner in find_quotation_spans(sent) if a in roles}
             for ex in excerpts:
+                role, near = role_of.get(ex, (None, None)) if roles else (None, None)
+                if role == CORRECTION_QUOTATION and near is not None:
+                    if not any(r.document_id == near and r.excerpt == (strip_trailing_punctuation(ex) or ex)[:2000] for r in refs_of[i]):
+                        refs_of[i].append(SourceRef(document_id=near, excerpt=(strip_trailing_punctuation(ex) or ex)[:2000]))
+                        assumptions_of[i].append(f"the corrected half of the answer's own correction presents the wording of {near}: it "
+                                                 "is checked as a quotation of that text")
+                    continue
+                if role == CORRECTION_FREE:
+                    assumptions_of[i].extend([OWN_MODEL_NOTE, f'"{ex.strip()[:200]}" is a half of the answer\'s own correction (the replaced half, '
+                                              "the writer's example of the misquotation its correction restores to a supplied text's exact wording): the "
+                                              "writer's own words, not checked as a quotation of a text"])
+                    continue
                 doc, notes_for_excerpt = attribute_excerpt(ex, named, docs, sentence=sent)
                 if doc:
                     # sentence punctuation written inside the closing mark ('... paid in Calvessa."' where the source goes on ', so ...') is

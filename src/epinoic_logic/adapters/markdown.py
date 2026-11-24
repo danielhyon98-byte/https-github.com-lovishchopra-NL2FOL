@@ -2693,9 +2693,16 @@ _SUGGESTION_BEFORE_RE = re.compile(r"(?:\byou\s+(?:could|might|can|may)\s+(?:als
 #: "try" or "add" as an imperative right before a span: at the start of the line or of a sentence or clause, or after "or",
 #: "and", "perhaps", "maybe", "please" or "then" ("Try "para ayudar"", "or add "sin embargo""); never a reporting use ("the
 #: speaker goes on to add "...""), which stays a quotation.
-_IMPERATIVE_SUGGESTION_RE = re.compile(r"(?:^|[.!?:;(—–]\s*|\b(?:or|and|perhaps|maybe|please|then|o|y|mejor)\s+)(?:try|add|write|use|say|put|choose"
+#: The imperatives that give the writer's wording in a feedback task, in every language the specialists write: one class for this reader
+#: and the one reader of the writer's own words (``own_text._WROTE_THEN_WRITE_GAP_RE``; follow-up c3g: 'You wrote "x"; instead, write
+#: "y"' and 'Tu as écrit « x » ; écris « y »' were read as an own correction by the one reader and as a quotation here, so the channel
+#: charged the correction of the student's email INT-REQ-003 at error).
+CORRECTION_IMPERATIVES = (r"write|use|put|say|try|escribe|escriba|usa|utiliza|pon|ponga|di|"
+                          r"écris|écrivez|mets|mettez|utilise|utilisez|dis|dites")
+_IMPERATIVE_SUGGESTION_RE = re.compile(r"(?:^|[.!?:;(—–]\s*(?:(?:so|then|instead|now|rather|please|alors|puis|mejor)\s*,?\s+)?"
+                                       r"|\b(?:or|and|perhaps|maybe|please|then|instead|o|y|mejor|ou|et|puis)\s*,?\s+)(?:add|choose"
                                        # (the Spanish imperatives of a feedback task: 'Escribiste «x»; escribe «y»'; check round 12 of c3f)
-                                       r"|escribe|escriba|usa|use|utiliza|pon|ponga|añade|prueba)\s*:?$", re.IGNORECASE)
+                                       r"|añade|prueba|" + CORRECTION_IMPERATIVES + r")\s*:?$", re.IGNORECASE)
 
 
 _SUGGESTION_LABEL_HEAD_RE = re.compile(r"[\s>*_#\d.)(-]*+suggestions?\b[^:\"“”«»\n]{0,40}:", re.IGNORECASE)

@@ -284,5 +284,7 @@ def test_the_lone_label_and_blockquote_readers_stay_linear():
         lone = TranslatorChannel._lone_label_quotations(report, docs, request_text=request, task_type="marking_feedback")
         blocks = TranslatorChannel._blockquote_quotations(report, docs, request_text=request)
         times.append(time.perf_counter() - t)
-        assert len(lone) == n and len(blocks) == 64  # every altered quotation named; at most 64 blocks read
+        # every altered quotation named. Stricter rewrite (follow-up c3g, push check of 08c4a36b reason 7): this pinned
+        # ``len(blocks) == 64``, the fail-open bound of the blockquote reader; every block is now read
+        assert len(lone) == n and len(blocks) == n
     assert times[1] < 20.0 and times[1] < 8 * max(times[0], 0.05), times

@@ -495,7 +495,12 @@ and `IntegrityReport.report_sha256` give transit integrity.
   lists it (`_orphaned_quotation_findings`).
 - **Spanish number words** (major). The ledger's figure reader reads a course language's cardinals as English ones: the words from
   twelve up wherever they stand ("catorce", "dos mil trescientos"), the small ones after a word of quantity or an hour's article
-  ("las tres", "a la una", "más de cinco"); "tres de la madrugada" carried as "dos de la madrugada" is INT-LEDGER-023.
+  ("las tres", "a la una", "más de cinco"); "tres de la madrugada" carried as "dos de la madrugada" is INT-LEDGER-023. "Y" joins
+  only the tens ("veinte" to "noventa") to a unit: "entre cuatrocientas y quinientas" is two figures, 400 and 500, never 900 (c3g).
+- **INT-LEDGER-029, criterion sentences** (c3g). A criterion or rubric sentence is exempt only with its relative clauses; another
+  clause after its object is read as a sentence of its own ("Evaluation rewards verified figures, and every figure was verified by
+  the hub." is named). A shown computation with an ordinary adjective ("after 11 complete years ... (4000(1.036)^11 = 5902.25)")
+  and a named peer report's stated values compared with the answer's, their computation shown, state no verification status.
 - INT-LEDGER-020 compares the excerpts a claim gives under one (document, locator) as a set, so several locator-less excerpts of
   one document carried verbatim are no altered excerpt; the task record is always within a formalization's retrieval scope
   (`run_integrity_checks`: a premise grounded in `task` is never INT-HANDOFF-004).

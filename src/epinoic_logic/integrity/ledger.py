@@ -212,10 +212,16 @@ _ES_WORDS = {"doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciséis":
              "mil": 1000}
 _ES_QUANTITY_PRE = r"(?:(?:a|hasta|desde|de|entre)\s{1,3})?(?:la|las)|unos|unas|casi|solo|sólo|hasta|desde|entre|aproximadamente|(?:más|menos)\s{1,3}de|cerca\s{1,3}de"
 _ES_ANY = _alt(sorted({**_ES_SMALL, **_ES_WORDS}, key=len, reverse=True))
+#: The tens that 'y' joins to a unit ('treinta y cinco'), and the units it joins (follow-up c3g, a c3f leftover: the run read 'y'
+#: as joining any two number words, so 'entre cuatrocientas y quinientas' was one figure, 900; in Spanish 'y' joins only the tens
+#: from twenty (the older 'veinte y cinco') to ninety to a unit, and two hundreds joined by 'y' are two figures).
+_ES_Y_TENS = ("veinte", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa")
+_ES_Y_UNITS = ("uno", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve")
+_ES_Y_AFTER_TENS = "(?:" + "|".join(f"(?<={t})" for t in _ES_Y_TENS) + ")"
 _ES_NUMBER_RE = re.compile(
-    rf"(?<![\w-])(?:(?:{_ES_QUANTITY_PRE})\s{{1,3}}(?P<small>(?-i:{_alt(_ES_SMALL)}))(?![\w-])"
+    rf"(?<![\w-])(?:(?:{_ES_QUANTITY_PRE})\s{{1,3}}(?P<small>(?-i:{_alt(_ES_SMALL)}))(?![\w-])(?!\s{{1,3}}(?i:mil)\b)"
     rf"|(?P<big>(?:(?-i:{_alt(_ES_SMALL)})\s{{1,3}}(?=(?-i:mil)\b))?(?-i:{_alt(sorted(_ES_WORDS, key=len, reverse=True))})"
-    rf"(?:\s{{1,3}}(?:y\s{{1,3}})?(?-i:{_ES_ANY})){{0,5}}))(?![\w-])", re.IGNORECASE)
+    rf"(?:{_ES_Y_AFTER_TENS}\s{{1,3}}y\s{{1,3}}(?-i:{_alt(_ES_Y_UNITS)})(?![\w-])|\s{{1,3}}(?-i:{_ES_ANY})(?![\w-])){{0,5}}))(?![\w-])", re.IGNORECASE)
 
 
 def _spanish_value(words: str) -> int:
@@ -4835,12 +4841,31 @@ _CRITERION_NAMES = (r"criteri(?:on|a|o|os)(?:[ \t]{1,3}[A-E](?![\w]))?|crit[eè]
                     r"exploration|analysis|communication|personal[ \t]{1,3}engagement|knowledge(?:[ \t]{1,3}and[ \t]{1,3}understanding)?|application|"
                     r"focus|organi[sz]ation|language)")
 _CRITERION_SENTENCE_RE = re.compile(r"[\W_]{0,8}(?:the[ \t]{1,3}|el[ \t]{1,3}|la[ \t]{1,3}|le[ \t]{1,3})?(?:" + _CRITERION_NAMES + r")(?:[ \t]{0,3}\([^()\n]{0,40}\))?"
-                                    r"[ \t:,]{1,4}(?:[\w-]{1,20}[ \t]{1,3}){0,3}?(?:rewards?|requires?|credits?|awards?|assesses|expects?|looks[ \t]{1,3}for|asks[ \t]{1,3}(?:for|that)|"
+                                    r"[ \t:,]{1,4}(?:[\w-]{1,20}[ \t]{1,3}){0,3}?(?P<verb>rewards?|requires?|credits?|awards?|assesses|expects?|looks[ \t]{1,3}for|asks[ \t]{1,3}(?:for|that)|"
                                     r"recompensa|exige|valora|premia|r[ée]compense|exige|valorise)\b[^;:\n]*\Z", re.IGNORECASE)
+#: A clause of a criterion sentence after a comma that still describes what the criterion asks for: a relative or subordinate clause
+#: ('..., and that is compared with accepted science'). Any other clause after the criterion's object is a sentence of its own and
+#: is read as one (follow-up c3g, the infected lens of the push check of 08c4a36b: 'Evaluation rewards verified figures, and every
+#: figure was verified by the hub.' and 'Criterion B requires checked data, all of it checked by two agents.' were exempt whole).
+_CRITERION_CLAUSE_RE = re.compile(r"[ \t]*(?:(?:and|or|but|y|o|et|ou)[ \t]{1,3})?(?:that|which|who|whom|whose|where|when|whether|if|including|such[ \t]{1,3}as|"
+                                  r"e\.g\.|i\.e\.|for[ \t]{1,3}example|que|qui|quien|quienes|donde|cuando|o[uù]|lorsque|incluyendo|como)\b", re.IGNORECASE)
 #: What keeps a criterion sentence about THIS answer, so it is read as any other ('Criterion E rewards this answer.').
 _CRITERION_OWN_RE = re.compile(r"\b(?:this|my|our|the[ \t]{1,3}above|esta|este|mi|nuestra|cette|ce|mon|notre)[ \t]{1,3}(?:answer|response|reply|essay|report|synthesis|"
                                r"work|respuesta|ensayo|trabajo|réponse|travail)\b|\b(?:above|here|below|arriba|aquí|ci-dessus|this[ \t]{1,3}one|ours|"
                                r"mine|ésta|celle-ci|celui-ci)\b", re.IGNORECASE)
+
+
+def _criterion_clause_reads(rest: str) -> bool:
+    """Whether a clause after the object of a criterion sentence (``rest``: the sentence after its verb; the clauses after its first
+    comma) is a self-report read on its own: a clause that is no relative or subordinate clause of the criterion
+    (:data:`_CRITERION_CLAUSE_RE`) and that the self-report readers read as a sentence. One pass over the clauses."""
+    from ..adapters.markdown import is_synthesis_self_certification, synthesis_label
+    for clause in rest.split(",")[1:]:
+        if not clause.strip() or _CRITERION_CLAUSE_RE.match(clause):
+            continue
+        if synthesis_label(clause) is not None or is_synthesis_self_certification(clause):
+            return True
+    return False
 
 
 def _self_report_sentences(text: str, labels: Optional[list[str]] = None, content: Optional[list[str]] = None) -> list[str]:
@@ -4864,7 +4889,8 @@ def _self_report_sentences(text: str, labels: Optional[list[str]] = None, conten
         s = sentence.strip()
         if not s:
             continue
-        if _CRITERION_SENTENCE_RE.match(s) and not _CRITERION_OWN_RE.search(s):
+        crit = _CRITERION_SENTENCE_RE.match(s)
+        if crit is not None and not _CRITERION_OWN_RE.search(s) and not _criterion_clause_reads(s[crit.end("verb"):_SELF_REPORT_SENTENCE_CHARS]):
             # a criterion or rubric sentence says what a piece of work must do, not what this answer is (push check of a9129c78, the
             # readings lens: r7 ch-t13 'Conclusion rewards an answer ... that is compared with accepted science with sources cited.')
             if content is not None:

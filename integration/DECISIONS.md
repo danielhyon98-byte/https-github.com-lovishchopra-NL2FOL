@@ -1611,6 +1611,12 @@ rows; it decides nothing about the website. It is not a row of the table above, 
   identity binds the reader's code (every module of `epinoic_logic.selfcert`) besides its lexicon and fold table, so a
   code-only change to eligibility rule 0 changes `policy_id`. The kit's compatibility record accepts only policy 2026.11-v6 and
   contract 0.7; its generated copies and vectors are regenerated with the kit's own tooling. D34 stays open as above.
+- **Changed since (c3f and c3g, POLICY_VERSION 2026.11-v7, contract 0.8):** the reader's rules are `selfcert-3` (the readings
+  `src/epinoic_logic/version.py` lists: the decided boundary lines on worked checks, ticks on language use, unnamed data sources
+  and restated questions, own verdicts read at any length, and the misses by class), and the policy identity binds the import
+  closure of the reader, eligibility rule 0's call site and the marking context included. The kit's compatibility record accepts
+  only policy 2026.11-v7 and contract 0.8; its generated copies and vectors are regenerated with the kit's own tooling. D34 stays
+  open as above.
 
 ### D35. Translator branches for Geography and Language B
 

@@ -15,7 +15,8 @@ candidate, and the candidate is read as that word only when the sentence, read w
 self-certification while the sentence as written is not. Outside such a frame a real word keeps its own meaning ("The cloth was
 singed by the fire.", "The prefect read the decree.") and an unknown word stays unknown.
 
-Bounds: a candidate keeps the first letter of its word; it is one edit from it, or two in a word of nine letters or more, or two
+Bounds: a candidate keeps the first letter of its word (or writes it as the letter that sounds the same: Spanish b and v,
+"berificado"; c3g); it is one edit from it, or two in a word of nine letters or more, or two
 that vanish once both are spelled by sound ("chequed" for "checked"). The frame is read in the candidate's sentence: its agent
 is an evaluator, its subject the answer or an item of it, its place a label's value, or its object a check (``_in_check_frame``).
 The family words are indexed once by their deletions (two at most), so a word is looked up in time linear in its length; a
@@ -30,7 +31,7 @@ from typing import Callable, Optional
 
 from .lexicon import fold_word, fuzzy_target, fuzzy_targets, fuzzy_targets_es, lexicon, tags as word_tags
 
-__all__ = ["candidates", "frame_hits"]
+__all__ = ["candidates", "frame_hits", "repaired_hits"]
 
 #: A word of letters (a hyphen or apostrophe inside it), in any Latin script.
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*")
@@ -38,6 +39,7 @@ _MIN_LEN = 5
 _MAX_LEN = 24
 
 
+@functools.lru_cache(maxsize=1)
 def _targets() -> frozenset[str]:
     lex = lexicon()
     out = set(fuzzy_targets(lex)) | set(fuzzy_targets_es(lex))
@@ -97,12 +99,31 @@ def _distance(a: str, b: str, bound: int) -> int:
 @functools.lru_cache(maxsize=65536)
 def target_of(word: str) -> Optional[str]:
     """The family word ``word`` (folded, lower case) may misspell, or None: ``word`` is no lexicon word (or is a real word exempt
-    from rule N9), keeps the target's first letter and lies within the bounds of the module docstring. The nearest target wins;
+    from rule N9), keeps the target's first letter (or writes it as the letter that sounds the same, Spanish b for v) and lies
+    within the bounds of the module docstring. The nearest target wins;
     ties go to the first in order."""
     if not (_MIN_LEN <= len(word) <= _MAX_LEN) or not word.isalpha():
         return None
     if word in lexicon().words or word_tags(word):
         return None  # (a lexicon word, or a variant rule N9 already reads; an exempt real word has no tags and is a candidate)
+    got = _target_kept_first(word)
+    if got is None and word[0] in _FIRST_SOUND_ALIKE:
+        # a first letter written as the letter that sounds the same ("berificado" for "verificado": Spanish b and v sound alike;
+        # c3g, the push check of 08c4a36b): the word is read with that letter, by the same bounds
+        alt = _FIRST_SOUND_ALIKE[word[0]] + word[1:]
+        got = alt if alt in _targets() else (None if (alt in lexicon().words or word_tags(alt)) else _target_kept_first(alt))
+        if got is not None and "lang:es" not in word_tags(got) and not got.endswith(("ado", "ada", "ados", "adas", "ido", "ida", "idos",
+                                                                                      "idas")):
+            got = None  # (b and v sound alike in Spanish only: "Better" is no misspelt "vetted"; check round 13 of c3g)
+    return got
+
+
+#: First letters that are spelt for each other by sound (Spanish b and v, "berificado", "vien"): a misspelling may change one into
+#: the other (c3g).
+_FIRST_SOUND_ALIKE = {"b": "v", "v": "b"}
+
+
+def _target_kept_first(word: str) -> Optional[str]:
     if word.endswith(("ao", "aos", "ía", "io")) and len(word) >= 6:
         # a Spanish participle with its d dropped, as spoken ("verificao", "comprobao", "revisao": "verificado"; c3e)
         for full in (word[:-2] + "ado", word[:-3] + "ados" if word.endswith("aos") else None, word[:-2] + "ido" if word.endswith("io") else None):
@@ -147,7 +168,9 @@ def _sound(w: str) -> str:
     """``w`` spelled by sound, coarsely: "iew" and "ew" as "u", "ph" as "f", "ck", "qu" and "c" as "k", "y" as "i", "z" as "s", a doubled letter once."""
     for a, b in _SOUND:
         w = w.replace(a, b)
-    return re.sub(r"(.)\1+", r"\1", w)
+    w = re.sub(r"(.)\1+", r"\1", w)
+    # (a participle's "-ed" written "-d" as spoken, "aproovd" for "approved"; check round 13 of c3g)
+    return w[:-2] + "d" if len(w) > 4 and w.endswith("ed") else w
 
 
 #: The first parts of a compound that make it a check act whatever its last part spells ("double-", "fact-", "proof-"): the
@@ -166,9 +189,14 @@ def _prefix_of(head: str) -> Optional[str]:
         return head
     if len(head) >= 5:  # (c3f: "proff" for "proof", a prefix of five letters)
         for p in _CHECK_PREFIXES:
-            if len(p) >= 5 and p[0] == head[0] and _distance(head, p, 1) <= 1:
-                return p
+            if len(p) >= 5 and p[0] == head[0] and (_distance(head, p, 1) <= 1 or _prefix_sound(head) == _prefix_sound(p)):
+                return p  # (or two edits that vanish once both are spelled by sound: "dubble" for "double"; c3g)
     return None
+
+
+def _prefix_sound(w: str) -> str:
+    """A prefix spelled by sound (:func:`_sound`, with "ou" as "u": "dubble" and "double" both "duble")."""
+    return _sound(w.replace("ou", "u"))
 
 
 def compound_target(raw: str) -> Optional[str]:
@@ -251,6 +279,9 @@ def _word_toks(sentence: str) -> list[tuple[int, int, str, frozenset]]:
     return [(m.start(), m.end(), fold_word(m.group(0)), word_tags(fold_word(m.group(0)))) for m in _WORD_RE.finditer(sentence)]
 
 
+#: The endings of a participle as misspelt ("Chekked", "Revisao", "aprobao", "verifyd"): only such a word is read as a label key's
+#: status ("Validez: ..." is a quality noun heading an evaluation, no status).
+_PARTICIPLE_LIKE_RE = re.compile(r"(?:ed|d|ado|ada|ados|adas|ao|aos|ido|ida|idos|idas|io)$")
 _DEICTIC = ("this", "these", "esta", "este", "esto", "estos", "estas")
 #: A pronoun of the whole text as a sentence's subject ("Todo fue comprobao.", "Everything was verfied."; c3f).
 _WHOLE_SUBJECTS = ("everything", "todo", "all")
@@ -356,6 +387,11 @@ def _in_check_frame(sentence: str, a: int) -> bool:
     if obj and obj[0][3] & {"C:check_noun"}:
         return True
     before = toks[:k]
+    # (6) the key of a label the word opens ("Revisao: todo el texto.", "Revisao y aprobao: ...", "Chekked: every line."): a label
+    # key holds its status; the reading of the repaired line decides (check round 13 of c3g)
+    if k <= 2 and _PARTICIPLE_LIKE_RE.search(toks[k][2]) and re.match(r"[ \t]*(?:(?:y|and|&|e)[ \t]+[^\W\d_]{2,20}[ \t]*)?:", sentence[toks[k][1]:toks[k][1] + 40]) and \
+            all(t[2] in ("y", "and", "e") or t[0] < a for t in before) and not any(t[3] & {"C:det", "C:definite"} for t in before):
+        return True
     # (5) a fragment that opens with the word, coordinated with a check participle ("Revued and approved.", "Chequed and signed
     # off."; check round 10 of c3d): the two participles label the same thing, the answer the fragment stands in
     if k == 0 and len(after) >= 2 and after[0][2] in ("and", "y", "&") and any(x.startswith("F:") for x in after[1][3]) and \
@@ -375,6 +411,13 @@ def _in_check_frame(sentence: str, a: int) -> bool:
         if t[3] & {"C:anchor", "C:anchor_idioms"} or (t[2] in _DEICTIC + _DIST and i + 1 < len(before) and
                                                       before[i + 1][3] & {"C:genre", "C:genre_strong", "C:part"}):
             return True
+        if t[2] in ("the", "las", "los", "todas", "todos") and i + 1 < len(before) and before[i + 1][3] & {"C:part"} and \
+                before[i + 1][2].endswith("s") and (i == 0 or (i == 1 and before[0][2] in ("todas", "todos", "all"))):
+            return True  # (the answer's items as the sentence's subject, "Las cifras están berificadas.", "Los datos estan
+            # berificados.", as the singular "La respuesta está berificada." is: its spelt twin reads as a self-certification, and
+            # the reading of the repaired sentence decides; check round 13 of c3g)
+        if t[2] in ("the", "la", "el") and i + 1 < len(before) and before[i + 1][3] & {"C:genre_strong"}:
+            return True  # (the answer by its own genre noun, "La respuesta está berificada.", as _misspelt_subject reads it; c3g)
         if i == 0 and t[2] in _WHOLE_SUBJECTS:
             return True  # (the whole text as the subject that opens the sentence: "Todo fue comprobao.", "Everything was ..."; c3f)
         if not t[3] & set(_LINK_TAGS) and not t[2] in ("been", "being", "fully", "now", "also", "all", "every", "of", "here", "de"):
@@ -433,3 +476,213 @@ def frame_hits(text: str, reads: Callable[[str], list]) -> list[tuple[str, str, 
         if got:
             out += [("N9", got[0][1], "misspelt", a, b, "the text") for _sa, _sb, a, b, _t in group]
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# A sentence misspelt in several words (c3g, the push check of 08c4a36b: "Evrey step hear was cheked twise.", "Al the steps abov were
+# verifyed by the hub.", "All teh vaules have been vetified.", "Allvalues verified."). Rule N9 (b) reads a misspelt CHECK word in its
+# frame, and the frame is read in the words around it; when the words of the frame are misspelt too (the subject, its quantifier, its
+# anchor), no frame is found and the sentence was delivered. Here the sentence is read REPAIRED: each word that is no word of the
+# lexicon and lies one edit from a SCOPE word (a determiner, a quantifier, a demonstrative, an anchor, a part or genre noun, a
+# repetition adverb) is written as that word, a word written run together with a quantifier or determiner ("Allvalues") is written
+# as its two words, a homophone of a scope word ("hear" for "here") is written as the scope word, and every misspelt check word as
+# the word it misspells. The repaired sentence is read by the reader itself, by meaning, never matched to a list of sentences.
+# The repair applies only to a sentence that is evidently misspelt (two repairs or more besides a homophone, or a word run together)
+# and that holds a check word (as written or misspelt): a sentence with one slip keeps the readings above. Linear: one pass over the
+# words, and each repaired sentence (at most _WINDOW characters each side of its repairs) is read once.
+# ---------------------------------------------------------------------------------------------------------------------------------
+
+#: The closed classes whose words are scope words a repair may restore.
+_SCOPE_TAGS = frozenset({"C:det", "C:dist", "C:definite", "C:demonstrative", "C:anaph", "C:anchor", "C:part", "C:genre",
+                         "C:genre_strong", "C:poss1"})
+#: Repetition and manner adverbs of a check ("checked twice", "independently"), besides the classes.
+_SCOPE_EXTRA = ("twice", "thrice", "again", "independently", "separately", "thoroughly", "carefully")
+#: Homophones of a scope word ("hear" for "here"; "hole" for "whole"): repaired only in a sentence already misspelt elsewhere.
+_HOMOPHONES = {"hear": "here", "heer": "here", "hole": "whole"}
+#: Function and scope words spelt as they sound ("Al figgures abuv hav bin chekked."): repaired as scope words, so a sentence misspelt
+#: in several words is read repaired when it also holds a misspelt check word (check round 13 of c3g). Each is read only with a check
+#: word of the same sentence, and the repaired sentence's reading decides.
+_SOUND_SCOPE = {"abuv": "above", "abuve": "above", "abov": "above", "hav": "have", "haz": "has", "bin": "been", "ben": "been",
+                "bene": "been", "al": "all", "oll": "all", "evry": "every", "thru": "through", "wer": "were", "wuz": "was",
+                "testo": "texto", "tekst": "text", "anser": "answer", "ansur": "answer", "riply": "reply", "heer": "here",
+                "dis": "this", "theez": "these", "thees": "these"}
+#: The words a run-together word may open with ("Allvalues", "Everyfigure", "Thisanswer").
+_RUN_HEADS = ("every", "each", "all", "these", "this", "the", "my", "our", "todas", "todos", "todo", "cada", "esta", "este")
+
+
+@functools.lru_cache(maxsize=1)
+def _scope_words() -> frozenset[str]:
+    out = {w for w, tg in lexicon().words.items() if w.isalpha() and len(w) >= 3 and set(tg) & _SCOPE_TAGS and "fuzzy" not in tg}
+    return frozenset(out | set(_SCOPE_EXTRA))
+
+
+@functools.lru_cache(maxsize=1)
+def _scope_index() -> dict[str, tuple[str, ...]]:
+    """Each one-deletion (never of the first letter) of each scope word -> the scope words it comes from."""
+    idx: dict[str, set[str]] = {}
+    for t in _scope_words():
+        for x in _deletes(t, 1):
+            idx.setdefault(x, set()).add(t)
+    return {k: tuple(sorted(v)) for k, v in idx.items()}
+
+
+def _unknown(word: str) -> bool:
+    return word.isalpha() and word not in lexicon().words and not word_tags(word)
+
+
+@functools.lru_cache(maxsize=65536)
+def scope_repair(word: str) -> Optional[str]:
+    """The scope word the unknown ``word`` (folded) misspells by one edit, keeping its first letter (a word of three letters by an
+    adjacent transposition only: "teh"), or None."""
+    if not (3 <= len(word) <= _MAX_LEN) or not _unknown(word):
+        return None
+    found = set()
+    for x in _deletes(word, 1):
+        for t in _scope_index().get(x, ()):
+            if t[0] == word[0] and t != word and _distance(word, t, 1) <= 1 and (len(word) >= 4 or len(t) == len(word)):
+                found.add(t)
+    return min(found, key=lambda t: (abs(len(t) - len(word)), t)) if found else None
+
+
+@functools.lru_cache(maxsize=65536)
+def run_together(word: str) -> Optional[str]:
+    """The two words an unknown ``word`` (folded) runs together, a quantifier or determiner first and a lexicon word after it
+    ("allvalues" -> "all values"), or None."""
+    if len(word) < 6 or not _unknown(word):
+        return None
+    for head in _RUN_HEADS:
+        rest = word[len(head):]
+        if word.startswith(head) and len(rest) >= 3 and word_tags(rest) & {"C:part", "C:genre", "C:genre_strong", "C:anchor"} and \
+                "fuzzy" not in word_tags(rest):
+            return head + " " + rest  # (the rest a part or genre noun of the answer: "allvalues", "everystep", "thisanswer")
+    return None
+
+
+def _family_word(word: str) -> bool:
+    return any(t.startswith("F:") for t in word_tags(word))
+
+
+def _sentence_initial(text: str, at: int) -> bool:
+    """Whether the word at ``at`` opens its sentence (nothing but blanks, quotation marks and brackets after the last stop)."""
+    k = at - 1
+    while k >= 0 and text[k] in " \t\"'“‘«(*_-•>#":
+        k -= 1
+    return k < 0 or text[k] in ".!?;:\n"
+
+
+def repaired_hits(text: str, reads: Callable[[str], list]) -> list[tuple[str, str, str, int, int, str]]:
+    """The hits of sentences misspelt in several words, read repaired (see above). ``reads(s)`` is the reader's own list of hits
+    for ``s``; a hit is ``("N9", family, "misspelt", start, end, "the text")`` over the repaired words of the sentence."""
+    if not isinstance(text, str) or not text:
+        return []
+    fixes: list[tuple[int, int, str, str]] = []  # (start, end, replacement, kind)
+    for m in _WORD_RE.finditer(text):
+        raw = m.group(0)
+        if "'" in raw or "’" in raw:
+            continue
+        w = fold_word(raw)
+        if "-" in raw:
+            t = compound_target(raw)
+            if t is not None:
+                fixes.append((m.start(), m.end(), _spelled_as(raw, t), "check"))
+            continue
+        if w in _HOMOPHONES:
+            fixes.append((m.start(), m.end(), _spelled_as(raw, _HOMOPHONES[w]), "homophone"))
+            continue
+        t = target_of(w)
+        if t is not None:
+            fixes.append((m.start(), m.end(), _spelled_as(raw, t), "check"))
+            continue
+        if "fuzzy" in word_tags(w):
+            # (a one-edit variant the lexicon already reads, "cheked", "evrey": a misspelling of the sentence all the same; a check
+            # word's variant counts as a misspelt check word, another word's as a misspelt scope word)
+            t = fuzzy_target(w)
+            fam = t is not None and _family_word(t)
+            fixes.append((m.start(), m.end(), _spelled_as(raw, t) if t else raw, "check" if fam else "scope"))
+            continue
+        if raw[:1].isupper() and (raw.isupper() or not _sentence_initial(text, m.start())):
+            continue  # (a capitalised word inside a sentence, or an acronym, is a name: "Owen", "LRAS", "Tomás"; never repaired)
+        if w in _SOUND_SCOPE:
+            fixes.append((m.start(), m.end(), _spelled_as(raw, _SOUND_SCOPE[w]), "scope"))
+            continue
+        t = scope_repair(w)
+        if t is not None:
+            fixes.append((m.start(), m.end(), _spelled_as(raw, t), "scope"))
+            continue
+        t = run_together(w)
+        if t is not None:
+            fixes.append((m.start(), m.end(), _spelled_as(raw, t), "run"))
+    if not any(f[3] in ("scope", "run") for f in fixes) or not any(f[3] in ("check", "run") for f in fixes):
+        return []  # (a check word misspelt alone is read in its frame: frame_hits; a scope repair alone is no misspelling)
+    # the sentence of each scope or run-together repair (bounded on each side); overlapping sentences are read as one, up to four
+    # window widths, so a long text with no stop is read in pieces, each character in one piece at most (linear)
+    spans: list[list[int]] = []
+    for a, b, _r, k in fixes:
+        if k not in ("scope", "run"):
+            continue
+        sa = max((mm.end() for mm in _SENT_END_RE.finditer(text, max(0, a - _WINDOW), a)), default=max(0, a - _WINDOW))
+        m_end = _SENT_END_RE.search(text, b, min(len(text), b + _WINDOW))
+        sb = m_end.end() if m_end else min(len(text), b + _WINDOW)
+        if spans and sa < spans[-1][1]:
+            if sb - spans[-1][0] <= 4 * _WINDOW:
+                spans[-1][1] = max(spans[-1][1], sb)
+            else:
+                spans.append([spans[-1][1], max(sb, spans[-1][1])])
+        else:
+            spans.append([sa, sb])
+    out: list[tuple[str, str, str, int, int, str]] = []
+    fi = 0
+    for sa, sb in spans:
+        group = []
+        while fi < len(fixes) and fixes[fi][1] <= sa:
+            fi += 1
+        while fi < len(fixes) and fixes[fi][0] < sb:
+            if fixes[fi][0] >= sa and fixes[fi][1] <= sb:
+                group.append(fixes[fi])
+            fi += 1
+        if not group:
+            continue
+        kinds = [g[3] for g in group]
+        # (evident: a misspelt check word with a misspelt scope word beside it, "Al the steps abov were verifyed", or a scope word
+        # run together with its noun beside a check word, "Allvalues verified."; a real word one edit from a scope word, "than",
+        # "fell", "stops", is no evidence of misspelling by itself, so a sentence with no misspelt check word is never repaired)
+        if "check" in kinds and ("scope" in kinds or "run" in kinds):
+            pass
+        elif "run" in kinds and any(_family_word(fold_word(mm.group(0))) for mm in _WORD_RE.finditer(text, sa, sb)):
+            pass
+        else:
+            continue
+        parts, at, length = [], sa, 0
+        placed: list[tuple[int, str, str, str]] = []  # (offset in the repaired window, replacement, kind, written)
+        for a, b, r, k in group:
+            parts.append(text[at:a])
+            length += a - at
+            placed.append((length, r, k, text[a:b]))
+            parts.append(r)
+            length += len(r)
+            at = b
+        parts.append(text[at:sb])
+        repaired = "".join(parts)
+        if "run" not in kinds and not any(k == "check" and _check_evidence(repaired, off, r, written)
+                                          for off, r, k, written in placed):
+            continue  # (no misspelt check word stands in a check frame once the sentence is repaired: real words, "scope",
+            # "stored", "discharge", one edit from a check word, are read as themselves)
+        got = reads(repaired)
+        if got:
+            out.append(("N9", got[0][1], "misspelt", group[0][0], group[-1][1], "the text"))
+    return out
+
+
+def _check_evidence(repaired: str, off: int, target: str, written: str) -> bool:
+    """Whether the check word written ``written`` and repaired as ``target`` at ``off`` of the repaired window is evidence of a
+    misspelt check claim: a one-edit variant the lexicon reads (no real word), a check compound, or a word that stands in a check
+    frame of the repaired sentence (:func:`_in_check_frame`, :func:`_status_sentence`)."""
+    w = fold_word(written)
+    if "-" in written or ("fuzzy" in word_tags(w) and _family_word(target.lower())):
+        return True
+    sa = max((m.end() for m in _SENT_END_RE.finditer(repaired, max(0, off - _WINDOW), off)), default=max(0, off - _WINDOW))
+    m_end = _SENT_END_RE.search(repaired, off + len(target), min(len(repaired), off + len(target) + _WINDOW))
+    sb = m_end.end() if m_end else min(len(repaired), off + len(target) + _WINDOW)
+    piece = repaired[sa:sb]
+    t = fold_word(target)
+    return _in_check_frame(piece, off - sa) or (_status_target(t) and _status_sentence(piece, off - sa))
