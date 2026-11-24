@@ -290,7 +290,7 @@ BASELINE_KEY = b"probe-signing-key-0123456789012345"
 
 
 def test_the_component_versions_are_bumped_by_the_version_rules():
-    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.4.0", "2026.11-v7", "0.4.0")  # pin moved: POLICY_VERSION 2026.11-v7 (eligibility rule 0, rules selfcert-3, c3g; was 2026.11-v6)
+    assert (IR_VERSION, ENGINE_VERSION, POLICY_VERSION, TRANSLATOR_VERSION) == ("1.0", "0.4.0", "2026.11-v8", "0.4.0")  # pin moved: POLICY_VERSION 2026.11-v8 (eligibility rule 0, rules selfcert-4, c3h; was 2026.11-v7)
     v = compute_versions()
     assert v.engine_version == ENGINE_VERSION and v.policy_version == POLICY_VERSION
     assert all(isinstance(getattr(v, k), str) and len(getattr(v, k)) == 64 for k in ("build_id", "schema_id", "policy_id"))

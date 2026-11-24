@@ -1,4 +1,4 @@
-"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-3`` since c3g).
+"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-4`` since c3h).
 
 An answer's claim, in its OWN scope, about checking, verification, review, testing, audit, QA, an engine or system result, proof,
 approval, marking or scoring, or its own correctness, quality or confidence, whoever is credited, in any position, quoted or
@@ -52,7 +52,11 @@ __all__ = ["Context", "Hit", "Unread", "Reading", "Spot", "SELFCERT_RULES", "rul
 #: changed again in code (the decided boundary lines on worked checks, ticks, unnamed sources and restated questions, own verdicts
 #: read at any length and the misses by class; ``epinoic_logic.version`` lists them), and :func:`rules_digest` covers the import
 #: closure of the reader, rule 0's call site included (:func:`rules_closure`).
-SELFCERT_RULES = "selfcert-3"
+#: ``selfcert-4`` (c3h, the push check of 67bc64ec; POLICY_VERSION 2026.11-v8): the reading of rule 0 fails closed where
+#: ``selfcert-3`` freed own-scope text or stopped reading (the possibility frame and the corrected-form key reverted, a year or a
+#: date never names a source, own verdicts read in every window of a long sentence, no cap on the pieces read, every word-count
+#: line read as D7 reads it; ``epinoic_logic.version`` lists them).
+SELFCERT_RULES = "selfcert-4"
 #: The rule names the delivery refusals carry.
 GATE_RULE = "self-certification-gate"
 UNREAD_RULE = "unread-text"

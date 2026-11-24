@@ -64,7 +64,7 @@ from typing import Optional
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from .base import FormalCheck
 from .grounded_figures import FUNCTION_WORDS as _FUNCTION_WORDS
-from .insertions import insertion_spans, masked, span_holding
+from .insertions import _EN_FINITE_RE, insertion_spans, masked, span_holding
 
 __all__ = ["GeographyPack", "decided_statements", "unknown_supports_findings"]
 
@@ -970,6 +970,8 @@ _DERIVED_BEFORE_RE = re.compile(r"\b(?:an?\s++)?(?:fall|rise|drop|decrease|incre
                                 r"(?:(?:about|around|roughly|approximately|nearly|almost)\s++)?$", re.IGNORECASE)
 #: A figure placed at a row: "214 at Site 1", "60% at Site 4", "300 m at Site 4" (its unit between figure and row allowed).
 _AT_ROW_RE = re.compile(r"\s*+(?:%|per\s+cent|percent|m|km|metres?|meters?)?\s*+(?:at|in|for|of)\s*+", re.IGNORECASE)
+#: A figure placed at a row named after it, words between ("97 counted at site 4", "97 pedestrians of site 4"): read at its end.
+_PLACED_AFTER_RE = re.compile(r"\b(?:at|in|for|of|from)\s*+\Z", re.IGNORECASE)
 
 
 def _table_cells(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bool) -> None:
@@ -1132,6 +1134,11 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
         dist = sorted((min(abs(rk[a] - rk[i]), abs(rk[b] - rk[i])), a, r) for a, b, r in mentions)
         linked_after = [r for a, _b, r in mentions if a > i and _AT_ROW_RE.fullmatch(text[t.end():toks[a].start()])]
         before = [m for m in mentions if m[1] < i]
+        if i not in respective and not linked_after and before and any(
+                r != before[-1][2] and rk[a] - rk[i] <= 4 and not _CELL_CLAUSE_CUT_RE.search(text, t.end(), toks[a].start()) and
+                _PLACED_AFTER_RE.search(text, t.end(), toks[a].start()) for a, _b, r in mentions if a > i):
+            continue  # (a figure its own words place at another row, "Site 2, which had more pedestrians than the 97 counted at site
+            # 4, ...": the row is not determined by the clause before it; no check, never the row named before; c3h check round 14)
         if i in respective:
             row = respective[i]
         elif linked_after:
@@ -1817,6 +1824,24 @@ _YT_CHANGE_BEFORE_RE = re.compile(r"\b(?:growth|rise|increase|fall|drop|decline|
 
 
 _YT_OPENING_YEAR_RE = re.compile(r"\s*+(?:in|by|during)\s++(?P<y>1[89]\d{2}|20\d{2})\b", re.IGNORECASE)
+#: The opening of a modifier that holds a figure and belongs to the noun before it (push check of 67bc64ec): a relative clause ('Coal,
+#: which supplied about 11.8 GJ per person in 2025, declined'), a 'whose' clause, an 'at' phrase, a participle phrase ('Nuclear power,
+#: supplying about 1.7 GJ ...', 'Coal, supplied at about 11.8 GJ ...'), an apposition opened by an article ('Coal, a source that ...') and
+#: a bare figure in a comma pair, a bracket or a pair of dashes ('Oil (about 11.4 GJ per person in 2025) changed least').
+_YT_MODIFIER_OPEN_RE = re.compile(r"[\s,;(\[–—-]*+(?P<w>[A-Za-z][A-Za-z'’-]*|\d|~)", re.IGNORECASE)
+_YT_MODIFIER_WORDS = frozenset("which that who whom whose at a an the about around roughly approximately approx nearly almost some circa "
+                               "ca c".split())
+_YT_DELIMITED_RE = re.compile(r"\s*+(?:,|\(|\[|[-–—])")
+#: A part of no stated size before "of" and the figure ("a share of about 42 GJ", "part of the 42 GJ"): the figure may be the whole or
+#: the part's own amount, so its row is not determined by its own words and it gets no check (c3h check round 14; fail closed).
+_YT_VAGUE_PART_BEFORE_RE = re.compile(r"\b(?:share|shares|part|parts|fraction|proportion|portion|bit|some)\s++of\s++(?:the\s++|about\s++|"
+                                      r"around\s++|roughly\s++|approximately\s++|nearly\s++|almost\s++|some\s++)*+\Z", re.IGNORECASE)
+#: The figure right after a part of a stated size and "of" (with an article or an approximation between), the whole the part is taken
+#: of ("28% of the 42 GJ", "a quarter of about 42 GJ", "11.8 of the 42 GJ", "28% of 1,050 PJ"); "a supply of about 42 GJ" names no part.
+#: Read at the end of the stretch before the figure.
+_YT_WHOLE_BEFORE_RE = re.compile(r"(?:%|\bper\s?cent|\b(?:quarter|quarters|third|thirds|half|fifth|fifths|tenth|tenths)|\d)\s++of\s++"
+                                 r"(?:the\s++|a\s++total\s++of\s++|about\s++|around\s++|roughly\s++|approximately\s++|"
+                                 r"nearly\s++|almost\s++|some\s++|just\s++(?:over|under)\s++)*+\Z", re.IGNORECASE)
 
 
 def _yt_word(w: str) -> str:
@@ -1913,6 +1938,58 @@ class _YtIndex:
         if self._out is None or span_holding(self._spans, self._span_starts, at) is not None:
             return None
         return self._out
+
+    def attached(self, table, at: int) -> Optional[list]:
+        """The rows of the noun a modifier holding the figure at ``at`` belongs to (push check of 67bc64ec: 'Coal, which supplied about
+        42 GJ per person in 2025, declined.' was read against the total row): None when the figure stands in no modifier of a noun
+        phrase (its clause's readings apply); else the one row (or the listed rows) the modifier's own words name before the figure,
+        else those the noun phrase before it names, and [] when no row is determined that way (the figure then gets no check: never
+        the total row by default). A modifier is a relative or 'whose' clause, an 'at' phrase, a participle phrase, an apposition
+        opened by an article, or a bare figure in a comma pair, a bracket or a pair of dashes, right after a noun phrase with no verb."""
+        out = self._outside(at)
+        if out is not None:
+            return out.attached(table, at)
+        span = span_holding(self._spans, self._span_starts, at) if self._spans else None
+        if span is not None:
+            a = span[0]
+        else:
+            k = bisect_right(self.cuts, at) - 1
+            if k < 0:
+                return None
+            a = self.cut_starts[k]
+        if not _YT_DELIMITED_RE.match(self.text, a):
+            return None  # (a clause opened by a conjunction, or a mid-clause insertion: its own clause's readings)
+        m = _YT_MODIFIER_OPEN_RE.match(self.text, a, at + 1)
+        if m is None:
+            return None
+        w = m.group("w").lower().strip("'’-")
+        if m.start("w") == at:
+            w = "about"  # (the figure itself opens the modifier: a bare figure)
+        lo = self.clause_start(a)
+        head_has_verb = _YT_VERB_RE.search(self.text, lo, a) is not None or _EN_FINITE_RE.search(self.text, lo, a) is not None
+        if head_has_verb:
+            return None  # (a modifier after a whole clause: the clause readings, unchanged)
+        if _YT_VAGUE_PART_BEFORE_RE.search(self.text[max(a, at - 40):at]):
+            return []  # (whole or part, not determined by the modifier's own words: no check)
+        if _YT_WHOLE_BEFORE_RE.search(self.text[max(a, at - 40):at]):
+            return None  # (the figure the modifier's own words make the whole, "28% of the 42 GJ per person", "a share of the 42 GJ":
+            # the total its clause names, never the head noun's row; c3h check round 14: a correct total was charged)
+        if not (w in _YT_MODIFIER_WORDS or (len(w) > 4 and w.endswith(("ing", "ed"))) or w[:1].isdigit() or w == "~"):
+            if _YT_VERB_RE.search(self.text, a, at) is not None or _EN_FINITE_RE.search(self.text, a, at) is not None:
+                return None  # (a clause of its own after the delimiter, "In 2025, coal supplied 11.8 GJ ...": its own readings)
+            # (an opener the list does not know, in a modifier with no verb, "Coal, still about 42 GJ per person in 2025, declined.",
+            # "Coal, with about 11.8 GJ ...": read as a known opener is, against the noun's row, or no check; never the total row by
+            # default; c3h check round 14)
+        for lo_, hi_ in ((m.start("w"), at), (lo, a)):
+            found = self._rows_in(table, lo_, hi_)
+            if not found:
+                continue
+            if self._is_list(found, hi_):
+                return [e for _p, e in found]
+            if len(found) > 1 and found[-1][0] == found[-2][0]:
+                return []
+            return [found[-1][1]]
+        return []
 
     def _numbers(self) -> tuple[list[int], list[bool]]:
         """The start of each number of the sentence and whether it is a year (read once)."""
@@ -2011,6 +2088,9 @@ class _YtIndex:
         out = self._outside(at)
         if out is not None:
             return out.group(table, at)
+        att = self.attached(table, at)
+        if att is not None:
+            return att if len(att) >= 2 else []
         found = self._rows_in(table, self.clause_start(at), at)
         return [e for _p, e in found] if self._is_list(found, at) else []
 
@@ -2024,6 +2104,9 @@ class _YtIndex:
         out = self._outside(at)
         if out is not None:
             return out.row(table, at)
+        att = self.attached(table, at)
+        if att is not None:
+            return att[0] if len(att) == 1 else None
         lo = self.clause_start(at)
         found = self._rows_in(table, lo, at)
         if not found:
@@ -2140,6 +2223,8 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
                 if any(y not in rows[e] for e in group):
                     return None, ""
                 return sum((rows[e][y].value for e in group), Fraction(0)) / 100, " + ".join(f"'{e}'" for e in group)
+            if index.attached(table, at) == []:
+                return None, ""  # (a figure in a modifier whose noun names no one row: no check, never the total row by default)
             row = index.row(table, at)
             if row in shares:
                 return (rows[row][y].value / 100, f"'{row}'") if y in rows[row] else (None, "")

@@ -29,7 +29,7 @@ def test_the_lexicon_loads_and_reports_its_classes(capsys):
     lex = lx.lexicon()
     for name, n in sorted(lex.counts.items()):
         print(f"{name}: {n}")
-    assert lex.rules == "selfcert-3" and len(lex.words) > 1000  # (pin moved with the rules version, c3e: selfcert-1 to selfcert-2, c3g: to selfcert-3)
+    assert lex.rules == "selfcert-4" and len(lex.words) > 1000  # (pin moved with the rules version, c3e: selfcert-1 to selfcert-2, c3g: to selfcert-3, c3h: to selfcert-4)
 
 
 def test_no_entry_is_a_sentence():

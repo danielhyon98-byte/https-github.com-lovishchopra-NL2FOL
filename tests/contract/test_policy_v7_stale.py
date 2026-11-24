@@ -60,10 +60,12 @@ def _as_previous_policy(fresh, problem: Problem, config: SolverConfig):
 
 
 def test_the_versions_of_the_c3g_bump():
-    assert POLICY_VERSION == "2026.11-v7" and INTEGRATION_CONTRACT_VERSION == "0.8" and selfcert.SELFCERT_RULES == "selfcert-3"
+    # pins moved with the c3h bump (2026.11-v7 to 2026.11-v8, selfcert-3 to selfcert-4, contract 0.8 to 0.9), exact; a result
+    # signed under 2026.11-v6 stays stale below, and tests/contract/test_policy_v8_stale.py holds the same for 2026.11-v7
+    assert POLICY_VERSION == "2026.11-v8" and INTEGRATION_CONTRACT_VERSION == "0.9" and selfcert.SELFCERT_RULES == "selfcert-4"
     compat = json.loads((ROOT / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
     # decision D8: only the new versions are accepted
-    assert compat["components"]["policy"] == ["2026.11-v7"] and compat["components"]["contract"] == ["0.8"]
+    assert compat["components"]["policy"] == ["2026.11-v8"] and compat["components"]["contract"] == ["0.9"]
 
 
 def test_a_fresh_result_is_current_eligible_and_displayed_as_decided():

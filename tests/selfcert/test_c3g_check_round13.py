@@ -6,12 +6,14 @@ boundary and the decisions D-a to D-e of the run:
    claim, boundary (b), never an evaluator model; "complete" used attributively after a count beside a shown computation ("After 9
    complete years the balance is still below 5000 (3000(1.05)^9 = 4653.98).") is no verdict; a named party's values said to agree
    with this answer, with their computation shown, are a comparison of stated values.
-2. Over-blocks of correct work: a check stated as possible ("The values can be confirmed with a calculator.") reports no check; an
+2. Over-blocks of correct work (c3h reverted the possibility frame, so "The values can be confirmed with a calculator." is gated
+   again, and the correction pair "Wrong: he do not. Right: he does not." is gated as its tick pair is: both moved to GATED); an
    outer denial of a no-fault claim keeps its meaning negative ("It is not true that nobody found an error here."); a neutral check
    key or heading over the computation it shows (decision D-d: "Checking the answer: ...", "## Comprobación"); a product written as
    one word before a spaced minus ("Check: 3·6 - 4 = 14 ✓"); a tick on language use in a marking task, whatever words its quoted
-   example holds (decision D-b: '✓ Correct use of the passive voice: "was approved".'); the corrected-form key of a correction pair
-   ("Wrong: he do not. Right: he does not.").
+   example holds (decision D-b: '✓ Correct use of the passive voice: "was approved".'). (The corrected-form key of a prose
+   correction pair, "Wrong: the adverts are about money. Right: the adverts sell saving as a family duty.", was freed here and is
+   gated again since check round 14 of c3h, which reverted that exemption to the reading of 08c4a36b: moved to GATED.)
 3. Misses of the class, by class: an own-scope agreement with an unnamed data source (decision D-a), a sentence misspelt in
    several words or spelt as it sounds, a b/v plural participle, a misspelt label key, an impersonal no-fault judgement, a verdict
    compared to a wider scope (decision D-d), an evaluator's credit in an apposition or relative clause, assessors' idioms, an
@@ -93,9 +95,7 @@ def test_a_wide_or_credited_verdict_beside_a_computation_stays_gated(text):
 
 # ------------------------------------------------------------------------------------------------ 2. over-blocks
 FREE = [
-    "If the reader wishes, the values can be confirmed with a calculator.", "These values can be checked with a calculator.",
-    "The values can be confirmed with a calculator.", "The result can be verified by repeating the experiment.",
-    "Los valores pueden comprobarse con una calculadora.",
+    "The result can be verified by repeating the experiment.", "Los valores pueden comprobarse con una calculadora.",
     "It is not true that nobody found an error here.", "It isn't true that nobody found a mistake here.",
     "It is not true that nobody found an error in this answer.", "It is not true that nobody found an error above.",
     "I would not say that nobody found an error in this answer.", "I wouldn't say nobody found an error here.",
@@ -108,7 +108,7 @@ FREE = [
     "Check: 3 × 4 = 12, like the example in the textbook.",
     "The rate is 3 × 4 = 12 per hour, like every other station in the region.",
     "Every figure here matches the ONS figure of 4.2%.", "The figures match the census figure of 4.2 million.",
-    "Las cifras coinciden con el censo del INE.", "The values agree with Source B.", "Our results match the 2019 survey.",
+    "Las cifras coinciden con el censo del INE.", "The values agree with Source B.", "Our results match the ONS 2019 survey.",
     "The figures in Source A agree with the census.", "Check that your figures agree with the census.",
     "Germany lost 13% of its land, a figure the commission confirmed, and reparations were set at 132 billion marks.",
     "The figures, which the ONS published in 2021, show a rise.", "La población creció un 4 %, cifra que publicó el INE.",
@@ -116,10 +116,6 @@ FREE = [
     "It cannot be said that the treaty was wrong to impose reparations.", "Some historians have called the treaty wrong.",
     "Can any part of this answer be called wrong?", "Parts of this answer may be wrong.", "The ship sailed past the harbour.",
     "Red ink was used to mark the corrections on the map.", "The boundary was established by the commission in 1920.",
-    # the corrected-form key of a correction pair (a leftover of the c3g overseer fixer)
-    "Wrong: the adverts are about money. Right: the adverts sell saving as a family duty.", "Wrong: he do not. Right: he does not.",
-    "Wrong: *Not every kitchen has a home.* Right: *Not every kitchen has a door.*",
-    "Wrong: *Every kitchen has a home.* Right: *Every kitchen has a door.*",
     "La carta empieza con «Estimado señor director», y termina con «Atentamente», lo que confirma el registro formal.",
     "Validez: la muestra es pequeña.",
     'Better: "the adverts sell saving as a family duty" rather than "the adverts are about money".',
@@ -133,6 +129,18 @@ GATED = [
     "Nobody found an error here.", "It is true that nobody found an error here.", "Nadie encontró un error aquí.",
     "This answer passed every check.", "Every date given above was checked against the 1929 census.",
     "Wrong: x = 3. Right: every figure above.", "Wrong: he do not. Right: he does not. All verified.",
+    # (c3h, the push check of 67bc64ec, FAIL CLOSED; FREE pins until c3h, now gated: stricter rewrites. The possibility frame of
+    # c3g is reverted to the reading of 08c4a36b, which also withholds these correct method lines again; decision D-a: a year alone
+    # names no source; a label pair is free only where the tick pair is, and "✗ he do not ✓ he does not" is gated)
+    "If the reader wishes, the values can be confirmed with a calculator.", "These values can be checked with a calculator.",
+    "The values can be confirmed with a calculator.", "Our results match the 2019 survey.", "Wrong: he do not. Right: he does not.",
+    # (c3h check round 14, FAIL CLOSED; FREE pins until then, now gated: stricter rewrites. The corrected-form key exemption that
+    # 67bc64ec added, the leftover of the c3g overseer fixer, is reverted whole to the reading of 08c4a36b, which gated these prose
+    # pairs: the narrowed key still freed content corrections such as "Wrong: the war lasted three years. Right: the war lasted four
+    # years.")
+    "Wrong: the adverts are about money. Right: the adverts sell saving as a family duty.",
+    "Wrong: *Not every kitchen has a home.* Right: *Not every kitchen has a door.*",
+    "Wrong: *Every kitchen has a home.* Right: *Every kitchen has a door.*",
 ]
 
 

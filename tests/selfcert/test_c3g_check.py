@@ -2,7 +2,7 @@
 
 1. Regressions 08c4a36b introduced:
    (a) decision D-a: agreement of the answer's figures with a data source is free only when the source is NAMED (a proper name, an
-       acronym, a year) or a value it gives is STATED; an unnamed "the dataset", "the census", "the survey", "el censo" is the
+       acronym; c3h: never a year, a date or a number alone) or a value it gives is STATED; an unnamed "the dataset", "the census", "the survey", "el censo" is the
        answer's own verification claim, gated;
    (b) decision D-b: a tick or approval on language use ("✓ Correct use of the subjunctive: «espero que vengas».") is free only in a
        marking or feedback task and gated everywhere else.
@@ -46,9 +46,11 @@ UNNAMED_SOURCE = [
     "Each figure matches the dataset.", "All values here match the census.", "Every figure here agrees with the survey.",
     "Every figure here matches the census.", "Las cifras coinciden con el censo.", "All the numbers here match the data.",
     "Every figure here agrees with the source.",
+    # (c3h, decision D-a: a year alone names no source; a NAMED_SOURCE pin until c3h, now gated: a stricter rewrite)
+    "Las cifras coinciden con el censo de 2021.",
 ]
 NAMED_SOURCE = [
-    "The ONS confirmed the figures.", "Every figure here matches the ONS census.", "Las cifras coinciden con el censo de 2021.",
+    "The ONS confirmed the figures.", "Every figure here matches the ONS census.", "Las cifras coinciden con el censo del INE de 2021.",
     "Las cifras coinciden con el censo del INE.", "All the numbers here match the Eurostat dataset.",
     "Every figure here matches the 2021 census of England and Wales.", "The figures match the census figure of 4.2 million.",
     "The answer matches the World Bank figure of 3.1%.", "All the figures here match the 2021 census of England and Wales.",
@@ -71,7 +73,10 @@ def test_agreement_with_a_named_source_or_a_stated_value_is_free(text):
 def test_an_unnamed_data_source_is_withheld_and_a_named_one_delivered(subject):
     _s, agent, task_type, base = _BY_NAME[subject]
     _withheld_on_both_paths(subject, agent, task_type, base + "\n\nAll the numbers here match the dataset.")
-    d = _deliver(subject, agent, task_type, base + "\n\nEvery figure here matches the 2021 census.", NOT_CHECKED)
+    # (c3h, decision D-a: a year alone names no source, so "the 2021 census" is withheld too and the named form is "the ONS 2021
+    # census": a stricter rewrite)
+    _withheld_on_both_paths(subject, agent, task_type, base + "\n\nEvery figure here matches the 2021 census.")
+    d = _deliver(subject, agent, task_type, base + "\n\nEvery figure here matches the ONS 2021 census.", NOT_CHECKED)
     assert d.delivered is True, d.mode
 
 

@@ -867,6 +867,16 @@ _REPLACED_LABEL_START_RE = re.compile(_LINE_HEAD + _REPLACED_LABEL + r"(?:\*\*|_
 _RIGHT_LABEL_START_RE = re.compile(_LINE_HEAD + _RIGHT_LABEL + r"(?:\*\*|__)?[ \t]*+\S", re.IGNORECASE)
 
 
+def _label_pair_half(line: str) -> int | None:
+    """Where the corrected half of a correction line written with labels begins ('Incorrecto: x. Correcto: y' gives the offset of
+    'y'); None for any other line. The labels decide only which half is the writer's own statement: the replaced half quotes the
+    form being corrected and is never read as a claim, and the corrected half's figures are checked like any other line's (push
+    check of 67bc64ec, c1/sp-t14: 'Incorrecto: la escuela cerró en 1990. Correcto: la escuela cerró en 1975.' had lost its year
+    check)."""
+    m = _LABEL_PAIR_RE.match(line[:600])
+    return m.end() - 1 if m is not None else None
+
+
 def _correction_lines(text: str) -> list[str]:
     """The answer's correction lines: a line that writes a correction with an arrow or an English label (:data:`_ARROW_LINE_RE`), or a
     line holding one of the answer's own corrections as the channel's own-text reader reads them (``own_text.correction_pairs``: 'Mal:
@@ -1848,7 +1858,11 @@ def _supplied_figures(ctx: _Ctx) -> None:
             line_year = next(iter(line_years)) if len(line_years) == 1 and not _NOW_RE.search(line) and not _RELATIVE_YEAR_RE.search(line) \
                 and not re.search(r"\b(?:desde|hasta|since|until|till|by)\s+(?:1[89]\d{2}|20\d{2})\b", line, re.IGNORECASE) else None
             framed = set() if credited else _share_frame_values(line)
+            half = _label_pair_half(line)  # (a correction written with labels: its replaced half is never read as a claim; c3h)
             for f in _figures(line, "es", skip):
+                if half is not None and f.start < half:
+                    continue  # ("Incorrecto: ... cien alumnos. Correcto: ... catorce alumnos.": 'cien' is the form corrected; check
+                    # round 14 of c3h)
                 if f.values & framed:
                     continue  # (c3e left: the total or part of the answer's own share or rate, "El 25 % de los 80 alumnos", is no figure of the text)
                 if f.year and not _year_in_clause(line, f.start, f.year):
@@ -2077,9 +2091,10 @@ def _event_years(ctx: _Ctx) -> None:
             # a line credited to the text is an error when wrong; an uncredited line, Spanish or English, a warning (attack round 8:
             # "La fibra óptica llegó en 2012.", "The school had been closed since 2003.")
             credited = es.SPANISH_CREDIT_RE.search(line) is not None or re.search(r"\b(?:according\s+to|the\s+(?:text|article)\s+(?:says|states))\b", line, re.IGNORECASE) is not None
-            if _ARROW_LINE_RE.match(line) or _LABEL_PAIR_RE.match(line[:600]) or (ctx.task not in ("reading", "notes") and not credited):
+            if _ARROW_LINE_RE.match(line) or (ctx.task not in ("reading", "notes") and not credited):
                 continue
-            for clause in _CLAUSE_SPLIT_RE.split(line):
+            half = _label_pair_half(line)
+            for clause in _CLAUSE_SPLIT_RE.split(line if half is None else line[half:]):
                 ys = _YEAR_IN_RE.findall(clause)
                 if (len(ys) != 1 or re.search(r"\d", _YEAR_IN_RE.sub("", clause)) or _RELATIVE_YEAR_RE.search(clause)
                         or _DURATION_IN_CLAUSE_RE.search(clause)):
@@ -2878,8 +2893,9 @@ def _cross_counts(ctx: _Ctx) -> None:
         if pi in excluded:
             continue
         for line in para.split("\n"):
-            if _ARROW_LINE_RE.match(line) or _LABEL_PAIR_RE.match(line[:600]):
+            if _ARROW_LINE_RE.match(line):
                 continue  # a correction line quotes the student's forms, never a count of the text
+            half = _label_pair_half(line)  # (a correction written with labels: only its corrected half is read, as any other line)
             from bisect import bisect_right
 
             from ..adapters.markdown import find_quotation_spans
@@ -2890,7 +2906,7 @@ def _cross_counts(ctx: _Ctx) -> None:
                 q_reach.append(max(b, q_reach[-1]) if q_reach else b)
             en_, sp_, _n = es.english_ratio(line)
             line_spanish = sp_ > en_
-            for m in _COUNT_NOUN_RE.finditer(line):
+            for m in _COUNT_NOUN_RE.finditer(line, half or 0):
                 k = bisect_right(q_starts, m.start()) - 1  # (inside a quotation, by bisection: a scan of every span per figure was quadratic)
                 if (k >= 0 and q_reach[k] > m.start()) or m.group("n").casefold() in ("a", "an", "un", "una", "uno", "one"):
                     continue

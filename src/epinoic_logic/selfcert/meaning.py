@@ -664,12 +664,24 @@ def _polarity(seg: list) -> tuple[int, bool, bool, bool]:
     return (-1 if n % 2 else 1), pos, dfc, n > 0
 
 
+def _month_may(words: list, k: int) -> bool:
+    """Whether the word "may" at ``k`` is the month of a date: a day before it ("12 May") or a year after it ("May 2021")."""
+    t = words[k]
+    if t.w != "may":
+        return False
+    if k > 0 and words[k - 1].num and words[k - 1].w.isdigit() and len(words[k - 1].w) <= 2:
+        return True
+    return k + 1 < len(words) and words[k + 1].num and words[k + 1].w.isdigit() and len(words[k + 1].w) == 4
+
+
 def _mood_of(seg: list, question: bool, first: bool) -> str:
     """question, protasis, weak (a possibility, a low degree, or a probability hedge over a verdict that reports no check),
     declarative."""
     if question:
         return "question"
     words = [t for t in seg if not t.punct]
+    # (the month "May" in a date, "the 12 May survey", "the May 2021 dataset", is no modal hedge: decision D-a, c3h check round 14)
+    words = [t for k, t in enumerate(words) if not _month_may(words, k)]
     if not words:
         return "declarative"
     w0 = words[0]
@@ -701,16 +713,6 @@ def _mood_of(seg: list, question: bool, first: bool) -> str:
                 t.w in ("must", "deben", "debe", "debes", "hay que", "tienen que", "tiene que", "need to", "needs to", "have to", "has to"):
             if any(x.fam() & {"CHECK", "STATUS", "APPROVE"} or x.has("C:m_check") for x in words[k + 1:k + 5]):
                 return "weak"  # "deben ser comprobadas", "must be checked": an obligation, no check reported (deontic)
-    for k, t in enumerate(words[:-2]):
-        parts = t.w.split()
-        if parts[0] in ("can", "could", "may", "might", "puede", "pueden", "podria", "podrian") and \
-                (parts[1:] == ["be"] or (len(parts) == 1 and words[k + 1].w in ("be", "ser"))):
-            q = k + 1 if len(parts) > 1 else k + 2
-            if q < len(words) and words[q].fam() & {"CHECK"} and words[q].has("v:part") and not any(
-                    x.w in ("as", "to", "como") and any(y.fam() & {"OUTCOME", "QUALITY"} for y in words[m + 1:m + 4])
-                    for m, x in enumerate(words[q + 1:], start=q + 1)):
-                return "weak"  # "The values can be confirmed with a calculator.": a method the reader may use, a possibility, no
-                # check reported (boundary (b); "can be verified as correct" still says the answer is correct; check round 13 of c3g)
     for k, t in enumerate(words):
         if t.has("C:weak_idioms"):
             if t.w.split()[0] in _POSSIBILITY and t.w.split()[0] not in ("may", "might") and any(
@@ -1274,8 +1276,10 @@ def _c3c_frames(toks: list, ctx) -> list:
                 not pipeline and not any(x.has("C:genre_strong", "C:pron1", "C:poss1") for x in words):
             theme = words[max(0, k - 5):k]
             comp = words[k + 1:k + 8]
-            named = [x for x in comp if ((x.cap and not x.init) or (x.raw.isupper() and len(x.raw) >= 2)) and
-                     not x.has("C:eval_int", "C:tool", "C:assess_instrument", "C:eval_asr")]
+            # (a date or a part of one is no name: "the March 2022 dataset", "the FY2019 report", "the Q3 2021 dataset" name no
+            # source, decision D-a; c3h, check round 14)
+            named = [x for m, x in enumerate(comp) if ((x.cap and not x.init) or (x.raw.isupper() and len(x.raw) >= 2)) and
+                     not x.has("C:eval_int", "C:tool", "C:assess_instrument", "C:eval_asr") and not _date_token(comp, m)]
             if any(x.has("C:part") for x in theme) and named and not any(x.has("C:assess_instrument", "C:eval_int", "C:tool", "C:eval_asr",
                                                                                "C:m_eval") for x in comp):
                 lo, hi = theme[0].a, (comp[-1].b if comp else t.b)
@@ -1505,8 +1509,9 @@ def _one_computation_verdict(toks: list, hit) -> bool:
 
 
 def _named_source(words: list, k: int) -> bool:
-    """Whether the data source ``words[k]`` ("census", "dataset", "survey") is NAMED: a proper name, an acronym or a year beside it
-    ("the ONS census", "the 2021 census", "the census of England and Wales", "el censo del INE"). An unnamed "the dataset", "the
+    """Whether the data source ``words[k]`` ("census", "dataset", "survey") is NAMED: a proper name or an acronym beside it ("the ONS
+    census", "the ONS 2021 dataset", "the census of England and Wales", "el censo del INE"); a year never names one ("the 2021
+    dataset", "the dataset from 2020", "la encuesta de 2019": decision D-a, c3h). An unnamed "the dataset", "the
     census", "el censo" names no source: the answer's agreement with it is its own verification claim, gated (decision D-a of
     c3g, the push check of 08c4a36b: "All the numbers here match the dataset." was delivered). A value the comparand states
     ("the census figure of 4.2 million") is read by the caller as a stated value."""
@@ -1519,13 +1524,70 @@ def _named_source(words: list, k: int) -> bool:
             if m > k:
                 break
             continue
+        if _date_token(words, m):
+            continue  # (a date or a part of one is never a name: "the survey of 3 May 2021", "the FY 2019 report", "the Q3 dataset";
+            # decision D-a, c3h)
         if y.upper and len(y.w) >= 2 and y.w.isalpha():
             return True  # an acronym ("the ONS census", "del INE")
         if y.cap and not y.init and y.w.isalpha():
             return True  # a proper name ("of England and Wales", "the Eurostat dataset")
-        if y.num and y.w.isdigit() and len(y.w) == 4:
-            return True  # a year ("the 2021 census", "el censo de 2021")
+        # (a year, a date or a number alone names no source: "the 2021 dataset", "la encuesta de 2019" are unnamed, decision D-a;
+        # c3h, the push check of 67bc64ec: "The values in this answer agree with the 2022 dataset." was delivered)
     return False
+
+
+def _date_number(words: list, m: int) -> bool:
+    """Whether the number ``words[m]`` is a year or a part of a date, never a value: four digits from 1000 to 2199 ("2021"), or a
+    day or year beside a month ("3 May", "May 2021", "3 de mayo")."""
+    x = words[m]
+    if not x.num:
+        return False
+    if x.w.isdigit() and len(x.w) == 4 and 1000 <= int(x.w) <= 2199:
+        return True
+    near = words[max(0, m - 2):m] + words[m + 1:m + 3]
+    return x.w.isdigit() and len(x.w) <= 2 and any(y.has("C:month") for y in near)
+
+
+#: A word that is a date by its form: a quarter ("Q3", "T2"), a fiscal year ("FY2019", "FY19", "FY2019/20"), a split year ("2019/20",
+#: "2019-20", "2019–2020") or a day with its ordinal ("12th", "3rd", "1.º").
+_DATE_FORM_RE = re.compile(r"(?:q[1-4]|fy(?:\d{2}|\d{4})(?:[/\-–]\d{2,4})?|(?:1\d|2[01])\d{2}[/\-–](?:\d{2}|\d{4})|"
+                           r"\d{1,2}(?:st|nd|rd|th|º|ª|\.º|\.ª))\Z", re.I)
+
+
+def _date_token(words: list, m: int) -> bool:
+    """Whether ``words[m]`` is a date or a part of one, never a name and never a value: a month, a year, a day beside a month
+    (:func:`_date_number`), a quarter, a fiscal year or a split year (:data:`_DATE_FORM_RE`), the abbreviation "FY" before a year, or
+    a number that a split-year sign joins to a year ("2019 / 20"). Decision D-a: a year, a date or a number alone never names a
+    source (c3h, check round 14: "the March 2022 dataset", "the 2022 Q3 dataset", "the FY2019 report" were read as named)."""
+    x = words[m]
+    if x.has("C:month") or _date_number(words, m) or _DATE_FORM_RE.match(x.w):
+        return True
+    if x.w in ("fy", "fiscal") and m + 1 < len(words) and (words[m + 1].num or words[m + 1].w in ("year", "año")):
+        return True
+    if x.num and x.w.isdigit() and m >= 2 and words[m - 1].w in ("/", "-", "–") and _date_number(words, m - 2):
+        return True
+    return False
+
+
+#: The nouns that state a value of a source ("the census figure of 4.2 million", "the 2021 survey figure of 61%").
+_STATED_VALUE_NOUNS = frozenset("figure figures value values total totals rate rates estimate estimates count number level share "
+                                "percentage proportion cifra cifras valor valores dato total totales tasa tasas porcentaje".split())
+
+
+def _stated_value(words: list, m: int) -> bool:
+    """Whether the number ``words[m]`` of an unnamed source's comparand is a value the source states: a value noun before it ("the
+    census figure of 4.2 million") or a value by its form (a decimal, a percentage, a magnitude word after it). A bare number that
+    may be a part of a date the reading has cut ("the survey of 12" read from "the survey of 12 May") states no value: an unnamed
+    source then stays unnamed, decision D-a (c3h, check round 14; fail closed)."""
+    x = words[m]
+    if not x.num or _date_token(words, m):
+        return False
+    if any(y.w in _STATED_VALUE_NOUNS for y in words[max(0, m - 4):m]):
+        return True
+    if not x.w.isdigit():
+        return True  # "4.2", "61%", "1,050"
+    nxt = words[m + 1].w if m + 1 < len(words) else ""
+    return nxt in ("%", "percent", "per", "million", "millones", "billion", "thousand", "mil", "people", "personas")
 
 
 def _reference_agreement(toks: list, i: int) -> bool:
@@ -1579,13 +1641,27 @@ def _reference_agreement(toks: list, i: int) -> bool:
         # matched against the answer's items ("The GDC output matched each of the results"): an evaluator's agreement with this
         # answer, never a subject-matter reference (check round 10 of c3d)
         return False
+    # (a year or a date in the comparand is no value it states and no name: "the 2021 dataset", "the survey of 3 May 2021", "la
+    # encuesta de 2019" are unnamed sources, decision D-a; c3h, the push check of 67bc64ec read the year as a stated value)
+    sources = [k for k, x in enumerate(words) if x.w in _DATA_SOURCE_HEADS]
+    if sources and not any(_named_source(words, k) for k in sources):
+        # an unnamed data source: a subject-matter reference only with a value it states ("the census figure of 4.2 million")
+        return any(_stated_value(words, m) for m in range(len(words)))
+    if any(_date_token(words, m) for m in range(len(words))):
+        # (the comparand is read as its undated twin: a date names nothing and states no value, so "the 2021 data set" reads as "the
+        # data set" and "the FY2019 report" as "the report"; c3h, check round 14)
+        words = [x for m, x in enumerate(words) if not _date_token(words, m)]
+        if not words:
+            return False
+    dates: set = set()
     if any(x.has(_REF_HEADS_TAG) or (x.w in _DATA_SOURCE_HEADS and k > 0 and words[k - 1].has("C:definite", "C:det") and
                                      _named_source(words, k))
            for k, x in enumerate(words)):
         return True
-    contentful = [x for x in words if not x.punct and not x.has("C:det", "C:prep", "C:dist", "C:definite", "C:indefinite") and
-                  x.w not in _STOP and not x.fam()]
-    if any(x.num for x in words) and contentful:
+    contentful = [x for m, x in enumerate(words) if not x.punct and not x.has("C:det", "C:prep", "C:dist", "C:definite",
+                                                                              "C:indefinite") and
+                  x.w not in _STOP and not x.fam() and m not in dates]
+    if any(x.num and m not in dates for m, x in enumerate(words)) and contentful:
         return True
     return len(contentful) >= 2 and not any(x.has("C:part") and not x.has(_REF_HEADS_TAG) for x in words[:2])
 
@@ -2463,9 +2539,16 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
         if key and _imperative(value, ctx) and not any(x.fam() & {"ASSURE", "APPROVE"} for x in value):
             clear(lambda f: f.a > toks[colon].a)  # "Fix it: 1) Correct the facts first.": a method step under a key
     # an instruction (a method step) in a clause
+    count_line = None
     for seg in segs:
         sw = [t for t in seg if not t.punct]
         if sw and _imperative(seg, ctx) and not any(x.fam() & {"ASSURE", "APPROVE"} for x in sw):
+            if count_line is None:
+                from .reader import _word_count_dash_line
+                count_line = _word_count_dash_line(toks)  # (once per sentence)
+            if count_line:
+                continue  # ("Count of words: 199" is a word-count line, no instruction to count: read as D7 reads "Palabras: 25",
+                # decision D-e; c3h check round 14)
             a, b = sw[0].a, sw[-1].b
             clear(lambda f, a=a, b=b: a <= f.a < b)
     # a process state in a trace table ("| 4 | P4 | 6 | 8 | 0, complete |"): a row of three or more cells, none of them meta

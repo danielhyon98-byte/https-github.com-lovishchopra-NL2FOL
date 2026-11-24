@@ -501,13 +501,6 @@ def _check_act_at(words: list[str], s: str) -> Optional[tuple[str, int]]:
 
 
 _THE = frozenset("the this that a an la el una un esta este".split())
-#: A check stated as possible, not as done ("can be checked", "could be confirmed", "pueden comprobarse", "se pueden verificar").
-_POSSIBLE_CHECK_RE = re.compile(r"\b(?:can|could|may|might)\s+(?:easily\s+|readily\s+|also\s+|still\s+)?be\s+[^\W\d_]+(?:ed|en)\b|"
-                                r"\b(?:puede|pueden|podr[ií]a|podr[ií]an)\s+(?:f[aá]cilmente\s+|tambi[eé]n\s+)?[^\W\d_]+(?:arse|erse|irse)\b|"
-                                r"\bse\s+(?:puede|pueden|podr[ií]a|podr[ií]an)\s+[^\W\d_]+(?:ar|er|ir)\b", re.I)
-#: A verdict the possible check would give ("can be verified as correct", "to be accurate"): the answer's own correctness claimed.
-_POSSIBLE_VERDICT_RE = re.compile(r"\b(?:as|to\s+be|como)\s+(?:fully\s+|entirely\s+)?(?:correct|accurate|right|true|valid|sound|"
-                                  r"error-free|flawless|exact|correct[oa]s?|exact[oa]s?|v[aá]lid[oa]s?)\b", re.I)
 
 #: The head of a model of the subject matter ("the Bohr model", "el modelo de transición demográfica"), which the lexicon also
 #: holds as an evaluator ("the grading model").
@@ -897,10 +890,8 @@ def _own_verdict(sentence: str, ctx) -> Optional[tuple[str, str]]:
         # calculator", reports no check: X22)
         offer = re.search(r"\b(?:will|shall|'ll|going\s+to|can|could)\b", s, re.I) is not None and \
             re.search(r"\b(?:i|we|you)\b", s, re.I) is not None
-        # (a passive of possibility, "These values can be checked with a calculator.", "Los valores pueden comprobarse ...", states a
-        # method the reader may use, never a check that took place, boundary (b); "can be verified as correct" still says the
-        # answer is correct; check round 13 of c3g)
-        offer = offer or (_POSSIBLE_CHECK_RE.search(s) is not None and _POSSIBLE_VERDICT_RE.search(s) is None)
+        # (c3h: no passive of possibility is read as an offer here. "Everything in this response could be verified." is gated as
+        # 08c4a36b gated it; the c3g exemption freed own-scope text and was reverted, fail closed)
         if party_ok and not offer:
             return ("G2", fam)
     if marking:
@@ -1009,15 +1000,35 @@ def _unnamed_source_agreement(written: str, s: str, sets: dict) -> bool:
     heads = [k for k, x in enumerate(toks) if fold_word(x.strip("()[],:'’\"")) in _DATA_SOURCE_WORDS]
     if not heads:
         return False
-    if any(c.isdigit() for c in comp):
-        return False  # a year or a stated value names the source or gives its figure
+    # (a year or a date names no source and gives no figure: "agree with the 2021 dataset", "match the March 2022 dataset", "the FY2019
+    # report", "the 12 May survey" are unnamed, decision D-a; c3h, check round 14: a digit of a date was read as a stated value. A
+    # party's check, "confirmed by the census office in 2022", "confirmed by the 1921 census", is read as before: a date there places
+    # the check in the subject's past, D4)
+    party_check = _PARTY_CHECK_VERB_RE.match(m.group(0)) is not None
+    if any(c.isdigit() for c in (comp if party_check else _DATE_IN_COMP_RE.sub(" ", comp))):
+        return False  # a stated value gives its figure ("the census figure of 4.2 million")
     for k, x in enumerate(toks[:heads[-1] + 4]):
         bare = x.strip("()[],:'’\".")
         if k == 0 and bare.lower() in ("the", "la", "el", "los", "las", "al", "del"):
             continue
-        if bare[:1].isupper():
-            return False  # a proper name or an acronym ("the ONS", "Source B", "del INE")
+        if bare[:1].isupper() and not _DATE_WORD_RE.fullmatch(bare):
+            return False  # a proper name or an acronym ("the ONS", "Source B", "del INE"); a month or a quarter is none
     return True
+
+
+#: The verbs of :data:`_SOURCE_AGREE_RE` that report a party's check rather than an agreement ("confirmed by", "borne out by").
+_PARTY_CHECK_VERB_RE = re.compile(r"(?i)(?:are|is|were|was)\s+(?:borne\s+out|supported|corroborated|backed\s+up|confirmed)\s+by\b")
+#: A month, a quarter or a fiscal-year mark: a part of a date, never a name (decision D-a, c3h).
+_DATE_WORD_RE = re.compile(r"(?i)(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|"
+                           r"apr|jun|jul|aug|sep|sept|oct|nov|dec|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|"
+                           r"setiembre|octubre|noviembre|diciembre|q[1-4]|fy(?:\d{2}|\d{4})?(?:[/\-–]\d{2,4})?)")
+#: The dates in a comparand: a year or a split or fiscal year ("2021", "2019/20", "FY2019"), a quarter ("Q3"), a day beside a month
+#: ("12 May", "May 12th", "3 de mayo"). Linear: each alternative is a bounded run of digits and letters.
+_DATE_IN_COMP_RE = re.compile(
+    r"(?i)\b(?:fy\s?)?(?:1\d|2[01])\d{2}(?:\s?[/\-–]\s?(?:\d{2}|\d{4}))?\b|\bq[1-4]\b|"
+    r"\b\d{1,2}(?:st|nd|rd|th|º|ª)?(?:\s+de)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|"
+    r"december|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b|"
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?\b")
 
 
 #: An impersonal judgement of the answer ("it cannot be said", "could be called", "could be described as").
