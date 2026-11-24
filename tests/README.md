@@ -2929,3 +2929,10 @@ Measured results only.
   signed under the previous policy is refused as stale.
 - Its push check is running; nothing is uploaded until a push check clears. The self-certification class stays open
   pending the owner's decision on a meaning check.
+
+### Progress, 06:00 UTC (24 November)
+- All five lenses of the push check of `67bc64ec` recommend holding it; the challenger and the judge are still
+  running, and nothing new is uploaded. The lenses report the self-certification class still open (one lens: 4 of 40
+  fresh phrasings missed, 10.0%) and new regressions of that commit, among them 'Wrong: x = 3. Right: x = 4.'
+  delivered on 10 of 15 subjects (0 of 15 before) and 'Every figure in this answer can be confirmed.' on 15 of 15
+  (0 of 15 before).
