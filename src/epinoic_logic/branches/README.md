@@ -954,6 +954,20 @@ restatement of the request's figure. Also read: a difference or a multiple of on
 had 35 more pedestrians than Site 3', 'counts at Site 1 were about eleven times those at Site 10'), a figure stated as a multiple of
 another figure the sentence writes ('300,000 deaths is about 1,600 times Christchurch's 185') and a part stated with its share and its
 whole ('8% of the 24 km² catchment, about 1.9 km²', `geo_share_part`).
+The c3h follow-up (push check of 67bc64ec) reads a year-table figure inside a modifier of a noun as that noun's (`_YtIndex.attached`): a
+relative or 'whose' clause, an 'at' phrase, a participle phrase, an apposition opened by an article, or a bare figure in a comma pair,
+a bracket or a pair of dashes, right after a noun phrase with no verb ('Coal, which supplied about 11.8 GJ per person in 2025,
+declined', 'Oil (about 11.4 GJ per person in 2025) changed least'). The row is the one the modifier's own words name before the
+figure, else the one the noun phrase names; where neither names one row, the figure gets no check, never the total row by default
+(67bc64ec had read the relative-clause form against the total row, and the other forms were read that way before it).
+`tests/branches/test_c3h_branches.py` holds the lenses' grids on ge-t15 (216 cells) and ge-t14 (144 cells).
+Its check round 14: a figure the modifier's own words make the whole of a part of a stated size ('28% of the 42 GJ per person', 'a
+quarter of the 42 GJ', '28% of 1,050 PJ') is the total its clause names (the c3h reading had charged it against the head's row); after
+a part of no stated size ('a share of the 42 GJ', 'part of the 42 GJ') the figure may be the whole or the part's own amount and gets no
+check; an opener the modifier list does not know, in a modifier with no verb ('Coal, still about 42 GJ ...', 'with about', 'worth
+about'), is read as a known opener is, never against the total row; and a supplied-table figure its own words place at another row
+after it ('the 97 counted at site 4' after 'Site 2') gets no check, never the row named before it.
+`tests/branches/test_c3h_branches_round14.py` holds these, with a grid of 23 openers on ge-t15 (276 cells).
 
 **Language B** (`language_b.py`, `spanish_lexicon.py`). The task is read once (writing, marking, reading or notes, by the task type and
 then the request) and the answer into regions. The statements read are the meta sentences (never the model's own content): a word
@@ -990,6 +1004,10 @@ after a coordinated figure ('de 1.250 habitantes en 1960 a 268 en 2015', 'y dosc
 after it, and a population figure may be the text's under another of its nouns ('vecinos'); the English counts are read with the
 concepts of their own clause ('two weeks ago, after an exchange of three weeks'); and a 'You wrote "x"; write "y" instead' or
 'Escribiste «x»; escribe «y»' line counts as a correction line.
+The c3h follow-up: a correction written with labels ('Incorrecto: x. Correcto: y', 'Mal: x. Bien: y', '✗ x ✓ y') keeps the year and
+count checks of its corrected half (`_label_pair_half`; 67bc64ec had skipped every such line): the labels decide only which half is
+the writer's correction, and the replaced half is never read as a claim by those two readers, nor (check round 14) by the
+supplied-figure reader ('Incorrecto: ... cien alumnos. Correcto: ... catorce alumnos.' had charged 'cien').
 
 **Linear time.** Every reader is one pass or one `finditer` of a word-bounded pattern over a bounded prefix, statements and checks are
 capped per kind and per report, and tables keep grounded_figures' caps. `tests/branches/test_d9d10_linear.py` runs every entry point

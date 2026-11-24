@@ -97,6 +97,28 @@ History of the self-certification bumps (round-10 clearance c3, its hold remedy 
   or feedback task. Every word-count line, in every language and form, stays gated as a self-report under decision D7 ("Número
   de palabras: 42" as "Palabras: 25"). The policy identity binds the import closure of the reader inside the package, rule 0's
   call site and the marking context included (``selfcert.rules_closure``). Contract 0.7 to 0.8.
+* POLICY_VERSION 2026.11-v8 (c3h, the push check of 67bc64ec): eligibility rule 0 reads the self-certification rules
+  ``selfcert-4``. They fail closed where ``selfcert-3`` freed own-scope text or stopped reading: the exemptions it added that
+  freed such text are reverted to the reading of 08c4a36b, and its bounds that failed open now read everything. Read as own
+  verdicts, gated again: a check of the answer's own scope stated as possible ("Everything in this response can be verified.",
+  "Every figure in this answer can be confirmed."; the possibility frame is reverted, so "The values can be confirmed with a
+  calculator." is withheld again, an over-block that fails closed); a correction pair written with labels ("Wrong: x = 3. Right:
+  x = 4.", "Wrong: 1918. Right: 1919.", "Mal: x = 5. Bien: x = 7."; the corrected-form key exemption is removed whole, so a label
+  pair of language prose is withheld again too); agreement of the answer's figures with a source that a year, a date or a number
+  alone qualifies ("The values in this answer agree with the 2022 dataset.", "Todas las cifras coinciden con la encuesta de
+  2019.", "the March 2022 dataset", "the FY2019 report"): a year, a date, a month, a quarter or a fiscal year never names a source
+  and is never a value the source states (decision D-a), while a named source or a stated value stays free ("The ONS confirmed
+  the figures.", "The figures match the census figure of 4.2 million."). Own verdicts are read in every window of a sentence of
+  any length as 08c4a36b read them: a later window is read by its own first words and is never masked whole as the words of a
+  reporter that opens the sentence, and a report verb that opens the sentence is no head of a relative clause, so ", which a
+  second agent checked line by line," is read at every length. The evaluator pieces of a text and the scope variants of a
+  sentence are read in full, with no count or length cap (the cap of 64 pieces and the 200,000-character bounds are removed).
+  Every word-count line reads as decision D7 reads "Palabras: 25", whatever sets its key off from its value (a colon, a dash,
+  "=", "≈", "~") and however its key is written or abbreviated ("Nº de palabras: 87", "Words used — 312", "Cuenta de palabras:
+  198", "Count of words: 199"; decision D-e, D7 itself unchanged). A party's check placed in the subject's past by a date
+  ("confirmed by the 1921 census") and the other readings of ``selfcert-3`` are unchanged. The Geography and Language B
+  corrections of the same run change deterministic packs only (decision D35) and carry no version reason of their own.
+  Contract 0.8 to 0.9.
 
 Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
 integrated translator"):
@@ -112,7 +134,7 @@ integrated translator"):
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.11-v7"
+POLICY_VERSION = "2026.11-v8"
 TRANSLATOR_VERSION = "0.4.0"
 #: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
 ARG_RULES_VERSION = "argdiag-2"

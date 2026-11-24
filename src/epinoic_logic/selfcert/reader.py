@@ -1864,11 +1864,26 @@ _CLAUSE_WINDOW = 96
 _CLAUSE_STEP = 64
 
 
+def _relative_head(toks: list[Tok], rel: int) -> bool:
+    """Whether ``toks[:rel]`` is the head noun phrase of the relative clause that ``toks[rel]`` opens: no finite verb before it, and
+    no report verb, whose "that" opens the reported words, never a relative clause ("Keynes wrote that ..."; c3h, the push check of
+    67bc64ec: that opening was taken for the head of ", which the examiner graded as flawless," in a window 8 KB into the sentence,
+    so the examiner's grading of "this answer" was read as Keynes's words). A first-person reporter ("I wrote that ...") stays the
+    head: the writer's own words."""
+    if any(_finite(toks, k) for k in range(rel)):
+        return False
+    # (a report word after a determiner is a noun, the head itself: "The claim that reparations fuelled resentment is verified.")
+    verb = any(t.has("C:report_verb") and k > 0 and not toks[k - 1].has("C:det", "C:dist", "C:definite", "C:indefinite", "C:poss1",
+                                                                           "C:poss2", "C:poss3", "C:demonstrative")
+               for k, t in enumerate(toks[:rel]))
+    return not verb or any(t.has("C:pron1") for t in toks[:rel])
+
+
 def _clause_found(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
     # the clause's head noun phrase before a relative clause ("Every figure in this answer on the treaty which imposed ... has been
     # verified."): the subject of a verb that ends the relative clause's chain, however long (read in every window below)
     rel = next((k for k, t in enumerate(cl.toks[:24]) if t.w in ("which", "that", "who", "whom", "que") and k > 0), None)
-    if rel is not None and not any(_finite(cl.toks, k) for k in range(rel)) and "clause_head" not in info:
+    if rel is not None and _relative_head(cl.toks, rel) and "clause_head" not in info:
         info = dict(info)
         info["clause_head"] = cl.toks[:rel]
     if len(cl.toks) > _CLAUSE_WINDOW:
@@ -2534,9 +2549,9 @@ def _clause_found_bounded(cl: Clause, ctx: Context, info: dict) -> list[_Found]:
             elif toks[j].w in ("can", "could") and fam in ("CHECK",):
                 modal = "can"
         if fam == "CHECK" and modal in ("will", "would", "can") and not (t.w.startswith(("confirm", "certif", "vouch", "attest")) and
-                                                                        modal == "can" and toks[i - 1].w not in ("be", "been")):
-            # ("I can confirm ..." is a performative confirmation; "The values can be confirmed with a calculator." states a method
-            # the reader may use, a possibility, no check that took place: boundary (b), check round 13 of c3g)
+                                                                        modal == "can"):
+            # (the possibility frame of c3g, "can be confirmed" read as a method the reader may use, is reverted to the reading of
+            # 08c4a36b: c3h, the push check of 67bc64ec, "Everything in this response can be verified." was delivered)
             skip_rest = True
             continue
         es3_subject = t.has("v:espret3") and any(x.has("C:det", "C:eval_int", "C:tool", "C:eval_asr", "C:eval_out") or _unknown_name(x)
@@ -2942,8 +2957,15 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
             instrument = any(x.has("C:assess_instrument") or x.w in ("markscheme", "rubric", "criteria", "key") for x in comp) or \
                 any("report" in x.w and any(y.has("C:eval_int", "C:eval_int_agentive") or "specialist" in y.w for y in comp) for x in comp) or \
                 (any(x.w in ("model", "models", "modelo", "modelos") for x in comp) and _evaluator_model(comp))
-            numeric = any(x.num for x in comp)
-            named = any(x.name or _possessive(x) or x.num or x.has("C:eval_out", "C:src_noun", "C:method_noun") or x.w in (
+            from .meaning import _date_token
+            # (a year or a date in the comparand is no value and no name: "agree with the 2022 dataset", "the March 2022 dataset", "the
+            # 12 May survey", "the Q3 2021 dataset" name no source and state no value, decision D-a; c3h, the push check of 67bc64ec
+            # and its check round 14)
+            comp_dates = {id(x) for m, x in enumerate(comp) if _date_token(comp, m)}
+            values = [x for x in comp if x.num and id(x) not in comp_dates]
+            numeric = bool(values)
+            named = any(((x.name or _possessive(x)) and id(x) not in comp_dates) or (x.num and any(x is y for y in values)) or
+                        x.has("C:eval_out", "C:src_noun", "C:method_noun") or x.w in (
                 "law", "theorem", "principle", "model", "table", "figure", "dataset", "curve", "value", "values", "theory", "equation",
                 "prediction", "predictions", "data", "literature", "estimate", "ratio",
                 # (the Spanish heads of a subject-matter reference: "la cuarta etapa del modelo de transición demográfica"; c3g)
@@ -2958,7 +2980,9 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
             # the answer's items agreeing with a named outside source ("Each figure agrees with the census data in Source B."):
             # material, the channel checks the figures against the supplied texts; a fidelity blanket stays gated (X8)
             ext = [x for x in toks[i + 1:i + 12] if not x.punct or x.w in ("(", ")")]  # the comparand with its own restrictor
-            outside_named = any(x.name or (_possessive(x) and not x.has("C:eval_int", "C:tool")) for x in ext) and \
+            ext_dates = {id(x) for m, x in enumerate(ext) if _date_token(ext, m)}  # (a date names no source: decision D-a, c3h)
+            outside_named = any((x.name or (_possessive(x) and not x.has("C:eval_int", "C:tool"))) and id(x) not in ext_dates
+                                for x in ext) and \
                 not any(x.has("C:poss1", "C:pron1", "C:eval_int", "C:tool") for x in ext)
             if fam == "AGREE" and not instrument and outside_named and not _names_answer(theme) and ev not in ("INT", "ASR") and \
                     not any(x.has("C:anchor", "C:anchor_idioms") for x in theme.toks):
@@ -3221,6 +3245,12 @@ def _gate(toks: list[Tok], i: int, t: Tok, fam: str, cl: Clause, ctx: Context, i
     if cls == "N" and (fam != "SRCEVAL" or srceval_own):
         present = _present_status(toks, v, i, t)
         anchored = _subject_matter_anchor(toks)
+        if anchored and fam == "AGREE":
+            # (a year or a date in the comparand of an agreement anchors nothing: "Las cifras coinciden con el censo de 2021." names no
+            # source, decision D-a; c3h, the push check of 67bc64ec. A date in the theme still anchors it: "Las cifras de 2021 ...")
+            from .meaning import _date_number
+            anchored = _subject_matter_anchor([x for m, x in enumerate(toks) if not (m > i and (x.has("C:month") or
+                                                                                             _date_number(toks, m)))])
         # (a neutral outcome concluding a worked computation in the same sentence, "Since x = 1/3 = 0.33, the claim holds.", is
         # the working's conclusion, material for the engine: rule X1)
         # (a label's key before the computation is no conclusion of it: "Everything checks out: 2 × 21 = 42.", "The figures check
@@ -3535,7 +3565,11 @@ _WORD_NOUNS = frozenset("word words palabra palabras vocablos mot mots wort wort
 #: The words of a count or a length a word-count key may hold besides the word noun ("number of", "total", "recuento").
 _COUNT_KEY_WORDS = frozenset("count counts number total totals length used tally sum numero cantidad conteo recuento total totales "
                              "suma extension usadas utilizadas empleadas de of del in en the el la los las nombre anzahl zahl "
-                             "gesamtzahl numero numero_de nombre_de".split())
+                             "gesamtzahl numero numero_de nombre_de "
+                             # (the abbreviations of "number" and "approximately", and "cuenta", as written in a key: "Nº de palabras",
+                             # "N.º palabras", "No. of words", "Palabras (aprox.)", "Cuenta de palabras"; decision D-e, c3h)
+                             "no n n.o nº n.º nro nro. num núm cuenta aprox approx aproximadamente approximately approximate "
+                             "ca c".split())
 #: Compounds that name a word count as one word ("wordcount", "Wortzahl", "Wortanzahl").
 _WORD_COUNT_COMPOUNDS = frozenset("wordcount word-count wortzahl wortanzahl wörterzahl worterzahl".split())
 
@@ -3550,6 +3584,39 @@ def _word_count_key(kwords: list[Tok]) -> bool:
         return all(w in _WORD_COUNT_COMPOUNDS or w in _COUNT_KEY_WORDS for w in ws)
     return any(w in _WORD_NOUNS for w in ws) and all(w in _WORD_NOUNS or w in _COUNT_KEY_WORDS for w in ws) and \
         (len(ws) > 1 or ws[0] in ("words", "palabras", "mots", "worter", "parole", "palavras"))
+
+
+#: The dashes that set a key off from its value as a colon does ("Words used — 312", "Word count - 312").
+_KEY_DASHES = frozenset(("—", "–", "-", "--", "―"))
+#: Every sign that sets a word-count key off from its value: a colon, a dash, an equals sign or an approximation sign ("Words: 300",
+#: "Words — 300", "Words = 300", "Words ≈ 300", "Words ~ 312"; decision D-e, D7 applied evenly; c3h check round 14).
+_COUNT_KEY_SEPARATORS = _KEY_DASHES | frozenset((":", "=", "≈", "~", "∼", "≃", "≅", "≒"))
+#: The signs and words of an approximate count that open a value ("≈ 300", "~ 312", "c. 300", "approx. 300").
+_COUNT_APPROX_SIGNS = frozenset(("≈", "~", "∼", "≃", "≅", "≒"))
+_COUNT_APPROX_WORDS = frozenset(("c", "ca", "approx", "about", "around", "unas", "unos", "aprox", "aproximadamente", "circa"))
+
+
+def _word_count_dash_line(toks: list[Tok]) -> bool:
+    """Whether ``toks`` is a word-count line, whatever sign sets its key off from its value: a colon, a dash, "=" or an approximation
+    sign ("Words used — 312", "Palabras = 240", "Words ≈ 300", "Count of words: 199", "Words ~ 312"), or a key whose value is cut by
+    the stop of an abbreviation ("Words: c." of "Words: c. 300"). Read as the colon form is and as D7 reads "Palabras: 25" (decision
+    D-e, D7 applied evenly; c3h)."""
+    d = next((k for k, t in enumerate(toks[:10]) if t.w in _COUNT_KEY_SEPARATORS), None)
+    if d is None or d == 0:
+        return False
+    key = [t for t in toks[:d] if not t.punct]
+    if not key or not _word_count_key(key):
+        return False
+    value: list[Tok] = []
+    for t in toks[d + 1:]:  # (a count is a few words: the value is read up to its fifth word, so the test is O(1) per call)
+        if t.punct and (t.w in (".", "!", ":") or t.w in _COUNT_APPROX_SIGNS):
+            continue
+        value.append(t)
+        if len(value) > 4:
+            return False
+    if value and all(t.w in _COUNT_APPROX_WORDS for t in value) and len(value) <= 2:
+        return True  # ("Words: c." where the stop of "c." ends the sentence before "300": an approximate count, fail closed)
+    return bool(value) and _count_value(value)
 
 
 def _count_value(value: list[Tok]) -> bool:
@@ -3886,6 +3953,10 @@ def _sentence_found(toks: list[Tok], ctx: Context, question: bool, info: dict) -
     after = _verdict_after_derivation(toks) if computation else None
     whole_computation = computation
     worked_labels: list = []  # (start, key end, neutral) of each label whose value shows a computation
+    if not ctx.marking and _word_count_dash_line(toks):
+        # a word-count line set off by a dash ("Words used — 312"): read as its colon form and as D7 reads "Palabras: 25", a label
+        # of the answer's own measure, gated outside a marking task (decision D-e of c3h; D7 itself unchanged)
+        found.append(_Found("G6", "STATUS", "label_after", toks[0].a, toks[-1].b))
     for n_part, part in enumerate(_split_parts(toks)):
         info["outside_frame"] = frame0 and n_part == 0  # the frame sets its own clause, never a clause after ";" or a dash
         # a clause after a derivation's last figure is read as a clause of its own, not as part of a worked computation
@@ -4650,15 +4721,6 @@ _HEADING_EXTRA_WORDS = frozenset("the a of my our result results root roots answ
 _MARKUP_HEADING_RE = re.compile(r"[ \t]{0,3}(?:#{1,6}[ \t]+[^\n]{1,120}|\*\*[^*\n]{1,116}\*\*[ \t]*:?|__[^_\n]{1,116}__[ \t]*:?)[ \t]*\Z")
 
 
-#: The corrected-form key of a correction pair after its faulty-form key on the same line ("Wrong: ... Right: ...", "Incorrect: ...
-#: Correct: ...", "Mal: ... Bien: ...").
-_PAIR_RIGHT_KEY_RE = re.compile(r"(?i)\b(?:wrong|incorrect|mal|incorrecto|incorrecta)[ \t*_]*:(?:(?!\n[ \t]*\n)[^\n]|\n){1,300}?(?<![^\s.;*_])"
-                                r"(?P<k>right|correct|correct\s+form|bien|correcto|correcta|better|mejor)[ \t*_]*:")
-#: A value of a corrected-form key that names this answer or a scope over it ("Right: every figure above.").
-_PAIR_SCOPE_RE = re.compile(r"(?i)\b(?:above|below|here|this\s+(?:answer|response|reply|essay)|everything|every|all\s+of|whole|"
-                            r"arriba|abajo|aqu[ií]|esta\s+respuesta|todo|todas|todos)\b")
-
-
 def _check_headings(s: str) -> list[tuple[int, int]]:
     """The spans of the lines that head a worked check ("## Verification", "Checking", "### Verifying the root", "Comprobación")
     when the next non-blank line shows a computation (a relation sign and two numbers): the heading names the working below it, which
@@ -4947,8 +5009,7 @@ def _narrative_setting(toks: list[Tok]) -> bool:
 _TOKEN_RUN_RE = re.compile(r" ?zz(?:markpos|markneg|approve|scorefull|rating|eop|star)[a-z]* ?")
 
 
-def _quote_processing(s: str, a: int, b: int, ctx: Context, head: Optional[int] = None) -> tuple[str, list[tuple[int, int, str]],
-                                                                                                list[Tok]]:
+def _quote_processing(s: str, a: int, b: int, ctx: Context) -> tuple[str, list[tuple[int, int, str]], list[Tok]]:
     """The sentence ``s[a:b]`` with its quotations read by attribution (design 3.6), and the inner texts to read as the writer's
     own (relays, G7). An outside party's quotation is masked unless it refers explicitly to this answer, is a status label or a
     content-free assessment outside an analysis frame."""
@@ -5073,19 +5134,11 @@ def _quote_processing(s: str, a: int, b: int, ctx: Context, head: Optional[int] 
     _mark_initials(toks)
     _es_copula_in_context(toks)
     reread = False
-    # (a later window of a long sentence opens in the middle of it: its first words are no reporter of what follows, unless the
-    # sentence itself opens with one, and then the window lies inside the reported words up to a semicolon; c3g, the push check of
-    # 08c4a36b: a window opening "... and the delegates argued over the frontier ..." masked the rest of the sentence, a verdict
-    # included, as the delegates' words, so the verdict was read at 6 KB and not at 8 to 12 KB)
+    # (a later window of a long sentence is read as it stands, by its own first words, as 08c4a36b read it: c3h, the push check of
+    # 67bc64ec. A window that opens inside the words a reporter at the sentence's head reports is never masked whole on that account:
+    # masking it hid an own verdict there, "Taylor argued that ... and this answer, which a second agent checked line by line,
+    # records it, ...", from 8 KB on. Reading more fails closed.)
     report_scan = toks[:10]
-    if head is not None:
-        report_scan = []
-        htoks = _merge(_tokens(s, head, min(head + 400, a)))
-        _mark_initials(htoks)
-        if any(_unmarked_report_at(htoks, k, ctx) for k in range(min(10, len(htoks)))):
-            semi = next((x.a for x in toks if x.w == ";"), len(masked))
-            masked = "".join("q" if c.isalnum() else c for c in masked[:semi]) + masked[semi:]
-            reread = True
     for k, t in enumerate(report_scan):
         if t.has("C:report_verb") and not any(_finite(toks, m) for m in range(k)) and t.w not in ("give", "gives", "gave", "show", "shows", "showed", "read", "reads", "put", "puts",
                                                   "agree", "agrees", "agreed", "return", "returns", "returned", "note", "notes",
@@ -5142,28 +5195,6 @@ def _prep_complement(toks: list[Tok], k: int) -> bool:
     about the reparations", "claimed for France"): no words of the subject are reported, so nothing after it is masked (c3g)."""
     return k + 1 < len(toks) and toks[k + 1].w in ("over", "about", "for", "against", "with", "on", "in", "at", "into", "among",
                                                    "between", "sobre", "contra", "con", "por", "en", "entre")
-
-
-def _unmarked_report_at(toks: list[Tok], k: int, ctx: Context) -> bool:
-    """Whether ``toks[k]`` is the verb of an unmarked report by an outside party that opens the sentence ("The narrator claims that
-    ...", "The article argues ..."), as :func:`_quote_processing` reads one."""
-    t = toks[k]
-    if not t.has("C:report_verb") or k == 0 or toks[k - 1].has("C:det", "C:dist") or _prep_complement(toks, k):
-        return False
-    if any(_finite(toks, m) for m in range(k)) or not (_finite(toks, k) or t.w in _ES_REPORT_FINITE):
-        return False
-    if t.w in ("give", "gives", "gave", "show", "shows", "showed", "read", "reads", "put", "puts", "agree", "agrees", "agreed",
-               "return", "returns", "returned", "note", "notes", "noted", "add", "adds", "added"):
-        return False
-    subj = toks[:k]
-    cm = max((m for m, x in enumerate(subj) if x.w == ","), default=-1)
-    if cm >= 0:
-        subj = subj[cm + 1:]
-    rep = eval_class(subj, ctx)
-    if rep != "OUT" and subj and any(x.has("C:src_noun", "C:analysed_text") and not x.has("C:pron1", "C:poss1") for x in subj) and \
-            not any(x.has("C:demonstrative", "C:poss1", "C:anchor") for x in subj):
-        rep = "OUT"
-    return rep == "OUT" and not any(x.has("C:pron1") for x in subj)
 
 
 def _source_letter(toks: list[Tok]) -> bool:
@@ -5984,10 +6015,12 @@ _CREDIT_TAGS = frozenset(("C:eval_asr", "C:eval_int_agentive", "C:m_eval", "C:to
 
 def _credit_pieces(text: str) -> list[tuple[int, int, str]]:
     """The appositive and relative pieces of ``text`` that name an evaluator (an assessor, an agent, a tool of the pipeline) with an
-    act of theirs: ``(start, end, piece)``, at most 64. Only these are read on their own; a piece crediting a source or a party of
-    the subject matter (", a figure the commission confirmed") names no evaluator and is not read again."""
+    act of theirs: ``(start, end, piece)``, every one of them (c3h, the push check of 67bc64ec: a bound of 64 pieces with no unread
+    notice let a credited check after 64 benign evaluator pieces be delivered; the pieces never overlap, so reading all of them stays
+    linear). Only these are read on their own; a piece crediting a source or a party of the subject matter (", a figure the
+    commission confirmed") names no evaluator and is not read again."""
     out: list[tuple[int, int, str]] = []
-    if len(text) > 200_000 or not any(c in text for c in ",;(—–"):
+    if not any(c in text for c in ",;(—–"):
         return out
     for m in _CREDIT_PIECE_RE.finditer(text):
         piece = m.group("p")
@@ -5995,8 +6028,6 @@ def _credit_pieces(text: str) -> list[tuple[int, int, str]]:
         if any(word_tags(w) & _CREDIT_TAGS for w in words):
             # (read as the sentence it would be standing alone: its first letter raised and a full stop after it)
             out.append((m.start("p"), m.end("p"), piece[:1].upper() + piece[1:].rstrip() + "."))
-            if len(out) >= 64:
-                break
     return out
 
 
@@ -6011,9 +6042,8 @@ _PASS_BY_RE = re.compile(r"\b(?:a|an|one|the|another)[ \t]+(?:(?:further|second|
 
 def _scope_variant(text: str) -> Optional[str]:
     """``text`` with each numbered range of the answer's items and each "a further pass by" before an evaluator blanked (same
-    offsets), or None when it holds none."""
-    if len(text) > 200_000:
-        return None
+    offsets), or None when it holds none. The whole text is read, whatever its length (c3h: a length bound here would leave a
+    long text's ranges unread)."""
     out = text
     for rx, grp in ((_ITEM_RANGE_RE, "r"), (_PASS_BY_RE, 0)):
         if rx.search(out):
@@ -6523,18 +6553,8 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
                     b1 += 1  # (the line the mark heads, as line_rest reads it: a run-on reading sets the mark on a line of its own)
                 nl = s.find("\n", b1)
                 example_spans.append((m_t.start(), nl if nl >= 0 else len(s)))
-    # (the corrected-form key of a correction pair, "Wrong: he do not. Right: he does not.", heads the corrected language, the subject
-    # matter of the lesson, never a status of this answer; a value that names the answer or a scope over it stays read; check round
-    # 13 of c3g, a leftover of the c3g overseer fixer)
-    pair_keys: list[tuple[int, int]] = []
-    if ":" in s and len(s) <= 200_000:
-        for m_p in _PAIR_RIGHT_KEY_RE.finditer(s):
-            val = s[m_p.end():m_p.end() + 200].split("\n", 1)[0]
-            if not _PAIR_SCOPE_RE.search(val) or re.match(r"[ \t]*(?:\*{1,2}|_{1,2}|[\"“«'‘])\S", val) or re.match(
-                    r"[ \t]*(?:\*{1,2}|_{1,2}|[\"“«'‘])\S", original_span(m_p.end(), min(len(s), m_p.end() + 8))):
-                # (a quoted or emphasised corrected form is the language itself, whatever words it holds: "Right: *Not every
-                # kitchen has a door.*")
-                pair_keys.append((m_p.start("k"), m_p.end("k")))
+    # (c3h: no corrected-form key of a label pair is freed here. The c3g exemption freed own-scope verdicts on the answer's values,
+    # "Wrong: the war lasted three years. Right: the war lasted four years."; reverted to 08c4a36b's reading, fail closed)
     for pa, pb, kind in all_pieces:
         if kind == "text" and one_paragraph:
             continue
@@ -6570,7 +6590,7 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
         for n_span, (a, b) in enumerate(spans):
             if n_span == 0 and len(spans) > 1 and s[a:b].strip().strip(".!,").lower() in ("ok", "okay", "o.k", "alright", "right"):
                 continue  # "OK. Let us look at the poem.": a turn opener before the text, no verdict (after content it is one)
-            masked, relays, toks = _quote_processing(s, a, b, ctx, heads.get(a))
+            masked, relays, toks = _quote_processing(s, a, b, ctx)
             for t in toks:
                 t.a += a
                 t.b += a
@@ -6591,7 +6611,7 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
                 h0 = heads[a]
                 htoks = _merge(_tokens(s, h0, min(h0 + 400, b)))
                 rel = next((k for k, t in enumerate(htoks[:24]) if t.w in ("which", "that", "who", "whom", "que") and k > 0), None)
-                if rel is not None and not any(_finite(htoks, k) for k in range(rel)):
+                if rel is not None and _relative_head(htoks, rel):
                     info["clause_head"] = htoks[:rel]
                 else:
                     # the sentence's opening up to its first finite verb ("This answer uses"), read before this window: a predicate
@@ -6709,9 +6729,6 @@ def _read_text_folded(text: str, ctx: Context, folded, s: str):
                                               any(ls <= f.a < le for ls, le in heading_spans))]
             if example_spans:
                 fnd = [f for f in fnd if not any(ls <= f.a < le for ls, le in example_spans)]
-            if pair_keys:
-                fnd = [f for f in fnd if not (f.form == "label_before" and f.family == "STATUS" and
-                                              any(ka <= f.a < kb for ka, kb in pair_keys))]
             for f in fnd:
                 key = (f.a, f.b, f.rule)
                 if key in seen or (kind == "bracket" and (f.a, f.b) in spans_seen):

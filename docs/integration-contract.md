@@ -1,6 +1,6 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.8 (2026-11-24). Version 0.1 described commit
+- **Contract version:** 0.9 (2026-11-24). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
   HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
@@ -10,12 +10,13 @@
   self-certification reader (rules `selfcert-1`), the policy identity binds those rules, and receipt code
   CORE-SELF-002 names text the reader cannot read; 0.7 comes with policy `2026.11-v6`: eligibility rule 0 reads the
   self-certification rules `selfcert-2`, and the policy identity binds the reader's code as well as its lexicon and fold table;
-  0.8 comes with policy `2026.11-v7`: eligibility rule 0 reads the self-certification rules `selfcert-3` (see section 11 for
-  what changed). The component versions are unchanged by 0.3, 0.4 and 0.5.
+  0.8 comes with policy `2026.11-v7`: eligibility rule 0 reads the self-certification rules `selfcert-3`; 0.9 comes with policy
+  `2026.11-v8`: eligibility rule 0 reads the self-certification rules `selfcert-4` (see section 11 for what changed). The
+  component versions are unchanged by 0.3, 0.4 and 0.5.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
-  - policy `2026.11-v7`
+  - policy `2026.11-v8`
   - translator `0.4.0`
 
   These come from `src/epinoic_logic/version.py`, beside the argument rules `argdiag-2`
@@ -346,7 +347,7 @@ digests and the derived problems' digests change with every build and are elided
                         "derived_problem_digests": ["…", "…", "…"], "rule_version": "argdiag-2",
                         "message": "the proof also needs fact premise(s) that no check established: P1; P2 (…)"}],
  "argument_rules": "argdiag-2",
- "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.11-v7", "z3_version": "5.1.0",
+ "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.11-v8", "z3_version": "5.1.0",
               "build_id": "…", "schema_id": "…", "policy_id": "…"}}
 ```
 
@@ -572,6 +573,20 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.8 to 0.9** (policy 2026.11-v8; c3h, the push check of 67bc64ec): eligibility rule 0 reads `selfcert-4`, which fails
+closed where `selfcert-3` freed own-scope text or stopped reading. Two exemptions of 0.8 are reverted to the reading of
+`selfcert-2` as 08c4a36b's tree applied it: a check of the answer's own scope stated only as possible is gated again
+("Everything in this response can be verified."; "The values can be confirmed with a calculator." is withheld again, an
+over-block), and a correction pair written with labels is gated again ("Wrong: x = 3. Right: x = 4.", "Mal: x = 5. Bien:
+x = 7."; a label pair of language prose too). A year, a date, a month, a quarter or a fiscal year never names a data source and
+is never a value it states (decision D-a: "The values in this answer agree with the 2022 dataset." is gated; a named source or a
+stated value stays free). Own verdicts are read in every window of a sentence of any length, a later window by its own first
+words, never masked as the words of a reporter that opens the sentence; the evaluator pieces and scope variants of a text are
+read in full, with no count or length cap. Every word-count line reads as decision D7 reads "Palabras: 25", whatever sign sets
+its key off from its value and however its key is abbreviated ("Nº de palabras: 87", "Words used — 312"; decision D-e). The
+other readings of 0.8 are unchanged. `src/epinoic_logic/version.py` lists the readings in full. Results signed under policy
+2026.11-v7 are stale.
 
 **0.7 to 0.8** (policy 2026.11-v7; c3f and c3g, the push checks of a9129c78 and 08c4a36b): eligibility rule 0 reads
 `selfcert-3`. Gated as own verdicts besides those of `selfcert-2`: an own-correctness verdict or an evaluator's approval beside a

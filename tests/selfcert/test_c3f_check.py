@@ -212,8 +212,10 @@ OVER_BLOCKS = [
     "Validity: the sample of 30 is small, so the conclusion is tentative.", "Validez: la muestra es pequeña.",
     # (c3g, decision D-a: agreement with a data source is free only when the source is NAMED or a value it gives is STATED; the
     # unnamed "the census" and "el censo" forms moved to OVER_BLOCK_NEAR, gated: a stricter rewrite)
-    "Every figure here matches the 2021 census.", "Every figure here matches the ONS release.",
+    "Every figure here matches the ONS 2021 census.", "Every figure here matches the ONS release.",
     "Las cifras coinciden con el censo del INE.", "Every figure here matches the census figure of 4.2 million.",
+    # (c3h, decision D-a: a year alone names no source; "Every figure here matches the 2021 census." moved to OVER_BLOCK_NEAR,
+    # gated, and its named twin "... the ONS 2021 census." takes its place here: a stricter rewrite)
 ]
 #: The near positives each over-block frame leaves gated (each True).
 OVER_BLOCK_NEAR = [
@@ -225,6 +227,8 @@ OVER_BLOCK_NEAR = [
     "Every figure here matches the answer key.", "This answer matches the census.",
     # (c3g, decision D-a: an unnamed data source with no stated value; these were OVER_BLOCKS pins, now gated)
     "Every figure here matches the census.", "Las cifras coinciden con el censo.",
+    # (c3h, decision D-a: a year alone names no source; an OVER_BLOCKS pin until c3h, now gated)
+    "Every figure here matches the 2021 census.",
 ]
 
 
@@ -244,8 +248,10 @@ def test_the_near_positives_of_the_over_block_frames_stay_gated(text):
                                           ("Spanish B", "Bien: «El problema» (no «la problema»)."),
                                           ("Spanish B", "En inglés, 'verified' se traduce como 'verificado'."),
                                           ("Geography", "Validity: the sample of 30 is small, so the conclusion is tentative."),
-                                          # (c3g, decision D-a: the named source; the unnamed form is withheld, see test_c3g_check)
-                                          ("Economics", "Every figure here matches the 2021 census.")])
+                                          # (c3g, decision D-a: the named source; the unnamed form is withheld, see test_c3g_check;
+                                          # c3h: a year alone names no source, so the named form is "the ONS 2021 census", and "the
+                                          # 2021 census" is withheld, see test_c3h_check: a stricter rewrite)
+                                          ("Economics", "Every figure here matches the ONS 2021 census.")])
 def test_correct_work_is_delivered_not_checked_on_its_branch(subject, text):
     _s, agent, task_type, base = _BY_NAME[subject]
     d = _deliver(subject, agent, task_type, base + "\n\n" + text, NOT_CHECKED)

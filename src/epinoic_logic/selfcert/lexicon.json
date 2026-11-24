@@ -1,5 +1,5 @@
 {
- "rules": "selfcert-3",
+ "rules": "selfcert-4",
  "about": "Closed lexical classes of the self-certification reader (design section 3). Classes of words only: stems with an inflection class, evaluator nouns, scope words, idioms of at most six tokens. Never a sentence (3.10). Spanish is stored accent-folded.",
  "inflection_classes": {
   "r": "regular: +s +ed +ing",

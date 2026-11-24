@@ -109,10 +109,10 @@
       "version": "2026-11-16.1"
     },
     "versions": {
-      "contract": "0.8",
+      "contract": "0.9",
       "engine": "0.4.0",
       "ir": "1.0",
-      "policy": "2026.11-v7",
+      "policy": "2026.11-v8",
       "translator": "0.4.0",
       "z3": "4.15.0"
     }

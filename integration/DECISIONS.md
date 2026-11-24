@@ -1617,6 +1617,12 @@ rows; it decides nothing about the website. It is not a row of the table above, 
   closure of the reader, eligibility rule 0's call site and the marking context included. The kit's compatibility record accepts
   only policy 2026.11-v7 and contract 0.8; its generated copies and vectors are regenerated with the kit's own tooling. D34 stays
   open as above.
+- **Changed since (c3h, POLICY_VERSION 2026.11-v8, contract 0.9):** the reader's rules are `selfcert-4`, which fail closed where
+  `selfcert-3` freed own-scope text or stopped reading (the readings `src/epinoic_logic/version.py` lists: the possibility frame
+  and the corrected-form key of a label pair reverted, a year or a date never naming a data source, own verdicts read in every
+  window of a long sentence, no cap on the pieces read, every word-count line read as D7 reads it). The kit's compatibility
+  record accepts only policy 2026.11-v8 and contract 0.9; its generated copies and vectors are regenerated with the kit's own
+  tooling. D34 stays open as above.
 
 ### D35. Translator branches for Geography and Language B
 
