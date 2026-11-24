@@ -2959,3 +2959,12 @@ Measured results only.
   regression: a wrong Geography figure inside an insertion after the total row's own phrase ('Energy supply per
   person, at about 11.8 GJ in 2025, was high.') now gets no check where `08c4a36b` and `67bc64ec` gave it a
   counterexample (12 of 12 such wrong lines in its sweep); none of them is shown as checked.
+
+### Progress, 17:00 UTC (24 November)
+- The push check of `84aff95c` held it. It confirms the named fixes and the version bump and found no infection. It
+  holds on a wrong Geography figure shown as checked that `84aff95c` introduced (a figure inside a bracket or dash
+  insertion that holds a nested comparison is read against the compared row: 'Coal (which, unlike natural gas,
+  supplied about 9.3 GJ per person in 2025) declined.'), on wrong figures after a total-row noun that now get no check
+  instead of a counterexample, on the self-certification class (fresh phrasings missed at 2.1% to 6.25% across five
+  probes) and on near variants of the D-a and D-e lines. Nothing new is uploaded; the handoff documents on
+  `docs/final-z3-handoff` are refreshed with this result.
