@@ -15,7 +15,7 @@ import re
 from bisect import bisect_left, bisect_right
 from functools import lru_cache
 
-__all__ = ["insertion_spans", "masked", "span_holding"]
+__all__ = ["insertion_spans", "masked", "nested_parts", "span_holding"]
 
 #: English words that open a clause of their own (it has a verb): its span runs to the next delimiter, or to just before a second finite
 #: verb when none comes first ('as gas use rose was about 9.3 GJ': the main clause resumes at 'was').
@@ -38,6 +38,22 @@ _MID_CLAUSE = r"while|whilst|whereas|although|though|even\s+though|even\s+as|bec
 _FLAGS = re.IGNORECASE
 _DELIMITED_OPEN_RE = re.compile(r"(?:^|(?<=[,;:(\[–—])|(?<=[.!?] ))[ \t]*+(?:(?:and|y|but|pero)[ \t]*+,?[ \t]*+)?(?P<w>" + _EN_CLAUSE + "|" + _EN_PHRASE + "|"
                                 + _ES_OPEN + r")\b", _FLAGS)
+#: Comparisons that open a phrase after a delimiter, read only where a caller asks for them (``compare=True``: the Geography table
+#: readers; follow-up 7): a comparative with 'than' ('more than hydroelectric power', 'bigger than coal'), a substitution or a ranking
+#: ('instead of', 'in place of', 'behind', 'exceeding'), and the Spanish forms ('en comparación con', 'más que', 'mayor que'). The noun
+#: of such a phrase is set against the clause's own noun and never names its row ('Oil, more than hydroelectric power, roughly 11.4
+#: GJ per person in 2025, fell back.' is oil's figure). The other readers keep the openers they had.
+_COMPARE_OPEN = (r"(?:more|less|fewer|other|[^\W\d_]{2,20}er)\s+than|instead\s+of|in\s+place\s+of|in\s+preference\s+to|as\s+against|"
+                 r"versus|vs\.?|contrary\s+to|next\s+to|beside|against|differently\s+from|different\s+from|behind|ahead\s+of|exceeding|"
+                 r"outweighing|outstripping|surpassing|outpacing|overtaking|trailing|en\s+comparaci[oó]n\s+con|"
+                 r"(?:m[aá]s|menos|mayor(?:es)?|menor(?:es)?|igual)\s+que|superior(?:es)?\s+a|inferior(?:es)?\s+a|en\s+lugar\s+de|"
+                 r"en\s+vez\s+de|por\s+encima\s+de|por\s+debajo\s+de|al\s+igual\s+que")
+_DELIMITED_CMP_OPEN_RE = re.compile(r"(?:^|(?<=[,;:(\[–—])|(?<=[.!?] ))[ \t]*+(?:(?:and|y|but|pero)[ \t]*+,?[ \t]*+)?(?P<w>" + _COMPARE_OPEN + "|"
+                                    + _EN_CLAUSE + "|" + _EN_PHRASE + "|" + _ES_OPEN + r")\b", _FLAGS)
+#: Comparisons read in mid-clause with no delimiter before them, for ``compare=True`` only ('Coal unlike natural gas supplied about 11.8
+#: GJ ...': the phrase runs to the first finite verb). A comparative with 'than' is left out: 'more than 11 GJ' bounds a figure.
+_MID_CMP_OPEN_RE = re.compile(r"(?<=\w[ \t])(?P<w>unlike|compared\s+(?:with|to)|rather\s+than|as\s+opposed\s+to|in\s+contrast\s+(?:to|with)|"
+                              r"instead\s+of|in\s+place\s+of|a\s+diferencia\s+de|en\s+comparaci[oó]n\s+con)\b", _FLAGS)
 _MID_OPEN_RE = re.compile(r"(?<=[^\W\d_][ \t])(?P<w>" + _MID_CLAUSE + r")\b", _FLAGS)
 _ANY_OPEN_RE = re.compile(r"(?<![\w-])(?P<w>after|as|with|without|despite|since|before|when|whenever|while|whilst|although|though|because|"
                           r"compared\s+(?:with|to)|unlike|than|in\s+spite\s+of)\b", _FLAGS)
@@ -125,9 +141,11 @@ class _Marks:
 
 
 @lru_cache(maxsize=512)
-def insertion_spans(text: str, anywhere: bool = False) -> tuple[tuple[int, int], ...]:
+def insertion_spans(text: str, anywhere: bool = False, compare: bool = False) -> tuple[tuple[int, int], ...]:
     """The insertions of ``text`` as sorted, disjoint ``(start, end)`` spans (the outermost of nested ones). With ``anywhere``, an
-    opener in mid-clause opens one too (the shared table reader's frame: 'Imports made up 54% after coal declined')."""
+    opener in mid-clause opens one too (the shared table reader's frame: 'Imports made up 54% after coal declined'). With ``compare``,
+    a comparison of :data:`_COMPARE_OPEN` after a delimiter opens one too ('Oil, more than hydroelectric power, roughly 11.4 GJ'), and
+    one of :data:`_MID_CMP_OPEN_RE` in mid-clause ('Coal unlike natural gas supplied ...')."""
     marks = _Marks(text)  # (the whole text: no bound leaves an insertion of a long sentence unread)
     raw: list[tuple[int, int]] = []
     # brackets (an unclosed one runs to the sentence's end)
@@ -154,7 +172,7 @@ def insertion_spans(text: str, anywhere: bool = False) -> tuple[tuple[int, int],
             e = re.compile(r"[.!?](?=\s|$)|\n").search(text, dashes[i].end())
             raw.append((a, e.start() if e else len(text)))
     # clauses and phrases opened after a delimiter or at the start
-    for m in _DELIMITED_OPEN_RE.finditer(text):
+    for m in (_DELIMITED_CMP_OPEN_RE if compare else _DELIMITED_OPEN_RE).finditer(text):
         w = " ".join(m.group("w").lower().split())
         if w == "as" and _AS_COMPARE_AFTER_RE.match(text, m.end()):
             continue
@@ -170,6 +188,9 @@ def insertion_spans(text: str, anywhere: bool = False) -> tuple[tuple[int, int],
         if w == "as" and (_AS_COMPARE_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()) or _AS_COMPARE_AFTER_RE.match(text, m.end())):
             continue
         raw.append((m.start(), marks.close(m.end(), w in _CLAUSE_WORDS)))
+    if compare:
+        for m in _MID_CMP_OPEN_RE.finditer(text):
+            raw.append((m.start(), marks.close(m.end(), False)))
     # a comma-delimited apposition between a subject and its verb ('Imported energy, mostly oil and gas, was ...', 'Energy supply per
     # person, coal aside, was ...'): the words before it have no verb and a verb follows it
     commas = [m.start() for m in re.finditer(r",", text)]
@@ -199,6 +220,69 @@ def insertion_spans(text: str, anywhere: bool = False) -> tuple[tuple[int, int],
         else:
             out.append([a, b])
     return tuple((a, b) for a, b in out)
+
+
+#: The parts nested inside an insertion whose nouns never name the row of a figure the insertion holds (follow-up 7, push check of
+#: 84aff95c: 'Coal (which, unlike natural gas, supplied about 9.3 GJ per person in 2025) declined.' had read the figure against the
+#: compared row). Three kinds: a comparison ('c': 'unlike', 'like', 'than', 'rather than', 'compared with', 'as opposed to', 'in
+#: contrast to', 'whereas', 'while', 'as ... did', and a substitution or ranking: 'instead of', 'in place of', 'beside', 'against',
+#: 'behind', 'exceeding', 'outweighing'; Spanish 'a diferencia de', 'en comparación con', 'más que', 'mayor que', 'en lugar de', 'frente
+#: a'); a phrase that joins another item to the noun, names an example of it or sets it apart ('j': 'with', 'together with',
+#: 'alongside', 'as well as', 'including', 'such as', 'for example', 'apart from'), after which the figure may be the noun's or the items' together; and another subordinate clause or phrase ('s': 'after',
+#: 'although', 'because', 'despite'). The longer openers come first in each kind, the joining kind first ('as well as' before 'as').
+_NEST_OPEN_RE = re.compile(
+    r"(?<![\w-])(?:(?P<j>such\s+as|for\s+example|for\s+instance|e\.\s*g\.|together\s+with|along\s+with|alongside|as\s+well\s+as|combined\s+with|in\s+addition\s+to|including|excluding|"
+    r"except|apart\s+from|aside\s+from|besides|plus|with|without|junto\s+con|adem[aá]s\s+de|con|sin)"
+    r"|(?P<c>rather\s+than|(?:more|less|fewer|other|[^\W\d_]{2,20}er)\s+than|instead\s+of|in\s+place\s+of|in\s+preference\s+to|"
+    r"as\s+against|next\s+to|beside|against|differently\s+from|different\s+from|behind|ahead\s+of|exceeding|outweighing|outstripping|surpassing|outpacing|overtaking|trailing|"
+    r"(?:mayor(?:es)?|menor(?:es)?|igual)\s+que|superior(?:es)?\s+a|inferior(?:es)?\s+a|en\s+lugar\s+de|en\s+vez\s+de|"
+    r"por\s+encima\s+de|por\s+debajo\s+de|compared\s+(?:with|to)|in\s+comparison\s+(?:with|to)|relative\s+to|as\s+opposed\s+to|"
+    r"in\s+contrast\s+(?:with|to)|"
+    r"by\s+contrast\s+with|contrary\s+to|similar\s+to|unlike|like|than|versus|vs\.?|whereas|while|whilst|as|a\s+diferencia\s+de|"
+    r"en\s+comparaci[oó]n\s+con|frente\s+a|al\s+igual\s+que|m[aá]s\s+que|menos\s+que|mientras(?:\s+que)?|como|que)"
+    r"|(?P<s>even\s+though|although|though|because|since|whenever|when|after|before|once|unless|until|if|despite|in\s+spite\s+of|"
+    r"given\s+that|aunque|cuando|porque|ya\s+que|tras|despu[eé]s\s+de|antes\s+de|a\s+pesar\s+de|pese\s+a))(?![\w-])", _FLAGS)
+#: The clause kinds close at the second finite verb, the phrase kinds at the first (as :class:`_Marks` reads an insertion's end).
+_NEST_CLAUSE_WORDS = frozenset("whereas while whilst as mientras although though because since whenever when after before once unless until "
+                               "if aunque cuando porque".split())
+_NEST_DASH_RE = re.compile(r"\s[-–—]\s|—|–(?=[^\W\d_])")
+
+
+@lru_cache(maxsize=64)
+def _marks_of(text: str) -> _Marks:
+    """The delimiters and finite verbs of ``text``, found once per text (the same text object hashes once)."""
+    return _Marks(text)
+
+
+def nested_parts(text: str, lo: int, hi: int) -> tuple[tuple[int, int, str], ...]:
+    """The parts nested inside the insertion whose words run from ``lo`` to ``hi`` of ``text`` (its own delimiters left out), as
+    ``(start, end, kind)`` sorted by start: each opener of :data:`_NEST_OPEN_RE` with its words (kind 'c', 'j' or 's', to the next
+    delimiter or to the verb where the insertion's own clause resumes, as :func:`insertion_spans` closes an insertion), and each inner
+    bracket or pair of dashes (kind 'b'). Ends are clipped to ``hi``. One pass over the insertion with a bisection per opener, so the
+    cost is linear in the insertion's length."""
+    if hi <= lo:
+        return ()
+    marks = _marks_of(text)
+    out: list[tuple[int, int, str]] = []
+    for m in _NEST_OPEN_RE.finditer(text, lo, hi):
+        kind = "j" if m.group("j") else "c" if m.group("c") else "s"
+        w = " ".join(m.group(0).lower().split())
+        out.append((m.start(), min(hi, marks.close(m.end(), w in _NEST_CLAUSE_WORDS)), kind))
+    stack: list[int] = []
+    for m in re.finditer(r"[()\[\]]", text[lo:hi]):
+        if m.group(0) in "([":
+            stack.append(lo + m.start())
+        elif stack:
+            out.append((stack.pop(), lo + m.end(), "b"))
+    for a in stack:
+        out.append((a, hi, "b"))
+    dashes = [m for m in _NEST_DASH_RE.finditer(text, lo, hi)]
+    for i in range(0, len(dashes) - 1, 2):
+        out.append((dashes[i].start(), dashes[i + 1].end(), "b"))
+    if len(dashes) % 2:
+        out.append((dashes[-1].start(), hi, "b"))
+    out.sort()
+    return tuple(out)
 
 
 def span_holding(spans: tuple[tuple[int, int], ...], starts: list[int], at: int):

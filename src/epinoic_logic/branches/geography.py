@@ -64,7 +64,7 @@ from typing import Optional
 from ..translate.contracts import SpecialistReport, StructuralFinding, SuppliedText
 from .base import FormalCheck
 from .grounded_figures import FUNCTION_WORDS as _FUNCTION_WORDS
-from .insertions import _EN_FINITE_RE, insertion_spans, masked, span_holding
+from .insertions import _EN_FINITE_RE, _NEST_OPEN_RE, insertion_spans, masked, nested_parts, span_holding
 
 __all__ = ["GeographyPack", "decided_statements", "unknown_supports_findings"]
 
@@ -910,7 +910,7 @@ def _table_figures(ctx: _Ctx, s: _Sentence, tables: list[_AttrTable]) -> None:
         if figure is None:
             _table_cells(ctx, s, table, credited)  # a figure further from its column word ("66% of ground-floor units at Site 4")
             continue
-        spans = insertion_spans(s.text)
+        spans = insertion_spans(_dash_fold(s.text), compare=True)
         if spans:
             # the column word and the row are the figure's own clause's: a figure outside every insertion takes neither from inside one,
             # a figure inside one takes its column word from that one (push check of 08c4a36b: 'The pedestrian count, as retail use
@@ -988,7 +988,7 @@ def _table_cells(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bool) -> 
     # each clause of a contrast is read alone ("... at Site 10, while retail use fell from 92% to 0%"); a contrast inserted between a
     # subject and its verb ("The pedestrian count at site 2, although the EQS was low, was 186") is an insertion of the clause around
     # it, which reads it blanked (push check of 08c4a36b)
-    spans = insertion_spans(s.text)
+    spans = insertion_spans(_dash_fold(s.text), compare=True)
     starts_ = [a for a, _b in spans]
     pos = 0
     for m in _CONTRAST_SPLIT_RE.finditer(s.text):
@@ -1028,6 +1028,7 @@ _CONTRAST_SPLIT_RE = re.compile(r";|,\s*+(?:while|whereas|but|although|though|ye
 
 def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bool, text: str) -> None:
     from .grounded_figures import _half, _number
+    text = _dash_fold(text)
     noun = table.row_noun
     toks = list(_TOKEN_RE.finditer(text))
     if len(toks) > 400:
@@ -1073,7 +1074,7 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
     # a figure outside every insertion (a subordinate or parenthetical clause, an apposition) is read with no column word and no row
     # of one, and its clause cuts are read with the insertions blanked ('At site 2 the EQS, with pedestrian numbers high, was 186.' is
     # the EQS: push check of 08c4a36b); a figure inside one keeps its own clause's words
-    spans = insertion_spans(text)
+    spans = insertion_spans(text, compare=True)
     starts_ = [a for a, _b in spans]
     plain_text, plain_mentions = text, mentions
     if spans:
@@ -1087,15 +1088,39 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
             n_out += 0 if x else 1
     rank_all = range(len(toks))
     last_col = None
+    nests: dict = {}
     for i, t in enumerate(toks):
         if i in in_mention or not t.group(0)[0].isdigit():
             continue
         if spans and not inside[i]:
             colpos, text, mentions, rk = colpos_out, blank, mentions_out, rank_out  # (distances counted in the words outside)
+            tags = _label_tag_mentions(plain_text, t.start(), toks, plain_mentions, inside, spans, starts_, nests)
+            if tags is not None:
+                if not tags:
+                    continue  # (the label names two rows, in its brackets or around them: not determined)
+                mentions = sorted(mentions + tags)  # ('Pedestrian count (site 4): 88.': the label's bracketed row name; follow-up 7)
             if not mentions:
                 continue
         else:
             colpos, text, mentions, rk = colpos_all, plain_text, plain_mentions, rank_all
+        ctext = text
+        if not spans or not inside[i]:
+            # (a label before a colon: 'Site 2 compared with site 5: a pedestrian count of 88.' is site 2's; follow-up 7)
+            mentions = _label_nesting(text, t.start(), toks, mentions, nests)
+            if not mentions:
+                continue
+        else:
+            if spans:
+                # (a row named inside a part nested in the figure's insertion, 'Site 2, which, unlike site 5, had a pedestrian count of
+                # 88, ...', never names the figure's row; where that part holds the figure, joins another row, or has a relative clause
+                # after it, the row is not determined: no check; follow-up 7, push check of 84aff95c)
+                held = span_holding(spans, starts_, t.start())
+                mentions = _cell_nesting(plain_text, held, t.start(), toks, plain_mentions, nests)
+                if not mentions:
+                    continue
+                ctext = _cell_nest_blank(plain_text, held, t.start(), nests)  # (its column read past the nested parts, 'Site 4,
+                # whose EQS, unlike site 6, was 16, ...': the column word before the part is the figure's own; follow-up 7; only the
+                # column's clause cuts are read on it, every other test of the figure on its own words)
         shown = t.group(0)
         if re.fullmatch(r"(?:1[89]\d{2}|20\d{2})", shown):
             continue
@@ -1108,9 +1133,9 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
         # fell by 13 points' reads 97 as the count, never as the EQS: check round 12 of c3f); with no column near, the one its own clause
         # names before it
         near = sorted((abs(rk[j] - rk[i]), c) for j, c in colpos
-                      if abs(rk[j] - rk[i]) <= 4 and not (j > i and _CELL_CLAUSE_CUT_RE.search(text, t.end(), toks[j].start())))
+                      if abs(rk[j] - rk[i]) <= 4 and not (j > i and _CELL_CLAUSE_CUT_RE.search(ctext, t.end(), toks[j].start())))
         if not near:
-            own = [(rk[i] - rk[j], c) for j, c in colpos if rk[i] - 8 <= rk[j] and j < i and not _CELL_CLAUSE_CUT_RE.search(text, toks[j].end(), t.start())]
+            own = [(rk[i] - rk[j], c) for j, c in colpos if rk[i] - 8 <= rk[j] and j < i and not _CELL_CLAUSE_CUT_RE.search(ctext, toks[j].end(), t.start())]
             near = own[-1:]
         if near and len(near) > 1 and near[0][0] == near[1][0] and near[0][1] != near[1][1]:
             continue
@@ -1184,6 +1209,141 @@ def _table_cells_clause(ctx: _Ctx, s: _Sentence, table: _AttrTable, credited: bo
 
 
 _CELL_CLAUSE_CUT_RE = re.compile(r"[,;:]|\b(?:while|whilst|whereas|but)\b", re.IGNORECASE)
+
+
+def _cell_nest_blank(text: str, span: tuple[int, int], at: int, cache: dict) -> str:
+    """``text`` with the parts nested in the insertion ``span`` blanked with the comma before and after each (the same length), when no
+    part holds the figure at ``at``: the figure's column word before a part is then its own clause's ('Site 4, whose EQS, unlike site
+    6, was 16'). Built once per insertion (the parts :func:`_cell_nesting` read)."""
+    lo, parts = cache[span]
+    if not parts or any(a <= at < b for a, b, _k in parts):
+        return text
+    got = cache.get(("blank", span))
+    if got is None:
+        out = list(text)
+        for a, b, _k in parts:
+            x = a
+            while x > lo and text[x - 1] in " \t":
+                x -= 1
+            if x > lo and text[x - 1] == ",":
+                x -= 1
+            y = b
+            while y < span[1] and text[y] in " \t":
+                y += 1
+            if y < span[1] and text[y] == ",":
+                y += 1
+            out[x:y] = " " * (y - x)
+        got = cache[("blank", span)] = "".join(out)
+    return got
+
+
+def _label_tag_mentions(text: str, at: int, toks: list, mentions: list, inside: list, spans: tuple, starts: list,
+                        cache: dict) -> Optional[list]:
+    """The row mention of a bracket in the label before the figure's colon that holds only that row's name ('Pedestrian count (site
+    4): 88.', 'EQS [site 4]: 18.'): [mention]; [] when such brackets name two rows or the label's words outside them name another
+    row; None when the figure follows no label or no bracket of its label holds only a row's name (a comparison, 'Site 2 (unlike site
+    5):', stays an insertion that never names the row). The label runs from the last colon, semicolon or line break before its colon,
+    at most 160 characters; read once per label (the clause is at most 400 tokens)."""
+    colon = text.rfind(":", 0, at)
+    if colon < 0:
+        return None
+    key = ("tag", colon)
+    if key in cache:
+        return cache[key]
+    lo = max(text.rfind(c, 0, colon) for c in ";:\n") + 1
+    got: Optional[list] = None
+    if colon - lo <= 160:
+        where = [toks[m[0]].start() for m in mentions]
+        k = bisect_left(starts, lo)
+        while k < len(spans) and spans[k][0] < colon:
+            a, b = spans[k]
+            k += 1
+            inner = text[a:min(b, colon)].strip(" \t,")
+            if b > colon + 1 or inner[:1] not in "([" or inner[-1:] not in ")]":
+                continue
+            held = [m for m, p in zip(mentions, where) if a <= p < b]
+            if len(held) != 1:
+                continue
+            m = held[0]
+            if " ".join(inner[1:-1].lower().split()) != " ".join(text[toks[m[0]].start():toks[m[1]].end()].lower().split()):
+                continue
+            if got and got[0][2] != m[2]:
+                got = []
+                break
+            got = [m]
+        if got:
+            if any(not inside[m[0]] and lo <= p < colon and m[2] != got[0][2] for m, p in zip(mentions, where)):
+                got = []
+    cache[key] = got
+    return got
+
+
+def _label_nesting(text: str, at: int, toks: list, mentions: list, cache: dict) -> list:
+    """The row mentions a figure at ``at`` after a label and its colon may be read with ('Site 2 compared with site 5: a pedestrian
+    count of 88.'): those outside the parts nested in the label (:func:`.insertions.nested_parts`, a comparison never names the row);
+    [] (no check) when a joining phrase there names a row ('Site 2 with site 5: 274'). The mentions as given when no colon stands
+    before the figure. The label runs from the last semicolon or line break before the colon; the clause is at most 400 tokens, so
+    the pass per figure is bounded."""
+    colon = text.rfind(":", 0, at)
+    if colon < 0:
+        return mentions
+    parts = cache.get(("label", colon))
+    if parts is None:
+        lo = max(text.rfind(";", 0, colon), text.rfind("\n", 0, colon)) + 1
+        parts = cache[("label", colon)] = (lo, nested_parts(text, lo, colon))
+    lo, parts = parts
+    if not parts:
+        return mentions
+    where = [toks[m[0]].start() for m in mentions]
+    keep = [True] * len(mentions)
+    for a, b, kind in parts:
+        inside = [k for k, p in enumerate(where) if a <= p < b]
+        if inside and kind == "j":
+            return []
+        for k in inside:
+            keep[k] = False
+    return [m for m, k in zip(mentions, keep) if k]
+
+
+def _cell_nesting(text: str, span: tuple[int, int], at: int, toks: list, mentions: list, cache: dict) -> list:
+    """The row mentions a figure at ``at`` inside the insertion ``span`` may be read with: those outside the parts nested in the
+    insertion (:func:`.insertions.nested_parts`: a comparison, another subordinate clause or phrase, a joining phrase, an inner bracket
+    or dash pair), as :meth:`_YtIndex.attached` reads a year table; [] (no check) when the figure stands in such a part that names a row
+    ('than the 97 counted at site 4'; but for a joining phrase that opens the insertion: its own words), or when a part before it
+    joins a named row or is followed by a relative clause. The clause is at most 400 tokens, so the per-figure pass over its parts is
+    bounded."""
+    parts = cache.get(span)
+    if parts is None:
+        lo = _YT_SPAN_OPEN_RE.match(text, span[0], span[1]).end()
+        hi = span[1]
+        while hi > lo and text[hi - 1] in " \t,;:)]–—-":
+            hi -= 1
+        parts = cache[span] = (lo, nested_parts(text, lo, hi))
+    lo, parts = parts
+    if not parts:
+        return mentions
+    where = [toks[m[0]].start() for m in mentions]
+    keep = [True] * len(mentions)
+    for a, b, kind in parts:
+        named_before = [k for k, p in enumerate(where) if a <= p < min(b, at)]
+        if a <= at < b:
+            if a == lo:
+                held = [k for k, p in enumerate(where) if a <= p < at]
+                if held:
+                    link = _YT_AT_LINK_RE.fullmatch(text, toks[mentions[held[-1]][1]].end(), at)
+                    if link is not None and (kind == "j" or "," not in link.group(0)):
+                        return [mentions[held[-1]]]  # ("Site 3 (compared with site 4 at 15)": an 'at' phrase right after the noun of the
+                        # part that opens the insertion is that noun's figure, as the year table reads it)
+            if any(a <= p < b for p in where) and not (kind == "j" and a == lo):
+                return []  # (the part holding the figure names a row, before or after it: "than the 97 counted at site 4")
+            if kind == "j" and a == lo:
+                continue  # (its own words: 'Site 4, with site 2 at 186, ...' keeps the reading it had)
+        elif b <= at and named_before and (kind == "j" or _YT_REL_AFTER_RE.match(text, b)):
+            return []
+        for k, p in enumerate(where):
+            if a <= p < b:
+                keep[k] = False
+    return [m for m, k in zip(mentions, keep) if k]
 
 
 _TABLE_COUNT_RE = re.compile(r"\b(?:(?:the|your|my|our)\s+(?:data\s+)?table\s+(?:shows?|has|lists?|gives?|contains?|records?|covers?)|data\s+from|my|our|there\s+are)\s++"
@@ -1387,6 +1547,18 @@ _BY_ALONE_RE = re.compile(r"\b(?:" + _CHANGE_VERB + r")\s++by\s++(?P<rel>(?!))?(
 
 #: A word that fixes a change "by N%" of a share row as the relative change, not the change in points.
 _RELATIVE_WORD_RE = re.compile(r"\b(?:relative|relatively|proportional|proportionally|in\s+relative\s+terms)\b", re.IGNORECASE)
+
+
+#: An ASCII dash typed as two or three hyphens ('Coal -- unlike natural gas, roughly 9.3 GJ ... -- declined.'): read as the dash it
+#: stands for (follow-up 7), each written in place of the first hyphen with the others turned into spaces, so every offset holds.
+_ASCII_DASH_RE = re.compile(r"(?<!-)-{2,3}(?!-)")
+
+
+def _dash_fold(text: str) -> str:
+    """``text`` with each ASCII double or triple hyphen as an em dash and spaces (the same length: a figure's offsets hold)."""
+    if "--" not in text:
+        return text
+    return _ASCII_DASH_RE.sub(lambda m: "—" + " " * (len(m.group(0)) - 1), text)
 
 
 @lru_cache(maxsize=256)
@@ -1829,7 +2001,7 @@ _YT_OPENING_YEAR_RE = re.compile(r"\s*+(?:in|by|during)\s++(?P<y>1[89]\d{2}|20\d
 #: supplying about 1.7 GJ ...', 'Coal, supplied at about 11.8 GJ ...'), an apposition opened by an article ('Coal, a source that ...') and
 #: a bare figure in a comma pair, a bracket or a pair of dashes ('Oil (about 11.4 GJ per person in 2025) changed least').
 _YT_MODIFIER_OPEN_RE = re.compile(r"[\s,;(\[–—-]*+(?P<w>[A-Za-z][A-Za-z'’-]*|\d|~)", re.IGNORECASE)
-_YT_MODIFIER_WORDS = frozenset("which that who whom whose at a an the about around roughly approximately approx nearly almost some circa "
+_YT_MODIFIER_WORDS = frozenset("which that who whom whose at a an the one about around roughly approximately approx nearly almost some circa "
                                "ca c".split())
 _YT_DELIMITED_RE = re.compile(r"\s*+(?:,|\(|\[|[-–—])")
 #: A part of no stated size before "of" and the figure ("a share of about 42 GJ", "part of the 42 GJ"): the figure may be the whole or
@@ -1842,6 +2014,145 @@ _YT_VAGUE_PART_BEFORE_RE = re.compile(r"\b(?:share|shares|part|parts|fraction|pr
 _YT_WHOLE_BEFORE_RE = re.compile(r"(?:%|\bper\s?cent|\b(?:quarter|quarters|third|thirds|half|fifth|fifths|tenth|tenths)|\d)\s++of\s++"
                                  r"(?:the\s++|a\s++total\s++of\s++|about\s++|around\s++|roughly\s++|approximately\s++|"
                                  r"nearly\s++|almost\s++|some\s++|just\s++(?:over|under)\s++)*+\Z", re.IGNORECASE)
+
+
+#: Words between a noun and a modifier's comma that only open the modifier: a participle ('providing', 'estimated') or an apposition's
+#: head with its relative word ('a source that', 'one source which'). Read as a fullmatch of the stretch, which holds no row.
+_YT_HEAD_SKIP_RE = re.compile(r"\s*+(?:[A-Za-z]{2,30}(?:ing|ed)|(?:a|an|one)\s++[A-Za-z]{2,30}(?:\s++[A-Za-z]{2,30})?\s++(?:that|which|who))\s*+\Z",
+                              re.IGNORECASE)
+#: The figure right after an amount and "of" ("294 PJ of the 1,050 PJ total", "11.8 GJ of the 42 GJ"): the whole the amount is part of.
+_YT_AMOUNT_WHOLE_BEFORE_RE = re.compile(r"\d\s*+[A-Za-z]{1,4}\s++of\s++(?:(?:the|a|an|about|around|roughly|approximately|nearly|almost|some)\s++)*+\Z",
+                                        re.IGNORECASE)
+#: An 'at' phrase opening right before a figure ("site 4 at 15", "natural gas, at about 9.3"): read at the end of the stretch before it.
+_YT_AT_LINK_RE = re.compile(r"[\s,]*+\bat\s++(?:(?:about|around|roughly|approximately|approx\.?|nearly|almost|some|circa|just\s++(?:over|under))\s++)*+\Z",
+                            re.IGNORECASE)
+#: The opening of an insertion: its delimiters and spaces (the nested parts are read in its words after them).
+_YT_SPAN_OPEN_RE = re.compile(r"[\s,;:(\[–—-]*+")
+#: A relative clause right after a nested part ('Coal (unlike natural gas, which supplied about 9.3 GJ ...)'): it may attach to the
+#: part's own noun, so a later figure's row is not determined.
+_YT_REL_AFTER_RE = re.compile(r"[\s,;:)\]–—-]*+(?:which|who|whom|whose|that)\b", re.IGNORECASE)
+#: Words of a phrase naming a table's total row that are not its label's ('Energy supply per person', 'Average energy supply per head',
+#: 'Each person's energy supply'): the per-person words, 'total' and its near synonyms.
+_YT_TOTAL_FILLER = frozenset("per person persons people head capita inhabitant inhabitants resident residents each total overall average "
+                             "mean national primary".split())
+
+
+@lru_cache(maxsize=64)
+def _yt_total_of(table) -> Optional[tuple[str, frozenset, str]]:
+    """The total row of a year table: the one row whose label says 'total' and is held as an amount, never a share ('Total primary
+    energy supply (petajoules, PJ)'), as (entity, its label's own words less the filler words, its label's head word); None when
+    there is not exactly one."""
+    rows = _yt_rows(table)
+    found = [e for e, r in rows.items() if r and re.search(r"\btotal\b", e, re.IGNORECASE) and all(c.unit != "%" for c in r.values())]
+    if len(found) != 1:
+        return None
+    words = [w for w in (_yt_word(x) for x in _YT_WORD_RE.findall(re.sub(r"\([^)]*\)", "", found[0]))) if len(w) >= 3 and w not in _FUNCTION_WORDS]
+    if not words:
+        return None
+    return found[0], frozenset(words) - _YT_TOTAL_FILLER, words[-1]
+
+
+#: The owner a supplied document's title names in the possessive ("Ostrel's energy mix, 2005 and 2025"): the country whose total the
+#: document's tables give.
+_YT_OWNER_RE = re.compile(r"\W*+(?P<n>[A-Z][A-Za-z-]{1,30}(?:\s+[A-Z][A-Za-z-]{1,30}){0,2})['’]s\s")
+
+
+@lru_cache(maxsize=64)
+def _yt_owner(text: str) -> frozenset:
+    """The words of the owner the document's first line names in the possessive, lower case (empty when it names none)."""
+    first = next((ln for ln in text.splitlines()[:3] if ln.strip()), "")[:200]
+    m = _YT_OWNER_RE.match(first)
+    return frozenset(_yt_word(w) for w in m.group("n").split()) if m else frozenset()
+
+
+def _yt_total_arg(ctx: "_Ctx", table) -> Optional[tuple]:
+    """The total row of ``table`` with its owner's words, for :meth:`_YtIndex.attached` (None when the table has no one total row)."""
+    tot = _yt_total_of(table)
+    if tot is None:
+        return None
+    doc = next((t.text for t in (ctx.report.supplied_texts or ()) if t.document_id == table.document_id), "")
+    return tot + (_yt_owner(doc),)
+
+
+def _yt_total_named(text: str, lo: int, hi: int, total: tuple) -> bool:
+    """Whether the noun phrase ``text[lo:hi]`` is the total row's own phrase: its words (less function and filler words) are the
+    owner's name ('Ostrel'), or the label's own words with its head word ('Energy supply', 'Energy supply per person', 'Ostrel's
+    primary energy supply'), or the word 'total' alone with filler words ('Total', 'The total per person'). A phrase longer than 160
+    characters is none (a bound, so the reading stays constant per figure)."""
+    if hi - lo > 160:
+        return False
+    _entity, label, head, owner = total
+    all_ws = [w for w in (_yt_word(m.group(0)) for m in _YT_WORD_RE.finditer(text, lo, hi)) if w not in _FUNCTION_WORDS]
+    ws = {w for w in all_ws if w not in _YT_TOTAL_FILLER}
+    if not ws:
+        return "total" in all_ws  # (the word 'total' alone, 'Total:', 'The total, at about 42 GJ ...': the table's one total row)
+    if owner and ws <= owner:
+        return True
+    rest = ws - owner
+    return bool(rest) and rest <= label and head in rest
+
+
+class _YtNest:
+    """The parts nested inside one insertion (:func:`.insertions.nested_parts`), read once: their union (disjoint, each with the kind
+    of its first part) and, per table, the insertion's row words outside them and whether a figure after a part has an undetermined
+    row (a joining phrase that names a row, or a part naming a row with a relative clause right after it)."""
+
+    def __init__(self, text: str, parts: tuple, lo: int, hi: int):
+        self.text = text
+        self.parts = parts
+        unions: list[list] = []
+        for a, b, k in parts:
+            if unions and a < unions[-1][1]:
+                unions[-1][1] = max(unions[-1][1], b)
+            else:
+                unions.append([a, b, k])
+        self.unions = [tuple(u) for u in unions]
+        self.starts = [u[0] for u in self.unions]
+        self.lo, self.hi = lo, hi
+        self._per: dict = {}
+
+    def union_at(self, at: int) -> Optional[tuple]:
+        k = bisect_right(self.starts, at) - 1
+        if k >= 0 and self.unions[k][0] <= at < self.unions[k][1]:
+            return self.unions[k]
+        return None
+
+    def _of(self, index: "_YtIndex", table) -> tuple:
+        got = self._per.get(id(table))
+        if got is not None and got[0] is table:
+            return got
+        rows, events, where = index._events(table)
+        bad = [False] * len(self.unions)
+        for k, (a, b, _k) in enumerate(self.unions):
+            if index._rows_in(table, a, b) and _YT_REL_AFTER_RE.match(self.text, b):
+                bad[k] = True
+        for a, b, kind in self.parts:
+            if kind == "j" and index._rows_in(table, a, b):
+                bad[bisect_right(self.starts, a) - 1] = True
+        prefix, acc = [], False
+        for x in bad:
+            acc = acc or x
+            prefix.append(acc)
+
+        def outside(ps: list) -> list:
+            i, j = bisect_left(ps, self.lo), bisect_left(ps, self.hi)
+            return [p for p in ps[i:j] if self.union_at(p) is None]
+        words = {w for row in rows for w in row.words}
+        view = ({r: outside(ps) for r, ps in events.items()}, {w: outside(where[w]) for w in words if w in where})
+        got = self._per[id(table)] = (table, view, prefix)
+        return got
+
+    def rows(self, index: "_YtIndex", table) -> tuple:
+        """(events, where) of the insertion's words outside its nested parts."""
+        return self._of(index, table)[1]
+
+    def undetermined_before(self, index: "_YtIndex", table, at: int) -> bool:
+        """Whether a part wholly before ``at`` makes its row undetermined."""
+        prefix = self._of(index, table)[2]
+        k = bisect_right(self.starts, at) - 1
+        if k >= 0 and self.unions[k][1] > at:
+            k -= 1
+        return k >= 0 and prefix[k]
 
 
 def _yt_word(w: str) -> str:
@@ -1889,12 +2200,12 @@ class _YtIndex:
     a9129c78 timed 'Energy supply per person was ' + 'about 38 GJ in 2005, ' * k at 438 s for 40k characters)."""
 
     def __init__(self, text: str, _outer: bool = False):
-        self.text = text
+        text = self.text = _dash_fold(text)
         # the sentence with its insertions blanked (subordinate and parenthetical clauses, appositions: push check of 08c4a36b, where
         # 'Energy supply per person, while coal declined, was about 11.8 GJ' read 'coal' as the subject): a figure outside every insertion
         # is read on it, so no word of an insertion names its row and no verb of one is the subject's; a figure inside one keeps its own
         # clause's reading here
-        self._spans = () if _outer else insertion_spans(text)
+        self._spans = () if _outer else insertion_spans(text, compare=True)
         self._span_starts = [a for a, _b in self._spans]
         self._out = _YtIndex(masked(text, self._spans), _outer=True) if self._spans else None
         self.toks = [(m.start(), _yt_word(m.group(0))) for m in _YT_WORD_RE.finditer(text)]
@@ -1939,16 +2250,25 @@ class _YtIndex:
             return None
         return self._out
 
-    def attached(self, table, at: int) -> Optional[list]:
+    def attached(self, table, at: int, total: Optional[tuple] = None, _within: Optional["_YtIndex"] = None) -> Optional[list]:
         """The rows of the noun a modifier holding the figure at ``at`` belongs to (push check of 67bc64ec: 'Coal, which supplied about
         42 GJ per person in 2025, declined.' was read against the total row): None when the figure stands in no modifier of a noun
         phrase (its clause's readings apply); else the one row (or the listed rows) the modifier's own words name before the figure,
-        else those the noun phrase before it names, and [] when no row is determined that way (the figure then gets no check: never
-        the total row by default). A modifier is a relative or 'whose' clause, an 'at' phrase, a participle phrase, an apposition
-        opened by an article, or a bare figure in a comma pair, a bracket or a pair of dashes, right after a noun phrase with no verb."""
+        else those the noun phrase before it names, else the table's total row where that noun phrase is the total's own phrase
+        (``total``, :func:`_yt_total_named`), and [] when no row is determined that way (the figure then gets no check). A modifier is a
+        relative or 'whose' clause, an 'at' phrase, a participle phrase, an apposition opened by an article, or a bare figure in a comma
+        pair, a bracket or a pair of dashes, right after a noun phrase with no verb; a label before a colon names the row of the figure
+        after it the same way.
+
+        Follow-up 7 (push check of 84aff95c): a noun inside a part nested in the modifier (a comparison, 'unlike natural gas', 'than
+        coal', 'as gas did'; another subordinate clause; an inner bracket or dash pair) never names the row: 'Coal (which, unlike natural
+        gas, supplied about 9.3 GJ per person in 2025) declined.' is coal's figure. Where the figure stands inside such a part that names
+        a row (before or after it), where a joining phrase before it names another item ('together with oil', 'alongside natural gas': the figure
+        may be the items' together), or where a relative clause follows such a part ('unlike natural gas, which supplied ...': it may be
+        the compared noun's), the row is not determined and the figure gets no check."""
         out = self._outside(at)
         if out is not None:
-            return out.attached(table, at)
+            return out.attached(table, at, total, _within=self)  # (the sentence as written, for a label's bracketed row name)
         span = span_holding(self._spans, self._span_starts, at) if self._spans else None
         if span is not None:
             a = span[0]
@@ -1957,16 +2277,36 @@ class _YtIndex:
             if k < 0:
                 return None
             a = self.cut_starts[k]
+        if span is None and not self.text.startswith(":", a):
+            # (a label's colon, then a blanked insertion and its comma: 'Coal: unlike natural gas, about 9.3 GJ ...' is the label's)
+            lo0 = self.clause_start(a)
+            k0 = bisect_right(self.cuts, lo0) - 1
+            if k0 >= 0 and self.cuts[k0] == lo0 and self.text.startswith(":", self.cut_starts[k0]) and not self.text[lo0:a].strip():
+                a = self.cut_starts[k0]
+        if self.text.startswith(":", a) and span is None:
+            return self._label_rows(table, a, at, total, _within or self)
         if not _YT_DELIMITED_RE.match(self.text, a):
             return None  # (a clause opened by a conjunction, or a mid-clause insertion: its own clause's readings)
         m = _YT_MODIFIER_OPEN_RE.match(self.text, a, at + 1)
         if m is None:
             return None
+        mw = m.start("w")
+        view = self._nest_view(table, span) if span is not None else None
+        if view is not None and not view.parts:
+            view = None  # (no nested part: the modifier's words as they stand)
+        own = mw  # (where the modifier's own words begin: after a nested part that opens it and closes before the figure)
+        if view is not None:
+            u = view.union_at(mw)
+            if u is not None and u[0] == mw and u[1] <= at:
+                m2 = _YT_MODIFIER_OPEN_RE.match(self.text, u[1], at + 1)
+                if m2 is None:
+                    return []
+                m, own = m2, m2.start("w")
         w = m.group("w").lower().strip("'’-")
         if m.start("w") == at:
             w = "about"  # (the figure itself opens the modifier: a bare figure)
-        lo = self.clause_start(a)
-        head_has_verb = _YT_VERB_RE.search(self.text, lo, a) is not None or _EN_FINITE_RE.search(self.text, lo, a) is not None
+        lo, head_hi = self._head_span(a)
+        head_has_verb = self._verb_in(lo, a) is not None
         if head_has_verb:
             return None  # (a modifier after a whole clause: the clause readings, unchanged)
         if _YT_VAGUE_PART_BEFORE_RE.search(self.text[max(a, at - 40):at]):
@@ -1975,13 +2315,30 @@ class _YtIndex:
             return None  # (the figure the modifier's own words make the whole, "28% of the 42 GJ per person", "a share of the 42 GJ":
             # the total its clause names, never the head noun's row; c3h check round 14: a correct total was charged)
         if not (w in _YT_MODIFIER_WORDS or (len(w) > 4 and w.endswith(("ing", "ed"))) or w[:1].isdigit() or w == "~"):
-            if _YT_VERB_RE.search(self.text, a, at) is not None or _EN_FINITE_RE.search(self.text, a, at) is not None:
+            if self._verb_in(own, at) is not None:
                 return None  # (a clause of its own after the delimiter, "In 2025, coal supplied 11.8 GJ ...": its own readings)
             # (an opener the list does not know, in a modifier with no verb, "Coal, still about 42 GJ per person in 2025, declined.",
             # "Coal, with about 11.8 GJ ...": read as a known opener is, against the noun's row, or no check; never the total row by
             # default; c3h check round 14)
-        for lo_, hi_ in ((m.start("w"), at), (lo, a)):
-            found = self._rows_in(table, lo_, hi_)
+        own_view = None
+        if view is not None:
+            linked = self._at_linked(table, view, mw, at)
+            if linked is not None:
+                return linked  # (an 'at' phrase right after the noun of a part that opens the modifier, "Site 3 (compared with site 4
+                # at 15)", "Fossil fuels (such as natural gas, at 9.3 GJ ...)": that noun's figure; follow-up 7)
+            u = view.union_at(at)
+            if u is not None and self._rows_in(table, u[0], u[1]):
+                if not (u[0] == mw and u[2] == "j"):
+                    return []  # (the figure inside a nested part that names a row, before or after it: the compared or joined item's, or not
+                    # determined; never the noun's, never another row's)
+                # (a joining phrase that opens the modifier and holds the figure, "Natural gas, with coal at about 11.8 GJ ...": the
+                # row its own words name, as before)
+            elif view.undetermined_before(self, table, at):
+                return []  # (a joining phrase before the figure names another item, or a relative clause follows a nested part)
+            else:
+                own_view = view.rows(self, table)
+        for lo_, hi_, v in ((own, at, own_view), (lo, a, None)):
+            found = self._rows_in(table, lo_, hi_, v)
             if not found:
                 continue
             if self._is_list(found, hi_):
@@ -1989,7 +2346,189 @@ class _YtIndex:
             if len(found) > 1 and found[-1][0] == found[-2][0]:
                 return []
             return [found[-1][1]]
+        if total is not None and _yt_total_named(self.text, lo, head_hi, total):
+            if span is not None:
+                end = span[1]
+            else:
+                k = bisect_right(self.cut_starts, at)
+                end = self.cut_starts[k] if k < len(self.cut_starts) else len(self.text)
+            after = view if view is not None else self._nest_view(table, (a, end))
+            if self._rows_in(table, at, end, after.rows(self, table) if after.parts else None):
+                return []  # (the modifier's own words, outside its nested parts, name a row after the figure, "Energy supply (about 1,050 PJ from coal in 2025)",
+                # "Ostrel (about 42 GJ per person imported in 2025)": the figure may be that row's; not determined, never the total's)
+            return [total[0]]  # (the total's own phrase, "Energy supply per person, at about 42 GJ in 2025, ...", "Ostrel (about 42 GJ
+            # per person in 2025) ...": the total row; follow-up 7, 84aff95c had given it no check)
         return []
+
+    def _at_linked(self, table, view: "_YtNest", mw: int, at: int) -> Optional[list]:
+        """The row of a figure in an 'at' phrase right after a row noun of the nested part that opens the modifier ('compared with site
+        4 at 15', 'such as natural gas, at 9.3 GJ', 'unlike natural gas at 11.8 GJ'; after a comparison only with no comma between):
+        the phrase belongs to that noun. None otherwise
+        (a part after the modifier's own verb, 'which supplied more than natural gas at about 9.3 GJ', stays not determined). The
+        stretch read is at most 80 characters, so the cost per figure is constant."""
+        u = view.union_at(mw)
+        if u is None or u[0] != mw:
+            return None
+        m = _YT_AT_LINK_RE.search(self.text, max(mw, at - 80), at)
+        if m is None or not (u[0] < m.start() <= u[1]):
+            return None
+        if u[2] != "j" and re.match(r"(?:more|less|fewer|other|[^\W\d_]{2,20}er|m[aá]s|menos|mayor(?:es)?|menor(?:es)?)\s+(?:than|que)\b|"
+                                    r"(?:than|que)\b", self.text[u[0]:u[0] + 40], re.IGNORECASE):
+            return None  # (a comparative, "higher than natural gas at roughly 9.3 GJ": the 'at' phrase may be the compared noun's or
+            # the head's; not determined)
+        if u[2] != "j" and "," in m.group(0):
+            return None  # (after a comparison's comma, "as opposed to natural gas, at roughly 42 GJ": the modifier's own phrase, the
+            # head noun's; an example's or a joined item's comma, "such as natural gas, at 9.3 GJ", keeps it with that item)
+        found = self._rows_in(table, u[0], m.start())
+        if not found or (len(found) > 1 and found[-1][0] == found[-2][0]):
+            return None
+        between = self.text[found[-1][0]:m.start()].rstrip(" \t,")
+        if not re.fullmatch(r"[A-Za-z'’-]++(?:\s++[A-Za-z'’-]++){0,2}", between) or self._verb_in(found[-1][0], m.start()) is not None:
+            return None  # (words between the noun and 'at', or a verb: another phrase's)
+        return [found[-1][1]]
+
+    def _head_span(self, a: int) -> tuple[int, int]:
+        """The noun phrase a modifier opening at ``a`` belongs to, as (start, end): the words of the clause before ``a``; where those
+        are only the opening of the modifier itself, a participle ('Coal, providing, unlike nuclear power, roughly 42 GJ ...') or an
+        apposition's head with its relative word ('Energy supply, a source that, unlike oil, provided ...'), the words before them
+        (follow-up 7: the noun had been read as naming no row). At most two such steps back, so the cost per figure is constant."""
+        lo, hi = self.clause_start(a), a
+        for _ in range(2):
+            k = bisect_right(self.cuts, lo) - 1
+            if lo <= 0 or k < 0 or self.cuts[k] != lo or not self.text.startswith(",", hi) or not _YT_HEAD_SKIP_RE.match(self.text, lo, hi):
+                break
+            if not self.text.startswith(",", self.cut_starts[k]):
+                break  # (only a comma pair's opening: a contrast or a conjunction before it is another clause)
+            hi = self.cut_starts[k]
+            lo = self.clause_start(hi)
+        return lo, hi
+
+    def _label_rows(self, table, a: int, at: int, total: Optional[tuple], written: "_YtIndex") -> Optional[list]:
+        """The rows of a figure after a label and its colon ('Coal: about 11.8 GJ per person in 2025.'; follow-up 7: the push check of
+        84aff95c found it read against the total row): None when the label is a clause (it has a verb), the words after the colon are
+        a clause with a subject of its own ('Result: coal supply fell by 22.1%': its own readings) or make the figure the whole a part is
+        taken of ('Coal: about 294 PJ of the 1,050 PJ total'); else the rows the words after the colon name before the figure, else the
+        rows the label names, else the total row where the label is the total's own phrase ('Energy supply per person:', 'Total:'),
+        and [] when the label names no row (no check). The label runs from the last colon, semicolon or line break (at most 160
+        characters back; a longer one gives no check), and the nouns of the parts nested in it or after its colon never name the row
+        ('Coal compared with natural gas: about 9.3 GJ', 'Coal: more than natural gas, about 9.3 GJ' are coal's figures); a joining
+        phrase there that names a row leaves the row not determined ('Coal with oil: about 23.2 GJ')."""
+        got = self.__dict__.setdefault("_labels", {}).get(a)
+        if got is None:
+            # (read once per label: its start, and the nested parts of the label and of the words after its colon up to the next
+            # semicolon or line break, so each figure after one label costs a few bisections)
+            b0 = max(self.text.rfind(c, max(0, a - 160), a) for c in ";:\n")
+            lo = b0 + 1 if b0 >= 0 else (0 if a <= 160 else -1)
+            ends = [k for k in (bisect_left(self.cut_starts, a + 1),) if k < len(self.cut_starts)]
+            k = ends[0] if ends else len(self.cut_starts)
+            while k < len(self.cut_starts) and self.text[self.cut_starts[k]] not in ";:":
+                k += 1  # (the cuts after the colon up to the next semicolon or colon: each label's own, so the walks add up linearly)
+            end = self.cut_starts[k] if k < len(self.cut_starts) else len(self.text)
+            got = self._labels[a] = (lo, None if lo < 0 else self._nest_view(table, (lo, a)), self._nest_view(table, (a + 1, end)))
+        lo, label, after = got
+        if lo < 0:
+            return []
+        if self._verb_in(lo, a) is not None:
+            return None
+        v = self._verb_in(a + 1, at)
+        if v is not None and self._has_subject(a + 1, v):
+            return None
+        if _YT_WHOLE_BEFORE_RE.search(self.text[max(a, at - 40):at]) or _YT_AMOUNT_WHOLE_BEFORE_RE.search(self.text, max(a, at - 40), at):
+            return None  # (the whole a part is taken of, "about 294 PJ of the 1,050 PJ total": its clause's reading, as before)
+        for nest in (after, label):
+            if nest.parts and nest.undetermined_before(self, table, at):
+                return []
+        got: list = []
+        for lo_, hi_, nest in ((a + 1, at, after), (lo, a, label)):
+            found = self._rows_in(table, lo_, hi_, nest.rows(self, table) if nest.parts else None)
+            if not found:
+                continue
+            if self._is_list(found, hi_):
+                got = [e for _p, e in found]
+            elif len(found) > 1 and found[-1][0] == found[-2][0]:
+                return []
+            else:
+                got = [found[-1][1]]
+            break
+        tag = written._label_tag(table, lo, a)
+        if tag is not None:
+            # (a bracket in the label holding only a row's name, 'Energy supply per person (coal): about 42 GJ', 'Supply (natural
+            # gas):': the label names that row, never the total; another row named in the label or before the figure, or two rows
+            # in such brackets, leave it not determined; follow-up 7 check)
+            if not tag or (got and got != tag):
+                return []
+            got = tag
+        if not got and total is not None:
+            words = self.text[lo:a]
+            for x, y, _k in label.unions:
+                words = words[:x - lo] + " " * (y - x) + words[y - lo:]
+            if _yt_total_named(words, 0, len(words), total):
+                got = [total[0]]
+        if not got:
+            return []
+        # (the figure's own words after it, to its clause's cut and outside a nested part, naming a row: 'Coal and natural gas
+        # compared: about 9.3 GJ per person in 2025 for gas.' is gas's figure; another row than the label's, 'Energy supply: about
+        # 294 PJ from coal', leaves it not determined)
+        k = bisect_right(self.cut_starts, at)
+        end = self.cut_starts[k] if k < len(self.cut_starts) else len(self.text)
+        named_after = {e for _p, e in self._rows_in(table, at, end, after.rows(self, table) if after.parts else None)}
+        if not named_after:
+            return got
+        return list(named_after) if len(named_after) == 1 and named_after <= set(got) else []
+
+    def _label_tag(self, table, lo: int, a: int) -> Optional[list]:
+        """The row a bracket in the label ``text[lo:a]`` names when it holds only that row's name (its words, less function words,
+        all words of the table's row labels, and the rows found there one): [row]; [] when two such brackets name different rows or
+        one names two rows; None when no bracket of the label is such a name (a comparison, 'Coal (unlike natural gas):', or other
+        words, 'Coal (mostly imported):', stay nested parts that never name the row). Read once per label; the label is at most
+        160 characters, so the cost per figure is constant."""
+        cache = self.__dict__.setdefault("_tags", {})
+        key = (id(table), lo, a)
+        if key in cache:
+            return cache[key]
+        got: Optional[list] = None
+        if 0 <= lo < a and a - lo <= 160:
+            _rows, vocab = _yt_row_vocab(table)
+            for m in re.finditer(r"[(\[]([^()\[\]]{1,80})[)\]]", self.text[lo:a]):
+                inner_lo, inner_hi = lo + m.start(1), lo + m.end(1)
+                if _NEST_OPEN_RE.search(self.text, inner_lo, inner_hi) is not None:
+                    continue
+                ws = [_yt_word(w.group(0)) for w in _YT_WORD_RE.finditer(self.text, inner_lo, inner_hi)]
+                ws = [w for w in ws if w not in _FUNCTION_WORDS]
+                if not ws or any(_stem(w) not in vocab for w in ws):
+                    continue
+                ents = {e for _p, e in self._rows_in(table, inner_lo, inner_hi)}
+                if not ents:
+                    continue
+                if len(ents) > 1 or (got and got != list(ents)):
+                    got = []
+                    break
+                got = list(ents)
+        cache[key] = got
+        return got
+
+    def _verb_in(self, lo: int, hi: int) -> Optional[int]:
+        """The start of the first verb (of :data:`_YT_VERB_RE` or :data:`.insertions._EN_FINITE_RE`) wholly inside [lo, hi), or None:
+        the verbs are found once per sentence, each lookup a bisection (a search per figure would re-read a long stretch for every
+        figure after one label or delimiter)."""
+        vs = self.__dict__.get("_verbs")
+        if vs is None:
+            spans = sorted({(m.start(), m.end()) for r in (_YT_VERB_RE, _EN_FINITE_RE) for m in r.finditer(self.text)})
+            vs = self._verbs = ([a for a, _b in spans], [b for _a, b in spans])
+        k = bisect_left(vs[0], lo)
+        return vs[0][k] if k < len(vs[0]) and vs[1][k] <= hi else None
+
+    def _nest_view(self, table, span: tuple[int, int]) -> "_YtNest":
+        """The nested parts of the insertion ``span`` (read once per insertion)."""
+        cache = self.__dict__.setdefault("_nests", {})
+        got = cache.get(span)
+        if got is None:
+            lo = _YT_SPAN_OPEN_RE.match(self.text, span[0], span[1]).end()
+            hi = span[1]
+            while hi > lo and self.text[hi - 1] in " \t,;:)]–—-":
+                hi -= 1
+            got = cache[span] = _YtNest(self.text, nested_parts(self.text, lo, hi), lo, hi)
+        return got
 
     def _numbers(self) -> tuple[list[int], list[bool]]:
         """The start of each number of the sentence and whether it is a year (read once)."""
@@ -2041,10 +2580,12 @@ class _YtIndex:
         self._named[id(table)] = (table, out)
         return out
 
-    def _rows_in(self, table, lo: int, at: int) -> list[tuple[int, str]]:
+    def _rows_in(self, table, lo: int, at: int, view: Optional[tuple] = None) -> list[tuple[int, str]]:
         """(position, row) of each row named in [lo, at): where its head or its modifier names it last there, else where the last of all
-        its content words stands."""
+        its content words stands. With ``view`` ((events, where) of an insertion with its nested parts left out), only those words."""
         rows, events, where = self._events(table)
+        if view is not None:
+            events, where = view
         found = []
         for r, row in enumerate(rows):
             best = -1
@@ -2082,19 +2623,19 @@ class _YtIndex:
                 return False
         return True
 
-    def group(self, table, at: int) -> list[str]:
+    def group(self, table, at: int, total: Optional[tuple] = None, _within: Optional["_YtIndex"] = None) -> list[str]:
         """The rows a figure at ``at`` is stated for as a list of two or more (its own clause's rows, as :meth:`_is_list` reads them); []
         otherwise."""
         out = self._outside(at)
         if out is not None:
-            return out.group(table, at)
-        att = self.attached(table, at)
+            return out.group(table, at, total, _within=self)
+        att = self.attached(table, at, total, _within=_within)
         if att is not None:
             return att if len(att) >= 2 else []
         found = self._rows_in(table, self.clause_start(at), at)
         return [e for _p, e in found] if self._is_list(found, at) else []
 
-    def row(self, table, at: int) -> Optional[str]:
+    def row(self, table, at: int, total: Optional[tuple] = None, _within: Optional["_YtIndex"] = None) -> Optional[str]:
         """The row the figure at ``at`` is stated for: the row its own clause names (the words after the clause's cut), the one named
         last before it; with no row and no subject of its own there ("and, with natural growth, about 9.3 GJ in 2025", "and in 2025 it
         was about 5.5 GJ", ", a relative rise of about 16%"), the row the sentence's own subject names ("Imported energy, mostly oil and
@@ -2103,8 +2644,8 @@ class _YtIndex:
         same words)."""
         out = self._outside(at)
         if out is not None:
-            return out.row(table, at)
-        att = self.attached(table, at)
+            return out.row(table, at, total, _within=self)
+        att = self.attached(table, at, total, _within=_within)
         if att is not None:
             return att[0] if len(att) == 1 else None
         lo = self.clause_start(at)
@@ -2145,7 +2686,7 @@ class _YtIndex:
 
     def year_before(self, at: int) -> Optional[int]:
         """The year a figure's own clause writes before it, when that clause states no other number ('and in 2025 it was about 5.5 GJ',
-        'In 2025 energy supply per person was about 5.5 GJ'); None otherwise."""
+        'In 2025 energy supply per person was about 5.5 GJ'), or the label before its colon writes as its one number; None otherwise."""
         lo = self.clause_start(at)
         starts, years = self._numbers()
         i, j = bisect_left(starts, lo), bisect_left(starts, at)
@@ -2153,6 +2694,16 @@ class _YtIndex:
             m = _YT_NUMBER_RE.match(self.text, starts[i])
             return int(m.group(0))
         if j == i:
+            k = bisect_right(self.cuts, lo) - 1
+            if k >= 0 and self.cuts[k] == lo and self.text.startswith(":", self.cut_starts[k]):
+                # (the one year a label writes before its colon, with no other number there: 'Energy supply per person in 2025: about
+                # 42 GJ.', 'Coal (2025): about 11.8 GJ per person.'; follow-up 7; the label as :meth:`_label_rows` reads it)
+                c = self.cut_starts[k]
+                b0 = max(self.text.rfind(x, max(0, c - 160), c) for x in ";:\n")
+                llo = b0 + 1 if b0 >= 0 else (0 if c <= 160 else c)
+                li, lj = bisect_left(starts, llo), bisect_left(starts, c)
+                if lj - li == 1 and years[li]:
+                    return int(_YT_NUMBER_RE.match(self.text, starts[li]).group(0))
             # the sentence's opening year, when it writes no other ('In 2025 nuclear power, which had a 4% share, supplied 63.0 PJ':
             # check round 12 of c3f, where the PJ figure had no year and no check)
             o = _YT_OPENING_YEAR_RE.match(self.text)
@@ -2214,18 +2765,21 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
         totals = {e: set(re.findall(r"[a-z]+", next(iter(r.values())).unit.lower())) for e, r in rows.items() if e not in shares and r}
         people = [e for e in totals if "population" in e.lower()]
         energy_total = [e for e, units in totals.items() if units & set(_ENERGY_J)]
+        # (the total row named by its own phrase, or by the owner the document's title names, in a modifier or before a label's colon:
+        # 'Energy supply per person, at about 42 GJ in 2025, ...', 'Ostrel (about 42 GJ per person in 2025) ...'; follow-up 7)
+        total = _yt_total_arg(ctx, table)
 
         def share_of(at: int, y: int) -> tuple[Optional[Fraction], str]:
             """The share (a fraction) of the row, or the listed rows, the figure at ``at`` is stated for in year ``y``: 1 for the total
             or no share row; None when a listed or named share row has no cell for ``y``."""
-            group = [e for e in index.group(table, at) if e in shares]
+            group = [e for e in index.group(table, at, total) if e in shares]
             if len(group) >= 2:
                 if any(y not in rows[e] for e in group):
                     return None, ""
                 return sum((rows[e][y].value for e in group), Fraction(0)) / 100, " + ".join(f"'{e}'" for e in group)
-            if index.attached(table, at) == []:
+            if index.attached(table, at, total) == []:
                 return None, ""  # (a figure in a modifier whose noun names no one row: no check, never the total row by default)
-            row = index.row(table, at)
+            row = index.row(table, at, total)
             if row in shares:
                 return (rows[row][y].value / 100, f"'{row}'") if y in rows[row] else (None, "")
             return Fraction(1), ""
@@ -2260,8 +2814,8 @@ def _year_table_derived(ctx: _Ctx, s: _Sentence, year_tables: list) -> None:
                 tot = next(e for e, u in totals.items() if f.group("u").lower() in u and e not in people)
                 if y not in rows[tot]:
                     continue
-                group = [e for e in index.group(table, f.start()) if e in shares]
-                row = None if len(group) >= 2 else index.row(table, f.start())
+                group = [e for e in index.group(table, f.start(), total) if e in shares]
+                row = None if len(group) >= 2 else index.row(table, f.start(), total)
                 if len(group) >= 2:
                     if any(y not in rows[e] for e in group):
                         continue
