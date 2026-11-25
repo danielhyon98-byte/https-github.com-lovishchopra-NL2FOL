@@ -3032,3 +3032,7 @@ Measured results only.
 - No code change since 19:00: the last commit with content is `6e642569` (meaning check, stage 1); its push check has
   not run yet and nothing new is uploaded. The next stage (connecting the label to every delivery path) has been
   reviewed twice before its start; the reviews found 5 blocking and 17 major problems in its plan, all corrected.
+
+### Progress, 21:00 UTC (25 November)
+- No change since 20:00: the last commit with content is `6e642569` (meaning check, stage 1); its push check has not run
+  yet and nothing new is uploaded.
