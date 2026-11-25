@@ -2987,3 +2987,7 @@ Measured results only.
 - Verification on the first run: full suite 51,054 passed, 1 skipped, 1 xfailed; arena harness unchanged (r1 30/30,
   r1-adv 150/151, r2 to r6 46/46 each, r7 177/177, c1 203/203, c2 188/188, c3 164/176). Its push check has not run yet;
   nothing new is uploaded.
+
+### Progress, 04:00 UTC (25 November)
+- No change since 03:00: the last commit with content is `b91b2802`; its push check has not run yet and nothing new is
+  uploaded.
