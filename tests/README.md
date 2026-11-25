@@ -2995,3 +2995,15 @@ Measured results only.
 ### Progress, 05:00 UTC (25 November)
 - No change since 04:00: the last commit with content is `b91b2802`; its push check has not run yet and nothing new is
   uploaded.
+
+### Progress, 14:00 UTC (25 November)
+- New commit `6e642569`, meaning check stage 1: the self-certification label package `src/epinoic_logic/selfcert_label`
+  (the label request built from the answer's own sentences, keyed control sentences, the `selfcert-label/1` reply schema
+  with strict validation, anchoring and bounded exemptions, the result states and stored record with re-validation, the
+  labellers with the unconfigured default, and the test fakes) and its fixed labeller prompt. It is not wired into any
+  delivery path yet, no provider is called, and nothing it returns can release an answer. 30 files, 5,609 lines added,
+  none removed; no existing test changed.
+- Verification after two repairs (the overseer's code tables against codes the new package named, and a digest memo
+  shared between reader tests; one timing failure shown to be load): full suite 51,269 passed, 1 skipped, 1 xfailed;
+  arena harness unchanged (r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177, c1 203/203, c2 188/188,
+  c3 164/176). Its push check has not run yet; nothing new is uploaded.
