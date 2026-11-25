@@ -2976,3 +2976,14 @@ Measured results only.
 
 ### Progress, 19:00 UTC (24 November)
 - No change since 18:00: `84aff95c` stays held by its push check and nothing new is uploaded.
+
+### Progress, 03:00 UTC (25 November)
+- The seventh follow-up is committed as `b91b2802` ("Fix the c3 clearance findings"), a narrow run on the Geography
+  table readings only: a figure inside a bracket, dash or comma insertion is read against the noun the insertion
+  attaches to, and a noun inside a nested comparison never names the row; the table's total row named by its own
+  phrase is resolved again; a label before a colon names the row; and a figure whose row cannot be determined gets no
+  check. On the check round's grid of 6,861 Geography lines it shows no wrong figure as checked, charges no correct
+  line and loses no charge. No eligibility rule changed, so there is no version bump.
+- Verification on the first run: full suite 51,054 passed, 1 skipped, 1 xfailed; arena harness unchanged (r1 30/30,
+  r1-adv 150/151, r2 to r6 46/46 each, r7 177/177, c1 203/203, c2 188/188, c3 164/176). Its push check has not run yet;
+  nothing new is uploaded.
