@@ -3007,3 +3007,7 @@ Measured results only.
   shared between reader tests; one timing failure shown to be load): full suite 51,269 passed, 1 skipped, 1 xfailed;
   arena harness unchanged (r1 30/30, r1-adv 150/151, r2 to r6 46/46 each, r7 177/177, c1 203/203, c2 188/188,
   c3 164/176). Its push check has not run yet; nothing new is uploaded.
+
+### Progress, 15:00 UTC (25 November)
+- No change since 14:00: the last commit with content is `6e642569` (meaning check, stage 1); its push check has not run
+  yet and nothing new is uploaded.
