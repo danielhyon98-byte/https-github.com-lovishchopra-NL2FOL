@@ -33,6 +33,9 @@ where = ["src"]
   "translate/prompts/*.txt",
   "translate/prompts/*.md",
   "selfcert/*.json",
+  # the self-certification label's frozen prompt, reply schema, canary class data and exemption frames (label_digest covers them)
+  "selfcert_label/*.md",
+  "selfcert_label/*.json",
 ]
 
 [tool.pytest.ini_options]

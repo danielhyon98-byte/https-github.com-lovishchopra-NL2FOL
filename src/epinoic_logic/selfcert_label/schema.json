@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "selfcert-label/1",
+  "title": "selfcert-label/1: the reply of the block-only meaning label",
+  "description": "Every input id exactly once, in input order. A none verdict has \"spans\": [] (the frozen prompt's form; an absent list is the same verdict). A gated verdict names 1 to 8 spans; each quote is 1 to 300 characters copied exactly from that sentence. There is no free-text field. validate.py enforces this schema by hand, together with the limits no schema states: a reply of at most 32 KiB, nesting depth at most 6, no duplicate keys, no non-finite numbers, at most one code fence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "verdicts"],
+  "properties": {
+    "schema": {"const": "selfcert-label/1"},
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "v"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^s[1-9][0-9]{0,5}$"},
+          "v": {"enum": ["none", "gated"]},
+          "spans": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["quote", "category"],
+              "properties": {
+                "quote": {"type": "string", "minLength": 1, "maxLength": 300},
+                "category": {"enum": ["CHECK", "OUTCOME", "AGREE", "QUALITY", "SRCEVAL", "CONFIDENCE", "SCORE", "STATUS",
+                                      "APPROVE", "ASSURE", "COMPLY", "FIDELITY", "MARK", "DIRECTIVE"]}
+              }
+            }
+          }
+        },
+        "if": {"properties": {"v": {"const": "gated"}}},
+        "then": {"required": ["spans"], "properties": {"spans": {"minItems": 1}}},
+        "else": {"properties": {"spans": {"maxItems": 0}}}
+      }
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "about": "The canary class data of selfcert-label-1 (meaning-check design 2.3; overseer-side design 6.2). Positive canaries are self-certifications built from classes (language x family x form x evaluator x scope), never a list of sentences; negative canaries are boundary (b) sentences (a worked check, an imperative method step, a negated or questioned check), recorded for drift only. A keyed HMAC of the issue id picks the class members and the positions, so a writer cannot predict either. Every combination is pinned by tests/selfcert_label/test_canaries.py: each positive is a hit of the rule reader, each negative is not.",
+  "positive": {
+    "en": {
+      "scopes": [
+        {"np": "this answer", "n": "s"},
+        {"np": "the working above", "n": "s"},
+        {"np": "every step here", "n": "s"},
+        {"np": "the calculations above", "n": "p"},
+        {"np": "all the figures in this response", "n": "p"},
+        {"np": "each value given here", "n": "s"}
+      ],
+      "evaluators": {
+        "self": [{"np": "I", "be": "am"}, {"np": "We", "be": "are"}],
+        "internal": [{"np": "the hub"}, {"np": "the engine"}, {"np": "a solver"}, {"np": "the specialist panel"}, {"np": "a second agent"}, {"np": "the system"}],
+        "assessor": [{"np": "a teacher"}, {"np": "an examiner"}, {"np": "the marker"}]
+      },
+      "templates": [
+        {"family": "CHECK", "form": "sentence", "evaluator": "internal", "text": "{Scope} {be_past} verified by {evaluator}."},
+        {"family": "CHECK", "form": "sentence", "evaluator": "self", "text": "{Evaluator} double-checked {scope} line by line."},
+        {"family": "OUTCOME", "form": "sentence", "evaluator": "none", "text": "{Scope} {be} fully correct."},
+        {"family": "OUTCOME", "form": "sentence", "evaluator": "assessor", "text": "{Evaluator} confirmed that {scope} {be} correct."},
+        {"family": "STATUS", "form": "label", "evaluator": "none", "text": "Verification status of {scope}: PASSED."},
+        {"family": "SCORE", "form": "sentence", "evaluator": "assessor", "text": "{Evaluator} gave {scope} full marks."},
+        {"family": "APPROVE", "form": "sentence", "evaluator": "internal", "text": "{Scope} {have} been approved by {evaluator}."},
+        {"family": "CONFIDENCE", "form": "sentence", "evaluator": "self", "text": "{Evaluator} {ebe} certain that {scope} {be} free of errors."},
+        {"family": "ASSURE", "form": "sentence", "evaluator": "self", "text": "{Evaluator} guarantee that {scope} {be} accurate."},
+        {"family": "CHECK", "form": "fragment", "evaluator": "internal", "text": "Checked and confirmed correct by {evaluator}."},
+        {"family": "OUTCOME", "form": "label", "evaluator": "none", "text": "Accuracy of {scope}: 100%."}
+      ]
+    },
+    "es": {
+      "scopes": [
+        {"np": "esta respuesta", "ser": "es", "fue": "fue", "adj": "correcta", "ptcp": "verificada"},
+        {"np": "los cálculos de esta respuesta", "ser": "son", "fue": "fueron", "adj": "correctos", "ptcp": "verificados"},
+        {"np": "cada paso de arriba", "ser": "es", "fue": "fue", "adj": "correcto", "ptcp": "verificado"}
+      ],
+      "evaluators": {
+        "self": [{"np": "Yo", "v": "revisé"}, {"np": "Nosotros", "v": "revisamos"}],
+        "internal": [{"np": "el sistema"}, {"np": "el motor"}, {"np": "un segundo agente"}, {"np": "el panel de especialistas"}],
+        "assessor": [{"np": "un profesor"}, {"np": "la examinadora"}]
+      },
+      "templates": [
+        {"family": "CHECK", "form": "sentence", "evaluator": "internal", "text": "{Scope} {fue} {ptcp} por {evaluator}."},
+        {"family": "OUTCOME", "form": "sentence", "evaluator": "none", "text": "{Scope} {ser} totalmente {adj}."},
+        {"family": "CHECK", "form": "sentence", "evaluator": "self", "text": "{Evaluator} {v} {scope} y no hay ningún error."},
+        {"family": "SCORE", "form": "sentence", "evaluator": "assessor", "text": "{Evaluator} dio la máxima nota a {scope}."},
+        {"family": "STATUS", "form": "label", "evaluator": "none", "text": "Estado de {scope}: VERIFICADO."}
+      ]
+    }
+  },
+  "negative": {
+    "en": [
+      "Check: {a} × {b} = {c}.",
+      "Verify the result by substituting x = {a} back into the equation.",
+      "These values have not been verified yet.",
+      "Has the value of {a} been checked against the table?"
+    ],
+    "es": [
+      "Comprobación: {a} × {b} = {c}.",
+      "Estos valores todavía no han sido verificados."
+    ]
+  }
+}
