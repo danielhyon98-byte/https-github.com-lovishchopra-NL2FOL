@@ -92,12 +92,17 @@ def test_figure_in_a_modifier_is_its_nouns(sentence, right):
     ("Coal (294 PJ in 2025) declined.", (["ENTAILED"], [])),
     ("Coal and oil, which together supplied about 42 GJ per person in 2025, declined.", (["COUNTEREXAMPLE"], ["INT-SUBJ-004"])),
     ("Coal and oil, which together supplied about 23.2 GJ per person in 2025, declined.", (["ENTAILED"], [])),  # (55% = 23.2)
-    # the noun names no row of the table: no check, never ENTAILED and never the total row by default (an over-block of the total's
-    # own form fails closed)
+    # the noun names no row of the table: no check, never ENTAILED and never the total row by default
     ("Petroleum, at about 42 GJ per person in 2025, mattered.", ([], [])),
-    ("Ostrel, at about 42 GJ per person in 2025, imported more.", ([], [])),
-    ("Energy supply per person, at about 42 GJ in 2025, rose.", ([], [])),
-    ("Energy supply per person (about 42 GJ in 2025) rose.", ([], [])),
+    # (follow-up 7, a pin moved to a stricter rule: these three correct twins were pinned here as unchecked; the total row named by its
+    # own phrase, or by the country the table belongs to, is the total row, so each is ENTAILED and its wrong twin a COUNTEREXAMPLE;
+    # the wrong twins and more forms are pinned in tests/branches/test_c3i_branches.py)
+    ("Ostrel, at about 42 GJ per person in 2025, imported more.", (["ENTAILED"], [])),
+    ("Ostrel, at about 38 GJ per person in 2025, imported more.", (["COUNTEREXAMPLE"], ["INT-SUBJ-004"])),
+    ("Energy supply per person, at about 42 GJ in 2025, rose.", (["ENTAILED"], [])),
+    ("Energy supply per person, at about 11.8 GJ in 2025, rose.", (["COUNTEREXAMPLE"], ["INT-SUBJ-004"])),
+    ("Energy supply per person (about 42 GJ in 2025) rose.", (["ENTAILED"], [])),
+    ("Energy supply per person (about 11.8 GJ in 2025) rose.", (["COUNTEREXAMPLE"], ["INT-SUBJ-004"])),
     # the fixes of 08c4a36b stay fixed: a main-clause figure with a subordinate clause in between, an apposition naming the subject
     ("Energy supply per person, while coal declined, was about 11.8 GJ in 2025.", (["COUNTEREXAMPLE"], ["INT-SUBJ-004"])),
     ("Energy supply per person, while coal declined, was about 42 GJ in 2025.", (["ENTAILED"], [])),

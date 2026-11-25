@@ -968,6 +968,41 @@ check; an opener the modifier list does not know, in a modifier with no verb ('C
 about'), is read as a known opener is, never against the total row; and a supplied-table figure its own words place at another row
 after it ('the 97 counted at site 4' after 'Site 2') gets no check, never the row named before it.
 `tests/branches/test_c3h_branches_round14.py` holds these, with a grid of 23 openers on ge-t15 (276 cells).
+The c3i follow-up (push check of 84aff95c): a noun inside a part nested in the modifier never names the row (`insertions.nested_parts`:
+a comparison, 'unlike natural gas', 'like oil', 'compared with', 'than', 'as gas did', 'whereas ...'; another subordinate clause; an
+inner bracket or dash pair), so 'Coal (which, unlike natural gas, supplied about 9.3 GJ per person in 2025) declined.' is coal's
+figure (84aff95c had read it against the compared row: the gas figure ENTAILED, coal's charged). Where the figure stands inside such a
+part that names a row, where a joining phrase before it names another item ('together with oil', 'alongside natural gas': the
+figure may be the items' together), or where a relative clause follows such a part, the row is not determined: no check. The table's
+total row named by its own phrase ('Energy supply per person', 'Energy supply', 'Total energy supply per head', the label's words with
+its head word) or by the owner the document's title names in the possessive ('Ostrel's energy mix': 'Ostrel') is the total row in a
+modifier (84aff95c had given it no check, losing the charge on a wrong figure). A label before a colon names the row of the figure
+after it ('Coal: about 11.8 GJ per person in 2025.'; it had been read against the total row), unless the words after the colon are a
+clause with a subject of its own; a label that names no row gives no check. The site table reads its nested parts the same way
+(`_cell_nesting`: 'Site 2, which, unlike site 5, had a pedestrian count of 88, ...' is site 2's). `tests/branches/test_c3i_branches.py`
+holds the grids (nested comparisons on ge-t15, 432 cells, and ge-t14, 240 cells; the total's phrase, 147 cells; labels, 64 cells).
+Its check round: the Geography readers ask `insertion_spans(..., compare=True)`, which also opens an insertion at a comparison after a
+delimiter that the shared openers do not know ('more than', 'bigger than', 'less than', 'instead of', 'in place of', 'beside',
+'against', 'behind', 'exceeding', 'outweighing'; Spanish 'en comparación con', 'más que', 'mayor que', 'en lugar de') and at one in
+mid-clause ('Coal unlike natural gas supplied ...', 'compared with', 'rather than', 'instead of'; never a comparative with 'than',
+which bounds a figure); the other packs keep the shared openers. `nested_parts` reads the same comparisons, with the comparative before 'than' ('more than nuclear power') and
+an example ('such as', 'for example') as a joining part. An ASCII double or triple hyphen is read as a dash (`_dash_fold`, the same
+length, so every offset holds). Between a noun and its modifier, a participle ('Coal, providing, unlike nuclear power, roughly 42 GJ
+...') or an apposition's head with its relative word ('Energy supply, a source that, unlike oil, provided ...') is part of the
+modifier (`_YtIndex._head_span`, at most two steps back), and 'one' opens an apposition as an article does. An 'at' phrase right after
+the noun of a comparison or an example that opens the modifier is that noun's figure ('Site 3 (compared with site 4 at 15)', 'Fossil
+fuels (such as natural gas, at 9.3 GJ ...)'; after a comparison only with no comma between, and never after a comparative with
+'than', 'higher than natural gas at roughly 9.3 GJ', which leaves the row not determined), on both tables. A label runs from the last
+colon, semicolon or line break (at most 160 characters), its nested parts and those after its colon never name the row ('Coal compared
+with natural gas: about 9.3 GJ', 'Coal: more than natural gas, about 9.3 GJ', 'Site 2 compared with site 5: a pedestrian count of
+88'), 'Total' alone names the total row, an amount's whole after the colon ('294 PJ of the 1,050 PJ total') keeps its clause's
+reading, the figure's own words after it name its row ('... about 9.3 GJ per person in 2025 for gas'; another row than the label's
+leaves it not determined), and the one year a label writes is its figure's year ('Coal in 2025: about 11.8 GJ per person.'). The site table reads a
+figure's column past the parts nested in its insertion (`_cell_nest_blank`: 'Site 4, whose EQS, unlike site 6, was 16, ...'). The total's own phrase gives no check when the modifier names a row after the figure ('Energy supply (about 1,050 PJ from coal
+in 2025)'). A bracket in a label that holds only a row's name names the row on both tables ('Pedestrian count (site 4): 88.' had no
+check; 'Energy supply per person (coal): about 42 GJ in 2025.' had been read against the total row); a label naming two rows ('Coal
+(natural gas):', 'Site 2 (site 4):') gives no check. `tests/branches/test_c3i_check_branches.py` holds these (grids of 288 comparison cells and 288 total-head cells on ge-t15,
+384 site cells on ge-t14).
 
 **Language B** (`language_b.py`, `spanish_lexicon.py`). The task is read once (writing, marking, reading or notes, by the task type and
 then the request) and the answer into regions. The statements read are the meta sentences (never the model's own content): a word
