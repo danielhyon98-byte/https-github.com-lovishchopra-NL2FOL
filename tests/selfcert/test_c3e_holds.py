@@ -16,8 +16,9 @@ value fixed here:
 4. Version discipline of rule 0: the rules are ``selfcert-2``, ``rules_digest`` covers the rule's code (every module of the
    reader, by name and content, in a fixed order), POLICY_VERSION is 2026.11-v6 and the contract 0.7, and a result bound to the
    previous policy identity is stale, never current. (Pins moved with the c3g bump: the rules were then ``selfcert-3``,
-   POLICY_VERSION 2026.11-v7 and the contract 0.8; and with the c3h bump: the rules are now ``selfcert-4``, POLICY_VERSION
-   2026.11-v8 and the contract 0.9; each pin stays exact.)
+   POLICY_VERSION 2026.11-v7 and the contract 0.8; with the c3h bump: the rules were ``selfcert-4``, POLICY_VERSION 2026.11-v8
+   and the contract 0.9; and with the c3k bump: the rules are now ``selfcert-5``, POLICY_VERSION 2026.11-v9 and the contract 0.10;
+   each pin stays exact.)
 
 Every named sentence of the push check is pinned at reader level and, where it measured the sentence delivered, withheld on every
 branch through RouterHub with an auditor and a DeliveryPolicy session and through the not-checked fallback (the helpers of
@@ -143,6 +144,8 @@ MISS_CLASSES = [
     "This would withstand any marker's red pen.", "A moderator would approve this without a second glance.",
     "My teacher's exact words were 'this is perfect'.", "I would bet my house that this answer is correct.",
     "Apostaría lo que sea a que esto está bien.",
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; a MISS_FREE pin until c3k, now gated: a stricter rewrite)
+    "Every figure here matches the ONS release.",
 ]
 #: Boundary (b) near them (each False).
 MISS_FREE = ["Examiners often criticise answers that lack evidence.", "The critic found nothing to praise in the novel.",
@@ -160,7 +163,10 @@ MISS_FREE = ["Examiners often criticise answers that lack evidence.", "The criti
              "These values have not been verified.", "Verify by substituting back into the equation.", "Has this been checked?",
              "This may contain errors.", "It is not true that no errors were found.", "The commission verified the casualty lists.",
              "The result can be verified by repeating the experiment.", "Consistent with Newton's second law.",
-             "Snopes rated the rumour as false.", "Every figure here matches the ONS release.",
+             "Snopes rated the rumour as false.",
+             # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; "Every figure here matches the ONS release." moved to MISS_CLASSES, gated, and its stated-value twin takes
+             # its place here: a stricter rewrite)
+             "The unemployment rate here matches the ONS release figure of 4.2%.",
              "The figures above are unverified, so check them before use.",
              "The fact-checking site's post reads 'Fact-checked!' above the claim, and the exclamation mark makes the verdict feel final.",
              "The poet’s ‘flawless’ line (verified by critics)."]
@@ -241,11 +247,12 @@ def test_a_correction_pair_is_delivered_not_checked_on_language_b(text):
 # ------------------------------------------------------------------------------------------------ 4. version discipline of rule 0
 
 def test_the_rules_are_selfcert_2_in_code_and_data():
-    # pin moved with the c3g bump (selfcert-2 to selfcert-3) and the c3h bump (to selfcert-4), exact in code and in both data files
-    assert sc.SELFCERT_RULES == "selfcert-4"
+    # pin moved with the c3g bump (selfcert-2 to selfcert-3), the c3h bump (to selfcert-4) and the c3k bump (to selfcert-5:
+    # decision 5, the DIRECTIVE companion test and the stage-1 misses changed the reading), exact in code and in both data files
+    assert sc.SELFCERT_RULES == "selfcert-5"
     here = Path(sc.__file__).resolve().parent
-    assert json.loads((here / "lexicon.json").read_text(encoding="utf-8"))["rules"] == "selfcert-4"
-    assert json.loads((here / "fold_table.json").read_text(encoding="utf-8"))["rules"] == "selfcert-4"
+    assert json.loads((here / "lexicon.json").read_text(encoding="utf-8"))["rules"] == "selfcert-5"
+    assert json.loads((here / "fold_table.json").read_text(encoding="utf-8"))["rules"] == "selfcert-5"
 
 
 def test_the_digest_covers_every_module_of_the_reader_in_a_fixed_order():
@@ -291,11 +298,12 @@ def test_the_component_and_contract_versions_moved_with_the_rules():
     from epinoic_logic.version import POLICY_VERSION
     # pins moved with the c3g bump (2026.11-v6 to 2026.11-v7, contract 0.7 to 0.8) and the c3h bump (to 2026.11-v8, contract
     # 0.9), exact
-    assert POLICY_VERSION == "2026.11-v8" and INTEGRATION_CONTRACT_VERSION == "0.9"
+    # (and the c3k bump: to 2026.11-v9, contract 0.10, stage 2a of the meaning check)
+    assert POLICY_VERSION == "2026.11-v9" and INTEGRATION_CONTRACT_VERSION == "0.10"
     compat = json.loads((ROOT / "integration" / "COMPATIBILITY.json").read_text(encoding="utf-8"))
-    assert compat["components"]["policy"] == ["2026.11-v8"] and compat["components"]["contract"] == ["0.9"]
+    assert compat["components"]["policy"] == ["2026.11-v9"] and compat["components"]["contract"] == ["0.10"]
     head = (ROOT / "docs" / "integration-contract.md").read_text(encoding="utf-8")[:2000]
-    assert "**Contract version:** 0.9" in head and "policy `2026.11-v8`" in head
+    assert "**Contract version:** 0.10" in head and "policy `2026.11-v9`" in head
 
 
 def test_a_result_bound_to_the_previous_rule_0_identity_is_stale_and_never_current(monkeypatch):

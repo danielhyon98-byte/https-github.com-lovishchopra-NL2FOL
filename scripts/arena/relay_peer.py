@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Relay one specialist's delivered report to a peer specialist through the hub.
 
-Usage: relay_peer.py <round_dir> <task_id>   (the task must carry "peer_of")
+Usage: relay_peer.py <round_dir> <task_id> [--labeller recorded|faithful|unconfigured] [--label-key KEY]
+       (the task must carry "peer_of")
 
 Receives the peer task's genuine reply on the group's channel, relays the DELIVERED
 report to the requesting agent (agent-to-agent hand-off on the same ledger) and writes two files:
@@ -39,6 +40,11 @@ answered, a peer's specialist file that is not one JSON object of the round form
 anything is written, with a message naming the task or the file, and the exit status is 2
 (run_arena.RoundInputError; round c3: a specialist file written as a one-element list stopped every tool
 with "list indices must be integers or slices, not str").
+
+The meaning label (meaning-check design 2.5.7): the peer's answer is labelled as the hub labels it, with ``--labeller``
+(default ``EPINOIC_ARENA_LABELLER`` when set, else ``recorded``: the round's labels/ with the recording key ``--label-key`` or
+``EPINOIC_ARENA_LABEL_KEY``; ``scripts/arena/arena_labels.py``). The router's file records the label's state on the peer
+receipt (``selfcert_label``: state, kind, places, families; never words).
 """
 from __future__ import annotations
 
@@ -47,15 +53,45 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import arena_labels as AL  # noqa: E402
 from run_arena import RoundInputError, relay_peer  # noqa: E402
 
+USAGE = "usage: relay_peer.py <round_dir> <task_id> [--labeller recorded|faithful|unconfigured] [--label-key KEY]"
+
+
+def _options(argv: list[str]) -> tuple[list[str], dict] | None:
+    """The two positional arguments and the label options, or None for a command line outside the usage."""
+    pos, opts, i = [], {}, 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--labeller", "--label-key"):
+            if i + 1 >= len(argv) or a in opts:
+                return None
+            opts[a] = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--"):
+            return None
+        pos.append(a)
+        i += 1
+    if len(pos) != 2 or ("--labeller" in opts and opts["--labeller"] not in AL.LABELLERS):
+        return None
+    return pos, opts
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("usage: relay_peer.py <round_dir> <task_id>", file=sys.stderr)
+    parsed = _options(sys.argv[1:])
+    if parsed is None:
+        print(USAGE, file=sys.stderr)
         sys.exit(2)
+    (round_arg, task_arg), opts = parsed
     try:
-        out = relay_peer(Path(sys.argv[1]).resolve(), sys.argv[2])
+        lab = AL.resolve(opts.get("--labeller"), Path(round_arg).resolve(), key=opts.get("--label-key"))
+        out = relay_peer(Path(round_arg).resolve(), task_arg, labeller=lab)
     except RoundInputError as exc:
+        print(f"relay_peer.py: nothing relayed, nothing written: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except ValueError as exc:  # an unknown EPINOIC_ARENA_LABELLER: nothing relayed
         print(f"relay_peer.py: nothing relayed, nothing written: {exc}", file=sys.stderr)
         sys.exit(2)
     router = out["router"]

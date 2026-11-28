@@ -20,7 +20,8 @@ from epinoic_logic.adapters import self_report as sr
 from epinoic_logic.translate.contracts import ClaimRecord, EligibilityClass
 from epinoic_logic.translate.eligibility import decide_eligibility
 
-from .c2_hold_texts import (REMEDY2_ROUND3_CORRECT_WORK, REMEDY2_ROUND3_MISSES, REMEDY2_ROUND3_RELAYED, REMEDY2_ROUND3_STRICTER, SUBJECTS)
+from .c2_hold_texts import (REMEDY2_ROUND3_CORRECT_WORK, REMEDY2_ROUND3_DECISION5, REMEDY2_ROUND3_MISSES, REMEDY2_ROUND3_RELAYED, REMEDY2_ROUND3_STRICTER,
+                            SUBJECTS)
 from .test_c2_clearance_parsers import codes, through_hub
 from .test_c2_hold_remedy2_self_reports import _structured
 
@@ -46,6 +47,13 @@ def test_a_relayed_or_quoted_self_report_is_read_whoever_is_credited(sentence):
 @pytest.mark.parametrize("sentence", REMEDY2_ROUND3_CORRECT_WORK)
 def test_round3_correct_work_is_no_self_report(sentence):
     assert md.is_self_certification(sentence) is False, sentence
+
+
+@pytest.mark.parametrize("sentence", REMEDY2_ROUND3_DECISION5)
+def test_agreement_with_a_named_source_stating_no_value_is_a_self_report(sentence):
+    """Rewritten to the stricter value (decision 5, decided GATED; was in the correct-work list, expected False): agreement with a
+    named source or dataset that states no value certifies the answer's own figures unchecked."""
+    assert md.is_self_certification(sentence) is True, sentence
 
 
 @pytest.mark.parametrize("sentence,expected", [

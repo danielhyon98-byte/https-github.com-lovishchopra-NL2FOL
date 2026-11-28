@@ -25,10 +25,21 @@ Deviations from ``docs/OVERSEER_DESIGN.md`` section 5.2, all additive:
   ``pool_before`` (the pool just before the call, for JOINT-004), ``transmitted_added``, ``recipients_added``,
   ``requests_added`` and ``log_added`` (what the call added, for RCPT-003 and the B1 sweep), ``captured_overflow``;
 * ``plan_json`` is carried again on any event whose plan digest differs from the previous event's.
+
+Stage 2a of the meaning check (owner R4; meaning-check design 2.5.6, interface (c)), additive: a response or relay the channel
+labelled carries the label record ``label_json`` (the canonical JSON of the sealed ``selfcert-label-record/1``, never inside a
+payload or a receipt), ``label_sha256`` (its digest, kept when a bounded journal drops content), ``labelled_text`` (exactly the
+text the label read, so no reader of the event re-derives it), ``labelled_text_sha256`` (its SHA-256, beside the record and never
+a field of the sealed record, whose input key already binds the text) and ``label_request_json`` (the canonical JSON of the
+router's record the label was built against: the request the answer replies to, or the plan for a synthesis), so the release
+gate can re-validate the record with the labeller's own key. ``to_dict`` carries all five, so the overseer's journal, which
+hashes, chains and MACs ``to_dict`` of every event, covers them with its existing integrity mechanism. Every other event, and a
+call that made no label (a refused or unreadable transfer), carries ``None``: the release gate reads that as a missing record.
 """
 from __future__ import annotations
 
 import functools
+import hashlib
 import inspect
 import json
 import time
@@ -148,6 +159,11 @@ class ChannelEvent:
     created_at: str
     monotonic_ns: int
     digest_only: bool = False
+    label_json: Optional[str] = None
+    label_sha256: Optional[str] = None
+    labelled_text: Optional[str] = None
+    labelled_text_sha256: Optional[str] = None
+    label_request_json: Optional[str] = None
 
     def to_dict(self) -> dict:
         """The event as plain JSON values (the journal hashes this)."""
@@ -166,6 +182,8 @@ class ChannelEvent:
             "recipients_added": [list(r) for r in self.recipients_added], "requests_added": list(self.requests_added),
             "log_added": list(self.log_added), "raised": self.raised, "created_at": self.created_at, "monotonic_ns": self.monotonic_ns,
             "digest_only": self.digest_only,
+            "label_json": self.label_json, "label_sha256": self.label_sha256, "labelled_text": self.labelled_text,
+            "labelled_text_sha256": self.labelled_text_sha256, "label_request_json": self.label_request_json,
         }
 
     def content_size(self) -> int:
@@ -173,7 +191,8 @@ class ChannelEvent:
         problem the receipt's own outcomes already carry is counted once, with the receipt (rule ``count-once``): a
         many-claim answer's results are not charged twice against the journal bound."""
         n = 0
-        for s in (self.plan_json, self.channel_json, self.envelope_json, self.receipt_json, self.raw_text, self.call_json):
+        for s in (self.plan_json, self.channel_json, self.envelope_json, self.receipt_json, self.raw_text, self.call_json,
+                  self.label_json, self.labelled_text, self.label_request_json):
             n += len(s) if s else 0
         held = _receipt_outcome_results(self.receipt_json) if (self.captured and self.receipt_json) else frozenset()
         for c in self.captured:
@@ -185,7 +204,10 @@ class ChannelEvent:
     def as_digest_only(self) -> "ChannelEvent":
         """This event with its content strings dropped: custody stays decidable by digest, the content is gone."""
         from dataclasses import replace
-        return replace(self, plan_json=None, envelope_json=None, receipt_json=None, raw_text=None,
+        # the label record and the text it read are content too: a digest-only event keeps their digests, so a release gate
+        # that reads it finds no record and withholds (never a record read as present)
+        return replace(self, plan_json=None, envelope_json=None, receipt_json=None, raw_text=None, label_json=None, labelled_text=None,
+                       label_request_json=None,
                        captured=tuple(CapturedResult(result_id=c.result_id, key_id=c.key_id, result_json="", result_sha256=c.result_sha256,
                                                      problem_json=None, problem_digest=c.problem_digest) for c in self.captured),
                        digest_only=True)
@@ -403,6 +425,7 @@ def snapshot_event(channel: Any, kind: str, *, channel_uid: str, seq: int, befor
         if call_out.get("user_input_sha256_given") == envelope.payload.get("user_input_sha256"):
             call_out.pop("user_input_sha256_given", None)
     include_plan = seq == 1 or previous_plan_sha256 is None or previous_plan_sha256 != plan_sha
+    label = _label_entry(channel, message_id)
     return ChannelEvent(
         channel_uid=channel_uid, seq=seq, kind=kind,
         task_id=str(plan_dump.get("task_id", "")), request_id=str(plan_dump.get("request_id", "")),
@@ -418,8 +441,25 @@ def snapshot_event(channel: Any, kind: str, *, channel_uid: str, seq: int, befor
         conflicts_added=tuple((tuple(sorted(c)), r) for c, r in conflicts),
         forwards_added=forwards_added, superseded_added=superseded_added, transmitted_added=transmitted_added,
         recipients_added=recipients_added, requests_added=requests_added, log_added=log_added,
-        raised=raised, created_at=_now(), monotonic_ns=time.monotonic_ns(),
+        raised=raised, created_at=_now(), monotonic_ns=time.monotonic_ns(), **label,
     )
+
+
+def _label_entry(channel: Any, message_id: Optional[str]) -> dict:
+    """The label fields of the event of ``message_id`` from the channel's label records (``TranslatorChannel.label_records``:
+    message id -> (record JSON, labelled text, request JSON)); all ``None`` when the call made no label. Reads only."""
+    none = {"label_json": None, "label_sha256": None, "labelled_text": None, "labelled_text_sha256": None, "label_request_json": None}
+    if not message_id:
+        return none
+    entry = (getattr(channel, "label_records", None) or {}).get(message_id)
+    if not isinstance(entry, tuple) or len(entry) != 3:
+        return none
+    record_json, text, request_json = entry
+    return {"label_json": record_json if isinstance(record_json, str) else None,
+            "label_sha256": sha256_hex(record_json) if isinstance(record_json, str) else None,
+            "labelled_text": text if isinstance(text, str) else None,
+            "labelled_text_sha256": hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest() if isinstance(text, str) else None,
+            "label_request_json": request_json if isinstance(request_json, str) else None}
 
 
 # --------------------------------------------------------------------------------------------- observation

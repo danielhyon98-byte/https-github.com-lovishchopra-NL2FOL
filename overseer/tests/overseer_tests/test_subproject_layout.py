@@ -58,12 +58,14 @@ PREMOVE_ZIP_SHA256 = "fb7308eb3afa7746e965bb4884969147bb3edbd965f518a7af489a8d10
 #: The packs pinned after the move, each with the step that made it: 2.0, architecture step 3 (the twofold review of a
 #: combined answer; a MAJOR version, the kind synthesis_carries_fault added); 2.1, integration step 2 (specialist feedback:
 #: the review of a revision request; a MINOR version); 2.2, the round-10 hold remedy c3b (the receipt code CORE-SELF-002
-#: listed; a MINOR version), the installed pack since. Pack 2.2 is not yet released: its pin tracks the pack as built, and was
-#: moved once, when its README (the input budget, the CORE-SELF-002 row) and manifest were corrected before release; 2.0, 2.1
-#: and every pack pinned before the move are released and their pins never move.
+#: listed; a MINOR version); 2.3, stage 2a of the meaning check (trust rule T17 and the self-certification label's codes; a MINOR
+#: version), the installed pack since. Pack 2.2 was moved once before release, when its README (the input budget, the
+#: CORE-SELF-002 row) and manifest were corrected; it was pushed with 2.3's predecessor commits, so its pin no longer moves. Pack
+#: 2.3 is not yet released: its pin tracks the pack as built. 2.0, 2.1, 2.2 and every pack pinned before the move keep their pins.
 POSTMOVE_PACK_DIGESTS = {"2.0": "c2be21abf85f01cf672666650cdf5bb2ee26926c6095eb1569db3e193123f673",
                          "2.1": "a60727fce80a4190f59a8a0e21bf0c69cb759bab4a04876d81c88095ea21ebb5",
-                         "2.2": "ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28"}
+                         "2.2": "ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28",
+                         "2.3": "d5c9a8e34f8a23b86043a9b233090a952440c3d899e6ded99bdfab5b908b05e8"}
 
 
 def _imports(path: Path) -> list[tuple[int, str]]:
@@ -94,7 +96,7 @@ def test_the_package_ships_its_knowledge_pack_as_its_own_package_data():
     conf = tomllib.loads((SUBPROJECT / "pyproject.toml").read_text(encoding="utf-8"))
     assert conf["tool"]["setuptools"]["packages"]["find"]["where"] == ["src"]
     assert set(conf["tool"]["setuptools"]["package-data"]["epinoic_overseer"]) == {"knowledge/*/*.txt", "knowledge/*/*.md", "knowledge/*/*.json"}
-    assert installed_pack().identity.version == "2.2" and Path(knowledge_dir := str(PACKAGE / "knowledge")).is_dir(), knowledge_dir
+    assert installed_pack().identity.version == "2.3" and Path(knowledge_dir := str(PACKAGE / "knowledge")).is_dir(), knowledge_dir
 
 
 # ----------------------------------------------------------------------------------------------- isolation
@@ -165,11 +167,13 @@ def test_the_translator_never_imports_the_overseer():
 # ----------------------------------------------------------------------------------------------- the pack kept
 def test_every_pinned_pack_digest_is_the_one_recorded_before_the_move():
     # architecture step 3 made pack 2.0 the installed pack, integration step 2 (specialist feedback) 2.1 and the round-10 hold
-    # remedy c3b 2.2: every pack pinned before the move is still pinned to its premove digest and still loads with it, and those
-    # pinned since are 2.0 and 2.1 (each still loading with its digest) and 2.2, the installed pack (the same exact pins, three more)
+    # remedy c3b 2.2 and stage 2a of the meaning check 2.3: every pack pinned before the move is still pinned to its premove digest
+    # and still loads with it, and those pinned since are 2.0, 2.1 and 2.2 (each still loading with its digest) and 2.3, the
+    # installed pack (the same exact pins, four more)
     assert {v: d for (n, v), d in PACK_DIGESTS.items() if n == PACK_NAME} == {**PREMOVE_PACK_DIGESTS, **POSTMOVE_PACK_DIGESTS}
-    assert installed_pack().identity.sha256 == POSTMOVE_PACK_DIGESTS["2.2"]
-    for version, digest in {**PREMOVE_PACK_DIGESTS, "2.0": POSTMOVE_PACK_DIGESTS["2.0"], "2.1": POSTMOVE_PACK_DIGESTS["2.1"]}.items():
+    assert installed_pack().identity.sha256 == POSTMOVE_PACK_DIGESTS["2.3"]
+    for version, digest in {**PREMOVE_PACK_DIGESTS, "2.0": POSTMOVE_PACK_DIGESTS["2.0"], "2.1": POSTMOVE_PACK_DIGESTS["2.1"],
+                            "2.2": POSTMOVE_PACK_DIGESTS["2.2"]}.items():
         assert load_pack(installed_pack_dir(version)).identity.sha256 == digest, version
 
 

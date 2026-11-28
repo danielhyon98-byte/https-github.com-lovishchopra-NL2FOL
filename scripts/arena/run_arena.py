@@ -258,6 +258,16 @@ that the overseer-selected fallback and its threshold were not exercised (``fall
 ``fallback_not_exercised``; arena round 9, c2: all 22 decisions withheld for that reason alone, read as a test of the 90%
 rule).
 
+The meaning label (meaning-check design 2.5.7, arena row; ``arena_labels.py``). Every hub of the run labels each answer,
+synthesis and revision with the labeller ``--labeller`` names (``run_round(..., labeller=...)``; when none is given,
+``EPINOIC_ARENA_LABELLER`` is read at each call, else ``recorded``): ``recorded`` serves the round's ``labels/`` by request key
+under the recording key (``--label-key`` or ``EPINOIC_ARENA_LABEL_KEY``), and an answer with no recorded label is withheld and
+counted apart as "withheld unlabelled", never treated as clean; ``faithful`` is the faithful fake (a wiring-parity run, not a
+label measurement, as the summary says on its own line); ``unconfigured`` is the production default. Each record carries its
+label (``selfcert_label``: state, kind, places, families; never words), results.json ``selfcert_label`` counts them (it moves
+no transport count), INT-SELF-001 credits an injected self-certification (``SELF_REPORT_CODES``), and a claim INT-SELF-001
+names is never displayed as a success. summary.md keeps its lines and adds the label's on lines of their own.
+
 The overseer sub-project. The delivery pass and the revision pass are the overseer's (its transfer auditor and delivery
 policy); every other pass and measure is the translator's own. Where the overseer is not installed (the translator runs
 without it, as after its split: architecture review after arena round 8) the round still runs and both passes are
@@ -279,11 +289,13 @@ import time
 import traceback
 import unicodedata
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from pathlib import Path
 from typing import NamedTuple, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stem_mutations import STEM_MUTATIONS, is_stem_subject, mutate_stem  # noqa: E402
+import arena_labels as AL  # noqa: E402  (the arena's meaning label: which labeller, the labels/ format, the counts)
 
 from epinoic_logic.branches import RouterHub, default_registry
 from epinoic_logic.branches.generic_parser import agent_claim_tag
@@ -358,7 +370,10 @@ OVERSEER_FOUND_BESIDE = find_overseer_beside()
 KEY = b"arena-signing-key-0123456789abcdef"
 CFG = SolverConfig(timeout_ms=4000, memory_max_mb=None)
 #: Codes under which the infrastructure names an agent's self-certification (core pack, hand-off check, subject pack).
-SELF_REPORT_CODES = ("CORE-SELF-001", "CORE-SELF-002", "INT-HANDOFF-006", "ES-META-001")
+#: The codes that credit an injected self-certification: the rule reader's (core, hand-off and subject codes) and the meaning
+#: label's INT-SELF-001 (meaning-check design 2.5.7, arena row). INT-SELF-002 (the label could not be had) credits nothing: it is
+#: counted apart as "withheld unlabelled" (arena_labels.label_counts).
+SELF_REPORT_CODES = ("CORE-SELF-001", "CORE-SELF-002", "INT-HANDOFF-006", "ES-META-001", "INT-SELF-001")
 #: Mutations in the order they are applied; the variant index is part of the report id.
 MUTATIONS = ("invented_quotation", "invented_quotation_single", "altered_quotation", "self_certification", "wrong_arithmetic", "chronology_error")
 #: Mutations that invent or alter a quotation: INT-REQ-003 against a supplied text, CORE-SRC-003 (unverifiable) without one.
@@ -928,6 +943,7 @@ def relay_from_peer(ch, items: list[dict], item: dict, delivered: dict, file_nam
                findings=[finding_dict(f) for f in rr.findings], subject_findings=[finding_dict(sf) for sf in rr.structural_findings],
                document_source="recorded relay payload" if document_text is not None else "forwarded report",
                document_matches_forward=document_text is None or document_text == peer_report.original_response)
+    rec["selfcert_label"] = AL.label_member(ch, rr.message_id, rec["findings"])
     if relayed is None:
         return rec, None, None
     text = SuppliedText(document_id=f"peer:{peer}", title=f"{peer_item['agent_id']} report {peer_report.report_id} relayed through the hub", author=peer_item["agent_id"],
@@ -1060,7 +1076,7 @@ def relayed_document(task_id: str, peer_of: str, relay_status: str, document_id:
     return doc
 
 
-def relay_peer(round_dir: Path, task_id: str) -> dict:
+def relay_peer(round_dir: Path, task_id: str, *, labeller=None) -> dict:
     """Receive the peer task's genuine reply, relay the delivered report to the requesting agent and write two files:
 
     - <round>/relayed/<task_id>.json (``relayed_document``, RELAYED_FILE_KEYS only): the delivered payload, the document id
@@ -1075,7 +1091,17 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
     A relay that cannot be made raises ``RoundInputError`` naming the task or the file, before anything is written: a task
     the round neither plans nor answers, a task with no peer, a peer that has not answered, or a peer whose specialist
     file is no specialist file of the round format (``SpecialistFileError``). Another task's unreadable file never stops
-    the relay (the dependent's own answer is normally not written yet)."""
+    the relay (the dependent's own answer is normally not written yet).
+
+    ``labeller`` (the meaning label, ``arena_labels.resolve``, resolved at this call: one of ``recorded``, ``faithful``,
+    ``unconfigured``, or None for ``EPINOIC_ARENA_LABELLER``, else ``recorded``) labels the peer's answer as the hub does; the
+    router's record carries the label's state (``peer_receipt.selfcert_label``: state, kind, places and families, never words)."""
+    lab = AL.resolve(labeller, round_dir)
+    with AL.installed(lab):
+        return _relay_peer(round_dir, task_id, lab)
+
+
+def _relay_peer(round_dir: Path, task_id: str, lab) -> dict:
     refused: list[dict] = []
     items = load_items(round_dir / "specialists", include_pending=True, refused=refused)
 
@@ -1097,7 +1123,7 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
             raise SpecialistFileError(bad["path"], bad["reason"])
         raise RoundInputError(f"the peer {peer} of task {task_id} has not answered (no specialists/{peer}.json): there is no report to relay")
     group = group_of(item)
-    hub = RouterHub(signing_key=KEY, config=CFG)
+    hub = RouterHub(signing_key=KEY, config=CFG, selfcert_labeller=lab.labeller)
     plan = group_plan(items, group)
     ch = hub.open_task(plan)
     m, _req, rq = hub.dispatch(group, peer_item["agent_id"], peer_item["question"], supplied(peer_item))
@@ -1115,6 +1141,7 @@ def relay_peer(round_dir: Path, task_id: str) -> dict:
                                   "subject_findings": [{"code": sf.code, "severity": sf.severity, "message": sf.message, "claim_ids": list(sf.claim_ids), "rule_source": sf.rule_source} for sf in rc.structural_findings],
                                   "constraints": [{"constraint_id": c.constraint_id, "satisfied": c.satisfied, "detail": c.detail} for c in rc.constraint_results],
                                   "formal_checks": [{"check_id": fc.constraint_id, "status": fc.formal_status, "satisfied": fc.satisfied, "detail": fc.detail} for fc in rc.formal_checks]}
+        router["peer_receipt"]["selfcert_label"] = {"labeller": lab.name, **AL.label_member(ch, rc.message_id, router["peer_receipt"]["findings"])}
         rec, text, relayed = relay_from_peer(ch, items, item, {peer_item["_path"].stem: reply} if reply is not None else {}, item["_path"].name)
         router["relay"] = {k: v for k, v in rec.items() if k != "file"}
         relay_status = rec.get("status") or NOT_RELAYED
@@ -1585,6 +1612,7 @@ def synthesis_record(ch, items: list[dict], item: dict, group: str, syntheses: d
                    status=rr.status.value, branch=rr.branch, delivered=relayed is not None,
                    codes=sorted({f["code"] for f in findings} | {sf["code"] for sf in subject}), findings=findings, subject_findings=subject,
                    formal_result_ids=list(rr.formal_result_ids), latency_ms=(time.perf_counter() - t0) * 1000.0, summary=rr.summary[:400])
+        rec["selfcert_label"] = AL.label_member(ch, rr.message_id, findings)
         if reasons:
             rec["failure_reasons"] = reasons
     except Exception as exc:  # a crash is a translator bug
@@ -2803,7 +2831,7 @@ def delivery_record(item: dict, decision, keyring, *, genuine: dict | None, rc, 
 
 
 def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None = None,
-                  unreadable: list[dict] | tuple = ()) -> dict:
+                  unreadable: list[dict] | tuple = (), labeller=None) -> dict:
     """The delivery policy (``epinoic_overseer.delivery_policy``, ``docs/DELIVERY.md``) applied to every genuine
     answer of the round, on a hub of its own carrying a transfer auditor: each group's genuine traffic is replayed in the
     genuine pass's order (requests, peer relays, answers with the same fixtures) and, for each answer, a delivery session
@@ -2823,10 +2851,27 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
     A task of the round's plan whose answer the round does not hold (``_pending``: never answered, or a specialist file that
     cannot be read), and a specialist file that cannot be read and names no task of the plan (``unreadable``: load_items'
     refused files), are withheld with the reason (``withheld_why``: ``not_answered`` or ``answer_unreadable``): there is
-    nothing to deliver."""
+    nothing to deliver.
+
+    ``labeller`` (the meaning label, resolved at this call by ``arena_labels.resolve``; run_round passes its own): every
+    channel of the pass's hub labels with it, and it is the default labeller while the pass runs, so the delivery policy reads
+    the same label."""
     if not overseer_installed():
         return {"skipped": OVERSEER_NOT_INSTALLED, "tasks": [], "by_mode": {}, "errors": []}
+    # the overseer is imported here, in the delivery pass, and handed to the pass's body (the harness attaches the overseer only
+    # in its delivery pass: tests/integration/test_overseer_subproject.py)
+    from epinoic_overseer import export_pack, load_pack
     from epinoic_overseer.delivery_policy import DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy
+    ovs = SimpleNamespace(DELIVERY_POLICY_VERSION=DELIVERY_POLICY_VERSION, DeliveryConfig=DeliveryConfig, DeliveryPolicy=DeliveryPolicy,
+                          export_pack=export_pack, load_pack=load_pack)
+    lab = AL.resolve(labeller)
+    with AL.installed(lab):
+        return _delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=overseer, unreadable=unreadable, lab=lab, ovs=ovs)
+
+
+def _delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, records: list[dict], *, overseer: dict | None,
+                   unreadable, lab, ovs) -> dict:
+    DELIVERY_POLICY_VERSION, DeliveryConfig, DeliveryPolicy = ovs.DELIVERY_POLICY_VERSION, ovs.DeliveryConfig, ovs.DeliveryPolicy
     t_pass = time.perf_counter()
     cfg = DeliveryConfig()
     label = (overseer or {}).get("label")
@@ -2842,18 +2887,18 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
         out["by_mode"]["withheld"] += 1
     try:
         auditor = _delivery_auditor()
-        hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor)
+        hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor, selfcert_labeller=lab.labeller)
         agents = {k: v for k, v in (overseer or {}).items() if k in DELIVERY_POLICY_KEYS}
         if agents.get("provider_factory") is not None and agents.get("pack") is None:  # --overseer-provider: load the exported pack here
             import tempfile
 
-            from epinoic_overseer import export_pack, load_pack
             if (overseer or {}).get("pack_zip") is not None:
-                agents["pack"] = load_pack(Path(overseer["pack_zip"]))
+                agents["pack"] = ovs.load_pack(Path(overseer["pack_zip"]))
             else:
                 with tempfile.TemporaryDirectory(prefix="arena-overseer-pack-") as tmp:
-                    agents["pack"] = load_pack(export_pack(Path(tmp), zip_archive=True).zip_path)
-        policy = DeliveryPolicy(config=cfg, clock=time.monotonic, **agents)
+                    agents["pack"] = ovs.load_pack(ovs.export_pack(Path(tmp), zip_archive=True).zip_path)
+        # the pass's labeller is given to the policy explicitly (it is also the hub's and the default while the pass runs)
+        policy = DeliveryPolicy(config=cfg, clock=time.monotonic, labeller=lab.labeller, **agents)
     except Exception as exc:  # a failure of the pass never ends the round
         out["errors"].append({"error": f"the delivery pass could not start: {type(exc).__name__}: {exc}"})
         return out
@@ -2897,6 +2942,7 @@ def delivery_pass(items: list[dict], make_verify_fn, recorded_relays: dict, reco
                     delivered[sp.stem] = reply
                 decision = session.decide(request_message_ids=[m.message_id], receipts={rc.message_id: rc})
                 rec = delivery_record(item, decision, auditor.keyring, genuine=genuine.get(sp.name), rc=rc, policy=policy)
+                rec["selfcert_label"] = AL.label_member(ch, rc.message_id, [finding_dict(f) for f in rc.findings])
                 out["tasks"].append(rec)
                 out["by_mode"][decision.mode] = out["by_mode"].get(decision.mode, 0) + 1
             except Exception as exc:  # recorded, never allowed to end the round
@@ -3093,7 +3139,7 @@ def record_revision_budget(round_dir: Path, items: list[dict], revision_rounds: 
     return {"revision_rounds": revision_rounds, "recorded_in": "tasks.json" if recorded else None, "tasks": recorded}
 
 
-def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, auditor=None, task_ids=None):
+def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, auditor=None, task_ids=None, labeller=None):
     """Each group's genuine traffic replayed on a hub of its own carrying a transfer auditor (the delivery pass's unless
     ``auditor`` is given), in the genuine pass's order: the requests, the peer relays (the recorded relayed document when
     there is one) and the answers, with no translator fixture (no claim outcome is ever fed back, so the flaws do not
@@ -3101,8 +3147,10 @@ def _feedback_replay(items: list[dict], recorded_relays: dict | None = None, *, 
     ``task_ids`` limits them), the infrastructure's revision request (``RouterHub.request_revision``: the flaws come from
     the answer's receipt and a signed task audit, never from an agent). Returns ``(hub, entries)``: per task id its item,
     hub key, request, answer (None when not delivered), receipt and ``RevisionIssue``, or ``error``. The caller closes
-    the hub."""
-    hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor if auditor is not None else _delivery_auditor())
+    the hub. ``labeller`` (the meaning label, resolved at this call by ``arena_labels.resolve``) labels every answer on the
+    hub's channels."""
+    lab = AL.resolve(labeller)
+    hub = _DeliveryHub(signing_key=KEY, config=CFG, auditor=auditor if auditor is not None else _delivery_auditor(), selfcert_labeller=lab.labeller)
     channels: dict[str, object] = {}
     delivered: dict[str, object] = {}
     entries: dict[str, dict] = {}
@@ -3188,7 +3236,7 @@ def feedback_differences(recorded: dict, current: dict | None) -> list[str]:
     return out
 
 
-def revision_feedback(round_dir: Path, task_ids=None, *, revision_rounds: int | None = None) -> dict:
+def revision_feedback(round_dir: Path, task_ids=None, *, revision_rounds: int | None = None, labeller=None) -> dict:
     """Build, through the audited hub, the infrastructure's feedback on every genuine answer of the round (or on
     ``task_ids``) and write ``<round>/feedback/<task_id>.json`` (``feedback_document``). Returns the files and the count by
     reason. Nothing is sent to a specialist: the pipeline sends ``rendered`` as the specialist's next turn.
@@ -3201,12 +3249,22 @@ def revision_feedback(round_dir: Path, task_ids=None, *, revision_rounds: int | 
 
     The round is read with its plan (``load_items(..., include_pending=True)``), as run_round reads it, so each group's plan
     is the one the replay re-issues the requests under; a planned task whose answer the round does not hold gets no file
-    (nothing was delivered to revise)."""
+    (nothing was delivered to revise).
+
+    ``labeller`` (the meaning label, ``arena_labels.resolve``, resolved at this call; None reads ``EPINOIC_ARENA_LABELLER``, else
+    ``recorded`` over the round's labels/) labels every answer of the replay, so the feedback is built from the receipts the
+    hub gives with that label."""
+    lab = AL.resolve(labeller, round_dir)
+    with AL.installed(lab):
+        return _revision_feedback(round_dir, task_ids, revision_rounds=revision_rounds, lab=lab)
+
+
+def _revision_feedback(round_dir: Path, task_ids, *, revision_rounds: int | None, lab) -> dict:
     items = load_items(round_dir / "specialists", include_pending=True)
     answers = {it["task_id"] for it in items if not it.get("_pending")}
     wanted = set(task_ids) if task_ids else None
     budget = record_revision_budget(round_dir, items, revision_rounds, wanted or answers) if revision_rounds is not None else None
-    hub, entries = _feedback_replay(items, load_recorded_relays(round_dir, items), task_ids=wanted)
+    hub, entries = _feedback_replay(items, load_recorded_relays(round_dir, items), task_ids=wanted, labeller=lab)
     out = {"files": [], "by_reason": {}, "issued": 0, "budget": budget}
     try:
         (round_dir / FEEDBACK_DIR).mkdir(exist_ok=True)
@@ -3233,7 +3291,7 @@ def _consolidation_state(hub, key: str, mids: list[str]) -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> dict:
+def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict, *, labeller=None) -> dict:
     """The specialist revisions of the round (design section 53), a measure of its own: only when the round has a
     ``feedback/`` directory. Each group's genuine traffic is replayed on an audited hub and each request re-issued
     (``recorded_feedback_checks``: the flaws, the keep list and the rendered digest against what was recorded; a difference
@@ -3250,7 +3308,17 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
     specialist read is flagged (:data:`UNRECORDED_READ_FLAG`) and fails that gate. A file in ``feedback/`` or
     ``revisions/`` whose name is no task of the round and that carries no ``task_id`` (an exercise's own summary, say) is
     no feedback or revision file: it is listed under ``ignored_files``, never compared; a feedback or revision file that is
-    not JSON is a named difference or error, never an exception."""
+    not JSON is a named difference or error, never an exception.
+
+    ``labeller`` (the meaning label, ``arena_labels.resolve``, resolved at this call over the round's labels/; run_round passes
+    its own) labels every answer and revision of the pass; each revision record carries the label's state
+    (``selfcert_label``: state, kind, places and families, never words)."""
+    lab = AL.resolve(labeller, round_dir)
+    with AL.installed(lab):
+        return _revision_pass(round_dir, items, recorded_relays, lab)
+
+
+def _revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict, lab) -> dict:
     fb_dir, rev_dir = round_dir / FEEDBACK_DIR, round_dir / REVISIONS_DIR
     if not fb_dir.is_dir():
         return {"skipped": "the round has no feedback/ directory (scripts/arena/revision_feedback.py was not run)", "tasks": [], "checks": [], "errors": []}
@@ -3276,7 +3344,7 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
     replay_items, budgets = replay_budgets(items, {k: v for k, v in recorded.items() if isinstance(v, dict)})
     out["budgets"] = budgets
     try:
-        hub, entries = _feedback_replay(replay_items, recorded_relays)
+        hub, entries = _feedback_replay(replay_items, recorded_relays, labeller=lab)
     except Exception as exc:
         out["errors"].append({"error": f"the revision pass could not start: {type(exc).__name__}: {exc}"})
         return out
@@ -3331,6 +3399,7 @@ def revision_pass(round_dir: Path, items: list[dict], recorded_relays: dict) -> 
                        flaws_before=[{k: f[k] for k in ("code", "severity", "flaw_class", "basis")} for f in feedback_document(entry)["flaws"]],
                        issue_ms=entry.get("issue_ms"), specialist={k: rev.get(k) for k in ("elapsed_s", "input_tokens", "output_tokens", "model", "effort",
                                                                                           "kb_version", "bundle_sha256")})
+            rec["selfcert_label"] = AL.label_member(hub.channels.get(key), rc2.message_id, [finding_dict(f) for f in rc2.findings])
             entry.update(revision_receipt=rc2, record=rec)
             groups.setdefault(key, []).append(task_id)
             out["tasks"].append(rec)
@@ -3441,21 +3510,37 @@ def budget_line(budgets: dict[str, dict]) -> str:
 
 
 def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_record: bool = True, delivery_baseline: bool = False,
-              without_overseer: bool = False) -> dict:
+              without_overseer: bool = False, labeller=None, label_key=None) -> dict:
     """Run one recorded round (module docstring). ``delivery_overseer`` configures the delivery pass's overseer agents
     (``delivery_pass``); the command line passes none unless ``--overseer-provider`` names a provider factory.
     ``delivery_baseline`` (with ``delivery_overseer``; the command line sets it with ``--overseer-provider``) also runs the
     same pass without overseer agents and reports the configured pass's decisions beside that withheld baseline
     (``deliveries_baseline``, ``delivery_comparison``). ``task_record`` (default True, as production): the claim verifier
     receives the task record of the request each report answers and hands it to the translator; False replays with the
-    two-argument verifier of the replays before round 8's clearance (``--without-task-record``), for comparison only."""
+    two-argument verifier of the replays before round 8's clearance (``--without-task-record``), for comparison only.
+
+    ``labeller`` (the meaning label, meaning-check design 2.5.7 arena row; ``arena_labels``): ``recorded`` (the round's labels/
+    by request key, with the recording key ``label_key`` or ``EPINOIC_ARENA_LABEL_KEY``), ``faithful`` (the faithful fake: a
+    wiring-parity run, not a label measurement), ``unconfigured`` (the production default), a Labeller, or None: then
+    ``EPINOIC_ARENA_LABELLER`` is read AT THIS CALL, else ``recorded``. Every hub of the run, the delivery and revision passes'
+    included, labels with it, and it is the default labeller while the round runs. results.json carries the counts
+    (``selfcert_label``) and each record its label (``selfcert_label``: state, kind, places, families; never words);
+    summary.md keeps its lines and adds the label's on lines of their own."""
+    lab = AL.resolve(labeller, round_dir, key=label_key)
+    with AL.installed(lab):
+        return _run_round(round_dir, delivery_overseer=delivery_overseer, task_record=task_record, delivery_baseline=delivery_baseline,
+                          without_overseer=without_overseer, lab=lab)
+
+
+def _run_round(round_dir: Path, *, delivery_overseer: dict | None, task_record: bool, delivery_baseline: bool, without_overseer: bool,
+               lab) -> dict:
     spec_dir, tr_dir, syn_dir = round_dir / "specialists", round_dir / "translations", round_dir / "syntheses"
     translations = {p.stem: json.loads(p.read_text()) for p in tr_dir.glob("*.json")} if tr_dir.exists() else {}
     syntheses = load_syntheses(syn_dir)  # the combinator's output as written: a file that is not JSON is relayed as text, never raised on
     # the recorded translations of mutated claims, each bound to its mutated text (served to the variant they were made for)
     mutation_translations, mutation_translation_problems = load_mutation_translations(round_dir)
     adjudications = load_adjudications(round_dir)
-    hub = RouterHub(signing_key=KEY, config=CFG)
+    hub = RouterHub(signing_key=KEY, config=CFG, selfcert_labeller=lab.labeller)
     records: list[dict] = []
     t_all = time.perf_counter()
     # the round as its plan holds it (round c3): every task of tasks.json, those with no specialist file marked _pending
@@ -3664,7 +3749,10 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                 keep = (lambda d: d) if kind == "genuine" else brief
                 rec["findings"] = [keep(finding_dict(f)) for f in rc.findings]
                 rec["subject_findings"] = [keep(finding_dict(sf)) for sf in rc.structural_findings]
-                outcomes = [outcome_record(o) for o in rc.outcomes]
+                # the meaning label of this transmission (state, kind, places, families; never words), and the display rule:
+                # a claim INT-SELF-001 names never shows a success status here (T18 for the arena)
+                rec["selfcert_label"] = AL.label_member(channels.get(hub_key, channels[group]), rc.message_id, found)
+                outcomes = AL.withhold_labelled_display([outcome_record(o) for o in rc.outcomes], found)
                 stale = [o["claim_id"] for o in outcomes if o["stale_fixture_refused"]]
                 internal = [o for o in rc.outcomes if o.display_status.value == "INTERNAL_ERROR" and not stale_fixture(o)] + [fc for fc in rc.formal_checks if fc.formal_status == "INTERNAL_ERROR"]
                 reasons = []
@@ -3687,7 +3775,11 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
                     genuine_found = baseline_in_form(baseline.get(sp.stem, []), baseline_ids.get(sp.stem, []),
                                                      [c["claim_id"] for c in (reply.payload["claims"] if reply else [])], qualification_tags.get(sp.stem))
                     named = findings_naming_injection(found, expected_codes, inj, injected, genuine_found, task_id)
-                    unexplained, absent = diff_against_baseline(found, genuine_found, inj, injected, task_id, baseline_constraints.get(sp.stem))
+                    # an answer the meaning label could not read (INT-SELF-002) is counted apart as withheld unlabelled
+                    # (selfcert_label), never as a finding the injection explains or fails to explain
+                    unexplained, absent = diff_against_baseline([f for f in found if f["code"] != AL.LABEL_UNAVAILABLE_CODE],
+                                                                [f for f in genuine_found if f["code"] != AL.LABEL_UNAVAILABLE_CODE],
+                                                                inj, injected, task_id, baseline_constraints.get(sp.stem))
                     rec.update(injected_claim_ids=injected, named_by=[brief(f) for f in named], unexplained_findings=[brief(f) for f in unexplained],
                                baseline_findings_absent=[brief(f) for f in absent])
                     # the claims this mutation changed, by what became of their translation: translated from a recorded translation
@@ -3756,14 +3848,14 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
     # the delivery policy's decision for every genuine answer: a pass of its own, on a hub of its own, after the round's
     # records are complete (it adds no record and moves no transport count)
     unplanned = [b for b in refused_files if not b.get("planned")]
-    deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer, unreadable=unplanned) if DELIVERY_PASS else
+    deliveries = (delivery_pass(items, make_verify_fn, recorded_relays, records, overseer=delivery_overseer, unreadable=unplanned, labeller=lab) if DELIVERY_PASS else
                   {"skipped": "the delivery pass is switched off (DELIVERY_PASS is False: a harness that replaces this module's hub or verifier "
                               "runs this round)", "tasks": [], "by_mode": {}, "errors": []})
     # with overseer agents configured, the same pass without them: the withheld baseline the configured decisions are read beside
-    baseline = (delivery_pass(items, make_verify_fn, recorded_relays, records, unreadable=unplanned) if DELIVERY_PASS and delivery_overseer and delivery_baseline else None)
+    baseline = (delivery_pass(items, make_verify_fn, recorded_relays, records, unreadable=unplanned, labeller=lab) if DELIVERY_PASS and delivery_overseer and delivery_baseline else None)
     # the specialist revisions (design section 53): a pass of its own, only when the round recorded the feedback its specialists
     # read; it adds no record and moves no transport count
-    revisions = (revision_pass(round_dir, items, recorded_relays) if REVISION_PASS else
+    revisions = (revision_pass(round_dir, items, recorded_relays, labeller=lab) if REVISION_PASS else
                  {"skipped": "the revision pass is switched off (REVISION_PASS is False)", "tasks": [], "checks": [], "errors": []})
     total = len(records)
     functional = sum(1 for r in records if r.get("functional"))
@@ -3817,6 +3909,8 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
            **({"deliveries_baseline": baseline, "delivery_comparison": delivery_comparison(deliveries, baseline)} if baseline is not None else {}),
            "revisions": revisions,
            "failures": [r for r in records if not r.get("functional")], "records": records}
+    # the meaning label's counts, a measure of its own (it moves no transport count): named, withheld unlabelled by kind, skipped
+    out["selfcert_label"] = AL.label_counts(records, lab)
     # the separate measures, and the qualifications they raise (a run that lost expected translations says so)
     out["metrics"] = round_measures(records, translations, adjudications, task_record=task_record,
                                     mutation_translations=(mutation_translations, mutation_translation_problems))
@@ -3830,6 +3924,7 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
              f"Transmissions: {total}; functional: {functional} ({out['functional_rate']:.1%}). This is the transport measure only: fixture coverage, "
              "translation fidelity and the claim counts are separate measures (below), never combined with it into one rate.", "",
              error_receipt_line(out["genuine_receipts_with_errors"]), ""]
+    lines += AL.label_lines(out["selfcert_label"]) + [""]
     lines += measure_lines(out["metrics"])
     lines += ["", "| variant | functional | total |", "| --- | --- | --- |"]
     lines += [f"| {k} | {v['functional']} | {v['total']} |" for k, v in out["by_variant"].items()]
@@ -3871,6 +3966,9 @@ def run_round(round_dir: Path, *, delivery_overseer: dict | None = None, task_re
         lines += ["", "Overseer configuration: " + ("replayed without the overseer on purpose (--without-overseer): " if without_overseer else
                                                     "NOT installed, and --without-overseer was not given, so the command line fails the run: ")
                   + ", ".join(out["overseer"]["passes_not_run"]) + " not run."]
+    named_by_label = AL.named_files(out["selfcert_label"])
+    if named_by_label:
+        lines += ["", "## Records the meaning label names (places and families only; INT-SELF-001 withholds each)", ""] + [f"- {n}" for n in named_by_label]
     lines += [""] + delivery_lines(out["deliveries"])
     if baseline is not None:
         lines += [""] + delivery_baseline_lines(baseline, out["delivery_comparison"])
@@ -3906,6 +4004,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--overseer-pack", type=Path, metavar="ZIP",
                     help="the exported overseer knowledge pack the overseer agents are built from (with --overseer-provider); by default the "
                          "installed pack is exported to a temporary directory and loaded from its zip, as the deployed policy loads it")
+    ap.add_argument("--labeller", choices=AL.LABELLERS, default=None,
+                    help="the meaning label's labeller (meaning-check design 2.5.7): recorded (the round's labels/ by request key; an unrecorded "
+                         "answer is withheld and counted as withheld unlabelled), faithful (the faithful fake: a wiring-parity run, not a label "
+                         f"measurement) or unconfigured (the production default: every answer the reader passes is withheld). Default: "
+                         f"{AL.LABELLER_ENV} when set, else {AL.DEFAULT_LABELLER}")
+    ap.add_argument("--label-key", default=None, metavar="KEY",
+                    help=f"the RECORDING key the round's labels were recorded under (never a deployment secret); default {AL.LABEL_KEY_ENV}")
     args = ap.parse_args(argv)
     rd = args.round_dir.resolve()
     if args.overseer_pack is not None and not args.overseer_provider:
@@ -3916,8 +4021,12 @@ def main(argv: list[str] | None = None) -> int:
             overseer = delivery_overseer_config(args.overseer_provider, args.overseer_pack)
         except (ValueError, ImportError, OSError) as exc:
             ap.error(f"--overseer-provider: {exc}")
+    try:
+        lab = AL.resolve(args.labeller, rd, key=args.label_key)
+    except ValueError as exc:
+        ap.error(str(exc))
     res = run_round(rd, task_record=not args.without_task_record, delivery_overseer=overseer, delivery_baseline=overseer is not None,
-                    without_overseer=args.without_overseer)
+                    without_overseer=args.without_overseer, labeller=lab)
     print(json.dumps({k: res[k] for k in ("round", "transmissions", "functional", "functional_rate", "by_variant", "provider_dependent_translation_outcomes", "translation_outcomes_all_variants", "wall_s")}, indent=2))
     print("failures:", len(res["failures"]))
     pt = res["planned_tasks"]
@@ -3951,6 +4060,7 @@ def main(argv: list[str] | None = None) -> int:
     print("recorded peer relays differing from the current parse:", sum(1 for c in res["recorded_relay_checks"] if not c["identical"]), "of", len(res["recorded_relay_checks"]),
           "| recorded relays exposing router-only fields to the dependent agent:", sum(1 for c in res["recorded_relay_checks"] if c.get("router_fields_exposed")))
     print("\n".join(line for line in measure_lines(res["metrics"]) if line))
+    print("\n".join(AL.label_lines(res["selfcert_label"])))
     print("results written to", rd / "results.json", "and", rd / "summary.md")
     if res["qualified"] and args.fail_on_qualification:
         print("FAILED: the run is qualified (--fail-on-qualification):", ", ".join(q["code"] for q in res["qualifications"]))

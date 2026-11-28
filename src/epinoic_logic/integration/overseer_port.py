@@ -63,17 +63,18 @@ DELIVERABLE_CONSOLIDATIONS: frozenset[str] = frozenset({"CONSOLIDATED", "CONSOLI
 MAX_PENDING_WAIT_MS = 250
 AUDIT_KEY_ID = "overseer-audit"
 #: The overseer knowledge packs this release of the service accepts (pre-build NOTES item 33): the overseer sub-project's
-#: installed pack, ``overseer-knowledge-docs`` 2.2 since the round-10 hold remedy c3b (the receipt code CORE-SELF-002 listed;
-#: 2.1 before it, from integration step 2, the review of a revision request; 2.0 before that, from architecture step 3), its
-#: ``pack.PACK_DIGESTS`` entry; ``tests/integration/test_overseer_subproject.py`` compares the two without the service ever
-#: importing the overseer).
-PINNED_PACK_DIGESTS: frozenset[str] = frozenset({"ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28"})
+#: installed pack, ``overseer-knowledge-docs`` 2.3 since stage 2a of the meaning check (policy 2026.11-v9: trust rule T17, the
+#: self-certification label that may only withhold, and the codes INT-SELF-001, INT-SELF-002 and OVS-FID-010 listed; 2.2 before
+#: it, from the round-10 hold remedy c3b, the receipt code CORE-SELF-002 listed; 2.1 before that, from integration step 2, the
+#: review of a revision request; 2.0 before that, from architecture step 3), its ``pack.PACK_DIGESTS`` entry;
+#: ``tests/integration/test_overseer_subproject.py`` compares the two without the service ever importing the overseer).
+PINNED_PACK_DIGESTS: frozenset[str] = frozenset({"d5c9a8e34f8a23b86043a9b233090a952440c3d899e6ded99bdfab5b908b05e8"})
 _AGENT_CODE_RE = re.compile(r"^OVS-AGENT-")
 
 _State = Literal["AUDIT_FAILED", "AUDIT_PENDING", "AUDIT_PASSED_WITH_FINDINGS", "AUDIT_PASSED"]
 _Refusal = Literal[
     "clearance_failed", "clearance_pending", "final_audit_not_passed", "signature_invalid", "custody_failed", "stale",
-    "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable",
+    "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "selfcert_label_unavailable",
 ]
 
 

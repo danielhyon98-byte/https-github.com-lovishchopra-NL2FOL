@@ -472,7 +472,12 @@ def test_a_captured_result_the_receipt_carries_is_counted_once():
         ev = t.event
         held = {o.verification.result_id for o in t.receipt.outcomes if o.verification is not None and o.translation.problem is not None}
         assert held and held <= {c.result_id for c in ev.captured}
-        strings = sum(len(s) for s in (ev.plan_json, ev.channel_json, ev.envelope_json, ev.receipt_json, ev.raw_text, ev.call_json) if s)
+        # stage 2a of the meaning check: the event also carries the label record, the text it labelled and the router's record it
+        # was read against (``ChannelEvent.label_json``, ``labelled_text``, ``label_request_json``), content the journal bound counts
+        # too (rewritten to that stricter count: every content string of the event, the label's included, is charged once)
+        assert ev.label_json and ev.labelled_text
+        strings = sum(len(s) for s in (ev.plan_json, ev.channel_json, ev.envelope_json, ev.receipt_json, ev.raw_text, ev.call_json,
+                                       ev.label_json, ev.labelled_text, ev.label_request_json) if s)
         others = sum(len(c.result_json) + len(c.problem_json or "") for c in ev.captured if c.result_id not in held)
         assert ev.content_size() == strings + others
     finally:

@@ -1,6 +1,6 @@
 # Integration contract: translator and Z3 engine
 
-- **Contract version:** 0.9 (2026-11-24). Version 0.1 described commit
+- **Contract version:** 0.10 (2026-11-27). Version 0.1 described commit
   `3147d08e0aa63d5eeaceb1072754f29e3862164d` (engine `0.2.0`); 0.2 describes the engine fixes of
   the external review of 12 October 2026; 0.3 adds the named engine policy a caller requests over
   HTTP and on the command line, after the end-to-end simulation of 16 October 2026; 0.4 adds the
@@ -11,12 +11,13 @@
   CORE-SELF-002 names text the reader cannot read; 0.7 comes with policy `2026.11-v6`: eligibility rule 0 reads the
   self-certification rules `selfcert-2`, and the policy identity binds the reader's code as well as its lexicon and fold table;
   0.8 comes with policy `2026.11-v7`: eligibility rule 0 reads the self-certification rules `selfcert-3`; 0.9 comes with policy
-  `2026.11-v8`: eligibility rule 0 reads the self-certification rules `selfcert-4` (see section 11 for what changed). The
-  component versions are unchanged by 0.3, 0.4 and 0.5.
+  `2026.11-v8`: eligibility rule 0 reads the self-certification rules `selfcert-4`; 0.10 comes with policy `2026.11-v9`:
+  eligibility rule 0 reads the self-certification rules `selfcert-5`, and the policy identity binds the block-only meaning
+  label `selfcert-label-2` (see section 11 for what changed). The component versions are unchanged by 0.3, 0.4 and 0.5.
 - **Component versions:**
   - IR `1.0`
   - engine `0.4.0`
-  - policy `2026.11-v8`
+  - policy `2026.11-v9`
   - translator `0.4.0`
 
   These come from `src/epinoic_logic/version.py`, beside the argument rules `argdiag-2`
@@ -333,8 +334,9 @@ Input:
  "conclusion": {"id": "C", "expr": {"op": "gt", "left": {"op": "var", "name": "x"}, "right": {"op": "var", "name": "z"}}}}
 ```
 
-Output (abridged; run again through the CLI on 2026-10-31 for contract 0.5; the identity
-digests and the derived problems' digests change with every build and are elided):
+Output (abridged; run again through the CLI on 2026-10-31 for contract 0.5, and on 2026-11-27 for contract 0.10, which
+changed only `policy_version`; the identity digests and the derived problems' digests change with every build and are
+elided):
 
 ```json
 {"query": "entailment", "status": "ENTAILED",
@@ -347,7 +349,7 @@ digests and the derived problems' digests change with every build and are elided
                         "derived_problem_digests": ["…", "…", "…"], "rule_version": "argdiag-2",
                         "message": "the proof also needs fact premise(s) that no check established: P1; P2 (…)"}],
  "argument_rules": "argdiag-2",
- "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.11-v8", "z3_version": "5.1.0",
+ "versions": {"ir_version": "1.0", "engine_version": "0.4.0", "policy_version": "2026.11-v9", "z3_version": "5.1.0",
               "build_id": "…", "schema_id": "…", "policy_id": "…"}}
 ```
 
@@ -573,6 +575,24 @@ What the protocol states about this contract's own surfaces (all within 0.4; no 
 - Independently of these rules, the bound identity (`build_id`, `schema_id`, `policy_id`) changes
   with any change to the engine or IR source, the schemas or the decision policy, so a missed
   version bump cannot make another build's result current.
+
+**0.9 to 0.10** (policy 2026.11-v9; c3k, stage 2a of the meaning check, the owner's decision 1 of 25 November with its
+acceptance rule L2): the policy identity binds the block-only meaning label of the self-certification class
+(`policy_manifest()` gains `selfcert_meaning_label`: the label version `selfcert-label-2`, its `label_digest()` over the
+frozen prompt, the schema, the canary and exemption data, every module of the label package and the rule reader's digest, and
+`required: true`). Every release path gates on `reader OR validated label`: a sentence the label names refuses as a reader
+hit does (`not_deliverable`), and a missing, failed or non-revalidating label refuses as an outage
+(`selfcert_label_unavailable`, never a revision request), never as a pass. A claim the label names is shown NOT_ELIGIBLE
+with `withheld_self_report: true` wherever its result would be shown as a success; a non-success status is never changed or
+raised. With the unconfigured default every answer the reader passes is withheld until labels are configured; no label is
+recorded or measured yet. The label only withholds: no label output reaches an IR problem, the compiler or the solver, and
+the model is configuration, recorded only as the SHA-256 of its identifier. Eligibility rule 0 reads `selfcert-5`: agreement
+of the answer's own figures with a named source or dataset that states no value is gated ("The values agree with the XQ
+dataset."; decision 5), while a bare citation of a source, values stated on both sides, a reference with content of its own
+and a worked check that shows its computation stay free; an instruction to a checker, marker, reviewer or labeller about the
+answer is gated (family DIRECTIVE, decision L4's companion test); and the stage-1 misses are closed by class
+(`src/epinoic_logic/version.py` lists the readings). The result fields and status meanings are unchanged. Results signed
+under policy 2026.11-v8 are stale.
 
 **0.8 to 0.9** (policy 2026.11-v8; c3h, the push check of 67bc64ec): eligibility rule 0 reads `selfcert-4`, which fails
 closed where `selfcert-3` freed own-scope text or stopped reading. Two exemptions of 0.8 are reverted to the reading of

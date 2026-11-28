@@ -99,9 +99,13 @@ DATED_UNNAMED = ["All numbers here match the March 2022 dataset.", "All numbers 
                  "Las cifras coinciden con la encuesta de mayo de 2021.", "Las cifras coinciden con el censo del 3 de mayo.",
                  "Every figure here matches the census of 3rd May.", "All values here agree with the Q2 survey."]
 # (a named source or a stated value stays a material claim, boundary (b), with a date beside it or not)
-DATED_NAMED = ["Every figure here matches the ONS March 2022 dataset.", "Every figure here agrees with the Eurostat Q3 2021 dataset.",
-               "Every figure here matches the ONS FY2019 report.", "Las cifras coinciden con el censo del INE de 2021.",
-               "All the figures here match the 2021 census of England and Wales.",
+#: (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; DATED_NAMED pins until c3k, now gated: a stricter rewrite)
+DATED_NAMED_NO_VALUE = ["Every figure here matches the ONS March 2022 dataset.", "Every figure here agrees with the Eurostat Q3 2021 dataset.",
+                        "Every figure here matches the ONS FY2019 report.", "Las cifras coinciden con el censo del INE de 2021.",
+                        "All the figures here match the 2021 census of England and Wales."]
+DATED_NAMED = [# (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures: the forms that state no value moved to DATED_NAMED_NO_VALUE, and stated-value twins take their place)
+               "The GDP figure here matches the ONS March 2022 dataset's figure of 2.1%.",
+               "La cifra coincide con la del censo del INE de 2021: 47,4 millones.",
                "The figures agree with the 2021 survey figure of 61%.", "All figures match the census figure of 4.2 million.",
                "The census of 12 May 1921 counted 37.9 million people.", "In May 2021 the survey found that 61% of adults agreed.",
                "The figures may differ from the 2021 survey."]
@@ -109,6 +113,11 @@ DATED_NAMED = ["Every figure here matches the ONS March 2022 dataset.", "Every f
 
 @pytest.mark.parametrize("text", DATED_UNNAMED)
 def test_a_date_alone_names_no_source(text):
+    _gated_everywhere(text)
+
+
+@pytest.mark.parametrize("text", DATED_NAMED_NO_VALUE)
+def test_a_named_source_with_a_date_that_states_no_value_is_gated(text):
     _gated_everywhere(text)
 
 

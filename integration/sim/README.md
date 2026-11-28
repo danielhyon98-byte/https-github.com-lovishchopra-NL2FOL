@@ -133,15 +133,29 @@ python integration/sim/run_sim.py --website <patched export> --specialist <runti
 (`tests/integration/helpers.RecordingPort`, kept per call): fixture clearances, a FINAL audit that passes, a delivery
 of the call's first reply. It audits nothing, so under it **every gate is NOT RUN** ("the overseer port is a test
 double") and the exit status is 1; what each gate computed is kept only as the sub-checks `gates_with_test_double` and
-`gate_cases_with_test_double`. `--record-wiring` writes `TESTED.json`: the digests of the files the run used, the
+`gate_cases_with_test_double`. Under the double both the service (`EPINOIC_SELFCERT_LABEL=faithful`) and the arena
+reference (`EPINOIC_ARENA_LABELLER=faithful`, for the reference step only) run the meaning label's faithful fake, so the
+wiring record measures the wiring, not the label (its `labeller` names what the service's hello reported).
+`--record-wiring` writes `TESTED.json`: the digests of the files the run used, the
 export's provenance, the commits of both copies with the runtime copy's contract, and what each gate computed.
 `tests/integration/test_sim_wiring.py` fails when one of those files changes after the record was written.
 
-The last wiring run (`TESTED.json`; information only, under the double) computed PASS for G-EQ-ARENA, G-INV, G-HON,
+The last wiring run (`TESTED.json`; information only, under the double, with the meaning label's faithful fake in the
+service and the arena reference: `labeller` `faithful`) computed PASS for G-EQ-ARENA, G-INV, G-HON,
 G-DEL and G-TAMPER, NOT RUN for G-EQ-CONTAINED and G-OVS, and FAIL for G-FAULT on the cases it names: mutations the arena names only by a warning-level finding (an unverifiable
 invented quotation, `CORE-SRC-003`; a self-certification, `CORE-SELF-001`) are delivered by the kit's decision table,
 which refuses on error findings and negative results only (D3). The rebuilt overseer's delivery rule delivers them
 too (measured without the double, above): whether such an answer is withheld is decision D34 (open), never changed here.
+
+## The meaning label in the simulation (contract 0.10)
+
+A run without a test double (what this section describes) runs the service with the unconfigured default of the meaning
+label (`EPINOIC_SELFCERT_LABEL` unset) until stage 2b records labels: no label is recorded yet, so every answer the rule
+reader passes is withheld as an outage (`KIT-DL-014`) and counted, never delivered on the reader alone. The service stays
+preflight ready. `results.json` keeps the label as the service's hello reported it
+(`service.selfcert_label`: version, digest, labeller kind, state, whether a model digest is configured), and `summary.md`
+says so on a line of its own, which also says that such a run is not a label measurement. Recorded labels are served with
+`EPINOIC_SELFCERT_LABEL=recorded:<directory>` (an unrecorded request key withholds as `not-recorded`).
 
 ## Which gates have material on the synthetic corpus
 

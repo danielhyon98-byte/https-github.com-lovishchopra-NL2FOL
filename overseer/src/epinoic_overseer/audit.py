@@ -54,7 +54,7 @@ from epinoic_logic.api.integrity import (
 )
 from epinoic_logic.api.ir import canonical_json, sha256_hex
 from .checks import CheckContext, Rederived, Replay
-from .checks import custody, fidelity, formal, joint, peer, receipts, results, synthesis, translation
+from .checks import custody, fidelity, formal, joint, label, peer, receipts, results, synthesis, translation
 from .checks.divergence import check_divergence
 from .checks.shadow import run_shadow
 from .codes import is_agent_code, ovs_finding
@@ -229,6 +229,7 @@ def live_transfer_checks(ctx: CheckContext, t: Transfer, *, dependencies: bool =
     ctx.guard("formal", "formal status", lambda: formal.check_formal_status(ctx, t), transfer=t)
     if not at_issue:  # at issue, L5 and the translation checks run in the asynchronous tier (the transfer is PENDING until they have)
         ctx.guard("fidelity", "fidelity", lambda: (fidelity.check_fidelity(ctx, t), fidelity.check_reparse(ctx, t)), transfer=t)
+        ctx.guard("fidelity", "meaning label record (FID-010)", lambda: label.check_label_record(ctx, t), transfer=t)
         run_translation_checks(ctx, t)
     ctx.guard("peer", "peer", lambda: (peer.check_forward(ctx, t), peer.check_peer_documents(ctx, t), peer.check_relayed_report(ctx, t),
                                        peer.check_document_ids(ctx, t)), transfer=t)
@@ -688,6 +689,7 @@ class TransferAuditor:
 
             def run_l5(ctx5=ctx5, t=t):
                 ctx5.guard("fidelity", "fidelity", lambda: (fidelity.check_fidelity(ctx5, t), fidelity.check_reparse(ctx5, t)), transfer=t)
+                ctx5.guard("fidelity", "meaning label record (FID-010)", lambda: label.check_label_record(ctx5, t), transfer=t)
                 run_translation_checks(ctx5, t)
                 return list(ctx5.findings)
             self.replayer.submit_task(key5, run_l5)

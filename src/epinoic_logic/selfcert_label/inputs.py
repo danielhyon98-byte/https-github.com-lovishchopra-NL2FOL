@@ -62,8 +62,10 @@ class LabelInput:
 
     @property
     def cache_key(self) -> str:
-        """The rendered request(s) of the first attempt, as one key (the cache of successes is keyed on it)."""
-        return _sha("\n".join(r.request_key for r in self.requests) + "|" + self.key_fingerprint)
+        """The rendered request(s) of the first attempt, as one key (the cache of successes and the in-flight table are keyed on
+        it). It binds the input key too, so two answers that render no request (oversized, or a request that could not be
+        rendered) never share a key."""
+        return _sha(self.input_key + "|" + "\n".join(r.request_key for r in self.requests) + "|" + self.key_fingerprint)
 
 
 def build_input(raw_text: str, request: Any = None, *, key: bytes, writer: str = "specialist",

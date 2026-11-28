@@ -70,6 +70,9 @@ const CAPABILITIES = obj({
     combinator: obj({ version: lit("1.0"), available: bool }, { instruction_pack: orNull(obj({ name: str(/^[a-z0-9][a-z0-9-]{0,63}$/), version: str(VERSION), sha256: str(SHA) })) }),
     router: obj({ version: lit("1.0"), required: lit(false), attached: bool, floor: obj({ name: lit("minimum-oversight-floor/1"), rules_sha256: str(SHA) }) },
       { identity: orNull(routerIdentity), refusal: orNull(str(RT)) }),
+    selfcert_label: obj({ version: str(/^selfcert-label-[0-9]{1,4}$/), label_digest: str(SHA), required: lit(true),
+      labeller: oneOf("unconfigured", "recorded", "faithful", "provider", "other"), state: oneOf("ok", "degraded", "off") },
+      { model_digest: orNull(str(SHA)) }),
   }),
   subject_map: obj({ version: str(/^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}$/), sha256: str(SHA) }),
   policies: list(oneOf("verified-v1", "verified-v1-qualify"), 1, 2),
@@ -113,6 +116,11 @@ export function evaluateCapabilities(raw, { workerEnv, base = "M" }) {
   const liveRequired = workerEnv === "staging" || workerEnv === "production";
   if (liveRequired && raw.ports.translation.live !== true) return refuse("KIT-HS-009", router);
   if (!liveRequired && raw.ports.translation.live === true && workerEnv === "sim") return refuse("KIT-HS-009", router);
+  // The meaning label (contract 0.10): required on a hosted environment, never a provider in the simulation.
+  const lab = raw.ports.selfcert_label;
+  if (liveRequired && (lab.labeller === "unconfigured" || lab.state === "off")) return refuse("KIT-HS-017", router);
+  if (liveRequired && lab.labeller !== "provider") return refuse("KIT-HS-018", router);
+  if (workerEnv === "sim" && lab.labeller === "provider") return refuse("KIT-HS-018", router);
   if (raw.subject_map.sha256 !== COMPATIBILITY.subject_map.sha256) return refuse("KIT-HS-010", router);
   const pairs = raw.ports.specialist.accepted.map((p) => `${p.result}|${p.runtime}`);
   if (!sameSet(pairs, COMPATIBILITY.specialist_pairs.map((p) => `${p.result}|${p.runtime}`))) return refuse("KIT-HS-011", router);

@@ -209,9 +209,12 @@ def _journal_covers(audit: OverseerAudit, journal: Any) -> Optional[str]:
     return None
 
 
-def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None) -> PolicyDecision:
+def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None,
+                     labeller: Any = None) -> PolicyDecision:
     """Whether the student-facing synthesis carried by ``synthesis_receipt`` may be released (module docstring).
-    ``message``: the synthesis envelope the router is about to release (its payload is what the student reads)."""
+    ``message``: the synthesis envelope the router is about to release (its payload is what the student reads). ``labeller``: the
+    meaning label's labeller the journaled record is re-validated with (None: the translator's default, looked up at the call;
+    stage 2a)."""
     if not isinstance(task_audit, OverseerAudit):
         return PolicyDecision(False, "no task audit")
     state = task_audit.state
@@ -283,13 +286,13 @@ def release_decision(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, a
             return PolicyDecision(False, f"custody of the synthesis could not be re-checked at release ({type(exc).__name__})", state)
         if faults:
             return PolicyDecision(False, f"custody re-checked at release: {sorted(set(faults))} (the synthesis or a transfer it depends on was altered after the audit)", state)
-    why = _synthesis_self_report(synthesis_receipt, event, message, task_audit)
+    why = _synthesis_self_report(synthesis_receipt, event, message, task_audit, labeller=labeller)
     if why is not None:
         return PolicyDecision(False, why, state)
     return PolicyDecision(True, "ok", state)
 
 
-def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, task_audit: Any = None) -> Optional[str]:
+def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, task_audit: Any = None, *, labeller: Any = None) -> Optional[str]:
     """Rule ``self-certification-gate`` at release (hold-fix round 2 of the round-9 push-check hold on the c2 clearance commit: a
     synthesis carrying "All calculations have been verified by the system and are confirmed." was released with its
     INT-LEDGER-029 at warning severity): the same gate, with the same reader, as the delivery policy's fallback. A synthesis whose
@@ -298,8 +301,14 @@ def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, tas
     (:func:`.meta_notes.payload_self_reports`), is never released; nor is one the task audit names for a self-report delivered as
     content (OVS-FID-005, OVS-FID-009 at any severity, :func:`.meta_notes.audit_self_reports`, read as the router's decision and the
     delivery policy read it: every release path reads the same self-report, c3d). A payload or an audit that cannot be read is
-    refused (fail closed)."""
-    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_self_reports, payload_self_reports
+    refused (fail closed).
+
+    Then the meaning label (stage 2a; the synthesis is labelled at ``relay`` with the combinator as writer), after every read above:
+    the task audit's OVS-FID-010 and the journaled label record (:func:`.label_gate.label_refusal`). A named sentence refuses under
+    rule ``self-certification-gate``; a missing, unusable or unavailable label under rule ``meaning-label-unavailable`` (an outage,
+    ``selfcert_label_unavailable``). Named by place, family, state and kind, never by a word."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_label_reports, audit_self_reports, payload_self_reports
+    from .label_gate import label_refusal
     try:
         codes = sorted({f.code for f in synthesis_receipt.findings if f.code in SELF_REPORT_RECEIPT_CODES})
     except (AttributeError, TypeError):
@@ -308,7 +317,7 @@ def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, tas
         return (f"the synthesis carries a self-report named on its receipt ({', '.join(codes)}): a released answer never contains a claim that it "
                 "was checked or verified (rule self-certification-gate)")
     try:
-        named_by_audit = audit_self_reports(task_audit, getattr(synthesis_receipt, "message_id", None) or "")
+        named_by_audit, label_by_audit = audit_label_reports(audit_self_reports(task_audit, getattr(synthesis_receipt, "message_id", None) or ""))
     except Exception:  # noqa: BLE001 - fail closed
         return "the task audit cannot be read for rule self-certification-gate"
     if named_by_audit:
@@ -326,9 +335,23 @@ def _synthesis_self_report(synthesis_receipt: Any, event: Any, message: Any, tas
     if named:
         return (f"the synthesis certifies its own checking, read on the payload as written ({'; '.join(named[:8])}): a released answer never "
                 "contains a claim that it was checked or verified (rule self-certification-gate)")
+    # the meaning label (stage 2a), after every read above: the task audit's OVS-FID-010, then the journaled record itself
+    if label_by_audit:
+        return (f"the task audit names the synthesis's meaning-label record as missing or not reproducing ({'; '.join(label_by_audit[:8])}): it is "
+                "not released unlabelled (rule meaning-label-unavailable)")
+    refusal = label_refusal(event, synthesis_receipt, labeller=labeller)
+    if refusal is not None and refusal.skipped:  # the record says the rule reader refuses the synthesis: the reader's own refusal
+        return ("the synthesis certifies its own checking, read on the payload as written (the rule reader refuses it, label state skipped): a "
+                "released answer never contains a claim that it was checked or verified (rule self-certification-gate)")
+    if refusal is not None and refusal.kind == "named":
+        return (f"the meaning label names a self-certification in the synthesis ({refusal.detail}): a released answer never contains a claim "
+                "about its own checking (rule self-certification-gate)")
+    if refusal is not None:
+        return f"the synthesis has no usable meaning label ({refusal.detail}): it is not released unlabelled (rule meaning-label-unavailable)"
     return None
 
 
-def may_release(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None) -> bool:
+def may_release(synthesis_receipt: Any, task_audit: Any, keyring: Any, *, audits: Sequence[Any], journal: Any, message: Any = None,
+                labeller: Any = None) -> bool:
     """True only when the synthesis may be released to the student (see :func:`release_decision`)."""
-    return release_decision(synthesis_receipt, task_audit, keyring, audits=audits, journal=journal, message=message).allowed
+    return release_decision(synthesis_receipt, task_audit, keyring, audits=audits, journal=journal, message=message, labeller=labeller).allowed

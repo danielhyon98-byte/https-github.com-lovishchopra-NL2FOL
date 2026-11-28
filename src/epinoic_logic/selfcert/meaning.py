@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 from typing import Optional
+from .lexicon import noun_subject_of_past
 
 __all__ = ["review"]
 
@@ -802,6 +803,8 @@ def _imperative(words: list, ctx) -> bool:
     nxt = words[k + 1] if k + 1 < len(words) else None
     if _es_preterite1(t):
         return False  # "Revisé cada línea." (folded "revise"): the writer's own past act, never an instruction (attack round 3)
+    if k == 0 and noun_subject_of_past([x.w for x in raw[:24] if not x.punct or x.w in (",", ";", ":")]):
+        return False  # "Test of every line came back clean.": the noun heads the subject of the past verb (c3k, stage-1 leftover)
     if nxt is None and k > 0 and words[k - 1].w in ("please", "por favor") and (t.w in _IMPERATIVE_VERBS or t.has("C:imperative_verbs") or
                                                                              (t.fam() & {"CHECK"} and t.has("v:base"))):
         return True  # "Please confirm.", "Please review.": a request
@@ -1283,7 +1286,8 @@ def _c3c_frames(toks: list, ctx) -> list:
             if any(x.has("C:part") for x in theme) and named and not any(x.has("C:assess_instrument", "C:eval_int", "C:tool", "C:eval_asr",
                                                                                "C:m_eval") for x in comp):
                 lo, hi = theme[0].a, (comp[-1].b if comp else t.b)
-                out.append((lambda f, lo=lo, hi=hi: f.family in ("AGREE", "FIDELITY", "CHECK") and lo <= f.a < hi, (lo, hi)))
+                # (never a G10 hit: the answer's own figures said to agree with a source that states no value, decision 5 of c3k)
+                out.append((lambda f, lo=lo, hi=hi: f.family in ("AGREE", "FIDELITY", "CHECK") and f.rule != "G10" and lo <= f.a < hi, (lo, hi)))
         # (4) a defect made by a third party
         if _defect(t) and not own_text and not pipeline:
             agent = None
@@ -2246,7 +2250,13 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
         if g is not None and not _OWN_VALUE_RE.search(g.group("gloss")):
             gl0 = s.find(g.group("q")[:12].lower(), a, b) if g.group("q") else -1
             start = gl0 if gl0 >= 0 else a + g.start("q")
-            clear(lambda f, start=start: f.a >= start - 1 and f.family in ("CHECK", "STATUS", "OUTCOME", "APPROVE", "AGREE", "QUALITY"))
+            # (the gloss ends where a coordinated clause of its own begins: "The word 'proofread' means read for slips, and a second
+            # agent proofread the whole translation before it was sent." glosses the word and then claims a check of this answer,
+            # read as any clause is; c3k, stage-1 leftover)
+            cut = _GLOSS_CLAUSE_END_RE.search(g.group("gloss"))
+            end = (start + (g.start("gloss") + cut.start() - (g.start("q") if g.group("q") else g.start("gloss")))) if cut else b + 1
+            clear(lambda f, start=start, end=end: start - 1 <= f.a < end and
+                  f.family in ("CHECK", "STATUS", "OUTCOME", "APPROVE", "AGREE", "QUALITY"))
             # (the other languages' net reads the whole sentence: a gloss whose translation is a word or two, "Le mot « vérifié »
             # signifie checked.", names the quoted word of the other language, never a verdict; a gloss that goes on into a clause,
             # "... signifie que cette réponse est vérifiée", keeps it; c3f)
@@ -2372,7 +2382,8 @@ def _review_frames(toks: list, ctx, question: bool, found: list, found_cls, s: s
                     x.has("C:anchor_idioms") or (x.has("C:demonstrative", "C:poss1") and m + 1 < k and toks[m + 1].has("C:genre_strong"))
                     for m, x in enumerate(toks[:k])):
             # (X7 needs a specific theme: "This answer is as accurate as the extract" makes the whole answer its theme, boundary (a))
-            clear(lambda f, t=t: f.family in ("AGREE", "FIDELITY", "CHECK") and f.a <= t.a < max(f.b, t.a + 1))
+            # (never a G10 hit: a source that states no value has no content of its own to agree with, decision 5 of c3k)
+            clear(lambda f, t=t: f.family in ("AGREE", "FIDELITY", "CHECK") and f.rule != "G10" and f.a <= t.a < max(f.b, t.a + 1))
             # an attributive participle naming the reference ("matches the accepted figure for g", "the established value"): the
             # reference's name, no approval of this answer (attack round 5)
             for m in range(k + 1, min(len(toks) - 1, k + 4)):
@@ -3185,6 +3196,8 @@ _DATA_READINGS = frozenset("readings reading results values measurements titres 
                            "measurement medicion medida lectura ensayo experimento experimentos titulacion valoracion".split())
 #: Words that make a gloss a clause, not a translation ("que", "that", a demonstrative of this text).
 _GLOSS_CLAUSE_RE = re.compile(r"(?i)\b(?:que|that|this|these|esta|este|esto|cette|cet|ce|ces|dieser|diese|dieses|is|est|es|ist)\b")
+#: Where a gloss ends and a coordinated clause of its own begins (", and a second agent ...", "; ", ", y ...").
+_GLOSS_CLAUSE_END_RE = re.compile(r"(?i),\s*(?:and|but|while|whereas|so|y|e|pero|mientras|as[ií]\s+que)\b|;")
 #: The verbs of a gloss (a cheap test before :data:`_GLOSS_RE`).
 _GLOSS_VERBS = frozenset("means meant translated translates signifies stands significa quiere traduce dice signifie veut traduit "
                          "bedeutet heisst".split())

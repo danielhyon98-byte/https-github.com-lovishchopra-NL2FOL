@@ -24,7 +24,9 @@ from typing import Mapping, Optional
 
 __all__ = ["API_MAJOR", "REQUIRED_API", "REQUIRED_PROTOCOL", "TranslatorIncompatible", "missing_translator_names", "check_translator_api"]
 
-#: The MAJOR version of the translator's public API this release speaks, once the API states one.
+#: The MAJOR version of the translator's public API this release speaks, once the API states one. The area ``label`` (the
+#: self-certification meaning label's gate: the default labeller, read at the moment of each call, and the labelled text of a
+#: channel event) came with API 1.5; a 1.x translator without it is refused by name.
 API_MAJOR = 1
 
 REQUIRED_API: dict[str, tuple[str, ...]] = {
@@ -68,6 +70,9 @@ REQUIRED_API: dict[str, tuple[str, ...]] = {
     ),
     'ir': (
         'DEFAULT_LIMITS', 'Expr', 'Problem', 'canonical_json', 'problem_digest', 'sha256_hex', 'strict_object_pairs',
+    ),
+    'label': (
+        'default_labeller', 'labelled_text',
     ),
     'named': (
         'MAX_PER_RECEIPT', 'NAMED_CODES', 'defect_of', 'effective_severity', 'from_finding', 'ordered',

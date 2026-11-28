@@ -6,7 +6,10 @@ same reports. Usage: stress_arena.py <round_dir> [replays=30]
 Every hub call of a cycle runs under try/except: an input that makes the hub raise is counted
 under the status ``CRASH:<ExceptionType>`` (and a rejected request under ``REQUEST_REJECTED``)
 so the run continues and the crash count is part of the statuses instead of aborting the run
-before stress.json is written. Results go to <round_dir>/stress.json (the path is printed)."""
+before stress.json is written. Results go to <round_dir>/stress.json (the path is printed).
+
+Every hub labels with the meaning label's arena labeller (``arena_labels.resolve``, read when ``main`` is called:
+``EPINOIC_ARENA_LABELLER``, else ``recorded`` over the round's labels/), as ``run_arena.py`` does."""
 from __future__ import annotations
 
 import json
@@ -24,6 +27,7 @@ from epinoic_logic.integrity import WorkPlan
 from epinoic_logic.translate.contracts import SuppliedText
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import arena_labels as AL  # noqa: E402
 from run_arena import load_items  # noqa: E402
 
 KEY = b"arena-stress-key-0123456789abcdefg"
@@ -81,7 +85,8 @@ def one_cycle(hub: RouterHub, item: dict, i: int) -> tuple[str, float]:
 def main(round_dir: Path, replays: int) -> dict:
     items = load(round_dir)
     out: dict = {"round": round_dir.name, "items": len(items), "replays": replays}
-    hub = RouterHub(signing_key=KEY, config=CFG)
+    labeller = AL.resolve(None, round_dir).labeller
+    hub = RouterHub(signing_key=KEY, config=CFG, selfcert_labeller=labeller)
     rss0 = rss_mb()
     lat, statuses = [], {}
     t0 = time.perf_counter()
@@ -94,7 +99,7 @@ def main(round_dir: Path, replays: int) -> dict:
                          "crashes": sum(n for s, n in statuses.items() if s.startswith("CRASH:")), "rss_growth_mb": rss_mb() - rss0}
 
     def worker(k):
-        h = RouterHub(signing_key=KEY, config=CFG)
+        h = RouterHub(signing_key=KEY, config=CFG, selfcert_labeller=labeller)
         res = []
         for i in range(max(1, replays // 4)):
             for item in items:

@@ -8,8 +8,8 @@ translator never imports the overseer (it is attached through ``RouterHub(audito
 
 Public modules, one per area: :mod:`~epinoic_logic.api.ir`, :mod:`~epinoic_logic.api.engine`,
 :mod:`~epinoic_logic.api.channel`, :mod:`~epinoic_logic.api.integrity`, :mod:`~epinoic_logic.api.translate`,
-:mod:`~epinoic_logic.api.adapters`, :mod:`~epinoic_logic.api.branches`, :mod:`~epinoic_logic.api.stem` and
-:mod:`~epinoic_logic.api.named`. Each maps its public names to the internal implementation (``EXPORTS``) and resolves a
+:mod:`~epinoic_logic.api.adapters`, :mod:`~epinoic_logic.api.branches`, :mod:`~epinoic_logic.api.stem`,
+:mod:`~epinoic_logic.api.named` and :mod:`~epinoic_logic.api.label`. Each maps its public names to the internal implementation (``EXPORTS``) and resolves a
 name when it is imported, so the API adds no copy of any behaviour: the overseer runs exactly the translator's code.
 
 The contract: a name listed here keeps its meaning across translator releases of the same minor version; removing or
@@ -36,16 +36,21 @@ a quoted span is the writer's own, the wording one of its own corrections replac
 OVS-FID-004 now reads as the parser and the channel read it), removing or changing none; 1.4 adds ``correction_reading``,
 ``CORRECTION_FREE`` and ``CORRECTION_QUOTATION`` in ``adapters`` (the c3f follow-up: the halves of the answer's own corrections
 read by role against the supplied texts, which the English parser and the channel read and the transfer auditor's OVS-FID-004 now
-reads too), removing or changing none.
+reads too), removing or changing none; 1.5 adds the area ``label`` (the self-certification meaning label, stage 2a of the meaning
+check: ``LABEL_VERSION``, ``label_digest``, ``model_digest``, ``Labeller``, ``UnconfiguredLabeller``, ``RecordedLabeller``,
+``ProviderLabeller``, ``default_labeller``, ``set_default_labeller`` and ``restore_default_labeller`` to configure it;
+``revalidate``, ``Revalidation``, ``LabelResult``, ``STATES``, ``KINDS`` and ``labelled_text`` for the overseer's label gate; and,
+TEST-ONLY, ``ReaderBackedLabeller``, ``ScriptedLabeller`` and ``check_t24`` for the sub-projects' test fixtures), removing or
+changing none; the reader's rules move to ``selfcert-5`` with it (decision 5, the DIRECTIVE companion test of decision L4).
 """
 from __future__ import annotations
 
-AREAS: tuple[str, ...] = ("ir", "engine", "channel", "integrity", "translate", "adapters", "branches", "stem", "named")
+AREAS: tuple[str, ...] = ("ir", "engine", "channel", "integrity", "translate", "adapters", "branches", "stem", "named", "label")
 
 #: The public API's version, MAJOR.MINOR: MINOR goes up with every name added; MAJOR with every name removed or
 #: changed in meaning. Attached components check it (the overseer: ``epinoic_overseer.compat``, which refuses at import
 #: a translator whose API states another MAJOR than the one it was built against).
-API_VERSION = "1.4"
+API_VERSION = "1.5"
 
 __all__ = ["API_VERSION", "AREAS", "exports_table", "markdown"]
 
@@ -75,11 +80,23 @@ def markdown() -> str:
         "translator's code. A name that is private inside the translator has a public name here. Removing or changing a name",
         "is a breaking change for the overseer; the overseer's own suite imports every name it uses through this API.",
         "",
+        "Names marked TEST-ONLY are exported for the sub-projects' test fixtures (the faithful fake of the meaning label, a",
+        "scripted labeller and the receipt invariant T24) and must never configure a deployment. Nothing in `label` releases or",
+        "labels an answer on its own: the release paths call the label through the channel and the overseer, and the production",
+        "default (`UnconfiguredLabeller`) withholds every answer the reader passes.",
+        "",
+        "The frames the meaning-check design places in the reader (the span frames, the segments and the fold's index map) are",
+        "implemented inside `epinoic_logic.selfcert_label` on the reader's public functions (`selfcert_read`, `reading_form`):",
+        "they are not moved into the reader in this release (no change in behaviour; the move is a later cleanup).",
+        "",
     ]
+    import importlib
     for area, table in exports_table().items():
+        test_only = getattr(importlib.import_module(f"{__name__}.{area}"), "TEST_ONLY", frozenset())
         out += [f"## `epinoic_logic.api.{area}` ({len(table)} names)", "", "| public name | internal module | internal name |", "|---|---|---|"]
         for public in sorted(table):
             mod, attr = table[public]
-            out.append(f"| `{public}` | `{mod}` | {'(the module itself)' if attr is None else '`' + attr + '`'} |")
+            mark = " (TEST-ONLY)" if public in test_only else ""
+            out.append(f"| `{public}`{mark} | `{mod}` | {'(the module itself)' if attr is None else '`' + attr + '`'} |")
         out.append("")
     return "\n".join(out)

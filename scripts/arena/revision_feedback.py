@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build the infrastructure's feedback on the round's genuine answers, through the audited hub.
 
-Usage: revision_feedback.py <round_dir> [--revision-rounds N] [--all | <task_id> ...]
+Usage: revision_feedback.py <round_dir> [--revision-rounds N] [--labeller recorded|faithful|unconfigured] [--label-key KEY]
+                             [--all | <task_id> ...]
 
 Replays each group's genuine traffic on a hub carrying a transfer auditor (the requests, the peer relays with the recorded
 relayed documents, the answers) and asks, for every genuine specialist answer (standalone and peer-dependent, never a
@@ -34,6 +35,11 @@ specialist read the feedback as issued, and its gate feedback_as_read fails (``r
 rendered digest are still the recorded ones (``recorded_feedback_checks``), then delivers ``revisions/<task_id>.json``;
 ``run_arena.py --fail-on-revision-gates`` exits with status 1 when a gate of that pass fails.
 
+The meaning label (meaning-check design 2.5.7): every answer of the replay is labelled as the hub labels it, with
+``--labeller`` (default ``EPINOIC_ARENA_LABELLER`` when set, else ``recorded``: the round's labels/ with the recording key
+``--label-key`` or ``EPINOIC_ARENA_LABEL_KEY``; ``scripts/arena/arena_labels.py``). An answer the label could not read is
+withheld as an outage and gets no revision request (it is not the specialist's fault).
+
 Standard output is the router's: one line per answer (issued or why not, and the flaw codes), never a finding message.
 """
 from __future__ import annotations
@@ -44,6 +50,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import arena_labels as AL  # noqa: E402
 from run_arena import revision_feedback  # noqa: E402
 
 
@@ -54,10 +61,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="every genuine answer of the round (the default)")
     ap.add_argument("--revision-rounds", type=int, metavar="N",
                     help="issue the feedback under N revision rounds and record N as the round's revision_rounds in tasks.json first")
+    ap.add_argument("--labeller", choices=AL.LABELLERS, default=None,
+                    help=f"the meaning label's labeller (default {AL.LABELLER_ENV} when set, else {AL.DEFAULT_LABELLER})")
+    ap.add_argument("--label-key", default=None, metavar="KEY", help=f"the recording key of the round's labels/ (default {AL.LABEL_KEY_ENV})")
     args = ap.parse_args(argv)
     rd = args.round_dir.resolve()
     try:
-        out = revision_feedback(rd, args.task_ids or None, revision_rounds=args.revision_rounds)
+        lab = AL.resolve(args.labeller, rd, key=args.label_key)
+    except ValueError as exc:
+        ap.error(str(exc))
+    try:
+        out = revision_feedback(rd, args.task_ids or None, revision_rounds=args.revision_rounds, labeller=lab)
     except ValueError as exc:  # a budget out of range, or one the round already records otherwise: nothing was written
         print(json.dumps({"error": str(exc)}))
         return 2

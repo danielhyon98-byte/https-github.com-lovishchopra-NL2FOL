@@ -27,6 +27,11 @@ Environment variables (names only; values are never logged, printed or returned,
 ``EPINOIC_MAX_CONCURRENCY``         turn-check slots (default 4)
 ``EPINOIC_RATE_PER_MINUTE``         per-token rate (default 60)
 ``EPINOIC_SIM_EVIDENCE_DIR``        the evidence tap's directory (``integration-sim`` only)
+``EPINOIC_SELFCERT_LABEL``          the meaning label (``integration.label``): ``unconfigured`` (default: every answer the
+                                    reader passes is withheld, ``not-configured``), ``recorded:<directory>`` and ``faithful``
+                                    (development and sim only), ``provider:<model>`` (through an injected transport only;
+                                    the identifier is hashed at once and never kept)
+``EPINOIC_SELFCERT_LABEL_KEY``      the label's canary key, hex, at least 32 bytes (a secret; required by a provider label)
 ==================================  =====================================================================================
 
 A model identifier is never set here: it is read by the provider classes from their own variables
@@ -43,7 +48,7 @@ __all__ = ["PROFILES", "INTEGRATION_PROFILES", "IntegrationSettings", "LOOPBACK_
 PROFILES = ("engine", "integration", "integration-sim")
 INTEGRATION_PROFILES = ("integration", "integration-sim")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-_SECRET_NAMES = ("service_token", "signing_key_hex", "verdict_key_hex", "overseer_secret_hex")
+_SECRET_NAMES = ("service_token", "signing_key_hex", "verdict_key_hex", "overseer_secret_hex", "selfcert_label_key_hex")
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,8 @@ class IntegrationSettings:
     evidence_dir: Optional[str] = None
     anthropic_model_set: bool = False
     openai_model_set: bool = False
+    selfcert_label: str = field(default="unconfigured", repr=False)  # may name a provider model: never in a repr
+    selfcert_label_key_hex: Optional[str] = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None, *, host: str = "127.0.0.1") -> "IntegrationSettings":
@@ -105,10 +112,15 @@ class IntegrationSettings:
             evidence_dir=get("SIM_EVIDENCE_DIR"),
             anthropic_model_set=bool(get("ANTHROPIC_MODEL")),
             openai_model_set=bool(get("OPENAI_MODEL")) and bool(get("OPENAI_BASE_URL")),
+            selfcert_label=get("SELFCERT_LABEL", "unconfigured") or "unconfigured",
+            selfcert_label_key_hex=get("SELFCERT_LABEL_KEY"),
         )
 
     def describe(self) -> dict:
         """Settings for an operator: names and non-secret values only (each secret as present or absent)."""
         out = {k: v for k, v in self.__dict__.items() if k not in _SECRET_NAMES}
         out.update({f"{k}_present": getattr(self, k) is not None for k in _SECRET_NAMES})
+        if isinstance(self.selfcert_label, str) and self.selfcert_label.startswith("provider:"):
+            import hashlib  # a model is only ever reported as the SHA-256 of its configured identifier
+            out["selfcert_label"] = "provider:" + hashlib.sha256(self.selfcert_label[len("provider:"):].strip().encode("utf-8")).hexdigest()
         return out

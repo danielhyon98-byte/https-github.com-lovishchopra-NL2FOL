@@ -335,3 +335,196 @@ def withheld_as_circular_by_the_translator(outcome) -> bool:
     tr = outcome.translation
     return (tr.status.value == "INVALID_FORMALIZATION" and tr.problem is None and outcome.verification is None
             and any("E112" in d for d in tr.diagnostics) and outcome.display_status.value == "INVALID_FORMALIZATION")
+
+
+# ============================================================================================ the meaning label (stage 2a)
+# Interface (a) of the meaning check, stage 2a (meaning-check design 3.3 and 3.4): the faithful fake as the default labeller of
+# this suite, the production default on request (marker ``real_labeller``) and T24 over every record the suite produces. Reached
+# through the translator's public API only (``epinoic_logic.api.label`` and ``epinoic_logic.api.channel``): the overseer's
+# internal-import allowlist stays at its ceiling.
+#
+# 1. ``pytest_configure`` installs ``ReaderBackedLabeller`` (the faithful fake: it names exactly what the rule reader names, so every
+#    delivery decision of this suite is the reader's, as before the label was wired; never a label measurement) through the one
+#    switch ``set_default_labeller``, before any fixture of any scope runs, and sets ``EPINOIC_ARENA_LABELLER=faithful``. Where the
+#    translator's own suite already installed the faithful fake in this process, it is kept. ``pytest_unconfigure`` puts both back.
+# 2. A test marked ``real_labeller`` runs with the production default (``UnconfiguredLabeller``: every answer the reader passes is
+#    withheld, not-configured) and without ``EPINOIC_ARENA_LABELLER``; this restore is function-scoped, so a fixture of a wider scope
+#    that needs the real default passes an ``UnconfiguredLabeller()`` itself.
+# 3. T24 (``check_t24``) over every transmission receipt, channel event, delivery receipt and delivered answer made while a test of this
+#    tree is set up, run or torn down: a violation fails the test that produced it; a test that builds a violating record on purpose
+#    carries the marker ``t24_expected_violation`` and asserts itself that ``check_t24`` detects it.
+import collections as _collections
+import os as _os
+
+from epinoic_logic.api import label as _label_api
+
+#: The arena's labeller switch (its value in this suite: the faithful fake).
+ARENA_LABELLER_ENV = "EPINOIC_ARENA_LABELLER"
+#: The marker of a test that runs with the production default labeller.
+REAL_LABELLER = "real_labeller"
+#: The marker of a test that builds a record violating T24 on purpose (the translator's ``selfcert_label.t24`` names it so).
+T24_EXPECTED_VIOLATION = "t24_expected_violation"
+_LABEL_SESSION: dict = {}
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", f"{REAL_LABELLER}: run with the production default labeller (UnconfiguredLabeller) and no "
+                                       f"{ARENA_LABELLER_ENV}, in place of the suite's faithful fake")
+    config.addinivalue_line("markers", f"{T24_EXPECTED_VIOLATION}: the test builds a record that violates T24 on purpose and asserts that "
+                                       "check_t24 detects it")
+    if "installed" in _LABEL_SESSION:
+        return  # configured once per process
+    current = _label_api.default_labeller()
+    if isinstance(current, _label_api.ReaderBackedLabeller):
+        _LABEL_SESSION["installed"] = False  # the translator's suite installed the faithful fake in this process: kept as it is
+    else:
+        _LABEL_SESSION["previous"] = _label_api.set_default_labeller(_label_api.ReaderBackedLabeller())
+        _LABEL_SESSION["installed"] = True
+    _LABEL_SESSION["env"] = _os.environ.get(ARENA_LABELLER_ENV)
+    _os.environ[ARENA_LABELLER_ENV] = "faithful"
+    _T24.install()
+
+
+def pytest_unconfigure(config):
+    if "installed" not in _LABEL_SESSION:
+        return
+    _T24.uninstall()
+    if _LABEL_SESSION.pop("installed"):
+        _label_api.set_default_labeller(_LABEL_SESSION.pop("previous", None))
+    env = _LABEL_SESSION.pop("env", None)
+    if env is None:
+        _os.environ.pop(ARENA_LABELLER_ENV, None)
+    else:
+        _os.environ[ARENA_LABELLER_ENV] = env
+
+
+@pytest.fixture(autouse=True)
+def _selfcert_label_per_test(request):
+    """For a ``real_labeller`` test: the production default labeller and no arena labeller, put back afterwards."""
+    if request.node.get_closest_marker(REAL_LABELLER) is None:
+        yield
+        return
+    with pytest.MonkeyPatch.context() as mp:
+        mp.delenv(ARENA_LABELLER_ENV, raising=False)
+        previous = _label_api.set_default_labeller(None)
+        try:
+            yield
+        finally:
+            _label_api.set_default_labeller(previous)
+
+
+class _T24Hook:
+    """Records what this suite produces while a phase of one of its tests runs, and checks it with ``check_t24`` when the phase
+    ends (the translator's ``tests/conftest.py`` does the same for its own tree)."""
+
+    MEMORY = 50_000
+
+    def __init__(self):
+        self.active = False
+        self.produced: list = []
+        self.payloads: "_collections.OrderedDict[str, set]" = _collections.OrderedDict()
+        self.receipts: "_collections.OrderedDict[str, object]" = _collections.OrderedDict()
+        self._patched: list = []
+        self.checked: "_collections.Counter[str]" = _collections.Counter()
+
+    def install(self) -> None:
+        from epinoic_logic.api.channel import ChannelEvent as _Event, TransmissionReceipt as _Receipt
+        from epinoic_overseer import DeliveredAnswer as _Answer, DeliveryReceipt as _Delivery
+        for cls, pydantic in ((_Receipt, True), (_Event, False), (_Delivery, True), (_Answer, True)):
+            original_init = cls.__dict__.get("__init__")
+            base_init = cls.__init__
+
+            def init(obj, *a, _base=base_init, **k):
+                _base(obj, *a, **k)
+                if self.active:
+                    self._record(obj)
+            cls.__init__ = init
+            self._patched.append((cls, "__init__", original_init))
+            if pydantic:
+                original_copy = cls.__dict__.get("model_copy")
+                base_copy = cls.model_copy
+
+                def model_copy(obj, *a, _base=base_copy, **k):
+                    out = _base(obj, *a, **k)
+                    if self.active:
+                        self._record(out)
+                    return out
+                cls.model_copy = model_copy
+                self._patched.append((cls, "model_copy", original_copy))
+
+    def uninstall(self) -> None:
+        for cls, name, original in reversed(self._patched):
+            if original is None:
+                delattr(cls, name)
+            else:
+                setattr(cls, name, original)
+        self._patched.clear()
+
+    def _record(self, obj) -> None:
+        if type(obj).__name__ == "DeliveredAnswer":
+            # the delivered answer as it was produced: a test may then edit the router's own copy of its payload (the router's copy
+            # is its own), which is not a record the suite produced
+            import copy as _copy
+            obj = _copy.deepcopy(obj)
+        self.produced.append(obj)
+        if type(obj).__name__ == "ChannelEvent":
+            mid, digest = getattr(obj, "message_id", None), getattr(obj, "payload_sha256", None)
+            if mid and digest:
+                self.payloads.setdefault(mid, set()).add(digest)
+                self.payloads.move_to_end(mid)
+                while len(self.payloads) > self.MEMORY:
+                    self.payloads.popitem(last=False)
+
+    def violations(self, produced: list) -> list[str]:
+        out: list[str] = []
+        for obj in produced:
+            if type(obj).__name__ == "DeliveryReceipt" and getattr(obj, "receipt_id", None):
+                self.receipts[obj.receipt_id] = obj
+                self.receipts.move_to_end(obj.receipt_id)
+                while len(self.receipts) > self.MEMORY:
+                    self.receipts.popitem(last=False)
+        for obj in produced:
+            self.checked[type(obj).__name__] += 1
+            kwargs = {}
+            if type(obj).__name__ == "DeliveredAnswer":
+                kwargs["specialist_payload_sha256"] = self.payloads.get(getattr(obj, "message_id", None) or "")
+                kwargs["delivery_receipt"] = self.receipts.get(getattr(obj, "delivery_receipt_id", None) or "")
+            for v in _label_api.check_t24(obj, **kwargs):
+                out.append(f"{type(obj).__name__}: {v}")
+        return list(dict.fromkeys(out))
+
+    def phase(self, item, when: str):
+        self.produced, self.active = [], True
+        try:
+            result = yield
+        finally:
+            self.active = False
+            produced, self.produced = self.produced, []
+        found = self.violations(produced)
+        if found and item.get_closest_marker(T24_EXPECTED_VIOLATION) is None:
+            raise AssertionError(f"T24 ({when}): {len(found)} violation(s) in what this test produced:\n  " + "\n  ".join(found[:20]))
+        return result
+
+
+_T24 = _T24Hook()
+
+
+def pytest_terminal_summary(terminalreporter):
+    if _T24.checked:
+        counts = ", ".join(f"{n} {k}" for k, n in sorted(_T24.checked.items()))
+        terminalreporter.write_line(f"T24 (overseer suite, check_t24): checked {counts}")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    return (yield from _T24.phase(item, "set-up"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    return (yield from _T24.phase(item, "call"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    return (yield from _T24.phase(item, "tear-down"))

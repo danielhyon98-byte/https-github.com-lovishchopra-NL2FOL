@@ -8,6 +8,8 @@
 //   (KIT-DL-900) before every row: it never delivers;
 // - an answer whose required checks did not complete is never summarised as formally_checked, whatever the policy; while
 //   rule formal-label-withheld holds (docs/DELIVERY.md condition 6d) no answer is;
+// - row 3b (contract 0.10): an answer the meaning label could not read (refusal selfcert_label_unavailable) is
+//   refuse_incomplete with KIT-DL-014 before row 4: an outage, never a revision request;
 // - row 5 continues only under the qualify policy: verified-v1 and any policy it does not know refuse (fail closed);
 // - every row reads the verdict's fields and counts, never its capped list of claims, so the Worker and the service
 //   decide from the same numbers.
@@ -65,6 +67,8 @@ export function decide(inp) {
   if (!inp.delivery_allowed && (inp.overseer_refusal ?? null) === null && inp.overseer_state !== "AUDIT_PENDING") reasons.push("KIT-DL-006");
   if (reasons.length > 0) return ["refuse_integrity", uniqueSorted(reasons)];
   if (inp.overseer_state === "AUDIT_PENDING" || inp.overseer_refusal === "clearance_pending") return ["refuse_incomplete", ["KIT-DL-004"]];
+  // Row 3b (contract 0.10): the meaning label could not read the answer, an outage, never a revision request.
+  if (inp.overseer_refusal === "selfcert_label_unavailable") return ["refuse_incomplete", ["KIT-DL-014"]];
   if (inp.receipt_error_codes.length > 0) reasons.push("KIT-DL-002");
   if (Object.hasOwn(UNRESOLVED_REFUSALS, inp.overseer_refusal ?? "")) reasons.push(UNRESOLVED_REFUSALS[inp.overseer_refusal]);
   if (inp.consolidation_status === "CONFLICTING") reasons.push("KIT-DL-007");

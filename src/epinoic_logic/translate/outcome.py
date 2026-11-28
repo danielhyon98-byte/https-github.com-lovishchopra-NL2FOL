@@ -99,7 +99,7 @@ from .diag_core import build_context, claim_diagnostics
 from .pipeline import Translator
 from .review import SemanticReviewer, review_currency
 
-__all__ = ["compose_outcome", "display_status_for", "claim_display_status", "verify_claim", "assess_release", "outcome_diagnosis", "STATUS_MEANING",
+__all__ = ["compose_outcome", "display_status_for", "claim_display_status", "withhold_labelled", "verify_claim", "assess_release", "outcome_diagnosis", "STATUS_MEANING",
            "WITHHELD_SELF_REPORT_MEANING", "SUMMARY_MAX_CHARS", "RELEASE_POLICY"]
 
 #: The release rule's version (bump on any change to :func:`assess_release`). The argument diagnosis (rules argdiag-2)
@@ -286,12 +286,19 @@ WITHHELD_SELF_REPORT_MEANING = ("withheld: the claim's own words claim a check (
 
 
 def claim_display_status(claim: ClaimRecord, translation: TranslationResult, verification: Optional[VerificationResult],
-                         signing_key: Optional[bytes] = None, key_id: Optional[str] = None) -> tuple[VerificationStatus, bool]:
+                         signing_key: Optional[bytes] = None, key_id: Optional[str] = None, *,
+                         labelled_self_report: bool = False) -> tuple[VerificationStatus, bool]:
     """The display status the composer gives ``claim`` (:func:`compose_outcome`), and whether the self-report rule withheld a success
     display: :func:`display_status_for`, then NOT_ELIGIBLE for a success display of a claim whose own words claim a check
     (``adapters.self_report.claims_a_check``). The one rule the channel's composer and the transfer auditor's re-derivation apply
-    (round-10 clearance c3, overseer handoff 3b)."""
+    (round-10 clearance c3, overseer handoff 3b).
+
+    ``labelled_self_report`` (meaning-check design 2.4 O4 and 2.5.7, interface (d)): the claim is named by the meaning label
+    (INT-SELF-001 on its receipt). A success display is then NOT_ELIGIBLE with the self-report withheld, exactly as a reader hit is;
+    a display that is no success is returned as it is, never changed or raised. Every surface that shows a claim status passes it."""
     display = display_status_for(translation, verification, signing_key, key_id)
+    if display in _SUCCESS_DISPLAY and labelled_self_report is True:
+        return VerificationStatus.NOT_ELIGIBLE, True
     if display in _SUCCESS_DISPLAY and _self_report_claim(claim.claim_text):
         # a self-report never shows a success status (second remedy of the round-9 push-check hold): eligibility rule 0 keeps it from
         # the solver; a translator that bypassed that rule cannot turn the claim's own words into a verdict
@@ -777,8 +784,13 @@ def compose_outcome(
     key_id: Optional[str] = None,
     report: Optional[SpecialistReport] = None,
     task: Optional[TaskRecord] = None,
+    *,
+    labelled_self_report: bool = False,
 ) -> ClaimVerificationOutcome:
     """Assemble the Overseer-facing outcome for one claim.
+
+    ``labelled_self_report``: the meaning label names the claim (INT-SELF-001); a success display is withheld as NOT_ELIGIBLE
+    (:func:`claim_display_status`).
 
     ``verification`` is used only when it binds to the translated problem (same
     claim, same problem id and digest) and, when ``signing_key`` is given, carries a
@@ -797,7 +809,8 @@ def compose_outcome(
     if review is not None and review.translation_id != translation.translation_id:
         raise ValueError("review does not belong to the translation")
     findings = list(structural)
-    display, withheld = claim_display_status(claim, translation, verification, signing_key, key_id)  # the one display rule
+    display, withheld = claim_display_status(claim, translation, verification, signing_key, key_id,
+                                             labelled_self_report=labelled_self_report)  # the one display rule
     review_state = review_currency(review, claim, translation, report, task) if review is not None else None
     trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
     engine_check = (release_check(trusted, translation.problem, signing_key=signing_key, key_id=key_id)
@@ -822,6 +835,23 @@ def compose_outcome(
         named_diagnostics=named,
         diagnosis_incomplete=incomplete,
     )
+
+
+def withhold_labelled(outcome: ClaimVerificationOutcome, claim: ClaimRecord, signing_key: Optional[bytes] = None,
+                      key_id: Optional[str] = None, report: Optional[SpecialistReport] = None,
+                      task: Optional[TaskRecord] = None) -> ClaimVerificationOutcome:
+    """``outcome`` for a claim the meaning label names (INT-SELF-001; interface (d)): a success display becomes NOT_ELIGIBLE with
+    the self-report withheld (its status meaning, its release and its summary recomposed by :func:`compose_outcome` from the
+    outcome's own translation, engine result, review and structural findings; the outcome keeps its id and time). An outcome whose
+    display is no success is returned unchanged: a non-success status is never changed or raised. The claim must be the outcome's
+    (``ValueError`` otherwise)."""
+    if outcome.display_status not in _SUCCESS_DISPLAY:
+        return outcome
+    if claim.claim_id != outcome.claim_id:
+        raise ValueError("the claim is not the outcome's")
+    again = compose_outcome(claim, outcome.translation, outcome.verification, outcome.semantic_review, outcome.structural_findings,
+                            signing_key=signing_key, key_id=key_id, report=report, task=task, labelled_self_report=True)
+    return again.model_copy(update={"outcome_id": outcome.outcome_id, "created_at": outcome.created_at})
 
 
 def outcome_diagnosis(claim: ClaimRecord, translation: TranslationResult, verification: Optional[VerificationResult], display: VerificationStatus,

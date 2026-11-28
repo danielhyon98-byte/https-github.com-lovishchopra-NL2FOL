@@ -26,7 +26,12 @@ its gates NOT RUN with the reason that part gave, never PASS.
 ``--test-overseer-port MODULE --test-pythonpath DIRS`` (TEST ONLY: tests/integration/sim_double/) starts the service
 with a test double of the overseer port so the drivers and the gates can be exercised before the overseer's adapter
 exists. A double audits nothing: with it every gate is reported NOT RUN ("the overseer port is a test double"), the
-statuses the gates computed are kept only as the sub-check ``gates_with_test_double``, and the exit status is 1.
+statuses the gates computed are kept only as the sub-check ``gates_with_test_double``, and the exit status is 1. With a
+double the service also runs the meaning label's faithful fake (``EPINOIC_SELFCERT_LABEL=faithful``, as the test suite
+and the arena's wiring-parity harness do), and so does the reference step's arena (``EPINOIC_ARENA_LABELLER=faithful`` in
+this process for that step only, put back after it: ``reference_step``), so both sides label alike and the wiring record
+measures the wiring, not the label. A run without a double keeps the label's unconfigured default in the service and
+leaves the arena's labeller to the caller's environment (else the arena's default).
 
 Network: the service binds 127.0.0.1 only and the drivers' fetch refuses every other host. No provider is called.
 """
@@ -76,7 +81,9 @@ def _free_port() -> int:
 def service_env(translator: Path, corpus_copy: Path, evidence: Path, *, test_port: Optional[str] = None, test_path: Optional[str] = None) -> dict:
     """Ephemeral keys (in the service's environment only; the drivers get the service token through <out>/work/token,
     mode 0600, inside the simulation's own output directory), the sim profile, the fixture provider fed from the copy.
-    ``test_port``/``test_path`` attach a TEST DOUBLE of the overseer port (module docstring)."""
+    ``test_port``/``test_path`` attach a TEST DOUBLE of the overseer port (module docstring) and, with it only, the meaning
+    label's faithful fake (``EPINOIC_SELFCERT_LABEL=faithful``); without a double the setting is never passed on (no
+    ``EPINOIC_*`` variable of the caller is), so the service keeps the label's unconfigured default."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
     # the kit's src/, then the overseer sub-project's src/ (the default overseer port adapter, epinoic_overseer.port)
     paths = [str(translator / "src")] + ([str(translator / "overseer" / "src")] if (translator / "overseer" / "src").is_dir() else [])
@@ -92,6 +99,9 @@ def service_env(translator: Path, corpus_copy: Path, evidence: Path, *, test_por
     })
     if test_port:
         env["EPINOIC_OVERSEER_PORT"] = test_port
+        # The wiring check under a test double (tests only) labels with the faithful fake, as the test suite and the arena's
+        # wiring-parity harness do; an evidence run (no double) keeps the unconfigured default, so it never overstates readiness.
+        env["EPINOIC_SELFCERT_LABEL"] = "faithful"
     return env
 
 
@@ -205,6 +215,42 @@ def collect(website: Optional[dict], agents: Optional[dict], evidence_dir: Path,
             "invariants": invariants, "tamper": tamper}
 
 
+#: The arena's labeller switch (scripts/arena/arena_labels.LABELLER_ENV): run_arena reads it at each call that is given no
+#: labeller (unset: the arena's own default, ``recorded``).
+ARENA_LABELLER_ENV = "EPINOIC_ARENA_LABELLER"
+
+
+def reference_step(reference_mod: Any, translator: Path, rounds: list, reference_copy: Path, subchecks: dict,
+                   test_double: Optional[str] = None) -> tuple[dict, list, dict]:
+    """Step 4: the reference harnesses (``reference.run_reference``) on the reference copy of every round. Returns the G-EQ
+    projections by item (``<round>/<item>``), the arena's mutation records and the kit-derived decisions by item; each
+    round's arena counts go to ``subchecks`` (``arena:<round>``). Under a TEST DOUBLE of the overseer port (tests only) the
+    arena runs the meaning label's faithful fake, as the service does under the double (``service_env``) and as the test
+    suite and the arena's wiring-parity harness do: ``EPINOIC_ARENA_LABELLER=faithful`` is set in this process for this
+    step only, and the value it had before, or its absence, is put back after it, also when the step raises. Without a
+    double the variable is never touched."""
+    ref_by_item: dict = {}
+    ref_mutations: list = []
+    ref_decisions: dict = {}
+    previous = os.environ.get(ARENA_LABELLER_ENV)
+    if test_double:
+        os.environ[ARENA_LABELLER_ENV] = "faithful"
+    try:
+        for r in rounds:
+            rr = reference_mod.run_reference(translator, reference_copy / r.name)
+            ref_by_item.update({f"{r.name}/{k}": v for k, v in rr["projections"].items()})
+            ref_decisions.update({f"{r.name}/{k}": v for k, v in rr["decisions"].items()})
+            ref_mutations += rr["mutations"]
+            subchecks[f"arena:{r.name}"] = {"functional": rr["functional"], "qualified": rr["qualified"], "genuine": rr["genuine"]}
+    finally:
+        if test_double:
+            if previous is None:
+                os.environ.pop(ARENA_LABELLER_ENV, None)
+            else:
+                os.environ[ARENA_LABELLER_ENV] = previous
+    return ref_by_item, ref_mutations, ref_decisions
+
+
 def with_test_double(gate_results: list, module: str, subchecks: dict, gates: Any) -> list:
     """Under a TEST DOUBLE of the overseer port every gate is NOT RUN (a double audits nothing): what each gate computed is
     kept only as the sub-checks ``gates_with_test_double`` and ``gate_cases_with_test_double`` (the cases of a gate that
@@ -263,11 +309,13 @@ def copy_lines(results: dict) -> list[str]:
 def wiring_record(results: dict, translator: Path, website: Optional[str], agents: Optional[str], specialist: Optional[str] = None) -> dict:
     """The record of one wiring run with the test double (``--record-wiring``): the digests of the files it ran, the
     website export's provenance line, the commits of the two copies (the website path's runtime, ``--specialist`` or
-    else ``--agents``, with its contract; the agents path's harness), what every gate computed, and the counts. It is
-    evidence about the drivers and the gates' wiring only: no gate is PASS under a double."""
+    else ``--agents``, with its contract; the agents path's harness), the meaning labeller the service's hello reported
+    (``ports.selfcert_label.labeller``; None when the service did not start), what every gate computed, and the counts.
+    It is evidence about the drivers and the gates' wiring only: no gate is PASS under a double."""
     import hashlib
     marker = Path(website) / "UNREVIEWED-SIMULATION-COPY.txt" if website else None
     runtime_copy = specialist or agents
+    label = (results.get("service") or {}).get("selfcert_label")
     return {
         "schema": "epinoic.integration.sim-wiring-record.v1",
         "note": "A wiring run of integration/sim/run_sim.py with the TEST DOUBLE of the overseer port (tests/integration/sim_double/): "
@@ -277,6 +325,7 @@ def wiring_record(results: dict, translator: Path, website: Optional[str], agent
         "agents_commit": _archive_commit(agents),
         "specialist_commit": _archive_commit(runtime_copy),
         "specialist_contract": _runtime_contract(runtime_copy),
+        "labeller": label.get("labeller") if isinstance(label, dict) else None,
         "computed": results["subchecks"].get("gates_with_test_double"),
         "computed_fail_cases": results["subchecks"].get("gate_cases_with_test_double"),
         "fault_cases": results["subchecks"].get("fault_cases"),
@@ -328,6 +377,11 @@ def run(args) -> int:
             results["not_run"]["service"] = f"the service did not start: {caps}"
         else:
             results["service"]["overseer"] = caps.get("ports", {}).get("overseer")
+            # the meaning label as the service's hello reports it (contract 0.10): a run without a test double runs with the
+            # unconfigured default unless labels are recorded, so every answer the reader passes is withheld (KIT-DL-014) and
+            # counted; the wiring check under a test double runs the faithful fake (service_env; the reference step's arena
+            # too: reference_step)
+            results["service"]["selfcert_label"] = caps.get("ports", {}).get("selfcert_label")
     else:
         results["not_run"]["service"] = f"the service refused to start: {line}"
 
@@ -367,15 +421,10 @@ def run(args) -> int:
             else:
                 results["not_run"]["agents_path"] = "no agents copy (--agents)"
 
-        # 4. The reference harnesses on another copy of exactly the same items.
+        # 4. The reference harnesses on another copy of exactly the same items (under a test double with the arena's
+        # faithful fake, for this step only: reference_step).
         reference_mod = _module("reference")
-        ref_by_item, ref_mutations, ref_decisions = {}, [], {}
-        for r in rounds:
-            rr = reference_mod.run_reference(translator, reference_copy / r.name)
-            ref_by_item.update({f"{r.name}/{k}": v for k, v in rr["projections"].items()})
-            ref_decisions.update({f"{r.name}/{k}": v for k, v in rr["decisions"].items()})
-            ref_mutations += rr["mutations"]
-            results["subchecks"][f"arena:{r.name}"] = {"functional": rr["functional"], "qualified": rr["qualified"], "genuine": rr["genuine"]}
+        ref_by_item, ref_mutations, ref_decisions = reference_step(reference_mod, translator, rounds, reference_copy, results["subchecks"], test_double)
         contained = reference_mod.contained_available(translator)
         if contained is None:
             results["not_run"]["contained"] = "overseer/scripts/run_contained.py is not on this tree"
@@ -424,6 +473,7 @@ def run(args) -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
     lines = gates.summary_lines(results["gates"])
+    lines += label_lines(results)
     lines += copy_lines(results)
     lines += ["", "Not run, and why:"] + [f"- {k}: {v}" for k, v in sorted(results["not_run"].items())]
     lines += ["", "Sub-checks (information, never a gate):"] + [f"- {k}: {json.dumps(v)}" for k, v in sorted(results["subchecks"].items())]
@@ -437,6 +487,24 @@ def run(args) -> int:
                                                        sort_keys=True) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return gates.exit_status(results["gates"])
+
+
+def label_lines(results: dict) -> list[str]:
+    """The summary's line on the meaning label, as the service's hello reported it (``ports.selfcert_label``): its state,
+    labeller kind and version, never a model name (only whether a model digest is configured). With the unconfigured
+    default every answer the rule reader passes is withheld as an outage (KIT-DL-014): the line says so, so a run with no
+    recorded labels is never read as a label measurement. With the faithful fake (the wiring check under a test double)
+    the line says that it is the reader-backed test fake, not a label measurement."""
+    lab = (results.get("service") or {}).get("selfcert_label")
+    if not isinstance(lab, dict):
+        return ["", "Meaning label: not reported (the service did not start)"]
+    line = (f"Meaning label: state {lab.get('state')}, labeller {lab.get('labeller')}, {lab.get('version')}, "
+            f"model digest {'configured' if lab.get('model_digest') else 'none'}")
+    if lab.get("labeller") == "unconfigured" or lab.get("state") == "off":
+        line += " (no label is recorded: every answer the reader passes is withheld, KIT-DL-014; not a label measurement)"
+    if lab.get("labeller") == "faithful":
+        line += " (the reader-backed test fake: not a label measurement)"
+    return ["", line]
 
 
 def main(argv=None) -> int:

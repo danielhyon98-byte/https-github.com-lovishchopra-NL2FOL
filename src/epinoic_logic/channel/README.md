@@ -221,6 +221,8 @@ INT-LEDGER-000/008; everything else is delivered with the report.
 | INT-SYNTH-013 | warning | the channel's synthesis-formalization hook failed internally; the entailment was not checked |
 | INT-SYNTH-014 | error | a synthesis that does not validate because a synthesized claim, a ledger entry or a conflict record carries a value outside one of the synthesis contract's closed vocabularies: a transformation that is not one of `carried`, `paraphrased`, `merged`, `narrowed`, `generalized`, `new`, `dropped` (`integrity.contracts.TRANSFORMATION_MEANINGS`; a synthesized claim takes one of the first five, and a description of the edit, an alias such as 'joined' or another spelling is no transformation), a certainty, a materiality or a conflict status outside its set. Raised with the INT-REQ-009 that refuses the synthesis (not delivered, nothing stored), for a synthesis received as JSON and for a synthesis object built around validation (`model_copy`, `model_construct`), which is re-validated before any check; one finding names every such synthesized claim (and the source claims of a ledger entry), the field and the rule, quotes a one-word value and describes free text only by its length, so no agent prose is echoed. The ledger's rules are chosen by these values, so none of them ran on the synthesis |
 | INT-INTERNAL-001 | error | the branch's integrity packs failed internally on this report: its subject findings and its own formal checks are missing from the receipt (the report is delivered with this finding; nothing raises into the router). Every other content check of `respond` and `relay` (claim-id collisions, quotations, peer figures, folds, echo, no answer, coverage, constraints, credits, supersession, claim verification, the cross-agent check, and on a synthesis the ledger, conflicts and entailment) runs guarded the same way: one that fails internally is "the channel's <check> check failed internally (<error>)", and the rest of the receipt is still produced |
+| INT-SELF-001 | warning (`deterministic=False`) | the meaning label (`selfcert_label`, meaning-check stage 2a) names a sentence in which the answer, or the synthesis, certifies its own checking, verification, review, testing, quality or correctness: one finding per named sentence, giving its place ("paragraph 2, sentence 1") and its family, never a word of the answer; `claim_ids` names the claims the sentence falls in, whose success display is withheld (NOT_ELIGIBLE, the self-report withheld). Every release path refuses the answer as a reader hit (`not_deliverable`, KIT-DL-006); fed back by place under rule `self.certification`, never by passage |
+| INT-SELF-002 | warning (`deterministic=False`) | the meaning label could not be had for the answer or the synthesis (its kind: `not-configured`, `provider-error`, `timeout`, `budget`, `malformed`, `incomplete`, `control`, `oversized`, `truncated`, `label-failed`, `not-recorded`): withheld as an outage (`selfcert_label_unavailable`, KIT-DL-014), never as a fault of the answer, and never fed back (no revision request). Any exception in the channel's label step is this code with kind `label-failed`, never INT-INTERNAL-001 |
 
 INT-HANDOFF-018 (error, blocking through the INT-HANDOFF prefix) is a revision that reuses a report id of its chain (the report
 of an answer the chain revises), also when that answer was REJECTED and never stored: a revision needs a new report id. A
@@ -397,3 +399,49 @@ for the application that does.
   exactly as the text gives them and, when no text holds them, to remove the quotation and what is credited to it; it now adds that
   words the writer gives as its own (a correction, a model, a gloss or a suggested form) are to be said to be its own and not
   presented as a quotation. `tests/channel/test_c3_handoff_channel.py` pins this section.
+
+## The meaning label (meaning-check stage 2a; owner R4)
+
+The gate the meaning label is built for is `reader OR validated label` (design 2.5). The channel wires it into `respond` and
+`relay` (forwards, relayed reports, syntheses); the label package (`selfcert_label`) names no receipt code, so the channel names
+them (`bus.SELFCERT_LABEL_CODES`, severities in `bus.SELFCERT_LABEL_SEVERITY`: both warnings, so the transfer reaches the router
+ACCEPTED_WITH_FINDINGS, never ACCEPTED).
+
+- **Which labeller.** `TranslatorChannel(selfcert_labeller=...)` and `RouterHub(selfcert_labeller=...)`; with none, the channel
+  calls `selfcert_label.labellers.default_labeller()` at each use. The production default is `UnconfiguredLabeller`: every answer
+  the reader passes is withheld (INT-SELF-002 `not-configured`). The test suite installs the faithful fake (`tests/conftest.py`).
+- **Which text.** Exactly the text that is delivered as the answer (`bus.answer_label_text`): an answer that arrived as prose is
+  read as it arrived (the report's `original_response`, so the service's step 4 and the hub render byte-identical label requests
+  and share one call); a structured report is read as its response followed by each of its own texts (assumptions, unresolved
+  issues, a claim's assumptions, criteria and locators) as a paragraph of its own. A synthesis is read as its text followed by
+  each synthesized claim its text does not carry, then every other free text of the synthesis that travels in the delivered
+  payload and that the rule reader reads there (each evidence locator holding a letter, each ledger reason, each conflict's
+  description and basis), each as a paragraph of its own (`bus.synthesis_label_text`), with `writer="combinator"`. A forward or
+  relay of a delivered report is read on the text and request of its delivery, so it shares that label.
+- **Which claims a named sentence names.** Each claim is located in the labelled text by its letters and digits alone (the
+  parser's claim text drops marks such as a tick and normalises spacing), and every claim with an occurrence that overlaps the
+  label's own unit holding the named span is listed in that INT-SELF-001's `claim_ids` (`bus._named_claims`); a claim whose words
+  hold the span's words, or lie in that unit, is listed too. Matching errs toward naming: a listed claim only loses a success
+  display.
+- **Against which request.** The router's request the answer replies to (`TaskRequest`); for a synthesis, the plan's subject and
+  task type with the channel's first request text and every text the router supplied on the channel.
+- **When.** After the branch checks the rule reader reads the text with the request's context (`selfcert.context_for`). A reader
+  refusal journals a `skipped` record (reason `reader-refused`) and makes no label call; otherwise the label is submitted and
+  collected immediately before the receipt is finished. A `named` result adds INT-SELF-001 per sentence; `unavailable` adds
+  INT-SELF-002; `none_named` adds nothing and is never shown, as a pass or otherwise. Any exception in label code is INT-SELF-002
+  `label-failed`.
+- **The record.** The sealed label record never enters a payload or a receipt: the call's event carries it (`ChannelEvent.label_json`
+  and `label_sha256`), with exactly the text it read (`labelled_text`, `labelled_text_sha256`) and the router's record it was read
+  against (`label_request_json`), so the release gate re-validates it with the labeller's own key without re-deriving anything. The
+  overseer's journal hashes, chains and MACs every event's `to_dict`, so these fields are covered by its integrity mechanism; a
+  digest-only event keeps only the two digests (a release gate then finds no record and withholds). The channel keeps them in
+  `TranslatorChannel.label_records` (message id -> record JSON, text, request JSON).
+- **Displays** (interface (d), T18). A claim INT-SELF-001 names whose success display would be shown is recomposed NOT_ELIGIBLE with
+  the self-report withheld (`translate.outcome.withhold_labelled`, `claim_display_status(labelled_self_report=True)`); a non-success
+  status is never changed. The receipt summary counts the gate's sentences apart ("Self-certification gate: 1 sentence(s) named,
+  withheld."), never in the code list beside a status word. The response gate (`gate.py`) withholds any answer whose receipt carries
+  INT-SELF-001 or INT-SELF-002, whatever the accuracy.
+- **Feedback.** INT-SELF-001 is fed back under rule `self.certification` by its place only (the revision message says "Place in your
+  answer: paragraph 2, sentence 1."), never with the passage; INT-SELF-002 is never fed back.
+- **What it never does.** No label text, and no word of the answer the label quoted, reaches a receipt message, a reason, feedback
+  or a payload; no label output reaches the IR, the compiler or Z3; a failure of any kind is INT-SELF-002, never `none_named`.

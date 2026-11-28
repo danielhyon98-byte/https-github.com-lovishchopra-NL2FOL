@@ -125,9 +125,15 @@ def _synthesis(findings=()):
 
 
 def test_the_synthesis_release_reads_the_task_audits_self_report():
+    """Rewritten to the stricter value of stage 2a of the meaning check: the gate is called here with no journaled event (``None``),
+    so the synthesis carries no meaning-label record, and a synthesis with no record is never released unlabelled (rule
+    meaning-label-unavailable, ``selfcert_label_unavailable``). Before stage 2a these two calls returned None (released); the
+    task audit's self-report is still read first and named as before."""
     receipt, message = _synthesis()
-    assert _synthesis_self_report(receipt, None, message, _audit()) is None
-    assert _synthesis_self_report(receipt, None, message, _audit(_finding("OVS-FID-009", "warning", ["other"], ["s1"]))) is None
+    unlabelled = "the synthesis has no usable meaning label (missing): it is not released unlabelled (rule meaning-label-unavailable)"
+    assert _synthesis_self_report(receipt, None, message, _audit()) == unlabelled
+    assert _synthesis_self_report(receipt, None, message, _audit(_finding("OVS-FID-009", "warning", ["other"], ["s1"]))) == unlabelled
+    assert refusal_label(unlabelled) == "selfcert_label_unavailable"
     why = _synthesis_self_report(receipt, None, message, _audit(_finding("OVS-FID-009", "warning", ["syn-1"], ["s1"])))
     assert why == ("the task audit names a self-report the synthesis carries as content (OVS-FID-009 (claims s1)): a released answer never "
                    "contains a claim that it was checked or verified (rule self-certification-gate)")

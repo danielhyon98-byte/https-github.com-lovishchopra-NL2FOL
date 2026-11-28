@@ -1,16 +1,19 @@
 """The simulation's wiring (integration/sim/README.md): the drivers' prerequisites, how run_sim.py turns the drivers'
 records and the evidence tap into each gate's material, the NOT RUN reasons a missing part gives (pre-build finding
 PB3-07: a gate names the part that was missing, never a guess), the test-double rule (a double of the overseer port
-audits nothing, so every gate is NOT RUN under it), the service log (a file, never an unread pipe), the fault round
-(only the service loads it), and the record of the last wiring run (integration/sim/TESTED.json), which names the files
-it ran so a change to any of them needs a new run."""
+audits nothing, so every gate is NOT RUN under it; with a double only, the service runs the meaning label's faithful
+fake), the service log (a file, never an unread pipe), the fault round (only the service loads it), and the record of
+the last wiring run (integration/sim/TESTED.json), which names the files it ran so a change to any of them needs a new
+run, and the meaning labeller the service reported."""
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -144,6 +147,90 @@ def test_the_simulation_service_raises_only_its_own_rate_and_attaches_a_double_o
     assert set(sim_env()) - set(env) == set(), "the simulation sets every variable the integration tests set"
 
 
+def test_the_wiring_check_labels_with_the_faithful_fake_only_under_a_test_double(tmp_path, monkeypatch):
+    """Under a TEST DOUBLE of the overseer port (tests only) the service runs the meaning label's faithful fake, as the test
+    suite and the arena's wiring-parity harness do; without a double the setting is never passed on (no EPINOIC_* variable
+    of the caller is), so a run without a double keeps the label's unconfigured default and never overstates readiness.
+    The sim profile admits the faithful fake (no KIT-HS-017/018), and the hello's ports.selfcert_label names it."""
+    from epinoic_logic.integration.label import check_label, label_caps, live_labeller, parse_setting
+    monkeypatch.setenv("EPINOIC_SELFCERT_LABEL", "faithful")
+    evidence = RS.service_env(ROOT, tmp_path, tmp_path / "ev")
+    assert "EPINOIC_SELFCERT_LABEL" not in evidence and "EPINOIC_OVERSEER_PORT" not in evidence, "a caller's setting is never passed on"
+    path_only = RS.service_env(ROOT, tmp_path, tmp_path / "ev", test_path=str(tmp_path))
+    assert "EPINOIC_SELFCERT_LABEL" not in path_only and "EPINOIC_OVERSEER_PORT" not in path_only, "a test path alone attaches no double"
+    monkeypatch.setenv("EPINOIC_SELFCERT_LABEL", "recorded:/elsewhere")
+    double = RS.service_env(ROOT, tmp_path, tmp_path / "ev", test_port="kit_overseer_test_double", test_path=str(tmp_path))
+    assert double["EPINOIC_SELFCERT_LABEL"] == "faithful" and double["EPINOIC_OVERSEER_PORT"] == "kit_overseer_test_double"
+    setting = parse_setting(double["EPINOIC_SELFCERT_LABEL"])
+    labeller = live_labeller(setting)
+    check_label(setting, labeller, profile=double["EPINOIC_PROFILE"], service_env=double["EPINOIC_SERVICE_ENV"])
+    assert setting.kind == "faithful" and label_caps(labeller)["labeller"] == "faithful"
+
+
+def test_the_wiring_record_names_the_labeller_the_service_reported():
+    """The wiring record (--record-wiring) carries the meaning labeller the service's hello reported
+    (ports.selfcert_label.labeller), so the record says what the run used; None when the service did not start or its
+    hello had no label member to read."""
+    hello = {"version": "selfcert-label-2", "label_digest": "0" * 64, "required": True, "labeller": "faithful", "model_digest": None, "state": "ok"}
+    started = {"service": {"preflight": "ready", "started": True, "selfcert_label": hello}, "subchecks": {}, "not_run": {}}
+    rec = RS.wiring_record(started, ROOT, None, None)
+    assert rec["labeller"] == "faithful" and rec["schema"] == "epinoic.integration.sim-wiring-record.v1"
+    for service in ({"preflight": "ready", "started": False}, {"preflight": "KIT-HS-017 x"}, {"selfcert_label": "faithful"}, None):
+        assert RS.wiring_record(dict(started, service=service), ROOT, None, None)["labeller"] is None, service
+    assert RS.wiring_record({"subchecks": {}, "not_run": {}}, ROOT, None, None)["labeller"] is None
+
+
+def test_the_reference_step_runs_the_arenas_faithful_fake_only_under_a_test_double(tmp_path, monkeypatch):
+    """Under a TEST DOUBLE the reference step (reference.run_reference, whose run_arena.run_round resolves the arena's labeller
+    from EPINOIC_ARENA_LABELLER at each call) runs with the arena's faithful fake, as the service does under the double, so
+    both sides label alike; the variable's previous value, or its absence, is put back after the step, also when the step
+    raises. Without a double the variable is never touched: the arena keeps the caller's setting, else its own default."""
+    spec = importlib.util.spec_from_file_location("kit_sim_arena_labels_w", ROOT / "scripts" / "arena" / "arena_labels.py")
+    AL = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, AL)  # its dataclasses read their own module while they are built
+    spec.loader.exec_module(AL)
+    assert RS.ARENA_LABELLER_ENV == AL.LABELLER_ENV == "EPINOIC_ARENA_LABELLER"
+    seen: list = []
+
+    class Reference:  # stands in for reference.py: what the arena reads and resolves at each call of the step
+        @staticmethod
+        def run_reference(translator, round_copy):
+            seen.append((round_copy.name, os.environ.get(AL.LABELLER_ENV), AL.resolve(None, round_copy).name))
+            return {"projections": {"hi-s1": PROJ}, "decisions": {"hi-s1": {"decision": "deliver"}}, "mutations": [{"item": "hi-s1"}],
+                    "functional": [1, 1], "qualified": False, "genuine": 1}
+
+    class Stopped:  # a reference step that raises
+        @staticmethod
+        def run_reference(translator, round_copy):
+            seen.append(os.environ.get(AL.LABELLER_ENV))
+            raise RuntimeError("the arena stopped")
+
+    rounds = [tmp_path / "s1", tmp_path / "s2"]
+    for before in (None, "recorded", "unconfigured", "faithful"):
+        if before is None:
+            monkeypatch.delenv(AL.LABELLER_ENV, raising=False)
+        else:
+            monkeypatch.setenv(AL.LABELLER_ENV, before)
+        seen.clear()
+        sub: dict = {}
+        by_item, mutations, decisions = RS.reference_step(Reference, ROOT, rounds, tmp_path / "ref", sub, "kit_overseer_test_double")
+        assert seen == [("s1", "faithful", "faithful"), ("s2", "faithful", "faithful")], before
+        assert os.environ.get(AL.LABELLER_ENV) == before, "the previous value, or its absence, is put back after the step"
+        assert sorted(by_item) == sorted(decisions) == ["s1/hi-s1", "s2/hi-s1"] and mutations == [{"item": "hi-s1"}] * 2
+        assert sub == {f"arena:{r}": {"functional": [1, 1], "qualified": False, "genuine": 1} for r in ("s1", "s2")}
+        seen.clear()
+        RS.reference_step(Reference, ROOT, rounds, tmp_path / "ref", {}, None)
+        arena = before or "recorded"  # without a double: the caller's setting, else the arena's own default
+        assert seen == [("s1", before, arena), ("s2", before, arena)] and os.environ.get(AL.LABELLER_ENV) == before, before
+        seen.clear()
+        with pytest.raises(RuntimeError, match="the arena stopped"):
+            RS.reference_step(Stopped, ROOT, rounds, tmp_path / "ref", {}, "kit_overseer_test_double")
+        assert seen == ["faithful"] and os.environ.get(AL.LABELLER_ENV) == before, "put back when the step raises too"
+    source = (SIM / "run_sim.py").read_text(encoding="utf-8")
+    assert 'reference_step(reference_mod, translator, rounds, reference_copy, results["subchecks"], test_double)' in source
+    assert source.count("reference_mod.run_reference(") == 1, "the reference harness runs in reference_step only"
+
+
 def test_the_record_of_the_last_wiring_run_names_the_files_it_ran():
     rec = json.loads((SIM / "TESTED.json").read_text(encoding="utf-8"))
     assert rec["schema"] == "epinoic.integration.sim-wiring-record.v1" and "TEST DOUBLE" in rec["note"]
@@ -154,6 +241,7 @@ def test_the_record_of_the_last_wiring_run_names_the_files_it_ran():
             "(integration/sim/README.md)")
     assert [g["gate"] for g in rec["computed"]] == list(G.GATES)
     assert rec["agents_commit"] and rec["website_export"].startswith("UNREVIEWED SIMULATION COPY")
+    assert rec.get("labeller") == "faithful", "the wiring run under the double labels with the faithful fake (run_sim.service_env)"
 
 
 REPLY_PROBE = """

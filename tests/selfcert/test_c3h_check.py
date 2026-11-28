@@ -166,9 +166,13 @@ YEAR_UNNAMED = ["All the numbers here match the 2021 dataset.", "Every figure he
                 "Every figure here matches the 2021 census.", "Every figure here matches the census of 2011.",
                 "All the numbers here match the survey of 2021.", "Our results match the 2019 survey.",
                 "Las cifras coinciden con el censo de 2021.", "Las cifras coinciden con los datos de 2018."]
-NAMED_TWINS = ["All the numbers here match the ONS 2021 dataset.", "The values in this answer agree with the ONS 2022 dataset.",
-               "Every figure here agrees with the Eurostat 2023 survey.", "Todas las cifras coinciden con la encuesta del INE de 2019.",
-               "Every figure here matches the 2021 census of England and Wales.",
+#: (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; NAMED_TWINS pins until c3k, now gated: a stricter rewrite)
+NAMED_NO_VALUE = ["All the numbers here match the ONS 2021 dataset.", "The values in this answer agree with the ONS 2022 dataset.",
+                  "Every figure here agrees with the Eurostat 2023 survey.", "Todas las cifras coinciden con la encuesta del INE de 2019.",
+                  "Every figure here matches the 2021 census of England and Wales."]
+NAMED_TWINS = [# (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures: the forms that state no value moved to NAMED_NO_VALUE, and stated-value twins take their place)
+               "The population figure here matches the ONS 2021 dataset's figure of 67.0 million.",
+               "La cifra coincide con la de la encuesta del INE de 2019: 61 %.",
                "The figures agree with the 2021 survey figure of 61%.", "This matches the census figure of 4.2 million.",
                "Every figure here matches the ONS figure of 4.2%.", "The ONS confirmed the figures.",
                # (a date in the theme still places the figures in the subject matter)
@@ -177,6 +181,12 @@ NAMED_TWINS = ["All the numbers here match the ONS 2021 dataset.", "The values i
 
 @pytest.mark.parametrize("text", YEAR_UNNAMED)
 def test_a_year_alone_names_no_source(text):
+    for t in _forms(text):
+        assert sc.read(t).refuses() is True, t
+
+
+@pytest.mark.parametrize("text", NAMED_NO_VALUE)
+def test_a_named_source_that_states_no_value_is_gated(text):
     for t in _forms(text):
         assert sc.read(t).refuses() is True, t
 

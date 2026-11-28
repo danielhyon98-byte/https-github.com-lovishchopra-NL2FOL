@@ -44,6 +44,11 @@ CHECK RULES (``GateCheck.rule`` names the one that decided):
   branch check, INT-SUBJ-003 of a subject finding, INT-HIST-001 carried from a receipt the gate also reads) is not
   counted twice. A finding carried from an earlier receipt the gate does not read (INT-HIST-001) is classified as the
   finding it carries.
+* ``self-certification gate`` (meaning-check stage 2a): a receipt the gate reads that carries INT-SELF-001 (the meaning label
+  names a sentence in which the answer certifies its own checking) or INT-SELF-002 (the answer could not be read by the label)
+  is failed whatever its severity, and the answer is WITHHELD outright, whatever the accuracy: such a claim is never evidence
+  and never helps an answer be shown, and an answer the label could not read is never shown unread. The reason names the
+  gate and the outage, never a word of the answer.
 * ``synthesis``: with ``synthesis_required``, a missing or REJECTED synthesis receipt is failed and a delivered one is read
   like every other receipt; without it (the fast path) no synthesis is required and a synthesis receipt given anyway is
   not read: the student is shown the reports.
@@ -96,6 +101,9 @@ _HISTORY = "INT-HIST-001"
 #: A relayed check result or a misreported peer figure stated as content (the channel's INT-REQ-014): failed, never unresolved.
 _RELAYED_CHECK_RESULT = "INT-REQ-014"
 _XENC = "INT-XENC-001"
+#: The meaning label's receipt codes (``bus.SELFCERT_LABEL_CODES``): a named self-certification and an answer the label could not
+#: read. Either withholds the answer (rule ``self-certification gate`` in the module docstring).
+_LABEL_NAMED, _LABEL_UNREAD = "INT-SELF-001", "INT-SELF-002"
 #: The unaddressed item an INT-REQ-004 message names ("request item i3 appears unaddressed: ...").
 _ITEM_RE = re.compile(r"^request item (?P<item>\S+) appears unaddressed")
 _DETAIL_MAX = 600
@@ -177,6 +185,10 @@ def _finding_result(code: str, severity: str, formal_result_id: Optional[str]) -
         return None
     if code == _RELAYED_CHECK_RESULT:
         return "failed", "a check result of this exchange (or a peer's figure misreported) stated as the answer's content: never shown to the student as checked"
+    if code == _LABEL_NAMED:
+        return "failed", "a sentence in which the answer certifies its own checking (self-certification gate, named by place): never shown"
+    if code == _LABEL_UNREAD:
+        return "failed", "the answer could not be read by the self-certification gate (an outage, not a fault of the answer): never shown unread"
     if code in _HEURISTIC_CODES or _HEURISTIC_RE.match(code):
         return "unresolved", "a heuristic reading: unresolved, never failed"
     if code == "INT-ARG-001":
@@ -396,6 +408,14 @@ def assess_response(receipts, synthesis_receipt=None, *, synthesis_required: boo
         else:
             checks.append(GateCheck(check="combinator synthesis", result="not_required", rule="synthesis",
                                     detail="the plan routes the answer to no combinator (fast path): the student is shown the delivered reports"))
+        held = {f.code for r in read if r.status is not TransmissionStatus.REJECTED for f in r.findings if f.code in (_LABEL_NAMED, _LABEL_UNREAD)}
+        if held:  # the self-certification gate: withheld whatever the accuracy (module docstring)
+            why = []
+            if _LABEL_NAMED in held:
+                why.append("a sentence of the answer certifies its own checking (named by place on its receipt)")
+            if _LABEL_UNREAD in held:
+                why.append("the answer could not be read by the self-certification gate (an outage, not a fault of the answer)")
+            return _withheld(threshold, synthesis_required, "the self-certification gate withholds the answer: " + "; ".join(why), checks)
         n = {r: sum(1 for c in checks if c.result == r) for r in _RANK}
         required = n["passed"] + n["failed"] + n["unresolved"]
         decided = n["passed"] + n["failed"]

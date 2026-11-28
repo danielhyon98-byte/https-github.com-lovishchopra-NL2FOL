@@ -3,7 +3,10 @@
 The Worker (``integration/website/src/verify/verification.js``) accepts a capabilities response only when it is less
 than 60 s old, matches the pinned compatibility set and reports a passed self-test. This module states the same rules
 over the same golden vectors (``integration/vectors/handshake/``), so both sides refuse the same responses with the same
-code. The flash router is reported, never required: its absence changes nothing here.
+code. The flash router is reported, never required: its absence changes nothing here. The meaning label (contract 0.10)
+is required on a hosted environment: a staging or production service reporting no labeller (``off`` or ``unconfigured``)
+is refused with ``KIT-HS-017``, one reporting a fake or recorded labeller with ``KIT-HS-018``; the simulation refuses a
+provider label (``KIT-HS-018``). Its state ``degraded`` is accepted: every answer it cannot read is withheld anyway.
 """
 from __future__ import annotations
 
@@ -62,6 +65,13 @@ def evaluate(raw: Any, *, worker_env: str, base: str = "M") -> HandshakeOutcome:
         return _refuse("KIT-HS-009", "a hosted environment requires a live translation provider", router)
     if not live_required and caps.ports.translation.live and worker_env == "sim":
         return _refuse("KIT-HS-009", "the sim environment requires the fixture provider", router)
+    lab = caps.ports.selfcert_label
+    if live_required and (lab.labeller == "unconfigured" or lab.state == "off"):
+        return _refuse("KIT-HS-017", "a hosted environment needs a meaning labeller", router)
+    if live_required and lab.labeller != "provider":
+        return _refuse("KIT-HS-018", "a hosted environment serves no fake or recorded meaning label", router)
+    if worker_env == "sim" and lab.labeller == "provider":
+        return _refuse("KIT-HS-018", "the sim environment labels with recorded labels or the unconfigured default only", router)
     if caps.subject_map.sha256 != COMPATIBILITY["subject_map"]["sha256"]:
         return _refuse("KIT-HS-010", "the subject maps differ", router)
     pairs = sorted((p.result, p.runtime) for p in caps.ports.specialist.accepted)

@@ -58,10 +58,13 @@ def test_the_recording_key_is_golden_and_moves_with_every_rendered_byte(key, tes
     """T15: the same request gives the same key (golden value); a byte of the prompt, the answer or the canary key moves it."""
     text = "The speed is 15 km/h.\n\nThis passed the hub's checks."
     inp = build_input(text, REQUEST, key=key, prompt_path=test_prompt)
-    assert inp.input_key == "0db3b9b19981363df6acda82ef54223dbc570d002b02063400138107e5d14e6d"
+    # (re-pinned, stage 2a: LABEL_VERSION moved selfcert-label-1 -> selfcert-label-2, and both keys bind it: the input key
+    # names the version, and the request key hashes it and the rendered user text, whose lead line names it. The checks below
+    # that one byte of the prompt, the answer or the canary key moves the key are unchanged)
+    assert inp.input_key == "4234934d26f4d05a3d11880135f0f2678f7d807133956d6ea5a844d0f3bed132"
     # (re-pinned, attack round 16: the key binds schema.json, which now states the frozen prompt's "spans": [] on none; the
     # rendered user text and the input key above are unchanged)
-    assert inp.requests[0].request_key == "1cbc6c84fecb3053d5332cd09e30661f0d20cd6b638c3b121508384c5a4130af"
+    assert inp.requests[0].request_key == "ad1741658ea94a304411d0517881991f2b69984ad184cb4ed1b5b12af08ebee0"
     other = tmp_path / "other.md"
     other.write_bytes(test_prompt.read_bytes().replace(b"Fixed", b"fixed"))
     assert build_input(text, REQUEST, key=key, prompt_path=other).requests[0].request_key != inp.requests[0].request_key

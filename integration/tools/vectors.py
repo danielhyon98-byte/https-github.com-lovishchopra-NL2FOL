@@ -101,6 +101,15 @@ def handshake_vectors() -> dict[str, dict]:
     caps["build"] = {"build_id": "b0" * 32, "schema_id": "b1" * 32, "policy_id": "b2" * 32}  # build identity is recorded, never required
     caps["selftest"]["digests"] = ["c0" * 32, "c1" * 32, "c2" * 32]
     caps["versions"]["z3"] = "4.15.0"  # the installed Z3 is recorded, never required to match; pinned here so the vectors do not drift
+    # the meaning label (contract 0.10) is pinned too: the simulation's unconfigured default, whatever default labeller the
+    # process that generates the vectors has installed (the test suite installs the faithful fake); its digest is recorded,
+    # never compared, so a vector digest stands for it
+    from epinoic_logic.selfcert_label import LABEL_VERSION
+    caps["ports"]["selfcert_label"] = {"version": LABEL_VERSION, "label_digest": "d0" * 32, "required": True, "labeller": "unconfigured",
+                                       "model_digest": None, "state": "off"}
+    provider_label = {"version": LABEL_VERSION, "label_digest": "d0" * 32, "required": True, "labeller": "provider",
+                      "model_digest": "d1" * 32, "state": "ok"}
+    staging_live = [(("service_env",), "staging"), (("ports", "translation", "live"), True), (("ports", "translation", "provider"), "anthropic")]
     cases = {"compatible": ([], "sim", "M")}
     edits = {
         "protocol-unsupported": [(("protocol",), "epinoic.integration.v2")],
@@ -131,15 +140,36 @@ def handshake_vectors() -> dict[str, dict]:
         "router-named-as-the-floor": [(("ports", "router", "attached"), True),
                                       (("ports", "router", "identity"), {"name": "minimum-oversight-floor", "version": "1", "rules_sha256": "a1" * 32, "cost_data_sha256": "b2" * 32})],
     }
+    # the meaning label in the handshake (contract 0.10): required on a hosted environment, never a provider in the simulation
+    edits.update({
+        "label-member-missing": [(("ports", "selfcert_label"), None)],
+        "label-state-unknown": [(("ports", "selfcert_label", "state"), "passed")],
+        "label-model-named": [(("ports", "selfcert_label", "model_digest"), "cheapest-tier-model")],
+        "label-not-required": [(("ports", "selfcert_label", "required"), False)],
+        "sim-label-faithful-admitted": [(("ports", "selfcert_label"), dict(provider_label, labeller="faithful", model_digest=None))],
+        "sim-label-recorded-admitted": [(("ports", "selfcert_label"), dict(provider_label, labeller="recorded"))],
+        "sim-label-provider": [(("ports", "selfcert_label"), provider_label)],
+    })
+    hosted = {
+        "staging-label-unconfigured": (staging_live, "staging", "M"),
+        "staging-label-provider-off": (staging_live + [(("ports", "selfcert_label"), dict(provider_label, state="off"))], "staging", "M"),
+        "staging-label-faithful": (staging_live + [(("ports", "selfcert_label"), dict(provider_label, labeller="faithful", model_digest=None))], "staging", "M"),
+        "staging-label-recorded": (staging_live + [(("ports", "selfcert_label"), dict(provider_label, labeller="recorded"))], "staging", "M"),
+        "staging-label-provider": (staging_live + [(("ports", "selfcert_label"), provider_label)], "staging", "M"),
+        "staging-label-provider-degraded": (staging_live + [(("ports", "selfcert_label"), dict(provider_label, state="degraded"))], "staging", "M"),
+    }
     out = {}
     for name, (changes, env, base) in {**cases, **{k: (v, "sim", "M") for k, v in edits.items()}, "base-p-timing": ([], "sim", "P"),
-                                       "staging-needs-live-provider": ([(("service_env",), "staging")], "staging", "M")}.items():
+                                       "staging-needs-live-provider": ([(("service_env",), "staging")], "staging", "M"), **hosted}.items():
         c = copy.deepcopy(caps)
         for path, value in changes:
             node = c
             for k in path[:-1]:
                 node = node[k]
-            node[path[-1]] = value
+            if value is None and path[-1] == "selfcert_label":
+                node.pop(path[-1], None)  # the member left out
+            else:
+                node[path[-1]] = copy.deepcopy(value)
         outcome = evaluate(c, worker_env=env, base=base)
         out[f"{name}.json"] = {"name": name, "worker_env": env, "base": base, "capabilities": c,
                                "expect": {"ok": outcome.ok, "code": outcome.code, "raw_code": outcome.raw_code}}
@@ -217,6 +247,14 @@ def decision_vectors() -> dict[str, dict]:
         "row5-unlisted-policy-refuses": _fields([C("UNKNOWN"), C("ENTAILED", permitted=True)], policy="verified-v2-unlisted"),
         "row5-supporting-claim-does-not-count": _fields([C("UNKNOWN", materiality="supporting"), C("ENTAILED")]),
         "internal-error-verdict": _fields([], overseer={"state": "AUDIT_PENDING", "delivery_allowed": False, "refusal": "internal_error"}, receipt={"status": "REJECTED"}),
+        # the meaning label (contract 0.10): an answer the label could not read is an outage (row 3b, KIT-DL-014, before
+        # row 4 and never a revision); one the label names refuses as a reader hit does (row 2, KIT-DL-006)
+        "row3b-selfcert-label-unavailable": _fields([C("ENTAILED")], overseer={"delivery_allowed": False, "refusal": "selfcert_label_unavailable"},
+                                                    receipt={"status": "ACCEPTED_WITH_FINDINGS"}),
+        "row3b-selfcert-label-unavailable-before-row4": _fields([C("COUNTEREXAMPLE"), C("UNKNOWN")], overseer={"delivery_allowed": False, "refusal": "selfcert_label_unavailable"},
+                                                                receipt={"status": "ACCEPTED_WITH_FINDINGS", "error_codes": ["INT-SUBJ-001"]}),
+        "row2-selfcert-label-named": _fields([C("NOT_ELIGIBLE", "not_eligible")], overseer={"delivery_allowed": False, "refusal": "not_deliverable"},
+                                             receipt={"status": "ACCEPTED_WITH_FINDINGS"}),
     }
     return {f"{name}.json": {"name": name, "fields": f, "expect": _expect(f)} for name, f in cases.items()}
 
@@ -287,6 +325,11 @@ def verdict_vectors() -> dict[str, dict]:
     # from the counts, as the service decided it over every claim (verification finding V3-M1)
     budget_unlisted = synthetic_verdict([E("c1", "The treaty was signed in 1919.")],
                                         unlisted=[ClaimFields("material", "NOT_ATTEMPTED", "skipped_budget", False)])
+    label_unavailable = synthetic_verdict([E("c1", "The treaty was signed in 1919.")], receipt_status="ACCEPTED_WITH_FINDINGS",
+                                          delivery_allowed=False, refusal="selfcert_label_unavailable")
+    label_named = synthetic_verdict([dict(E("c1", "The treaty was signed in 1919.", formal="NOT_ELIGIBLE", attempt="not_eligible"),
+                                          withheld_self_report=True)], receipt_status="ACCEPTED_WITH_FINDINGS", delivery_allowed=False,
+                                    refusal="not_deliverable")
     cases = {
         "deliver-bound": (good, binding_context()),
         "refusal-bound": (blocking, binding_context(release_text=None)),
@@ -317,6 +360,14 @@ def verdict_vectors() -> dict[str, dict]:
         "unlisted-budget-skip-reason-dropped": (dict(budget_unlisted, delivery={**budget_unlisted["delivery"], "reasons": ["KIT-DL-011"]}),
                                                 binding_context(release_text=None)),
         "budget-skips-exceed-unavailable": (_counted(budget_unlisted, budget_skipped=1), binding_context(release_text=None)),
+        # contract 0.10: a claim the meaning label names is listed NOT_ELIGIBLE with withheld_self_report, and the answer the
+        # label could not read is refused as an outage (KIT-DL-014)
+        "label-unavailable-refusal-bound": (label_unavailable, binding_context(release_text=None)),
+        "label-withheld-entry-bound": (label_named, binding_context(release_text=None)),
+        "label-withheld-entry-shown-as-success": (dict(label_named, claims=[dict(label_named["claims"][0], formal="ENTAILED", attempt="attempted")]),
+                                                  binding_context(release_text=None)),
+        "label-withheld-entry-false": (dict(label_named, claims=[dict(label_named["claims"][0], withheld_self_report=False)]),
+                                       binding_context(release_text=None)),
     }
     out = {}
     for name, (verdict, ctx) in cases.items():

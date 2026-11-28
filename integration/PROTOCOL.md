@@ -74,8 +74,8 @@ Each check refuses with a named code (section 12). None of them ever falls back 
   bootstrap too.
 - *Preflight* (`integration/preflight.py`), before a socket is bound, in this order: the profile (012), the component
   versions (002), the STEM branches and the `nonlinear` policy (005), the named policies of contract 0.3 (006), the
-  credentials (008), the overseer port and its pinned pack digests (007), the translation provider (009), the subject
-  map (010), the specialist contracts (011), the environment (012), the limits (013) and the timing figures (016). The
+  credentials (008), the overseer port and its pinned pack digests (007), the translation provider (009), the meaning
+  label (017, 018, 019; contract 0.10, below), the subject map (010), the specialist contracts (011), the environment (012), the limits (013) and the timing figures (016). The
   first missing part prints one line `KIT-HS-0xx <name>: <detail>` with no secret and exits with status 2. The flash
   router and the combinator are reported, never refused. A profile that is none of `engine`, `integration` and
   `integration-sim` (a misspelled `EPINOIC_PROFILE`) is refused the same way (`KIT-HS-012`) by both entry points, so it
@@ -84,6 +84,17 @@ Each check refuses with a named code (section 12). None of them ever falls back 
   (a linear entailment under `linear`, a worked STEM step under `nonlinear`, a cross-agent consistency check under
   `joint`). Each must give its expected status and its pinned build-independent digests, a consistent binding and a
   signature that verifies; otherwise `KIT-HS-004`.
+- *The meaning label* (contract 0.10; `integration/label.py`, decision D36). `EPINOIC_SELFCERT_LABEL` is `unconfigured`
+  (the default: no labeller is given, so every release path asks the label package's default at use time, whose production
+  default withholds every answer the rule reader passes as `not-configured`), `recorded:<directory>` (recorded labels served
+  by request key; an unrecorded key withholds as `not-recorded`), `faithful` (the reader-backed fake) or
+  `provider:<model>` (through a transport the deployment injects; the identifier is hashed at once and kept only as its
+  SHA-256; `EPINOIC_SELFCERT_LABEL_KEY` holds the canary key). A hosted environment (staging, production) refuses no
+  labeller (`KIT-HS-017`), a fake or recorded labeller (`KIT-HS-018`), and a provider labeller whose pair (label digest,
+  model digest) has no acceptance record (`KIT-HS-019`); none has one yet, so no hosted service starts. Development and
+  `sim` run with the unconfigured default, recorded labels or the faithful fake and stay ready; a provider label in `sim`
+  is `KIT-HS-018`. The readiness check reports the label from the capabilities and blocks a fake or recorded labeller
+  outside development and `sim`.
 - The default profile, `engine`, keeps today's behaviour exactly and adds no route.
 
 **Check 2, every capabilities request** (`GET /v1/capabilities`, authenticated): the service returns
@@ -93,8 +104,11 @@ its three binding digests), the `ports` (specialist pairs; checks modes, named p
 `report_budget_max_s`; the overseer's mode, auditor version, pack digests, `replay_mode: process`,
 `inline_final_release: false`, agents and profiles; the translation provider and `tier: cheapest`; the combinator's
 availability; **the router: `required: false`, `attached`, its `identity` (name, version, rules digest, cost-data
-digest) or the refusal code of its hello, and the floor's name and rules digest**), the `subject_map` version and
-digest, the `policies`, the `limits`, the `signing` key ids (never keys) and `issued_at`.
+digest) or the refusal code of its hello, and the floor's name and rules digest**; **the meaning label
+(`selfcert_label`, contract 0.10): its `version` and `label_digest`, `required: true`, the `labeller` kind (`unconfigured`,
+`recorded`, `faithful`, `provider` or `other`), the `model_digest` (a SHA-256, never a name, or null) and the `state` from
+`Labeller.health()` read at each request: `ok`, `degraded` while a circuit breaker is open, `off` with no labeller**), the
+`subject_map` version and digest, the `policies`, the `limits`, the `signing` key ids (never keys) and `issued_at`.
 
 **Check 3, in the Worker before admission: the configuration** (`verification.configProblem()`, synchronous): the
 simulation switch `KIT_SIMULATION` is set only in local development (`APP_ENV` `development`; on `staging`,
@@ -111,7 +125,10 @@ compatibility set and reports `selftest.passed`; development and `sim` accept th
 production require a live provider. Replays never reach this check. On failure the attempt fails with
 `kit_hs_not_ready`, `kit_hs_unreachable` or `kit_hs_mismatch` (POST 503 `service_unavailable`, retryable) and no
 classifier, specialist or checks call is made. The same rules are stated in `integration/handshake.py` and
-`website/src/verify/verification.js` on the vectors `vectors/handshake/`. **The router's absence changes nothing.**
+`website/src/verify/verification.js` on the vectors `vectors/handshake/`. **The router's absence changes nothing.** The
+meaning label (contract 0.10): staging and production refuse a service reporting no labeller (`labeller` `unconfigured` or
+`state` `off`: `KIT-HS-017`) or a fake or recorded one (`KIT-HS-018`); `sim` refuses a provider label (`KIT-HS-018`); a
+`degraded` state is accepted (every answer the label cannot read is withheld anyway).
 
 **Check 5, in the Worker after routing and before the specialist call: the subject.** The routed website route maps
 to a slug of the subject map for this environment, and the runtime reports that slug available (its own
@@ -170,7 +187,9 @@ One call uses one fresh hub from the overseer port (`new_hub`: a `RouterHub` wit
    `deadline_at` = now + budget);
 3. open the task and dispatch the student's message to each agent; check the **clearance** of each dispatch receipt
    before acting (a REJECTED dispatch is an integrity failure);
-4. prefetch translations (live providers only; section 5.3);
+4. prefetch translations (live providers only; section 5.3), and submit the meaning label of each answer the rule reader
+   passes (`selfcert.read` with the context of the router's request; contract 0.10): the label runs beside the prefetch,
+   and the hub's own submission of the same answer, against the same request, joins the same call;
 5. receive each answer as raw text with its agent id and report id (the branch parser extracts the claims); the STEM
    front end runs with `min(STEM_CHECK_BUDGET_S, budget left)`; check the clearance of each response receipt before
    acting (at most 250 ms of waiting);
@@ -178,7 +197,14 @@ One call uses one fresh hub from the overseer port (`new_hub`: a `RouterHub` wit
 7. `close`: the FINAL audit, signed under `overseer-audit`;
 8. `deliver`: `consolidate` then `delivery_decision` (single, duplicate), or `release_decision` (combined);
 9. the per-claim entries of the deliverable, the counts over all its claims, and the decision table (section 8) under
-   the named policy: **the decision is made here, and nothing after this step changes it**;
+   the named policy: **the decision is made here, and nothing after this step changes it**. The service reads the meaning
+   label on the deliverable's receipt (the label guard, contract 0.10): INT-SELF-002 (the label could not read the
+   answer) refuses as `selfcert_label_unavailable` (KIT-DL-014) and INT-SELF-001 (it names a self-certification) as
+   `not_deliverable` (KIT-DL-006), even where the overseer allowed delivery; a content refusal of the overseer over answers
+   the label did not read (or named) all is reported as that label refusal; an integrity refusal is kept. The verdict's
+   `overseer.refusal` and `delivery_allowed` are the refusal so decided. Daily counts of answers withheld for an
+   unavailable label, by kind, go to the metadata log (`selfcert_label_daily`, counts only), with an alarm line
+   (`selfcert_label_alarm`) once a day above 2% of the day's answers;
 10. when the asynchronous overseer-agent review is enabled: build the flash router's request, ask the router, in its
     own process, for a plan within what is left of the budget and at most 3 s (`router_port.PLAN_TIMEOUT_S`), admit
     the plan against the floor (section 7a) or run the floor, and hand the review to the overseer port, which queues it
@@ -240,7 +266,7 @@ validated before it is used; an out-of-contract message is never acted on.
              review: {queued, plan_origin: router|floor|null, plan_refusal: KIT-RT-*|null, router: identity|null}},
   receipt: {status, error_codes, warning_count, branch},
   claims: [{claim_id, materiality, role, excerpt, source: translation|branch_check|stem, formal, attempt, fidelity,
-            evidence_resolved, release_permitted, result_id, binding_digest}]   (at most 32, material first),
+            evidence_resolved, release_permitted, result_id, binding_digest, withheld_self_report?}]   (at most 32, material first),
   counts: {claims_total, material, eligible, attempted, definitive, positive, permitted, blocking, unavailable, not_eligible,
            budget_skipped},
   summary: formally_checked|partly_checked|formal_only|not_formally_checkable|incomplete | null,
@@ -261,8 +287,10 @@ names `KIT-DL-013` from it, over every claim, and the Worker re-derives the same
 budget skip outside the listed claims (beyond the first 32, or without an excerpt) is never dropped. `summary` is set only for
 `deliver`. The overseer's `refusal` is one closed label: `clearance_failed`, `clearance_pending`,
 `final_audit_not_passed`, `signature_invalid`, `custody_failed`, `stale`, `consolidation_conflicting`,
-`no_deliverable_output`, `receipt_error_findings`, `not_deliverable`, or `internal_error` (the service's own label for
-the KIT-DL-900 verdict). No response carries the evidence bundle.
+`no_deliverable_output`, `receipt_error_findings`, `not_deliverable`, `selfcert_label_unavailable` (contract 0.10: the
+meaning label could not read the answer; row 3b, KIT-DL-014), or `internal_error` (the service's own label for the
+KIT-DL-900 verdict). A claim entry may carry `withheld_self_report: true` (contract 0.10; section 8). No response carries
+the evidence bundle.
 
 **Signature scope.** The Worker holds no key (decision D12): it trusts the authenticated channel, checks the bindings
 and re-derives the decision; it never claims to have verified the HMAC. The signature lets operators and the overseer
@@ -626,10 +654,18 @@ order, first match wins; only material claims count where a row says so:
 | 1 | (Worker) the binding checks fail: shape, ids, user text, policy, mode, answers, decision re-derivation, counts, summary, excerpts, the released text | `refuse_integrity` | KIT-DL-030 |
 | 2 | the receipt is REJECTED; the FINAL audit failed; delivery refused for a clearance, signature, custody or staleness reason, or without a label | `refuse_integrity` | KIT-DL-001, -003, -005, -006 |
 | 3 | the clearance is still pending after the bounded wait | `refuse_incomplete` | KIT-DL-004 |
+| 3b | the meaning label could not read the answer (refusal `selfcert_label_unavailable`, contract 0.10): an outage, not a fault of the answer, never a revision request | `refuse_incomplete` | KIT-DL-014 |
 | 4 | error-level receipt findings; a CONFLICTING or NO_DELIVERABLE_OUTPUT consolidation; a material claim COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE | `revise` when the policy allows one revision not yet made (no v1 policy does, D5), else `refuse_unresolved` | KIT-DL-002, -007, -008, -010; -020 after a revision |
 | 5 | a material eligible claim UNKNOWN, TIMEOUT, INTERNAL_ERROR or NOT_ATTEMPTED | `verified-v1-qualify`: continue; `verified-v1` and any policy the table does not know: `refuse_incomplete` (fails closed) | KIT-DL-011; -013 when the budget was spent |
 | 6 | a material claim AMBIGUOUS_TRANSLATION | continue with its label (no v1 policy blocks it, D4) | (KIT-DL-012 reserved) |
 | 7 | otherwise | `deliver` | |
+
+A label that names a self-certification refuses as a reader hit does (refusal `not_deliverable`, row 2, KIT-DL-006). A claim
+the meaning label names (INT-SELF-001 on its receipt) whose status would be a success (ENTAILED, CONSISTENT, SATISFIABLE) is
+listed `NOT_ELIGIBLE`, `attempt` `not_eligible`, with `withheld_self_report: true` and counted so (`claims.claim_entries`); a
+non-success status is never changed or raised, and an entry with `withheld_self_report: true` that shows anything but
+`NOT_ELIGIBLE` with its release not permitted fails the Worker's binding check (KIT-DL-030). The member is written only when
+true, so an entry without it reads as before.
 
 NOT_ELIGIBLE, UNSUPPORTED and INVALID_FORMALIZATION neither block nor leave the checks incomplete; they are labelled not
 formally checked. **Summary** of a delivered answer, from the counts: `incomplete` (a material eligible claim without a
@@ -665,7 +701,7 @@ once per answer, and no label says "verified", "true", "proven" or "Reviewed".
 | subject unmapped or unavailable | `specialist_unmapped`, `specialist_unavailable` | 503 `chat_unavailable` | `chat_unavailable` | re-arms |
 | specialist outcome other than `answer` (base M simulation) | `specialist_<outcome>` | 422 `review_unresolved` (cancel: the existing cancel handling) | the same | final on base P |
 | `refuse_unresolved` | `kit_dl_002`, `-007`, `-008`, `-010`, `-012`, `-020` | 422 `review_unresolved` | `review_unresolved` | final on base P |
-| `refuse_incomplete`, a failed checks call | `kit_dl_004`, `-011`, `-013`, `-900`, `verifier_*` | 503 `checks_incomplete` | `checks_incomplete` | final on base P |
+| `refuse_incomplete`, a failed checks call | `kit_dl_004`, `-011`, `-013`, `-014`, `-900`, `verifier_*` | 503 `checks_incomplete` | `checks_incomplete` | final on base P |
 | `refuse_integrity`, a release-gate refusal | `kit_dl_001`, `-003`, `-005`, `-006`, `-030`, `verifier_malformed`, `verifier_binding_mismatch`, `kit_gate_*` | 502 `upstream_invalid` | `upstream_invalid` | final on base P |
 | `deliver` | — | 200 answer with `review: "checks:integration.v1"`, `checks`, `checksSummary` | the answer | replay |
 
@@ -724,7 +760,8 @@ No v1 policy allows a revision, so `revise` is never produced. If D5 allows one:
 `z3_unavailable`, 004 `selftest_failed`, 005 `stem_unavailable`, 006 `named_policies_unavailable`, 007
 `overseer_unavailable`, 008 `signing_unconfigured`, 009 `translation_provider_unconfigured`, 010
 `subject_map_mismatch`, 011 `specialist_contract_unsupported`, 012 `environment_mismatch`, 013 `limits_incompatible`,
-014 `transport_unconfigured`, 015 `handshake_unreachable`, 016 `timing_infeasible`. A refusing service prints one line
+014 `transport_unconfigured`, 015 `handshake_unreachable`, 016 `timing_infeasible`, 017 `selfcert_label_unconfigured`, 018
+`selfcert_label_not_admitted`, 019 `selfcert_label_unaccepted` (017 to 019 since contract 0.10). A refusing service prints one line
 and exits with status 2; a refusing Worker refuses the turn.
 
 **Request validation (`KIT-REQ`, HTTP 400)**: 001 `envelope_invalid`, 002 `mode_unsupported`, 003 `policy_unknown`,
@@ -735,7 +772,8 @@ and exits with status 2; a refusing Worker refuses the turn.
 **Delivery reasons (`KIT-DL`)**: 001 `receipt_rejected`, 002 `receipt_error_findings`, 003 `clearance_failed`, 004
 `clearance_pending`, 005 `final_audit_not_passed`, 006 `delivery_refused`, 007 `consolidation_conflicting`, 008
 `no_deliverable_output`, 010 `blocking_formal_result`, 011 `checks_incomplete`, 012 `ambiguous_material_claim`, 013
-`budget_spent`, 020 `revision_exhausted`, 030 `worker_binding_mismatch`, 900 `internal_error`.
+`budget_spent`, 014 `selfcert_label_unavailable` (contract 0.10), 020 `revision_exhausted`, 030 `worker_binding_mismatch`, 900
+`internal_error`.
 
 **Overseer port (`KIT-OP`)** 001 to 012, **combinator port (`KIT-CB`)** 001 to 006, **flash-router port (`KIT-RT`)**
 001 to 016 and 020: as in sections 6, 7 and 7a.
@@ -749,7 +787,7 @@ rate_limited, capacity, rejected, error, malformed, binding_mismatch); decisions
 ## 13. Compatibility and change rules
 
 `integration/COMPATIBILITY.json` pins the protocol, the accepted component versions (IR 1.0, engine 0.4.0, policy
-2026.11-v8, translator 0.4.0, contract 0.9) and the `z3-solver` range, the specialist pairs, the routing contract, the
+2026.11-v9, translator 0.4.0, contract 0.10) and the `z3-solver` range, the specialist pairs, the routing contract, the
 subject-map digest, the named and verdict policies, the STEM branches, the overseer's replay mode, the router's
 non-required status and floor, the limits, the timing figures per website base, the website bases with tested patch
 sets, and the repositories by role (`repositories`): `translator` the organization's translator repository, which

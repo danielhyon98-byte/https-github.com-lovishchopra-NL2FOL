@@ -73,3 +73,48 @@ def test_every_named_span_carries_a_category_mapped_from_the_readers_family(meas
     assert {"CHECK", "OUTCOME", "STATUS"} <= cats
     assert all(res.record["canary"]["caught"] == res.record["canary"]["positive"] >= 1
                for _rec, _r, res in measured["dev-positive.jsonl"])
+
+
+# ---------------------------------------------------------------------------------------------------------------- line structure
+# Check round of stage 2a: the fake read each rendered paragraph's sentences joined by spaces, so the line structure the reader
+# reads was lost. A tick at the end of a marking line and a tick-bullet list were read as MARK verdicts the reader does not refuse,
+# and the fake named them: a delivery decision that differed from the reader alone. The fake now reads the answer's raw text as
+# the reader does and maps each hit back to the request's ids. Expected values fixed here: nothing named where the reader passes,
+# and the reader's own hit named at its place where it refuses.
+_PHYSICS_MARKING = (
+    "Question 2(a) — calculate — 2 marks\n"
+    "What the question wants: the speed from v = d/t, with d in metres and t in seconds.\n"
+    "What earned credit: the relation v = d/t is right, and the distance 240 m is used.\n"
+    "Provisional mark: 1 / 2 — provisional.\n"
+    "Model: v = d/t = 240/16 = 15 m/s ✔\n\n"
+    "Question 2(b) — explain — 2 marks\n"
+    "What earned credit: the idea that a larger force gives a larger acceleration.\n"
+    "Provisional mark: 1 / 2 — provisional.\n"
+    "Model: The net force doubles, so the acceleration doubles ✔. The mass is unchanged, so a = F/m rises in proportion ✔")
+_PHYSICS_REQUEST = {"subject": "Physics", "task_type": "marking_feedback",
+                    "request_text": "My teacher set this practice question on speed and force; please mark my answer and give feedback."}
+_TICK_LIST = "Ventajas de la franquicia:\n✔ expansión rápida\n✔ conocimiento local\n✘ menos control"
+_TICK_REQUEST = {"subject": "Business Management", "task_type": "short_answer",
+                 "request_text": "Ventajas y desventajas de la franquicia"}
+
+
+@pytest.mark.parametrize("text, request_", [(_PHYSICS_MARKING, _PHYSICS_REQUEST), (_TICK_LIST, _TICK_REQUEST)],
+                         ids=["marking-ticks", "tick-list"])
+def test_the_fake_keeps_the_line_structure_the_reader_reads(text, request_):
+    assert not selfcert.read(text, selfcert.context_for(request_)).refuses()
+    res = ReaderBackedLabeller().label(text, request_)
+    assert (res.state, res.spans) == ("none_named", ())
+
+
+def test_the_fake_names_the_readers_hit_at_its_own_place_in_a_multi_line_paragraph():
+    text = "The total is 12.\nThe mean is 4.\nThis passed the hub's checks.\nThe range is 6."
+    req = {"subject": "Mathematics", "task_type": "short_answer", "request_text": "Find the total."}
+    reading = selfcert.read(text, selfcert.context_for(req))
+    assert reading.refuses()
+    res = ReaderBackedLabeller().label(text, req)
+    assert res.state == "named"
+    assert {sp.place for sp in res.spans} == {"paragraph 1, sentence 3"}
+
+
+def test_the_readers_directive_family_maps_to_the_directive_category():
+    assert FAMILY_CATEGORY["DIRECTIVE"] == "DIRECTIVE"

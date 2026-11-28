@@ -28,10 +28,11 @@ that is not a string, or a writer other than ``specialist`` and ``combinator``, 
 """
 from __future__ import annotations
 
+import bisect
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from .. import selfcert
 
@@ -63,6 +64,7 @@ WRITERS = ("specialist", "combinator")
 
 #: The fixed substitutes of the delimiter characters (one character for one, so the offset map stays one to one).
 SUBSTITUTES = {"<": "‹", ">": "›", "⟦": "〚", "⟧": "〛"}
+_SUBSTITUTE_TABLE = str.maketrans(SUBSTITUTES)
 _DELIMITER_RUN_RE = re.compile(r"<{3,}|>{3,}|[⟦⟧]")
 
 #: A character that may be invisible: anything but printable ASCII, tab and the line breaks.
@@ -216,43 +218,69 @@ def _substitute(s: str) -> str:
 
 
 # ------------------------------------------------------------------------------------------------- step 1: clean text
-def _clean(raw: str) -> tuple[list[str], list[tuple[int, int]], list[bool], int]:
-    """Rendered characters, their original spans, whether each is a substitute, and how many invisible characters were removed.
+class _Cleaned:
+    """The cleaned text and its map back to the raw text, kept as offsets (never one object per character): ``raw_index(i)``
+    is the raw offset of the cleaned character ``i``; ``subst`` the sorted (start, end) ranges of substituted delimiter
+    characters in the cleaned text; ``removed`` how many invisible characters were removed."""
+    __slots__ = ("text", "_e", "subst", "removed")
+
+    def __init__(self, text: str, drops: list[int], subst: list[tuple[int, int]], removed: int):
+        self.text = text
+        # the raw offset of cleaned character i is i plus the number of removed characters before it: with the removed raw
+        # offsets d_0 < d_1 < ..., that number is how many d_j - j are at most i (a non-decreasing list, so one bisection)
+        self._e = [d - j for j, d in enumerate(drops)]
+        self.subst = subst
+        self.removed = removed
+
+    def raw_index(self, i: int) -> int:
+        return i + bisect.bisect_right(self._e, i) if self._e else i
+
+    def raw_indices(self, a: int, b: int) -> list[int]:
+        """The raw offsets of the cleaned characters ``a`` to ``b - 1``, in one pass."""
+        e = self._e
+        if not e:
+            return list(range(a, b))
+        k = bisect.bisect_right(e, a)
+        n = len(e)
+        out = []
+        for i in range(a, b):
+            while k < n and e[k] <= i:
+                k += 1
+            out.append(i + k)
+        return out
+
+
+def _clean(raw: str) -> _Cleaned:
+    """The cleaned text: invisible characters removed and white-space controls made spaces, then delimiter runs substituted.
 
     Invisible characters are removed FIRST, and the delimiter runs are then found on the cleaned text, so a run that the removal
     forms ("<<" + U+200B + "<") is substituted too (attack round 16: it reached the rendered request and failed the marker check).
     A control character of the white-space class (U+000B, U+000C, U+001C to U+001F, U+0085) becomes a space, so it never fuses
-    two words ("Every" U+0085 "figure" is read as two words, not one)."""
-    # only a character outside printable ASCII (tab and line breaks aside) can be invisible: one regular-expression scan finds
-    # the candidates, so the work in Python is per candidate, not per character (an all-ASCII answer is copied whole)
-    drop: list[int] = []
-    chars = list(raw)
-    kind: dict[str, int] = {}  # per distinct candidate: 0 kept, 1 removed, 2 a white-space control (becomes a space)
-    for m in _CANDIDATE_RE.finditer(raw):
-        i = m.start()
-        ch = raw[i]
-        k = kind.get(ch)
-        if k is None:
-            o = ord(ch)
-            k = kind[ch] = (2 if ch.isspace() else 1) if (o > 0x7E and _invisible(ch) or o == 0x7F or o < 32) else 0
-        if k == 1:
-            drop.append(i)
-        elif k == 2:
-            chars[i] = " "
-    removed = len(drop)
-    if not drop:
-        origin = list(zip(range(len(raw)), range(1, len(raw) + 1)))
-    else:
-        dropped = set(drop)
-        keep = [i for i in range(len(raw)) if i not in dropped]
-        chars = [chars[i] for i in keep]
-        origin = [(i, i + 1) for i in keep]
-    subst = [False] * len(chars)
-    for m in _DELIMITER_RUN_RE.finditer("".join(chars)):
-        a, b = m.start(), m.end()
-        chars[a:b] = [SUBSTITUTES[c] for c in m.group(0)]
-        subst[a:b] = [True] * (b - a)
-    return chars, origin, subst, removed
+    two words ("Every" U+0085 "figure" is read as two words, not one). Each distinct character is classified once and the text
+    is rewritten by ``str.translate``; only the removed characters' offsets are listed (the offset map), so the work in Python is
+    per distinct character and per removed character, never per character of the text."""
+    table: dict[int, Optional[str]] = {}
+    dropped: list[str] = []
+    for ch in set(raw):
+        o = ord(ch)
+        if o in (9, 10, 13) or 0x20 <= o <= 0x7E:
+            continue  # printable ASCII, tab and the line breaks are never invisible
+        if o > 0x7E and _invisible(ch) or o == 0x7F or o < 32:
+            if ch.isspace():
+                table[o] = " "
+            else:
+                table[o] = None
+                dropped.append(ch)
+    drops: list[int] = []
+    if dropped:
+        drop_re = re.compile("[" + "".join(re.escape(c) for c in sorted(dropped)) + "]")
+        drops = [m.start() for m in drop_re.finditer(raw)]
+    text = raw.translate(table) if table else raw
+    subst: list[tuple[int, int]] = []
+    if "<<<" in text or ">>>" in text or "⟦" in text or "⟧" in text:
+        subst = [(m.start(), m.end()) for m in _DELIMITER_RUN_RE.finditer(text)]
+        text = _DELIMITER_RUN_RE.sub(lambda m: m.group(0).translate(_SUBSTITUTE_TABLE), text)
+    return _Cleaned(text, drops, subst, len(drops))
 
 
 # ------------------------------------------------------------------------------------------------- step 2: placeholders
@@ -369,26 +397,34 @@ _TABLE_SEP_RE = re.compile(r"[\s:|\-+=]*")
 
 def _units_of_line(line: str, base: int) -> list[list[tuple[int, int]]]:
     """The sentences of one line (``base`` is the line's offset in the text), each as its pieces' (start, end) offsets."""
+    return list(_iter_units_of_line(line, base))
+
+
+def _iter_units_of_line(line: str, base: int) -> Iterator[list[tuple[int, int]]]:
+    """:func:`_units_of_line` one sentence at a time, in order (so the scope can stop at the oversized cap)."""
     st = line.strip()
     if not st:
-        return []
+        return
     if st.startswith("|") and st.count("|") >= 2:
         if _TABLE_SEP_RE.fullmatch(st):
             a = base + line.find(st[0])
-            return [[(a, a + len(st))]]
-        out: list[list[tuple[int, int]]] = []
+            yield [(a, a + len(st))]
+            return
         pos = 0
         for cell in line.split("|"):
             a = base + pos
             pos += len(cell) + 1
             if cell.strip():
-                out.extend(_sentences(cell, a))
-        return out
-    return _sentences(line, base)
+                yield from _iter_sentences(cell, a)
+        return
+    yield from _iter_sentences(line, base)
 
 
 def _sentences(s: str, base: int) -> list[list[tuple[int, int]]]:
-    out: list[list[tuple[int, int]]] = []
+    return list(_iter_sentences(s, base))
+
+
+def _iter_sentences(s: str, base: int) -> Iterator[list[tuple[int, int]]]:
     pos = 0
     n = len(s)
     for m in _SENT_END_RE.finditer(s):
@@ -396,12 +432,11 @@ def _sentences(s: str, base: int) -> list[list[tuple[int, int]]]:
             continue
         pieces = _cut(s, pos, m.end(), base)
         if pieces:
-            out.append(pieces)
+            yield pieces
         pos = m.end()
     pieces = _cut(s, pos, len(s), base)
     if pieces:
-        out.append(pieces)
-    return out
+        yield pieces
 
 
 def _cut(s: str, a: int, b: int, base: int) -> list[tuple[int, int]]:
@@ -429,8 +464,98 @@ def _cut(s: str, a: int, b: int, base: int) -> list[tuple[int, int]]:
 
 
 # ------------------------------------------------------------------------------------------------- the scope
+#: The oversized cap in segment characters and in segments: every chunk holds at most CHUNK_CHARS - CANARY_RESERVE characters of
+#: segment text and at most CHUNK_SENTENCES segments (:func:`_chunks`), so a scope past either bound needs more than MAX_CHUNKS
+#: chunks and is oversized whatever follows; the scope stops being built there (bounded work for an input refused anyway).
+CAP_CHARS = MAX_CHUNKS * (CHUNK_CHARS - CANARY_RESERVE)
+CAP_SEGMENTS = MAX_CHUNKS * CHUNK_SENTENCES
+
+
+class _Rendered:
+    """The rendered text (the cleaned text with its placeholders) and its maps: each rendered character's original span and
+    the rendered ranges a quote may not touch (placeholders and substitutes, adjacent ranges merged)."""
+
+    def __init__(self, cleaned: _Cleaned, marks: list[tuple[int, int, str]]):
+        text = cleaned.text
+        self.cleaned = cleaned
+        parts: list[str] = []
+        # pieces: (rendered start, rendered end, cleaned start or None, original span of a placeholder or None)
+        pieces: list[tuple[int, int, Optional[int], Optional[tuple[int, int]]]] = []
+        r = pos = 0
+        for a, b, token in marks:
+            if a > pos:
+                pieces.append((r, r + a - pos, pos, None))
+                parts.append(text[pos:a])
+                r += a - pos
+            pieces.append((r, r + len(token), None, (cleaned.raw_index(a), cleaned.raw_index(b - 1) + 1)))
+            parts.append(token)
+            r += len(token)
+            pos = b
+        if pos < len(text):
+            pieces.append((r, r + len(text) - pos, pos, None))
+            parts.append(text[pos:])
+            r += len(text) - pos
+        self.text = "".join(parts) if marks else text
+        self.pieces = pieces
+        self._starts = [pc[0] for pc in pieces]
+        # forbidden rendered ranges: every placeholder, and every substitute outside one, merged where they touch
+        forb: list[tuple[int, int]] = []
+        subst = cleaned.subst
+        k = 0
+        for r0, r1, c0, span in pieces:
+            if c0 is None:
+                forb.append((r0, r1))
+                continue
+            c1 = c0 + (r1 - r0)
+            while k < len(subst) and subst[k][1] <= c0:
+                k += 1
+            j = k
+            while j < len(subst) and subst[j][0] < c1:
+                sa, sb = max(subst[j][0], c0), min(subst[j][1], c1)
+                if sa < sb:
+                    forb.append((r0 + sa - c0, r0 + sb - c0))
+                j += 1
+        forb.sort()
+        merged: list[list[int]] = []
+        for fa, fb in forb:
+            if merged and fa <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], fb)
+            else:
+                merged.append([fa, fb])
+        self.forbidden = [(fa, fb) for fa, fb in merged]
+        self._fstarts = [fa for fa, _fb in self.forbidden]
+
+    def origin(self, ua: int, ub: int) -> tuple[tuple[int, int], ...]:
+        """The original span of each rendered character ``ua`` to ``ub - 1``."""
+        out: list[tuple[int, int]] = []
+        k = max(0, bisect.bisect_right(self._starts, ua) - 1)
+        while k < len(self.pieces) and self.pieces[k][0] < ub:
+            r0, r1, c0, span = self.pieces[k]
+            a, b = max(ua, r0), min(ub, r1)
+            if a < b:
+                if c0 is None:
+                    out.extend([span] * (b - a))
+                else:
+                    out.extend((o, o + 1) for o in self.cleaned.raw_indices(c0 + a - r0, c0 + b - r0))
+            k += 1
+        return tuple(out)
+
+    def forbidden_in(self, ua: int, ub: int) -> tuple[tuple[int, int], ...]:
+        """The forbidden ranges inside ``[ua, ub)``, relative to ``ua``."""
+        out: list[tuple[int, int]] = []
+        k = max(0, bisect.bisect_right(self._fstarts, ua) - 1)
+        while k < len(self.forbidden) and self.forbidden[k][0] < ub:
+            fa, fb = max(self.forbidden[k][0], ua), min(self.forbidden[k][1], ub)
+            if fa < fb:
+                out.append((fa - ua, fb - ua))
+            k += 1
+        return tuple(out)
+
+
 def own_scope(raw_text: str, request: Any = None, *, writer: str = "specialist") -> OwnScope:
-    """The own scope of ``raw_text`` read against the router's ``request`` (module docstring). Pure; linear in the text."""
+    """The own scope of ``raw_text`` read against the router's ``request`` (module docstring). Pure; linear in the text, and
+    the segments stop at the oversized cap (:data:`CAP_CHARS`, :data:`CAP_SEGMENTS`): an oversized scope holds the segments up
+    to the cap only, since no request is rendered for it."""
     if not isinstance(raw_text, str):
         # unexpected input of any kind is a failure (the labeller's ``label-failed``), never the empty answer read as nothing
         raise TypeError("the answer's raw text must be a string")
@@ -438,77 +563,63 @@ def own_scope(raw_text: str, request: Any = None, *, writer: str = "specialist")
         raise ValueError("the writer must be 'specialist' or 'combinator'")
     block, ctx = context_block(request, writer)
     writer = block["writer"]
-    chars, origin, subst, removed = _clean(raw_text)
-    text = "".join(chars)
+    cleaned = _clean(raw_text)
     task = _task_text(request)
     bodies = _supplied_bodies(request)
-    marks = _placeholders(text, task, bodies, bool(ctx.marking), ctx)
-    # apply the placeholders: rendered text R with origin spans and the forbidden flags
-    r_chars: list[str] = []
-    r_origin: list[tuple[int, int]] = []
-    r_forbid: list[bool] = []
-    pos = 0
-    for a, b, token in marks:
-        r_chars.extend(chars[pos:a])
-        r_origin.extend(origin[pos:a])
-        r_forbid.extend(subst[pos:a])
-        span = (origin[a][0], origin[b - 1][1])
-        r_chars.extend(token)
-        r_origin.extend([span] * len(token))
-        r_forbid.extend([True] * len(token))
-        pos = b
-    r_chars.extend(chars[pos:])
-    r_origin.extend(origin[pos:])
-    r_forbid.extend(subst[pos:])
-    rendered = "".join(r_chars)
-    del r_chars
+    marks = _placeholders(cleaned.text, task, bodies, bool(ctx.marking), ctx)
+    rendered_map = _Rendered(cleaned, marks)
+    rendered = rendered_map.text
 
     segments: list[Segment] = []
     paragraphs: list[Paragraph] = []
     pnum = 0
     ppos = 0
-    bounds = [(m.start(), m.end()) for m in _PARA_RE.finditer(rendered)] + [(len(rendered), len(rendered))]
-    for pa, pb in bounds:
+    seg_chars = 0
+    capped = False
+    paras = _PARA_RE.finditer(rendered)
+    while not capped:
+        m = next(paras, None)
+        pa, pb = (m.start(), m.end()) if m is not None else (len(rendered), len(rendered))
         para = rendered[ppos:pa]
         para_base = ppos
         ppos = pb
-        sentences: list[list[tuple[int, int]]] = []
+        idx: list[int] = []
+        sent = 0
         lpos = 0
         for line in para.split("\n"):
-            sentences.extend(_units_of_line(line, para_base + lpos))
+            base = para_base + lpos
             lpos += len(line) + 1
-        if not sentences:
-            continue
-        pnum += 1
-        idx: list[int] = []
-        for sent, pieces in enumerate(sentences, 1):
-            for part, (ua, ub) in enumerate(pieces, 1):
-                place = f"paragraph {pnum}, sentence {sent}" + (f", part {part}" if len(pieces) > 1 else "")
-                utext = rendered[ua:ub]
-                uorigin = tuple(r_origin[ua:ub])
-                forb: list[tuple[int, int]] = []
-                k = ua
-                while k < ub:
-                    if r_forbid[k]:
-                        j = k
-                        while j < ub and r_forbid[j]:
-                            j += 1
-                        forb.append((k - ua, j - ua))
-                        k = j
-                    else:
-                        k += 1
-                seg = Segment(index=len(segments), paragraph=pnum, sentence=sent, place=place,
-                              start=uorigin[0][0] if uorigin else 0, end=uorigin[-1][1] if uorigin else 0,
-                              text=utext, origin=uorigin, forbidden=tuple(forb))
-                idx.append(seg.index)
-                segments.append(seg)
-        paragraphs.append(Paragraph(pnum, tuple(idx)))
+            for pieces in _iter_units_of_line(line, base):
+                if not idx:
+                    pnum += 1
+                sent += 1
+                for part, (ua, ub) in enumerate(pieces, 1):
+                    place = f"paragraph {pnum}, sentence {sent}" + (f", part {part}" if len(pieces) > 1 else "")
+                    uorigin = rendered_map.origin(ua, ub)
+                    seg = Segment(index=len(segments), paragraph=pnum, sentence=sent, place=place,
+                                  start=uorigin[0][0] if uorigin else 0, end=uorigin[-1][1] if uorigin else 0,
+                                  text=rendered[ua:ub], origin=uorigin, forbidden=rendered_map.forbidden_in(ua, ub))
+                    idx.append(seg.index)
+                    segments.append(seg)
+                    seg_chars += ub - ua
+                    if seg_chars > CAP_CHARS or len(segments) > CAP_SEGMENTS:
+                        capped = True  # oversized whatever follows: the scope stops here, inside a sentence if need be
+                        break
+                if capped:
+                    break
+            if capped:
+                break
+        if idx:
+            paragraphs.append(Paragraph(pnum, tuple(idx)))
+        if m is None:
+            break
 
     chunks, oversized = _chunks(segments, paragraphs)
+    oversized = oversized or capped
     return OwnScope(raw_text=raw_text, writer=writer, context_block=block, ctx=ctx, segments=tuple(segments),
                     paragraphs=tuple(paragraphs), chunks=tuple(chunks), oversized=oversized, marking=bool(ctx.marking),
                     known_sources=tuple(ctx.known_sources), command_terms=_command_terms(request), placeholders=len(marks),
-                    invisible_removed=removed)
+                    invisible_removed=cleaned.removed)
 
 
 def _chunks(segments: list[Segment], paragraphs: list[Paragraph]) -> tuple[list[Chunk], bool]:

@@ -101,12 +101,23 @@ def policy_manifest() -> dict[str, Any]:
         # rule's call site, the marking context and their import closure, selfcert.rules_closure) are part of the policy, so a change
         # to them without a version bump still makes every result of another build stale (decision D6 of c3b; c3e; c3f)
         "eligibility_self_certification": _selfcert_binding(),
+        # the block-only meaning label of the self-certification class (since POLICY_VERSION 2026.11-v9, meaning-check design
+        # 2.5.9): its version and label_digest() (prompt, schema, canary and exemption data, every module of the package and the
+        # rule reader's digest) are part of the policy, and the label is required on every release path. The model is
+        # configuration, never part of the policy: a model is recorded only as the SHA-256 of its configured identifier. The label
+        # can only withhold; no label output reaches the IR, the compiler or the solver
+        "selfcert_meaning_label": _selfcert_label_binding(),
     }
 
 
 def _selfcert_binding() -> dict[str, str]:
     from ..selfcert import SELFCERT_RULES, rules_digest
     return {"rules": SELFCERT_RULES, "digest": rules_digest()}
+
+
+def _selfcert_label_binding() -> dict[str, Any]:
+    from ..selfcert_label import LABEL_VERSION, label_digest
+    return {"version": LABEL_VERSION, "digest": label_digest(), "required": True}
 
 
 @lru_cache(maxsize=1)

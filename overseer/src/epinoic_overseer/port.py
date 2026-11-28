@@ -161,6 +161,14 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     # c3d: the task audit's OVS-FID-005 / OVS-FID-009, read by every release path (meta_notes.audit_self_reports)
     (r"^the task audit names a self-report the deliverable answer carries as content \(.*\): a delivered answer never contains a claim "
      r"that it was checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    # the meaning label (stage 2a, consolidate.self_report_at_delivery after its existing reads): a named sentence refuses as a reader hit
+    # does (not_deliverable, KIT-DL-006); a missing, unusable or unavailable label is an outage (selfcert_label_unavailable, KIT-DL-014)
+    (r"^the meaning label names a self-certification in the deliverable answer \(.*\): a delivered answer never contains a claim about its "
+     r"own checking \(rule self-certification-gate\)$", "not_deliverable"),
+    (r"^the deliverable answer has no usable meaning label \(.*\): it is not delivered unlabelled \(rule meaning-label-unavailable\)$",
+     "selfcert_label_unavailable"),
+    (r"^the task audit names the deliverable answer's meaning-label record as missing or not reproducing \(.*\): it is not delivered "
+     r"unlabelled \(rule meaning-label-unavailable\)$", "selfcert_label_unavailable"),
     # rule unread-text (round-10 hold remedy c3b): text the self-certification reader cannot read is never delivered unread
     (r"^the deliverable answer carries text the self-certification reader cannot read \(rule unread-text\)$", "not_deliverable"),
     (r"^rule unread-text could not read the deliverable answer \(\w+\)$", "not_deliverable"),
@@ -197,6 +205,14 @@ REFUSAL_RULES: tuple[tuple[str, str], ...] = (
     (r"^the task audit cannot be read for rule self-certification-gate$", "not_deliverable"),
     (r"^the task audit names a self-report the synthesis carries as content \(.*\): a released answer never contains a claim that it was "
      r"checked or verified \(rule self-certification-gate\)$", "not_deliverable"),
+    # the meaning label at release (stage 2a, policy._synthesis_self_report after its existing reads; the synthesis labelled with the
+    # combinator as writer)
+    (r"^the meaning label names a self-certification in the synthesis \(.*\): a released answer never contains a claim about its own "
+     r"checking \(rule self-certification-gate\)$", "not_deliverable"),
+    (r"^the synthesis has no usable meaning label \(.*\): it is not released unlabelled \(rule meaning-label-unavailable\)$",
+     "selfcert_label_unavailable"),
+    (r"^the task audit names the synthesis's meaning-label record as missing or not reproducing \(.*\): it is not released unlabelled "
+     r"\(rule meaning-label-unavailable\)$", "selfcert_label_unavailable"),
     # policy._journal_covers (through release_decision)
     (r"^the audit names no journal head$", "final_audit_not_passed"),
     (r"^the journal belongs to another channel$", "custody_failed"),
@@ -413,7 +429,7 @@ class EmbeddedOverseerPort:
             from .consolidate import delivery_decision
             resp = hub.consolidate(ch)
             # the decision applies rule self-certification-gate itself (hold-fix round 3): the same gate as the delivery policy's fallback
-            decision = delivery_decision(resp, self._keyring, hub=hub)
+            decision = delivery_decision(resp, self._keyring, hub=hub)  # the meaning label with the hub's labeller (consolidate)
             reason = own if own is not None else (None if decision.allowed else decision.reason)
             group = next((g for g in resp.groups if any(m.message_id == resp.deliverable_message_id for m in g.members)), None)
             out.update(kind="consolidation", consolidation={"id": resp.consolidation_id, "status": resp.status,
@@ -425,7 +441,8 @@ class EmbeddedOverseerPort:
             return out
         if mode == "combined":
             auditor = hub.auditor
-            decision = release_decision(synthesis, audit, self._keyring, audits=auditor.audits(ch.channel_uid), journal=auditor.journal(ch.channel_uid))
+            decision = release_decision(synthesis, audit, self._keyring, audits=auditor.audits(ch.channel_uid), journal=auditor.journal(ch.channel_uid),
+                                        labeller=getattr(hub, "selfcert_labeller", None))
             reason = own if own is not None else (None if decision.allowed else decision.reason)
             out.update(kind="release", consolidation=None)
             if reason is not None:

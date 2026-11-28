@@ -14,6 +14,11 @@ and reports what the hub did. The per-round record is `docs/ARENA_RESULTS.md`.
 | `bind_adjudications.py` | Binds an adjudicator's judgments of translation fidelity to the recorded translations they judged |
 | `bind_translations.py` | Records with each translation fixture the digest of the claim text it was produced for (`claim_text_sha256`), from the listings the translation agent was given or, as the recording step, from the current parse ("Replay configuration", below) |
 | `test_arena_rules.py` | Regression tests of the functional rule and the reporting (run by path, below) |
+| `arena_labels.py` | The meaning label in the arena: which labeller each call uses (`recorded`, `faithful`, `unconfigured`), the `labels/` format, each record's label and the counts ("The meaning label", below) |
+| `list_labels.py` | Renders every label request of a round (answers, syntheses, revisions) under a recording key, one request file per request, for the recording pass |
+| `bind_labels.py` | Binds recorded label replies to their requests by request key and writes `<round>/labels/`, refusing a reply of another label version or digest |
+| `measure_labels.py` | Rates of the label alone and of the union with numerators, denominators and 95% Wilson intervals, by subject, category and language, and the acceptance table of meaning-check design 3.6 as a report |
+| `conftest.py` | The faithful fake as the default labeller for `test_arena_rules.py` run by path (as `tests/conftest.py` sets it for the suite) |
 
 A round directory holds `specialists/*.json` (the answers, each one JSON object of the round format: `task_id`, `subject`,
 `agent_id`, `question`, `response_text`, and optionally `group`, `peer_of`, `task_type`, `supplied_texts`), and optionally
@@ -569,9 +574,81 @@ or revision file that is not JSON is a named difference or error, never an excep
 --fail-on-revision-gates` exits with status 1 when the revision pass ran and a gate failed or it recorded an error, so a
 feedback exercise whose specialists cannot be shown to have read the feedback as issued fails.
 
+## The meaning label: labellers, `labels/`, listing, binding and measuring
+
+Every hub the arena builds labels each answer, synthesis and revision with the meaning label (meaning-check design 2.5.7, arena
+row), and the run reports what the label did beside its other measures, never inside them: it moves no transport count.
+
+**Which labeller** (`arena_labels.resolve`). `run_arena.py --labeller {recorded,faithful,unconfigured}`, and `labeller=` in
+`run_round` and in every function other modules call (`relay_peer`, `revision_feedback`, `delivery_pass`, `revision_pass`,
+`_feedback_replay`). When none is given, the environment variable `EPINOIC_ARENA_LABELLER` is read AT EACH CALL, else
+`recorded`; an unknown name is refused. `relay_peer.py` and `revision_feedback.py` take the same `--labeller` and `--label-key`.
+Every hub of the run is given the labeller, and it is the default labeller while the run lasts, so a release path that takes no
+labeller (the overseer's delivery policy) reads the same one.
+
+| Labeller | What it is | What the run means |
+| --- | --- | --- |
+| `recorded` | The round's `labels/` served by request key, under the recording key `--label-key` or `EPINOIC_ARENA_LABEL_KEY` | A replay of recorded labels. An answer with no recorded label is `unavailable` (`not-recorded`): withheld and counted apart as "withheld unlabelled", never treated as clean. With no recording key nothing is served, and the run says so |
+| `faithful` | The faithful fake (`selfcert_label.fakes.ReaderBackedLabeller`), which answers exactly as the rule reader reads | A wiring-parity run, NOT a label measurement; the summary says so on a line of its own. Every delivery decision is the reader's, so the run equals the harness before the label was wired |
+| `unconfigured` | The production default | Every answer the reader passes is withheld as `not-configured` |
+
+The suite's conftest files (`tests/conftest.py`, `scripts/arena/conftest.py`) set `EPINOIC_ARENA_LABELLER=faithful`, so every
+replay of the suite, the command-line runs it starts included, is a wiring-parity run.
+
+**What a run reports.** Each record carries `selfcert_label`: the label's `state` (`named`, `none_named`, `unavailable`,
+`skipped`: the rule reader already refuses), the unavailable `kind`, the number of sentences named (`places`), their `families`
+and the `named_claims`; never a word of the answer and never the label's quote. results.json `selfcert_label` counts them by
+group (answers, peer relays, syntheses, mutations): named, a valid label naming nothing (it allows nothing by itself and is never
+a pass), skipped, unavailable by kind, withheld unlabelled (every unavailable answer, counted apart), records with no label
+record; and the self-certification mutations credited by INT-SELF-001 apart from those the reader's codes credit (INT-SELF-001
+is one of `SELF_REPORT_CODES`; INT-SELF-002 credits nothing and is never an unexplained finding of a mutation). summary.md keeps
+every line it had and adds the label's on lines of their own after the transport lines (the counts; the faithful note; what
+`labels/` served), and lists each record the label names by place count and family. A claim INT-SELF-001 names whose display
+would be a success (ENTAILED, CONSISTENT, SATISFIABLE) is shown NOT_ELIGIBLE with `withheld_self_report` (the outcome keeps
+`label_withheld_display`); a non-success status is never changed or raised. Mutation variants are not recorded (design 3.5
+records 122 answers, 122 syntheses and 20 revisions), so under `recorded` each mutation the reader passes is withheld
+unlabelled and counted.
+
+**The `labels/` format** (design 3.4). One JSON object per label request: `labels/<task>.json` (an answer),
+`labels/<task>.synthesis.json` (the combined answer of a group, named after the group's last task) and `labels/<task>.rev<n>.json`
+(revision `n`); `.c<k>` is added for chunk `k` >= 1 of an answer that renders more than one request (no recorded answer does).
+Each holds exactly `request_key`, `label_version`, `label_digest`, `model_digest` (the SHA-256 of the configured model's
+identifier, never the identifier), `raw_text` (the reply as returned) and `provider_info` with `tier` and `adapter` only. A file
+outside the format, of another label version or digest, or repeating another file's request key with another reply, is not
+served and is named; labels of more than one model digest are none of them served.
+
+**Recording** (design 3.5; nothing is recorded by these tools):
+
+```
+python scripts/arena/list_labels.py <round> --key <recording key>     # <round>/label_requests/: prompt.md, <name>.user.txt, <name>.json, index.json
+# each recording agent (deployed, cheapest tier, fresh context, no tools) reads prompt.md and one <name>.user.txt and returns the raw reply
+python scripts/arena/bind_labels.py <round> --replies <dir> --model-id <id> --tier <tier> --adapter <adapter>
+python scripts/arena/run_arena.py <round> --labeller recorded --label-key <recording key>
+```
+
+`list_labels.py` replays the round's genuine traffic through the hub as `run_arena.py` does (plans, peer relays with the recorded
+relayed documents, answers, syntheses; the revision pass when the round holds `feedback/` and `revisions/`) with a labeller that
+records each request instead of answering it; an answer the reader refuses asks for no label. The recording key is given on the
+command line or in `EPINOIC_ARENA_LABEL_KEY` and is never a deployment secret: it makes the canaries reproducible, so the replay
+renders the same requests. The same round, code and key render the same request keys. `bind_labels.py` binds each reply
+(`<replies>/<name>.txt`, or a JSON object with `request_key` and `raw_text`) to its request by request key and refuses, writing
+nothing, a listing or reply of another label version or label digest than the current package's, a reply whose request key the
+listing does not hold, two differing replies to one request, and (without `--force`) a `labels/` file that holds another reply.
+The model identifier given with `--model-id` is hashed at once and never written.
+
+**Measuring** (design 3.6): `measure_labels.py <rows.jsonl>` reads rows (`id`, `set`, `expected` gated or free, `subject`,
+`category`, `language`, `text` and optionally `request`, `writer`, `run`, `adjudicated`), each with its outcome given
+(`label_state`, `reader_refuses`) or computed with `--labeller recorded --labels <dir>` (or `faithful`, which measures the
+READER and says so). It reports, per set and run, label-alone and union rates with numerator, denominator and the 95% Wilson
+interval, by subject, category and language, and the acceptance table of design 3.6 (criteria 1 to 9) on the worst run: the
+proposed bound, the measured value and whether it is within the proposed bound, or "not measured". It decides no bound. A row
+whose outcome can be neither read nor computed is `unavailable`, never `none_named`. As worded, criterion 1's two clauses
+disagree at 4 of 400 (at most 4 misses, but a Wilson upper bound of 2.54%, above the proposed 2.5%); the report applies both.
+
 ## Tests
 
 ```
+python -m pytest -q tests/e2e/test_arena_labels.py         # the meaning label: labeller at each call, labels/ format, list -> bind -> recorded replay, Wilson intervals, acceptance table, faithful parity on the recorded rounds (EPINOIC_ARENA_ROUNDS)
 python -I -m pytest -q tests/e2e/test_arena_revisions.py   # the specialist revisions: feedback files, the revision pass, the headline unchanged, feedback as read, the round's budget
 python -I -m pytest -q scripts/arena/test_arena_rules.py   # round c3: a specialist file that is no JSON object refused by name, a task of the plan never answered counted and named, mutated claims listed, translated and named (round 9's push check); the functional rule and its reporting, what a peer relay file may hold, the synthesis relay (citations as written, the combinator's contract), the delivery pass's key ring, two STEM agents in one group (the listing's delivered ids, a fixture under either form of a STEM id, mutations compared in their id form), the replay configuration (the task record passed, retries not exercised named, syntheses stamped at relay time, bind_translations.py), the revision budgets and the digest of what a specialist read (round 9), the overseer-selected fallback with --overseer-provider beside the withheld baseline (round 9), the student-facing text composed as the combinator port composes it, and no raw bidirectional control in the harness owner's files (round 9)
 python -m pytest -q tests/e2e/test_arena_measures.py        # the separate measures, qualification, adjudications (default suite)

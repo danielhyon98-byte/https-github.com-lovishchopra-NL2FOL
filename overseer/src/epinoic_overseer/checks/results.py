@@ -67,13 +67,18 @@ COMPOSED_DISPLAY_RULE = "composed-display"
 _SUCCESS_DISPLAYS = frozenset({VerificationStatus.ENTAILED, VerificationStatus.CONSISTENT, VerificationStatus.SATISFIABLE})
 
 
-def composed_display_status(claim, translation, verification, key=None, key_id=None):
+def composed_display_status(claim, translation, verification, key=None, key_id=None, *, labelled: bool = False):
     """Rule ``composed-display`` (round-10 clearance c3): the display status the outcome composer gives the delivered ``claim``
     (``translate.outcome.compose_outcome``) for ``translation`` and ``verification`` under the signing configuration ``key`` and
     ``key_id``: ``display_status_for`` and, when that shows a success, the composer's own rule on the claim's text (a claim that
     claims a check is displayed NOT_ELIGIBLE), read from the composer itself so the auditor and the channel never drift. The
     composer is asked only for a success display. A claim the composer refuses to compose (another claim's translation, a
-    stale claim text: RES-010 names it) keeps ``display_status_for``'s display. Raises what ``display_status_for`` raises."""
+    stale claim text: RES-010 names it) keeps ``display_status_for``'s display. Raises what ``display_status_for`` raises.
+
+    ``labelled`` (stage 2a of the meaning check, interface (d)): the meaning label names the claim (INT-SELF-001 on its receipt), so
+    the composer withholds a success display (NOT_ELIGIBLE) exactly as it does for a reader hit; a display that is no success is
+    never changed. The auditor passes it from the receipt, so a display the channel withheld for the label is derivable (no false
+    OVS-RES-009), and the label never makes a display a success."""
     display = display_status_for(translation, verification, key, key_id)
     if claim is None or display not in _SUCCESS_DISPLAYS:
         return display
@@ -81,12 +86,12 @@ def composed_display_status(claim, translation, verification, key=None, key_id=N
         # the composer refuses another claim's translation and a stale claim text (compose_outcome): those keep the plain display
         if translation.claim_id != claim.claim_id or translation.request_id != claim.request_id or (
                 translation.claim_text_sha256 is not None and translation.claim_text_sha256 != sha256_text(claim.claim_text)):
-            return display
+            return VerificationStatus.NOT_ELIGIBLE if labelled is True else display
         # round-10 clearance (overseer handoff 3b): the composer's own display rule, exported by the translator, instead of composing a
         # whole outcome for it (the same function compose_outcome applies, so the two never drift)
-        return claim_display_status(claim, translation, verification, key, key_id)[0]
+        return claim_display_status(claim, translation, verification, key, key_id, labelled_self_report=labelled is True)[0]
     except Exception:  # noqa: BLE001 - an outcome the composer would never produce keeps the plain display (RES-010 names it)
-        return display
+        return VerificationStatus.NOT_ELIGIBLE if labelled is True else display
 
 __all__ = ["store_captured", "check_results", "binding_problems", "replayable_problem", "check_replayable", "check_unreplayed", "engine_run_problems",
            "journaled_capture", "replay_source", "replay_config", "composed_display_status", "COMPOSED_DISPLAY_RULE"]
@@ -518,7 +523,9 @@ def _check_outcome(ctx: CheckContext, t: Transfer, i: int, o, channel_key_id: Op
         ctx.ovs(t.seq, "OVS-AUDIT-004", f"no verification key is configured for key id {kid!r}; the display status of outcome {path} cannot be derived", claim_ids=claim_ids, formal_result_id=rid, **ids)
         return
     try:
-        expected = composed_display_status(claim, o.translation, ver, key, kid)  # rule composed-display
+        from ..label_gate import named_claim_ids
+        labelled = o.claim_id in named_claim_ids(t.receipt)  # the meaning label's INT-SELF-001 withholds a success display (stage 2a)
+        expected = composed_display_status(claim, o.translation, ver, key, kid, labelled=labelled)  # rule composed-display
     except Exception as exc:
         ctx.ovs(t.seq, "OVS-AUDIT-001", f"display status of outcome {path} could not be derived ({type(exc).__name__})", claim_ids=claim_ids, formal_result_id=rid, **ids)
         return

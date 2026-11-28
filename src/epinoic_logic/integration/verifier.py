@@ -187,7 +187,12 @@ class FixtureCorpus:
     arena qualifies such a run with FIXTURES_UNBOUND)."""
 
     def __init__(self, index: Mapping[str, str], translations: Mapping[str, Mapping[str, Any]],
-                 arena_request_ids: Optional[Mapping[str, str]] = None) -> None:
+                 arena_request_ids: Optional[Mapping[str, str]] = None, labels: Optional[Mapping[str, Mapping[str, Any]]] = None,
+                 label_model_digest: Optional[str] = None) -> None:
+        #: Recorded meaning labels by request key (the rounds' ``labels/`` directories, design 3.4); served by
+        #: :meth:`labeller`. None are recorded in stage 2a: every key is then unrecorded and withheld (``not-recorded``).
+        self.labels = {k: dict(v) for k, v in (labels or {}).items()}
+        self.label_model_digest = label_model_digest
         self._index = dict(index)
         self._translations = {k: dict(v) for k, v in translations.items()}
         #: item -> the request id the arena gives it (``req-<group>``, the group being the item's declared group or its file
@@ -231,7 +236,34 @@ class FixtureCorpus:
                 index.setdefault(digest, key)
                 translations[key] = doc
                 arena_ids[key] = f"req-{item.get('group') or sp.stem}"  # run_arena.group_plan's request id for this item
-        return cls(index, translations, arena_ids)
+        from .label import load_recordings
+        labels: dict[str, dict] = {}
+        models: set[str] = set()
+        for rd, _prefix in rounds:
+            if (rd / "labels").is_dir():
+                recs, model = load_recordings(rd)  # a labels/ directory that is not recordings refuses the corpus (ValueError)
+                for k, v in recs.items():
+                    if k in labels and labels[k] != v:
+                        raise ValueError("two rounds of the corpus record one label request differently")
+                    labels[k] = v
+                if model is not None:
+                    models.add(model)
+        if len(models) > 1:
+            raise ValueError("the corpus's recorded labels name more than one model")
+        return cls(index, translations, arena_ids, labels=labels, label_model_digest=next(iter(models)) if models else None)
+
+    def labeller(self, *, key: Optional[bytes] = None) -> Any:
+        """The corpus's recorded labels as a labeller (design 3.4): ``RecordedLabeller`` serving each recording by the request
+        key the label package renders (``key``: the canary key the recordings were made with; the offline recording key by
+        default). An unrecorded key is ``unavailable`` (``not-recorded``): withheld and counted, never treated as clean.
+        Instances over the same recordings share calls, so the service's step 4 and the hub make one."""
+        import hashlib
+        import json as _json
+        from ..selfcert_label.labellers import RecordedLabeller
+        from .label import RECORDING_KEY
+        scope = hashlib.sha256(_json.dumps(self.labels, sort_keys=True, ensure_ascii=True).encode("ascii")).hexdigest()
+        return RecordedLabeller(self.labels, key=key or RECORDING_KEY, model_digest=self.label_model_digest or "",
+                                share_scope=f"corpus:{scope}")
 
     def item_for(self, answer_sha256: str) -> Optional[str]:
         return self._index.get(answer_sha256)

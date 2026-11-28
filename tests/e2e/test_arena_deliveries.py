@@ -110,7 +110,8 @@ def _transport(out: dict) -> tuple:
 def test_every_genuine_answer_gets_a_delivery_decision_in_results_and_summary(tmp_path):
     out = _round(tmp_path / "r", {"claims": {"h1.1": _untranslatable("h1.1")}})
     d = out["deliveries"]
-    assert d["policy"] == "delivery-v1" and d["translation_budget_s"] == 240.0 and d["min_selected_accuracy"] == 0.9
+    # (pin moved: delivery-v2 since stage 2a of the meaning check, which reads the label on every path; was delivery-v1)
+    assert d["policy"] == "delivery-v2" and d["translation_budget_s"] == 240.0 and d["min_selected_accuracy"] == 0.9
     assert d["overseer"].startswith("not configured") and d["errors"] == [] and d["decided"] == 1
     [t] = d["tasks"]
     assert t["file"] == f"{TASK}.json" and t["task_id"] == TASK and t["agent_id"] == "history-specialist"
@@ -125,7 +126,7 @@ def test_every_genuine_answer_gets_a_delivery_decision_in_results_and_summary(tm
     on_disk = json.loads((tmp_path / "r" / "results.json").read_text())
     assert on_disk["deliveries"]["tasks"][0]["mode"] == "withheld"
     summary = (tmp_path / "r" / "summary.md").read_text()
-    assert "## Delivery decisions (delivery policy delivery-v1: 240 s translation budget" in summary
+    assert "## Delivery decisions (delivery policy delivery-v2: 240 s translation budget" in summary
     assert "| task | mode | time to decision (s) | translation (s) | overseer (s) | candidates (accuracy) | chosen | why |" in summary
     row = next(line for line in summary.splitlines() if line.startswith(f"| {TASK}.json | withheld |"))
     assert "history-specialist 0/2" in row

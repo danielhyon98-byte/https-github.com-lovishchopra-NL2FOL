@@ -476,6 +476,7 @@ def test_the_label_check_refuses_every_claim_of_checking_outside_the_formal_path
         assert not is_fallback_label_honest("withheld", bad), bad
 
 
+@pytest.mark.t24_expected_violation
 def test_a_tampered_receipt_or_payload_no_longer_verifies(clock, pack):
     """Rewritten to the stricter rule ``unverified-claims`` (attack round 5): the fixture's answer held a supporting evidence
     claim (``p1.0``, "A car travels 120 km in 8 hours.") that no signed engine result decides, and FORMALLY CHECKED now needs
@@ -487,7 +488,11 @@ def test_a_tampered_receipt_or_payload_no_longer_verifies(clock, pack):
     Rewritten to the stricter rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d, attack round 6): the
     policy never grants FORMALLY CHECKED in the round-8 release, so the delivered answer is the fallback's (overseer-selected, through the policy's overseer agent),
     and the mode change tried on the receipt is to ``formally_checked`` (before, to ``overseer_selected``, the mode it now has);
-    the accuracy change is to "0/1" (before, "1/1", the fraction it may now carry)."""
+    the accuracy change is to "0/1" (before, "1/1", the fraction it may now carry).
+
+    Made stricter in stage 2a of the meaning check (T24): the forged delivered answer this test builds on purpose violates T24
+    (its payload is not the specialist's journaled bytes, nor the one its delivery receipt names), so the test is marked
+    ``t24_expected_violation`` and asserts that ``check_t24`` detects exactly that."""
     policy, _agents = with_agents(clock, pack)
     run = run_task(policy, [(AGENT, physics_report(AGENT, "rep-a", evidence=False))], verify=Verifier(clock))
     try:
@@ -510,6 +515,11 @@ def test_a_tampered_receipt_or_payload_no_longer_verifies(clock, pack):
         edited["claims"] = claims
         forged = DeliveredAnswer(**{**d.answer.model_dump(), "payload": edited, "payload_sha256": payload_hash(edited)})
         assert not verify_delivered_answer(forged, rec, keyring)
+        from epinoic_logic.api.label import check_t24
+        t24 = check_t24(forged, specialist_payload_sha256=d.answer.payload_sha256, delivery_receipt=rec)
+        assert any("differs from the specialist's journaled bytes" in v for v in t24), t24
+        assert any("is not the one its delivery receipt names" in v for v in t24), t24
+        assert check_t24(d.answer, specialist_payload_sha256=d.answer.payload_sha256, delivery_receipt=rec) == ()
         relabelled = d.answer.model_copy(update={"label": "FORMALLY CHECKED by everyone"})
         assert not verify_delivered_answer(relabelled, rec, keyring)
         for change in ({"formal_reasons": ["none"]}, {"selection": ["selected by the agents"]}, {"accuracy_fraction": "0/1"}):

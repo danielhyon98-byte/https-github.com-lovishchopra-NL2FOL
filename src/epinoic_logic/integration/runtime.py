@@ -1,7 +1,8 @@
 """The integration service's runtime: the preflight facts, the passed self-test, the capabilities and the TurnChecker.
 
 ``build_runtime`` runs the preflight (every required part, ``KIT-HS`` codes) and the self-test (``KIT-HS-004``), then
-builds the checks port. It is called only after the standard-library bootstrap has found Z3 (``KIT-HS-003``).
+builds the checks port, with the meaning labeller the preflight built from ``EPINOIC_SELFCERT_LABEL`` (none for the
+unconfigured default: every release path then asks ``selfcert_label.labellers.default_labeller()`` at use time). It is called only after the standard-library bootstrap has found Z3 (``KIT-HS-003``).
 """
 from __future__ import annotations
 
@@ -80,7 +81,8 @@ def build_runtime(settings: IntegrationSettings, *, probes: Optional[Probes] = N
                       verdict_key=facts.keys.verdict_key, verdict_key_id=facts.keys.verdict_key_id, solver_config=config,
                       max_translated_claims=facts.limits.max_translated_claims, live_provider=facts.translation.live,
                       review_async=facts.overseer.agents == "async", review_profiles=tuple(facts.overseer.profiles)),
-        port=facts.overseer_port, corpus=corpus, live_verifier=live, router=facts.router, evidence_tap=tap)
+        port=facts.overseer_port, corpus=corpus, live_verifier=live, router=facts.router, evidence_tap=tap,
+        labeller=facts.label.labeller if facts.label is not None else None)
     limits = RequestLimits(modes=facts.modes, max_body_bytes=facts.limits.max_body_bytes, checks_min_ms=facts.limits.checks_min_ms,
                            checks_max_ms=facts.limits.checks_max_ms)
     return IntegrationRuntime(facts=facts, selftest=selftest, checker=checker, request_limits=limits)

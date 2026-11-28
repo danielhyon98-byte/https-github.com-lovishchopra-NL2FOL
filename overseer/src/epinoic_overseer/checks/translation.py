@@ -4967,7 +4967,7 @@ def _same_json(a: Any, b: Any) -> bool:
 
 
 def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verification: Optional[VerificationResult], keyring: Any,
-                    report: Optional[SpecialistReport] = None, task: Optional[TaskRecord] = None) -> tuple[bool, bool]:
+                    report: Optional[SpecialistReport] = None, task: Optional[TaskRecord] = None, *, labelled: bool = False) -> tuple[bool, bool]:
     """``(summary, diagnosis and release)``: whether the outcome's summary is the composer's statement (see
     :func:`summary_matches`), and whether its argument diagnosis (``named_diagnostics``, ``diagnosis_incomplete``) and its
     release assessment (``release``) are, all three from one signing configuration and one context the composer could have
@@ -5023,7 +5023,7 @@ def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
     for k, k_id in options:
         for rep, tk in contexts:
             try:
-                again = compose_outcome(claim, tr, verification, review, structural, k, k_id, report=rep, task=tk)
+                again = compose_outcome(claim, tr, verification, review, structural, k, k_id, report=rep, task=tk, labelled_self_report=labelled)
             except Exception:  # noqa: BLE001 - an outcome the composer refuses to rebuild is re-derived piece by piece below
                 continue
             if not summary_ok and again.summary == o.summary:
@@ -5036,7 +5036,7 @@ def statement_image(o: ClaimVerificationOutcome, claim: ClaimRecord, verificatio
                 return True, True
     for k, k_id in options:
         try:
-            display = composed_display_status(claim, tr, verification, k, k_id)
+            display = composed_display_status(claim, tr, verification, k, k_id, labelled=labelled)
             trusted = verification if display is not VerificationStatus.INTERNAL_ERROR else None
             engine_check = (release_check(trusted, tr.problem, signing_key=k, key_id=k_id)
                             if trusted is not None and tr.problem is not None else None)
@@ -5470,7 +5470,10 @@ def check_translations(ctx: CheckContext, t: Transfer) -> list[TranslationRecord
                         "store and the receipt's copy is not the verified content the store recorded; the transfer cannot pass", claim_ids=cid, formal_result_id=rid, **ids)
         if rid is None or stored is not None:
             ran.append("summary")
-            summary_ok, rest_ok = statement_image(o, claim, stored, ctx.keyring, report=t.report, task=_task_of(ctx, t))
+            from ..label_gate import named_claim_ids
+            # the meaning label's INT-SELF-001 withholds the claim's success display, and the composer states it so (stage 2a)
+            summary_ok, rest_ok = statement_image(o, claim, stored, ctx.keyring, report=t.report, task=_task_of(ctx, t),
+                                                  labelled=o.claim_id in named_claim_ids(t.receipt))
             if not summary_ok:
                 ctx.ovs(t.seq, "OVS-TRN-007", f"the summary of outcome {path} (claim {claim.claim_id}) is not the deterministic statement of its translation "
                         + (f"and the signed result {rid}" if rid else "with no engine result") + ": it states something the translation and the signed result do not",

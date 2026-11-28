@@ -210,7 +210,8 @@ __all__ = ["META_NOTE_RULE", "ASSURANCE_RULE", "EVALUATION_RULE", "NOTE_CLAUSES_
            "LEAD_REGION", "strict_lead_end", "lead_region_end", "claim_alphabet_breach", "glued_note_lead",
            "SELF_CERTIFICATION_GATE_RULE", "self_report_reading", "self_certifying_meta", "self_reporting_notes",
            "self_certifying_sentence", "self_certifying_sentences", "self_reported_statuses", "report_field_refusals", "payload_self_reports", "SELF_REPORT_RECEIPT_CODES",
-           "SELF_REPORT_AUDIT_CODES", "audit_self_reports", "claim_self_report",
+           "SELF_REPORT_AUDIT_CODES", "audit_self_reports", "claim_self_report", "LABEL_AUDIT_CODES", "label_gate", "LabelUnavailable",
+           "LabelReading", "label_refusal", "audit_label_reports",
            "self_reporting_note_blocks", "RESPONSE_LIMIT_RULE", "RESPONSE_MAX_CHARS", "OversizeAnswer", "over_response_limit",
            "require_response_limit"]
 
@@ -1676,20 +1677,38 @@ SELF_REPORT_RECEIPT_CODES: frozenset = frozenset({"CORE-SELF-001", "CORE-SELF-00
 #: found the router's documented decision allowing an answer the fallback withheld by OVS-FID-009 (tab-separated letters; a
 #: structured claim carrying only an advisory eligibility), so two release paths read two different self-reports.
 SELF_REPORT_AUDIT_CODES: frozenset = frozenset({"OVS-FID-005", "OVS-FID-009"})
+#: The audit code of a delivered answer whose meaning-label record is missing or does not reproduce (OVS-FID-010, error; stage 2a of
+#: the meaning check, ``checks/label.py``). :func:`audit_self_reports` reads it beside :data:`SELF_REPORT_AUDIT_CODES` on every path;
+#: the paths refuse it as an outage (rule ``meaning-label-unavailable``, :func:`audit_label_reports`), never as a self-report.
+LABEL_AUDIT_CODES: frozenset = frozenset({"OVS-FID-010"})
+
+# the meaning label's one gate (stage 2a, interface (c)), read by every release path after its existing reads
+from .label_gate import LabelReading, LabelUnavailable, label_gate, label_refusal  # noqa: E402
 
 
 def audit_self_reports(audit: Any, message_id: str) -> list[str]:
     """Rule ``self-certification-gate`` on the task audit a release path releases on: each finding of ``audit`` with a code of
-    :data:`SELF_REPORT_AUDIT_CODES` (any severity) that names ``message_id``, as 'CODE (claims ...)', sorted. None names nothing
-    (the caller decides whether a missing audit is itself a refusal); an audit that cannot be read raises (the caller fails closed)."""
+    :data:`SELF_REPORT_AUDIT_CODES` or :data:`LABEL_AUDIT_CODES` (any severity) that names ``message_id``, as 'CODE (claims ...)',
+    sorted. None names nothing (the caller decides whether a missing audit is itself a refusal); an audit that cannot be read raises
+    (the caller fails closed). A caller refuses an OVS-FID-010 entry as an unusable meaning label (:func:`audit_label_reports`), every
+    other entry as a self-report delivered as content."""
     if audit is None:
         return []
     out: set[str] = set()
     for f in audit.report.findings:
-        if f.code in SELF_REPORT_AUDIT_CODES and message_id in f.message_ids:
+        if (f.code in SELF_REPORT_AUDIT_CODES or f.code in LABEL_AUDIT_CODES) and message_id in f.message_ids:
             claims = sorted(str(c) for c in (f.claim_ids or []))
             out.add(f"{f.code} (claims {', '.join(claims)})" if claims else f.code)
     return sorted(out)
+
+
+def audit_label_reports(entries: Iterable[str]) -> tuple[list[str], list[str]]:
+    """:func:`audit_self_reports`'s entries split into ``(self-reports, unusable meaning labels)``: an entry of a code of
+    :data:`LABEL_AUDIT_CODES` is a label outage (rule ``meaning-label-unavailable``), every other one a self-report."""
+    reports, labels = [], []
+    for e in entries:
+        (labels if e.split(" ", 1)[0] in LABEL_AUDIT_CODES else reports).append(e)
+    return reports, labels
 
 
 def payload_self_reports(payload: Any, ctx: Any = None) -> list[str]:

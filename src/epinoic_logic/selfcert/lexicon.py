@@ -354,6 +354,9 @@ def tags(word: str) -> frozenset[str]:
         for toks, tg in lex.idioms.get(parts[0], ()) if len(parts) >= 2 else ():
             if toks == parts:
                 return frozenset(tg)
+    redo = _arithmetic_redo(w)
+    if redo is not None:
+        return redo
     if "-" in w:
         head, _, last = w.rpartition("-")
         if head.isdigit():
@@ -406,6 +409,33 @@ def tags(word: str) -> frozenset[str]:
     return frozenset()
 
 
+#: The forms of an arithmetic operation that "re-" makes a redo of ("re-added", "resummed", "re-totalled"): a check of the figures
+#: the operation produced, as "recomputed" and "recalculated" are (c3k, stage-1 leftover). "count" only with the hyphen: "recounted"
+#: without it also tells a story ("The veteran recounted the battle.").
+_ARITHMETIC_OPS = {"add": "v:base", "adds": "v:3sg", "added": "v:past", "sum": "v:base", "sums": "v:3sg", "summed": "v:past",
+                   "total": "v:base", "totals": "v:3sg", "totalled": "v:past", "totaled": "v:past", "multiply": "v:base",
+                   "multiplies": "v:3sg", "multiplied": "v:past", "divide": "v:base", "divides": "v:3sg", "divided": "v:past",
+                   "subtract": "v:base", "subtracts": "v:3sg", "subtracted": "v:past"}
+_ARITHMETIC_OPS_HYPHEN = {"count": "v:base", "counts": "v:3sg", "counted": "v:past"}
+
+
+def _arithmetic_redo(w: str) -> "frozenset[str] | None":
+    """The tags of a redo of an arithmetic operation ("re-added", "readded", "re-counted"): a check act; None for any other word."""
+    if w.startswith("re-"):
+        base, ops = w[3:], (_ARITHMETIC_OPS, _ARITHMETIC_OPS_HYPHEN)
+    elif w.startswith("re") and len(w) > 5:
+        base, ops = w[2:], (_ARITHMETIC_OPS,)
+    else:
+        return None
+    for table in ops:
+        form = table.get(base)
+        if form is not None:
+            # (a base form opens an instruction as "recompute" does: "(2) Re-add each total column." is a method step)
+            return frozenset({"F:CHECK", "prefix", form} | ({"v:part"} if form == "v:past" else set()) |
+                             ({"C:imperative_verbs"} if form == "v:base" else set()))
+    return None
+
+
 #: The last parts of an evaluator's compound that name a standard the work meets (:func:`tags`).
 _STANDARD_LASTS = frozenset("standard level grade quality calibre caliber class proof ready worthy".split())
 
@@ -430,6 +460,30 @@ def fuzzy_target(word: str) -> "str | None":
             if c in lex.fuzzy:
                 return lex.fuzzy[c]
     return None
+
+
+#: Irregular past forms the families do not inflect, read as the finite verb of a clause whose subject is a bare noun ("Test of
+#: every line came back clean.").
+_UNTAGGED_PAST = frozenset("came showed turned returned revealed went ran held brought got".split())
+#: Words that end the clause a sentence-opening word heads (a complementizer, a relative, a coordinator, a clause stop).
+_NOUN_SUBJECT_BOUNDS = frozenset(", ; : that which whether if who when because so and or but then".split())
+
+
+def noun_subject_of_past(words: list[str]) -> bool:
+    """Whether the sentence's first word, a noun as well as a base verb ("Test", "Cross-check", "Review", "Recount"), heads the
+    subject of a past-tense verb later in the same clause ("Test of every line came back clean.", "Cross-check with a second method
+    gave identical totals."): a noun subject, never an instruction, since an imperative takes no finite past verb of its own (c3k,
+    stage-1 leftover). ``words`` are folded lower-case words in order. Bounded: the first twelve words."""
+    if not words or "noun" not in tags(words[0]):
+        return False
+    for w in words[1:12]:
+        if w in _NOUN_SUBJECT_BOUNDS:
+            return False
+        w0 = w.split()[0] if " " in w else w  # (a merged phrase, "came back", "turned up", is read by its verb)
+        tg = tags(w0)
+        if w0 in _UNTAGGED_PAST or ("v:past" in tg and "v:base" not in tg):
+            return True
+    return False
 
 
 def known_word(word: str) -> bool:

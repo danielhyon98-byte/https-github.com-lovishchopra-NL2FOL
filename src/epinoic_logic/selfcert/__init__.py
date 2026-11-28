@@ -1,4 +1,4 @@
-"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-4`` since c3h).
+"""The one self-certification reader every gate consults (round-10 hold remedy c3b; rules ``selfcert-5`` since c3k).
 
 An answer's claim, in its OWN scope, about checking, verification, review, testing, audit, QA, an engine or system result, proof,
 approval, marking or scoring, or its own correctness, quality or confidence, whoever is credited, in any position, quoted or
@@ -56,7 +56,15 @@ __all__ = ["Context", "Hit", "Unread", "Reading", "Spot", "SELFCERT_RULES", "rul
 #: ``selfcert-3`` freed own-scope text or stopped reading (the possibility frame and the corrected-form key reverted, a year or a
 #: date never names a source, own verdicts read in every window of a long sentence, no cap on the pieces read, every word-count
 #: line read as D7 reads it; ``epinoic_logic.version`` lists them).
-SELFCERT_RULES = "selfcert-4"
+#: ``selfcert-5`` (c3k, stage 2a of the meaning check): decision 5 (rule G10: the answer's own figures said to agree with a named
+#: source or dataset that states no value are gated; bare provenance, values stated on both sides, a reference with content of its
+#: own and a worked computation stay free), decision L4's companion test (rule G11, family DIRECTIVE: an instruction to a checker,
+#: marker, reviewer, grader, labeller or overseer about this answer), and the stage-1 misses closed by class (C1 controls between
+#: words, the Spanish first-person plural preterite and score verbs, quantity nouns among the answer's items, a check noun heading
+#: a past verb, redone arithmetic, echo answers to a self-question, rhetorical questions of doubt, a gloss's own clause, a
+#: quotation said to mean what it says about this answer). :func:`context_for` reads a ``TaskRequest``'s ``user_input``, and the
+#: closure memo is keyed on the directories it reads.
+SELFCERT_RULES = "selfcert-5"
 #: The rule names the delivery refusals carry.
 GATE_RULE = "self-certification-gate"
 UNREAD_RULE = "unread-text"
@@ -195,13 +203,21 @@ def rules_closure() -> tuple[str, ...]:
     ``__init__.py`` of every package on the way (it runs when a module of its package is imported). Computed from the stored
     sources by AST (never a list kept by hand), so a module the rule comes to import is bound as soon as it is imported; computed
     again whenever any of those sources, or a directory that holds one, has changed since the last computation."""
+    roots = _memo_roots()
     memo = _CLOSURE_MEMO.get("closure")
-    if memo is not None and _stored_state(memo[0], memo[1]) == memo[2]:
+    if memo is not None and memo[3] == roots and _stored_state(memo[0], memo[1]) == memo[2]:
         return memo[0]
     closure = _rules_closure()
     dirs = sorted({_module_file(n).parent for n in closure} | {_HERE})
-    _CLOSURE_MEMO["closure"] = (closure, dirs, _stored_state(closure, dirs))
+    _CLOSURE_MEMO["closure"] = (closure, dirs, _stored_state(closure, dirs), roots)
     return closure
+
+
+def _memo_roots() -> tuple[str, str]:
+    """Where the closure and the digest are read from (this package's directory and the translator package's): part of the memo's
+    key, so a closure or a digest computed under one root is never served under another (c3k: a test that points the reader at a
+    copy of its files left the copy's digest in the memo, and a copy made with its files' stored state matched the real tree's)."""
+    return (str(_HERE), str(_external_root()))
 
 
 def _rules_closure() -> tuple[str, ...]:
@@ -235,7 +251,8 @@ def rules_digest() -> str:
     closure = rules_closure()
     data = tuple(_stored_state(["selfcert/" + n for n in RULES_DATA], ()))
     memo = _CLOSURE_MEMO.get("digest")
-    if memo is not None and memo[0] == closure and memo[1] == data and memo[2] == _CLOSURE_MEMO["closure"][2]:
+    if memo is not None and memo[0] == closure and memo[1] == data and memo[2] == _CLOSURE_MEMO["closure"][2] and \
+            memo[4] == _memo_roots():
         return memo[3]
     h = hashlib.sha256()
     h.update(SELFCERT_RULES.encode())
@@ -246,7 +263,7 @@ def rules_digest() -> str:
         h.update(b"\0code\0" + name.encode() + b"\0")
         h.update(_module_file(name).read_bytes())
     digest = h.hexdigest()
-    _CLOSURE_MEMO["digest"] = (closure, data, _CLOSURE_MEMO["closure"][2], digest)
+    _CLOSURE_MEMO["digest"] = (closure, data, _CLOSURE_MEMO["closure"][2], digest, _memo_roots())
     return digest
 
 
@@ -648,7 +665,9 @@ def payload_spots(payload: Any, ctx: Context = Context()) -> list[str]:
 def context_for(request_or_plan: Any = None, *, writer: str = "specialist") -> Context:
     """The reading context built from the ROUTER's record (a journaled request, a plan, or a mapping with ``task_type``): marking
     only when the router's task type is a marking or feedback task (``markdown.corrections_apply``), the supplied texts' titles
-    and authors as known sources, the supplied peer reports as peer documents. Missing or unreadable: the strict default."""
+    and authors as known sources, the supplied peer reports as peer documents, and a true-or-false item when the request text
+    (``request_text``, ``user_input``, ``text``, ``prompt``, ``question`` or ``task``) asks one. Missing or unreadable: the strict
+    default."""
     if writer not in ("specialist", "combinator"):
         writer = "specialist"
     marking = False
@@ -657,7 +676,8 @@ def context_for(request_or_plan: Any = None, *, writer: str = "specialist") -> C
     peers: list[str] = []
     try:
         if request_or_plan is not None:
-            for name in ("request_text", "text", "prompt", "question", "task"):
+            # (a journaled TaskRequest holds the request text as ``user_input``: read there too, c3k)
+            for name in ("request_text", "user_input", "text", "prompt", "question", "task"):
                 v = _field(request_or_plan, name)
                 if isinstance(v, str) and _TRUTH_ITEM_RE.search(v[:20000]):
                     truth_item = True
