@@ -3097,3 +3097,7 @@ Measured results only.
   of it found no weakened test (62 test files changed, 120 lines deleted: version re-pins, stricter checks and the
   decision-5 moves) and three minor findings, which the next round fixes before any label is recorded. Its push check
   has not run, so nothing new is uploaded.
+
+### Progress, 06:00 UTC (28 November)
+- No code change since 05:00: the last commit with content is `73fee733` (meaning check, stage 2a); the next round's
+  code changes are planned, not yet started, and nothing new is uploaded.
