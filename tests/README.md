@@ -3084,3 +3084,10 @@ Measured results only.
 ### Progress, 09:00 UTC (26 November)
 - No change since 08:00: the last commit with content is `6e642569` (meaning check, stage 1); its push check has not run
   yet and nothing new is uploaded.
+
+### Progress, 04:00 UTC (28 November)
+- Meaning check, stage 2a is committed as `73fee733`: the meaning label is wired into every release path, with the
+  faithful fake for the existing tests. Full suite: 51,780 passed, 1 skipped, 1 expected failure, 0 failed. Arena harness
+  equal to the baseline on all eleven round copies (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203,
+  c2 188/188, c3 164/176). No label is recorded and nothing is measured yet (stage 2b); its push check has not run, so
+  nothing new is uploaded.
