@@ -7,6 +7,7 @@ import hashlib
 import json
 
 from epinoic_logic import selfcert
+from epinoic_logic.selfcert_label import LABEL_VERSION
 from epinoic_logic.selfcert_label import canaries as C
 from epinoic_logic.selfcert_label.fakes import ReaderBackedLabeller
 
@@ -72,10 +73,21 @@ def test_canary_text_never_reaches_a_stored_span_or_a_finding(key, test_prompt):
     req_items = lab.prepare(text, {"subject": "physics"}).requests[0].items
     canary_texts = [it.text for it in req_items if it.canary is not None]
     assert canary_texts
+    findings = res.findings(CODES)
+    # (rewritten to a stricter rule, stage 2a: the version bump re-keyed the canaries, and this request now draws "This answer
+    # is fully correct.", whose word "answer" is also a word of the package's own fixed message ("... of the answer: ..."). Each
+    # message must now EQUAL that fixed template for its place and family, so no canary word can be in it; every other field
+    # of every finding and every field of the record but the raw replies keeps the word check, and the whole canary text is
+    # checked against everything, messages included)
+    assert len(findings) == 1
+    for f in findings:
+        fam = f"family {f['family']}" if len(f["families"]) == 1 else "families " + ", ".join(f["families"])
+        assert f["message"] == (f"{f['place']} of the answer: the meaning label names a self-certification ({fam}; "
+                                f"label {LABEL_VERSION}): never delivered (rule self-certification-gate)")
     stored = json.dumps({k: v for k, v in res.record.items() if k != "attempts"}, ensure_ascii=False)
-    stored += json.dumps(res.findings(CODES), ensure_ascii=False)
+    stored += json.dumps([{k: v for k, v in f.items() if k != "message"} for f in findings], ensure_ascii=False)
     for t in canary_texts:
-        assert t not in stored
+        assert t not in stored and t not in json.dumps(findings, ensure_ascii=False)
         assert all(w not in stored for w in t.split() if len(w) > 5 and w.lower() not in ("paragraph", "sentence"))
     # every stored span lies in the answer's own text
     assert all(0 <= s["start"] < s["end"] <= len(text) for s in res.record["spans"])

@@ -120,7 +120,8 @@
             "consolidation_conflicting",
             "no_deliverable_output",
             "receipt_error_findings",
-            "not_deliverable"
+            "not_deliverable",
+            "selfcert_label_unavailable"
           ],
           "type": "string"
         },

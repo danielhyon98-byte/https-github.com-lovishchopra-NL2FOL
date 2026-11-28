@@ -18,6 +18,6 @@ rules and of its cost data) changes whenever the plan of a request it reads can.
 the type or range the router port gives a member its planners read: :mod:`epinoic_flash_router.contract`) gets no plan
 but a ``RequestError`` naming the member and the rule.
 """
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = ["__version__"]

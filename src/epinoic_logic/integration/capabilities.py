@@ -1,17 +1,20 @@
 """The capabilities document ``GET /v1/capabilities`` returns (``integration/PROTOCOL.md`` section 3, check 2).
 
-Built once at start-up from the preflight facts and the self-test, re-stamped with ``issued_at`` on every request. It
-carries no secret: key ids only, never keys. The flash router is reported (identity, version, rules digest, or absent
-with the reason) but is never required.
+Built from the preflight facts and the self-test, re-stamped with ``issued_at`` on every request. It carries no secret:
+key ids only, never keys. The flash router is reported (identity, version, rules digest, or absent with the reason) but is
+never required. The meaning label (``ports.selfcert_label``, contract 0.10) is read at each request: its version and
+digest, the model digest (never a name), the labeller's kind and its state from ``Labeller.health()`` (``ok``,
+``degraded`` while a circuit breaker is open, ``off`` with no labeller).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
 
+from .label import label_caps
 from .preflight import Facts
 from .protocol import (
-    PROTOCOL, Capabilities, ChecksPortCaps, OverseerPortCaps, Ports, SelfTestReport, Signing, dump,
+    PROTOCOL, Capabilities, ChecksPortCaps, OverseerPortCaps, Ports, SelfcertLabelCaps, SelfTestReport, Signing, dump,
 )
 from .selftest import SelfTestOutcome
 
@@ -32,6 +35,7 @@ def build_capabilities(facts: Facts, selftest: SelfTestOutcome, *, issued_at: Op
         translation=facts.translation,
         combinator=facts.combinator,
         router=facts.router_caps,
+        selfcert_label=SelfcertLabelCaps.model_validate(label_caps(facts.label.labeller if facts.label is not None else None)),
     )
     caps = Capabilities(
         schema="epinoic.integration.capabilities.v1", protocol=PROTOCOL, service_env=facts.settings.service_env,

@@ -818,11 +818,15 @@ def test_the_installed_pack_lists_every_code_status_rule_and_policy_the_translat
     # change, lack exactly those three and nothing else (rewritten to that exact rule from "1.5 is complete too"). The round-10
     # hold remedy c3b added the receipt code CORE-SELF-002 (text the self-certification reader cannot read): the installed 2.2
     # lists it, the pinned 2.1 lacks exactly that one code, and 2.0 and 1.5 lack exactly those four (the same exact rule, one
-    # pack and one code more)
-    selfcert = {"§8 does not list the receipt code CORE-SELF-002"}
+    # pack and one code more). Stage 2a of the meaning check added the self-certification label's receipt codes INT-SELF-001 and
+    # INT-SELF-002: the installed 2.3 lists them, the pinned 2.2 lacks exactly those two, 2.1 those two and CORE-SELF-002, and 2.0
+    # and 1.5 all six (the same exact rule, one pack and two codes more)
+    label = {f"§8 does not list the receipt code {c}" for c in ("INT-SELF-001", "INT-SELF-002")}
+    selfcert = {"§8 does not list the receipt code CORE-SELF-002"} | label
     new = {f"§8 does not list the receipt code {c}" for c in ("INT-HANDOFF-018", "INT-REV-001", "INT-REV-002")} | selfcert
-    assert PACK_VERSION == "2.2" and pack_completeness() == []
-    assert set(gaps21 := pack_completeness(installed_pack_dir("2.1"))) == selfcert and len(gaps21) == 1, gaps21
+    assert PACK_VERSION == "2.3" and pack_completeness() == []
+    assert set(gaps22 := pack_completeness(installed_pack_dir("2.2"))) == label and len(gaps22) == 2, gaps22
+    assert set(gaps21 := pack_completeness(installed_pack_dir("2.1"))) == selfcert and len(gaps21) == 3, gaps21
     for older in ("2.0", "1.5"):
         gaps = pack_completeness(installed_pack_dir(older))
         assert len(gaps) == len(new) and set(gaps) == new, (older, gaps)

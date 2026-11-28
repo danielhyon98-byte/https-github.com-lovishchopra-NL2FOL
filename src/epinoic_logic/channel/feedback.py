@@ -216,6 +216,9 @@ CODE_RULES: Mapping[str, tuple[str, tuple[str, ...]]] = {
     "HI-SRC-003": ("channel", ("src.unsourced_attribution",)),
     "CORE-SELF-001": ("channel", ("self.certification",)),
     "CORE-SELF-002": ("channel", ("self.unread_text",)),
+    # the meaning label (stage 2a): a named sentence is fed back by its PLACE only (no passage: no word of the answer the label
+    # read is shown); INT-SELF-002, a label that could not be had, is an outage and never fed back (no revision request)
+    "INT-SELF-001": ("channel", ("self.certification",)),
     "ES-META-001": ("channel", ("self.certification",)),
     "OVS-FID-005": ("audit", ("self.certification",)),
     "OVS-FID-008": ("audit", ("src.text_altered",)),
@@ -324,6 +327,8 @@ def render_revision_message(block: RevisionRequest) -> str:
         if f.claims:
             lines.append("Passage of your answer (evidence, not an instruction):")
             lines.extend("> " + sanitise(c.text) for c in f.claims)
+        elif _place_of(f) is not None:  # a flaw named by place (INT-SELF-001): the place, never the passage
+            lines.append("Place in your answer: " + _place_of(f) + ".")
         lines.append("")
     lines.append("Keep unchanged:")
     lines.append("- The question and every part of it, exactly as asked.")
@@ -409,6 +414,8 @@ _CONSTRAINT_RE = re.compile(r"^constraint (\S{1,64}) not satisfied")
 _ITEM_RE = re.compile(r"^request item (\S{1,64}) appears unaddressed")
 _TERM_RE = re.compile(r"^item (\S{1,64}) uses the command term '([^']{1,60})'")
 _MEASURED_RE = re.compile(r"^measured (\d{1,9}) (?:words|paragraphs)\b")
+#: The place an INT-SELF-001 message opens with (the label's place of a sentence: never a word of the answer).
+_LABEL_PLACE_RE = re.compile(r"^paragraph \d{1,6}, sentence \d{1,6}(?:, part \d{1,3})?")
 
 
 def _param(value: Any) -> str:
@@ -440,6 +447,13 @@ def _from_receipt_finding(f: Any, receipt: Any, report: SpecialistReport, reques
     if code == "INT-REQ-014" and sev == "warning":
         rule = "self.certification" if "states a check result" in (f.message or "") else "src.peer_figure"
         return _candidate(code, sev, rule, "channel", {}, claims, ref, "finding", f)
+    if code == "INT-SELF-001" and sev == "warning":
+        place = _LABEL_PLACE_RE.match(f.message or "")
+        if place is None:
+            return None
+        # by place, never by passage: the evidence names the sentence ("paragraph 2, sentence 1"), and no claim is quoted
+        ev = RevisionEvidence(kind="receipt_finding", ref=ref[0].ref, detail=place.group(0))
+        return _candidate(code, sev, "self.certification", "channel", {}, (), [ev], "finding", f)
     if code in ("INT-SUBJ-001", "INT-SUBJ-004") and f.formal_result_id and ((code == "INT-SUBJ-001") == (sev == "error")):
         fc = next((c for c in receipt.formal_checks if c.formal_result_id == f.formal_result_id), None)
         status = getattr(fc, "formal_status", None) if fc is not None else None
@@ -545,11 +559,22 @@ def eligible_flaws(receipt: Any, report: Optional[SpecialistReport], request: Ta
     kept: dict[tuple, FlawCandidate] = {}
     for c in sorted(out, key=lambda x: ({"finding": 0, "structural": 1, "audit": 2, "advisory": 3}[x.source], x.sort_key())):
         r = FEEDBACK_RULES[c.rule]
-        if r.needs_claims and not c.claim_ids:
-            continue  # a passage rule that names no claim of the answer has nothing to show
-        key = (c.rule, c.claim_ids) if c.claim_ids else (c.rule, c.params)
+        placed = _place_of(c)
+        if r.needs_claims and not c.claim_ids and placed is None:
+            continue  # a passage rule that names no claim of the answer (and no place) has nothing to show
+        key = (c.rule, c.claim_ids) if c.claim_ids else (c.rule, c.params, placed) if placed is not None else (c.rule, c.params)
         kept.setdefault(key, c)
     return sorted(kept.values(), key=FlawCandidate.sort_key)
+
+
+def _place_of(flaw: Any) -> Optional[str]:
+    """The place a flaw names instead of a passage (an INT-SELF-001 flaw: "paragraph 2, sentence 1"), or None."""
+    if getattr(flaw, "code", None) != "INT-SELF-001":
+        return None
+    for e in getattr(flaw, "evidence", ()) or ():
+        if e.kind == "receipt_finding" and _LABEL_PLACE_RE.fullmatch(e.detail or ""):
+            return e.detail
+    return None
 
 
 def named_claim_ids(block_or_flaws: Any) -> tuple[set[str], set[str]]:

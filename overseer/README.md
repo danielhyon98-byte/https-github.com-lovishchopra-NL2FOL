@@ -96,8 +96,9 @@ keeps equal to the originals): inside the repository they use it; a standalone c
 
 ### The knowledge pack and its exporter
 
-`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.2 since
-the round-10 hold remedy c3b, which lists the receipt code CORE-SELF-002; 2.1 since integration step 2, specialist feedback; 2.0 since architecture step 3; 1.0 to 2.1 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
+`python -m epinoic_overseer.export --out DIR [--zip]` writes the installed pack (`overseer-knowledge-docs` 2.3 since
+stage 2a of the meaning check, which states trust rule T17, withholding evidence, and lists the label's codes INT-SELF-001,
+INT-SELF-002 and OVS-FID-010; 2.2 since the round-10 hold remedy c3b, which lists the receipt code CORE-SELF-002; 2.1 since integration step 2, specialist feedback; 2.0 since architecture step 3; 1.0 to 2.2 are kept for the recorded rounds and their verdicts) with a README for whoever deploys it. The move into this sub-project changed no
 pack: every pinned digest and the exported zip are the ones recorded before the move
 (`tests/overseer_tests/test_subproject_layout.py`). The packs' own text predates the move: where it names the module
 path, it says `epinoic_logic.overseer`, which is now `epinoic_overseer`; that text changes only with a new pack version

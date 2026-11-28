@@ -91,6 +91,18 @@ the formal path, runs the fallback when needed, and records the time to decision
 and the overseer time on the receipt. The overseer stage has its own deadline: a provider call started after it is not
 made, and a reply that arrives after it is not counted.
 
+**The meaning label (delivery-v2; stage 2a of the meaning check).** Every candidate's journaled label record is read through
+the one gate (:func:`.label_gate.label_gate`, after every existing read, with the policy's ``labeller``, else the channel's or the
+hub's configured labeller, else the translator's default at the moment of the call), and the task audit's OVS-FID-010 beside it.
+A sentence the label names, or a text the rule reader refuses, keeps the candidate from every fallback mode exactly as a reader hit
+does (rule ``self-certification-gate``); a missing, unusable or unavailable label keeps it from every mode as an outage (rule
+``meaning-label-unavailable``); either is ``deliverable=False`` whatever the accuracy. A claim the label names (INT-SELF-001) is
+removed from the accuracy's numerator and denominator, as a reader hit is, and its success display is withheld in the re-derivation
+(NOT_ELIGIBLE). The formal path names both (rule ``self-report-disclosed``). Each candidate carries a ``selfcert_label`` member
+(``delivery_receipt/1.0``, extended additively): its state, the places and families a named label gives, the record's unavailable
+kind and the code that names an unusable record, and counts; never a word of the answer or of the label, and ``none_named`` is never
+shown as a pass. Trust rule T17: the label is the one agent output that acts without a deterministic check, and only to withhold.
+
 Trust rule: the policy decides from the journal, the signed task audits, the signed engine results and the validated
 verdicts only; agent text is data and never reaches a label, a reason or a finding.
 """
@@ -127,6 +139,10 @@ from .checks.results import composed_display_status
 from .codes import is_agent_code
 from .consolidate import DELIVERABLE_STATUSES, ConsolidatedResponse, delivery_decision, material_claims, select_requests
 from .keys import DELIVERY_KEY_ID, KeyRing
+from .label_gate import (
+    LABEL_AUDIT_CODE, NAMED_CODE as LABEL_NAMED_CODE, UNAVAILABLE_RULE as LABEL_UNAVAILABLE_RULE, LabelRefusal, LabelUnavailable,
+    label_member, label_refusal, labeller_of, named_claim_ids,
+)
 from .meta_notes import (
     LEAD_BLOCKS_RULE, META_NOTE_RULE, claim_alphabet_breach, claim_self_report, glued_note_lead, self_certifying_meta, self_certifying_sentence, self_certifying_sentences,
     self_report_findings, SELF_REPORT_AUDIT_CODES as _SELF_REPORT_AUDIT_CODES,
@@ -152,7 +168,7 @@ __all__ = [
 DELIVERY_CONTRACT = "delivery_receipt/1.0"
 DELIVERED_ANSWER_CONTRACT = "delivered_answer/1.0"
 #: The policy's version (bump on any change to the rules of this module).
-DELIVERY_POLICY_VERSION = "delivery-v1"
+DELIVERY_POLICY_VERSION = "delivery-v2"  # delivery-v2: the meaning label read on every path (stage 2a)
 #: The founder's translation budget: four minutes.
 FOUNDER_TRANSLATION_BUDGET_S = 240.0
 #: The founder's threshold: a selected answer's accuracy must be ABOVE it (a floor; an operator may only raise it).
@@ -460,6 +476,8 @@ class CandidateAssessment(BaseModel):
     above_threshold: bool
     reviewed_by: list[str] = Field(default_factory=list, description="the agents whose counted verdicts examined this transfer")
     claims: list[ClaimAccuracy] = Field(default_factory=list)
+    selfcert_label: Optional[dict] = Field(default=None, description="delivery-v2: the meaning label of this candidate (state, places, "
+                                           "families, kind, codes and counts; never words)")
 
 
 class VerdictStanding(BaseModel):
@@ -672,10 +690,12 @@ def _task_record(view: OverseerView, t: Transfer) -> Optional[TaskRecord]:
         return None
 
 
-def _rederive(claim: ClaimRecord, o: ClaimVerificationOutcome, report: SpecialistReport, task: Optional[TaskRecord], keyring: KeyRing):
+def _rederive(claim: ClaimRecord, o: ClaimVerificationOutcome, report: SpecialistReport, task: Optional[TaskRecord], keyring: KeyRing,
+              labelled: bool = False):
     """``(display, release, authentic)`` re-derived as the composer derives them (``translate.outcome.compose_outcome``),
     from the journaled translation and signed result, under the auditor's verification key for the result's key id: the
-    stored ``display_status`` and ``release`` fields are never trusted."""
+    stored ``display_status`` and ``release`` fields are never trusted. ``labelled``: the meaning label names the claim
+    (INT-SELF-001 on its receipt), so a success display is withheld (NOT_ELIGIBLE), as the channel's composer withholds it."""
     tr, ver, review = o.translation, o.verification, o.semantic_review
     kid = ver.signature_key_id if ver is not None else None
     key = keyring.verification_key(kid) if kid else None
@@ -686,7 +706,7 @@ def _rederive(claim: ClaimRecord, o: ClaimVerificationOutcome, report: Specialis
         except Exception:
             authentic = False
     if key is not None:
-        display = composed_display_status(claim, tr, ver, key, kid)  # rule composed-display: the composer's own display of the claim
+        display = composed_display_status(claim, tr, ver, key, kid, labelled=labelled)  # rule composed-display: the composer's own display
     else:  # a result under a key id the auditor holds no key for cannot be authenticated: never displayed as a verdict
         display = display_status_for(tr, ver)
         if ver is not None and tr.status is TranslationStatus.TRANSLATED:
@@ -834,7 +854,7 @@ def is_translation_fault(code: str) -> bool:
 
 #: Receipt codes that name a claim a self-report: a self-certification (CORE-SELF-001), a relayed check result (INT-REQ-014) and an
 #: advisory verification status (INT-HANDOFF-006).
-SELF_REPORT_CLAIM_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014", "INT-HANDOFF-006"})
+SELF_REPORT_CLAIM_CODES: frozenset = frozenset({"CORE-SELF-001", "INT-REQ-014", "INT-HANDOFF-006", "INT-SELF-001"})
 
 
 def _reading_context(view: Any, t: Transfer) -> Any:
@@ -1070,7 +1090,7 @@ def _claim_formal(c: ClaimRecord, o: Optional[ClaimVerificationOutcome], report:
                "raised": "the verification failed internally"}.get(timing.state if timing is not None else "", "no translation outcome reached the receipt")
         return ClaimFormal(claim_id=c.claim_id, role=c.claim_role, eligible=True, outcome="not_attempted", finished_s=finished,
                            reasons=[f"{why} (NOT_ATTEMPTED)"] + err_reasons)
-    display, release, authentic = _rederive(c, o, report, task, keyring)
+    display, release, authentic = _rederive(c, o, report, task, keyring, labelled=c.claim_id in named_claim_ids(receipt))
     ver = o.verification
     base = dict(claim_id=c.claim_id, role=c.claim_role, eligible=True, translation_status=o.translation.status.value, display_status=display.value,
                 result_id=ver.result_id if ver is not None else None, finished_s=finished)
@@ -1214,7 +1234,7 @@ def _assess_claim(t: Transfer, c: ClaimRecord, *, reviewed_by: list[str], counte
     o = next((x for x in receipt.outcomes if x.claim_id == c.claim_id), None)
     gap_note: list[str] = []
     if o is not None and o.verification is not None and not trn:
-        display, _release, authentic = _rederive(c, o, report, _task_record(view, t), keyring)
+        display, _release, authentic = _rederive(c, o, report, _task_record(view, t), keyring, labelled=c.claim_id in named_claim_ids(receipt))
         if display in REFUTING_STATUSES and authentic and o.verification.status is display:
             gap_note = _coverage_note(o.verification) if display is S.COUNTEREXAMPLE else []
             if gap_note:  # rule coverage-gap: a counterexample that may only show a gap of the translation refutes nothing
@@ -1368,12 +1388,16 @@ class DeliveryPolicy:
     the overseer stage's deadline. Without them the fallback has no overseer agent, so no accuracy is ever established.
     ``router`` attaches the flash router to that pool (a module name or a router-port attachment; without it the pool
     runs the minimum-oversight floor plan) and ``advisor`` its escalation advisor (off by default; escalation only).
-    ``clock`` is a monotonic clock (``time.monotonic`` by default; tests inject a fake one)."""
+    ``clock`` is a monotonic clock (``time.monotonic`` by default; tests inject a fake one). ``labeller`` is the meaning label's
+    labeller (module docstring, delivery-v2); None reads the channel's or the hub's, else the translator's default at each decision."""
 
     def __init__(self, *, config: Optional[DeliveryConfig] = None, clock: Clock = time.monotonic, pack: Any = None,
                  provider_factory: Optional[Callable[[str], Any]] = None, pool_config: Optional[PoolConfig] = None, router: Any = None,
-                 advisor: Optional[Callable[[list], Any]] = None) -> None:
+                 advisor: Optional[Callable[[list], Any]] = None, labeller: Any = None) -> None:
         self.config = config if config is not None else DeliveryConfig()
+        #: The meaning label's labeller the candidates' records are re-validated with (stage 2a): this one, else the channel's or the
+        #: hub's configured labeller, else the translator's default looked up at each decision (never bound here).
+        self.labeller = labeller
         if not isinstance(self.config, DeliveryConfig):
             raise TypeError("config must be a DeliveryConfig")
         self.config = DeliveryConfig.model_validate(self.config.model_dump())  # a config built around validation is refused
@@ -1483,6 +1507,13 @@ class DeliveryPolicy:
         # ---------------------------------------------------------------- the fallback
         why = list(formal.reasons) or ["the formal path did not complete"]
         return self._fallback(session, view, answers, consolidation, audit, receipts, keyring, formal, why, digest, req_ids)
+
+    def _label_of(self, session: DeliverySession, t: Transfer) -> Optional[LabelRefusal]:
+        """The meaning label's refusal of candidate ``t`` (:func:`.label_gate.label_refusal`, read after every other read of a path),
+        with the policy's labeller, else the channel's or the hub's, else the translator's default at this moment; None: a usable
+        ``none_named`` record (which allows nothing by itself)."""
+        lab = labeller_of(self.labeller, getattr(session.channel, "selfcert_labeller", None), getattr(session.hub, "selfcert_labeller", None))
+        return label_refusal(t.event, t.receipt, labeller=lab)
 
     @staticmethod
     def _latest_task_audit(auditor: Any, uid: str, keyring: KeyRing) -> Any:
@@ -1624,6 +1655,22 @@ class DeliveryPolicy:
         audit_self = [f for f in named if f.code in SELF_REPORT_AUDIT_CODES]
         if audit_self:
             reasons.append(f"the task audit names a self-report delivered as content: {_cut(_code_claims(audit_self), 400)}")
+        # the meaning label (delivery-v2, rule self-report-disclosed), after every read above: the task audit's OVS-FID-010 and the
+        # journaled label record (a named sentence as a reader hit; a missing, unusable or unavailable label as an outage)
+        label_audit = [f for f in named if f.code == LABEL_AUDIT_CODE]
+        if label_audit:
+            reasons.append(f"the task audit names the answer's meaning-label record as missing or not reproducing ({_cut(_code_claims(label_audit), 300)}): "
+                           f"it is not delivered unlabelled (rule {LABEL_UNAVAILABLE_RULE})")
+        label = self._label_of(session, t)
+        if label is not None and label.skipped:
+            # the record says the rule reader refuses the answer: the reader's own reasons above already refuse the label; this is
+            # named only as the backstop of a reading no reason above made (the reader's refusal stands exactly as before)
+            if not (self_reports or certified or audit_self):
+                reasons.append("the rule reader refuses the answer (label state skipped; rule self-report-disclosed)")
+        elif label is not None and label.kind == "named":
+            reasons.append(f"the meaning label names a self-certification in the answer ({_cut(label.detail, 300)}) (rule self-report-disclosed)")
+        elif label is not None:
+            reasons.append(f"the answer has no usable meaning label ({_cut(label.detail, 300)}): it is not delivered unlabelled (rule {LABEL_UNAVAILABLE_RULE})")
         mats = {c.claim_id for c in material_claims(t.report)}
         trn = sorted({f.code for f in named if f.code.startswith("OVS-TRN-") and set(f.claim_ids) & mats})
         if trn:
@@ -1727,14 +1774,17 @@ class DeliveryPolicy:
         return out
 
     def _integrity(self, session: DeliverySession, t: Transfer, consolidation: Optional[ConsolidatedResponse], receipts: Mapping[str, Any],
-                   audit: Any = None, ctx: Any = None) -> list[str]:
+                   audit: Any = None, ctx: Any = None, label: Any = "read") -> list[str]:
         """Why ``t`` may not be delivered whatever its accuracy (empty when it may): the consolidation excludes it (an
         error-level finding on its receipt or in the task audit, a clearance not passed, a repeated fault), or the
         router may not act on its clearance now; its payload digest must be its envelope's. Rule ``translation-faults``
         (round-9 clearance c2): an exclusion, and a clearance AUDIT_FAILED, whose only faults are the task audit's findings about
         translations of its claims keep the answer a candidate (custody re-checked as the router's own rule re-checks it); those
         claims' formal outcomes are withdrawn in the accuracy. Rule ``self-certification-gate``: an answer that certifies itself, or
-        relays a check result no check established, is never delivered by the fallback."""
+        relays a check result no check established, is never delivered by the fallback. The meaning label (delivery-v2), after every
+        read above: a sentence it names (or a text the reader refuses) keeps the answer from every fallback mode as a reader hit does;
+        a missing, unusable or unavailable label (or the task audit's OVS-FID-010) keeps it from every mode as an outage. ``label`` is
+        the candidate's :class:`.label_gate.LabelRefusal` (None: a usable none_named record), read here when not given."""
         out: list[str] = []
         translation_only = self._translation_only(t, audit) if audit is not None else False
         if consolidation is not None:
@@ -1742,8 +1792,11 @@ class DeliveryPolicy:
             if ex is not None and ex.repeated:
                 out.append("it repeats a fault of an earlier answer (OVS-REP-001): never delivered")
             if ex is not None and not (audit is not None and self._translation_only(t, audit, ex)):
+                # the meaning label's audit code is named by its own reason below (rule meaning-label-unavailable), never beside the
+                # consolidation's clearance wording (T24: no label-derived text beside a success word, even a negated one)
+                codes = [c for c in ex.codes if c != LABEL_AUDIT_CODE]
                 out.append(f"the consolidation excludes it ({_cut('; '.join(ex.reasons), 300)}"
-                           + (f"; codes {_listed(ex.codes)}" if ex.codes else "") + "): an excluded answer is never delivered")
+                           + (f"; codes {_listed(codes)}" if codes else "") + "): an excluded answer is never delivered")
         state, refusal, cl, rc = self._clearance_parts(session, t, receipts)
         if refusal:
             if state == "AUDIT_FAILED" and translation_only:
@@ -1770,6 +1823,22 @@ class DeliveryPolicy:
                 out.append("its journaled payload does not carry its envelope's digest")
         except Exception:
             out.append("its journaled payload cannot be digested")
+        label_audit = [f for f in _audit_findings_naming(audit, t.message_id or "") if f.code == LABEL_AUDIT_CODE]
+        if label_audit:
+            out.append(f"the task audit names its meaning-label record as missing or not reproducing ({_cut(_code_claims(label_audit), 300)}): it is "
+                       f"not delivered unlabelled (rule {LABEL_UNAVAILABLE_RULE})")
+        if label == "read":
+            label = self._label_of(session, t)
+        if label is not None and label.skipped:
+            # the reader's refusal stands exactly as before: named here only when no reason above already names a self-certification
+            if not (certs or audit_self or notes):
+                out.append(f"the rule reader refuses it (label state skipped): a fallback delivery never contains a claim about its own "
+                           f"checking (rule {SELF_CERTIFICATION_RULE})")
+        elif label is not None and label.kind == "named":
+            out.append(f"the meaning label names a self-certification in it ({_cut(label.detail, 300)}): a fallback delivery never contains a claim "
+                       f"about its own checking (rule {SELF_CERTIFICATION_RULE})")
+        elif label is not None:
+            out.append(f"it has no usable meaning label ({_cut(label.detail, 300)}): it is not delivered unlabelled (rule {LABEL_UNAVAILABLE_RULE})")
         return out
 
     def _assess(self, session: DeliverySession, view: OverseerView, candidates: list[Transfer], consolidation: Optional[ConsolidatedResponse],
@@ -1797,13 +1866,18 @@ class DeliveryPolicy:
             answer_level = _answer_level_errors(t.receipt, [c.claim_id for c in mats])
             refuted = any(c.refuted_by_signed_result for c in claims)
             faulted = refuted or any(c.faulted_by_check for c in claims) or bool(answer_level)
-            integrity = self._integrity(session, t, consolidation, receipts, audit, rctx)
+            label = self._label_of(session, t)
+            integrity = self._integrity(session, t, consolidation, receipts, audit, rctx, label=label)
+            label_audit = [f.code for f in _audit_findings_naming(audit, t.message_id or "") if f.code == LABEL_AUDIT_CODE]
+            if label is None and label_audit:  # a record the auditor could not reproduce: unavailable, whatever this read gave
+                label = LabelRefusal("unavailable", LABEL_AUDIT_CODE, unavailable=LabelUnavailable("revalidation"))
             r = rank.get(t.message_id or "", (9, 0, t.seq, None, False))
             out.append(CandidateAssessment(
                 message_id=t.message_id or "", receipt_id=t.receipt_id, agent_id=t.sender_agent_id, report_id=t.report_id, seq=t.seq, group_id=r[3],
                 canonical=bool(r[4]), canonical_rank=pos, deliverable=not integrity, integrity_reasons=integrity, refuted=refuted, faulted=faulted,
                 answer_level_faults=answer_level, material_claims=total, accurate=accurate, accuracy=round(accurate / total, 6) if total else 0.0,
-                accuracy_fraction=f"{accurate}/{total}", above_threshold=accuracy_above(accurate, total, thr), reviewed_by=reviewed_by, claims=claims))
+                accuracy_fraction=f"{accurate}/{total}", above_threshold=accuracy_above(accurate, total, thr), reviewed_by=reviewed_by, claims=claims,
+                selfcert_label=label_member(label, label_audit)))
         return out
 
     def _select(self, cands: list[CandidateAssessment]) -> tuple[Optional[CandidateAssessment], list[str], str]:

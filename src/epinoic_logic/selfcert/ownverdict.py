@@ -32,7 +32,7 @@ import functools
 import re
 from typing import Optional
 
-from .lexicon import fold_word, lexicon, tags as word_tags
+from .lexicon import fold_word, lexicon, noun_subject_of_past, tags as word_tags
 
 __all__ = ["own_verdict", "clause_pieces", "read_by_clauses"]
 
@@ -362,6 +362,11 @@ _WORD_APPLIES_RE = re.compile(r"\b(?:word|term|label|adjective|tag|description|p
                               r"captures|se\s+aplica|define|resume|encaja\s+con|corresponde\s+a)\b(?P<rest>.*)$", re.I)
 
 
+#: A quotation said to mean what it says about something ('"Checked" means exactly what it says about every figure here.', '«Revisado»
+#: significa exactamente lo que dice de cada paso.'): the quotation applied to what follows (c3k).
+_QUOTE_SAYS_RE = re.compile(r"[\"'“‘«](?P<q>[^\"'”’»\n]{1,120})[\"'”’»]\s+(?:means|meant|significa|signific[oó]|quiere\s+decir)\s+"
+                            r"(?:(?:exactly|just|precisely|literally|exactamente|justo|literalmente)\s+)?(?:what\s+it\s+says|lo\s+que\s+dice)\s+"
+                            r"(?:about|of|for|regarding|on|de|sobre|acerca\s+de|para)\s+(?P<rest>.*)$", re.I)
 #: A discourse adverb set off by commas inside a clause ("this response has, moreover, been through two rounds of review"): read as
 #: if absent, so the clause's auxiliary and participle stay together (c3g).
 _PARENTHETICAL_RE = re.compile(r",\s*(?:moreover|furthermore|in\s+fact|indeed|of\s+course|also|too|again|now|besides|incidentally|"
@@ -772,7 +777,8 @@ def _own_verdict(sentence: str, ctx) -> Optional[tuple[str, str]]:
     hedged = _HEDGE_RE.search(s) is not None
     deontic = _DEONTIC_RE.search(s) is not None
     first_imperative = "C:imperative_verbs" in word_tags(words[0]) and not word_tags(words[0]) & {"C:pron1", "C:det", "C:anaph"} and \
-        len(words) > 1 and words[0] not in ("this", "that", "these", "all", "every", "each", "nothing", "no", "my", "our")
+        len(words) > 1 and words[0] not in ("this", "that", "these", "all", "every", "each", "nothing", "no", "my", "our") and \
+        not noun_subject_of_past(words)  # ("Cross-check with a second method gave identical totals.": a noun subject; c3k)
 
     # V4: a pipeline's success code on this answer (a solver's success result too: "Z3 returned a satisfying model for every claim
     # made here"; check round 12 of c3f)
@@ -814,6 +820,15 @@ def _own_verdict(sentence: str, ctx) -> Optional[tuple[str, str]]:
         rest = wa.group("rest")
         if sets["strong"].search(rest) is not None or _QUANT_SCOPE_RE.search(rest) is not None or (
                 sets["blanket"].search(rest) is not None and re.search(r"\b(?:above|below|here|arriba|abajo|aqu[ií])\b", rest, re.I)):
+            return ("G1", "STATUS")
+    # (c3k, stage-1 leftover) a quoted assessment said to mean what it says about this answer or its parts ('"Traced back line by
+    # line and found sound" means exactly what it says about every step.'): the writer's verdict through the quotation, no gloss
+    qs = _QUOTE_SAYS_RE.search(written)
+    if qs is not None and not marking and negs == 0 and not hedged and any(
+            _family(fold_word(w)) & {"CHECK", "STATUS", "OUTCOME", "QUALITY", "APPROVE", "AGREE"} for w in _words(qs.group("q"))):
+        rest = qs.group("rest")
+        if sets["strong"].search(rest) is not None or _QUANT_SCOPE_RE.search(rest) is not None or \
+                sets["blanket"].search(rest) is not None or sets["parts_dem"].search(rest) is not None:
             return ("G1", "STATUS")
     # (c3f) the writer's performative confirmation of a verdict on this answer ("I can confirm this answer is accurate.")
     perf = _PERFORMATIVE_RE.search(s)

@@ -50,10 +50,20 @@ UNNAMED_SOURCE = [
     "Las cifras coinciden con el censo de 2021.",
 ]
 NAMED_SOURCE = [
-    "The ONS confirmed the figures.", "Every figure here matches the ONS census.", "Las cifras coinciden con el censo del INE de 2021.",
+    "The ONS confirmed the figures.", "The figures match the census figure of 4.2 million.",
+    "The answer matches the World Bank figure of 3.1%.",
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures: the named forms that state no value moved to NAMED_SOURCE_NO_VALUE, gated, and stated-value twins take their place: a
+    # stricter rewrite)
+    "The population figure here matches the ONS census figure of 67.0 million.",
+    "La cifra coincide con la del censo del INE de 2021: 47,4 millones.",
+    "The GDP figure here matches the Eurostat dataset's figure of 2.1%.",
+]
+#: (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; NAMED_SOURCE pins until c3k, now gated: a stricter rewrite)
+NAMED_SOURCE_NO_VALUE = [
+    "Every figure here matches the ONS census.", "Las cifras coinciden con el censo del INE de 2021.",
     "Las cifras coinciden con el censo del INE.", "All the numbers here match the Eurostat dataset.",
-    "Every figure here matches the 2021 census of England and Wales.", "The figures match the census figure of 4.2 million.",
-    "The answer matches the World Bank figure of 3.1%.", "All the figures here match the 2021 census of England and Wales.",
+    "Every figure here matches the 2021 census of England and Wales.",
+    "All the figures here match the 2021 census of England and Wales.",
 ]
 
 
@@ -69,6 +79,12 @@ def test_agreement_with_a_named_source_or_a_stated_value_is_free(text):
         assert sc.read(t).refuses() is False, t
 
 
+@pytest.mark.parametrize("text", NAMED_SOURCE_NO_VALUE)
+def test_agreement_with_a_named_source_that_states_no_value_is_gated(text):
+    for t in _forms(text):
+        assert sc.read(t).refuses() is True, t
+
+
 @pytest.mark.parametrize("subject", ["Economics", "Geography"])
 def test_an_unnamed_data_source_is_withheld_and_a_named_one_delivered(subject):
     _s, agent, task_type, base = _BY_NAME[subject]
@@ -76,7 +92,11 @@ def test_an_unnamed_data_source_is_withheld_and_a_named_one_delivered(subject):
     # (c3h, decision D-a: a year alone names no source, so "the 2021 census" is withheld too and the named form is "the ONS 2021
     # census": a stricter rewrite)
     _withheld_on_both_paths(subject, agent, task_type, base + "\n\nEvery figure here matches the 2021 census.")
-    d = _deliver(subject, agent, task_type, base + "\n\nEvery figure here matches the ONS 2021 census.", NOT_CHECKED)
+    # (c3k, decision 5: the named source that states no value is withheld too, and the delivered form states the value: a stricter
+    # rewrite)
+    _withheld_on_both_paths(subject, agent, task_type, base + "\n\nEvery figure here matches the ONS 2021 census.")
+    d = _deliver(subject, agent, task_type, base + "\n\nThe population figure here matches the ONS 2021 census figure of 67.0 million.",
+                 NOT_CHECKED)
     assert d.delivered is True, d.mode
 
 

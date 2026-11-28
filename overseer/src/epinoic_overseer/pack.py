@@ -467,7 +467,7 @@ __all__ = [
 
 #: The pack this package ships and loads by default.
 PACK_NAME = "overseer-knowledge-docs"
-PACK_VERSION = "2.2"
+PACK_VERSION = "2.3"
 #: The pack digest (manifest ``pack_sha256``) this code accepts, per ``(name, version)``. The trust anchor: a pack whose
 #: digest differs is refused (``digest_mismatch``), whatever its manifest says. A new version is pinned here only after
 #: ``export --refresh-source`` printed its digest; an older version stays pinned while its contracts are supported.
@@ -491,6 +491,10 @@ PACK_DIGESTS: Mapping[tuple[str, str], str] = MappingProxyType({
     # never delivered unread) listed in Kinds and codes, a MINOR version (no kind, no contract changed); 2.1 was pushed, so it stays
     # pinned unchanged and its verdicts still validate
     (PACK_NAME, "2.2"): "ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28",
+    # stage 2a of the meaning check: trust rule T17 (withholding evidence: the self-certification label, which may only withhold) and
+    # the label's codes INT-SELF-001, INT-SELF-002 and OVS-FID-010, a MINOR version (no kind, no contract changed); 2.2 stays pinned
+    # unchanged and its verdicts still validate. Not yet released: its pin tracks the pack as built
+    (PACK_NAME, "2.3"): "d5c9a8e34f8a23b86043a9b233090a952440c3d899e6ded99bdfab5b908b05e8",
 })
 
 MANIFEST_VERSION = "1.0"

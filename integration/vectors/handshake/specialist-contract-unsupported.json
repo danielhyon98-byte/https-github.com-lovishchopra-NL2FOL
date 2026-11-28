@@ -71,6 +71,14 @@
         "required": false,
         "version": "1.0"
       },
+      "selfcert_label": {
+        "label_digest": "d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0",
+        "labeller": "unconfigured",
+        "model_digest": null,
+        "required": true,
+        "state": "off",
+        "version": "selfcert-label-2"
+      },
       "specialist": {
         "accepted": [
           {
@@ -109,10 +117,10 @@
       "version": "2026-11-16.1"
     },
     "versions": {
-      "contract": "0.9",
+      "contract": "0.10",
       "engine": "0.4.0",
       "ir": "1.0",
-      "policy": "2026.11-v8",
+      "policy": "2026.11-v9",
       "translator": "0.4.0",
       "z3": "4.15.0"
     }

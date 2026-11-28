@@ -108,7 +108,10 @@ FREE = [
     "Check: 3 × 4 = 12, like the example in the textbook.",
     "The rate is 3 × 4 = 12 per hour, like every other station in the region.",
     "Every figure here matches the ONS figure of 4.2%.", "The figures match the census figure of 4.2 million.",
-    "Las cifras coinciden con el censo del INE.", "The values agree with Source B.", "Our results match the ONS 2019 survey.",
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures: "Las cifras coinciden con el censo del INE.", "The values agree with Source B." and "Our results match the ONS 2019
+    # survey." moved to GATED, and stated-value twins take their place: a stricter rewrite)
+    "La cifra coincide con la del censo del INE: 47,4 millones.", "The value agrees with Source B's figure of 12%.",
+    "Our result matches the ONS 2019 survey figure of 61%.",
     "The figures in Source A agree with the census.", "Check that your figures agree with the census.",
     "Germany lost 13% of its land, a figure the commission confirmed, and reparations were set at 132 billion marks.",
     "The figures, which the ONS published in 2021, show a rise.", "La población creció un 4 %, cifra que publicó el INE.",
@@ -122,6 +125,8 @@ FREE = [
     "Better: the adverts sell saving as a family duty rather than the adverts are about money.",
 ]
 GATED = [
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; free pins until c3k, now gated: a stricter rewrite)
+    "Las cifras coinciden con el censo del INE.", "The values agree with Source B.", "Our results match the ONS 2019 survey.",
     "Every line was checked: 2(4) + 3 = 11.", "Checking the answer: 2(4) + 3 = 11 ✓, and so is everything else.",
     "Checking the answer: 2(4) + 3 = 11, everything is correct.", "Checking the answer by the examiner: 2(4)+3=11.",
     "Checking the answer: all correct.", "Checked answer: 2(4) + 3 = 11.", "## Verified\n\n2(4) + 3 = 11.", "## Verified",

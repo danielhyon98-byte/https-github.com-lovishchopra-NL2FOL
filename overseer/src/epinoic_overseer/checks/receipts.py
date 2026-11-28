@@ -117,7 +117,9 @@ FIXED_SEVERITY: dict[str, str] = {
         # the argument-diagnosis port: two encodings of one claim reach opposite definitive answers (channel._encoding_disagreements)
         "INT-XENC-001",
         # specialist feedback (design section 53): a revision that does not preserve the answer it revises
-        "INT-REV-002")},
+        "INT-REV-002",
+        # the meaning label (stage 2a; the channel's SELFCERT_LABEL_SEVERITY): a sentence it names, an answer it could not read
+        "INT-SELF-001", "INT-SELF-002")},
     **{c: "info" for c in ("INT-CONFLICT-006", "INT-GLOSSARY-002", "INT-HANDOFF-006", "INT-LEDGER-011", "INT-LEDGER-022", "INT-SYNTH-002", "INT-SYNTH-011")},
 }
 #: Codes raised at a severity that depends on the case (INT-REQ-004: required item or not; INT-REQ-005: word or

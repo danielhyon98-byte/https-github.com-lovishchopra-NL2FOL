@@ -98,7 +98,9 @@ _INT_ROWS: tuple[tuple[str, str], ...] = (
     ("INT-REQ-004", "warning|info"), ("INT-REQ-005", "error|warning"), ("INT-REQ-006", "warning"),
     ("INT-REQ-007", "error|warning"), ("INT-REQ-008", "warning"), ("INT-REQ-009", "error"), ("INT-REQ-010", "warning"),
     ("INT-REQ-011", "error"), ("INT-REQ-012", "error"), ("INT-REQ-013", "warning"), ("INT-REQ-014", "warning"),
-    ("INT-REQ-015", "error"), ("INT-REQ-016", "warning"), ("INT-REV-001", "error"), ("INT-REV-002", "warning"), ("INT-STALE-001", "error"),
+    ("INT-REQ-015", "error"), ("INT-REQ-016", "warning"), ("INT-REV-001", "error"), ("INT-REV-002", "warning"),
+    # the meaning label (stage 2a): a sentence it names (deterministic=False), an answer it could not read (its kind in the message)
+    ("INT-SELF-001", "warning"), ("INT-SELF-002", "warning"), ("INT-STALE-001", "error"),
     ("INT-STALE-002", "error"),
     ("INT-STALE-003", "error"), ("INT-STALE-004", "error"), ("INT-STALE-005", "error"), ("INT-STALE-006", "error"),
     ("INT-STALE-007", "error"), ("INT-STALE-008", "error"), ("INT-STALE-009", "error"), ("INT-STALE-010", "error"),

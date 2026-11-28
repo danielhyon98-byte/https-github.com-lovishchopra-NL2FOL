@@ -12,8 +12,11 @@ matching, since the memo's directories are the real ones and the copied modules 
 ``rules_digest()`` reuses the real tree's closure and ignores a module added to the copy (found when
 ``test_a_new_module_of_the_reader_changes_the_digest`` failed after other tests in one process and passed alone). Each test here
 therefore starts from an EMPTY memo, discarded at teardown, so every closure and digest a test sees is computed from the files
-under its own ``_HERE``, and a test can neither see nor leave another test's state. Nothing is asserted differently; the reader
-is unchanged (its memo key is a stage-2 item of the meaning check, with the reader's version bump).
+under its own ``_HERE``, and a test can neither see nor leave another test's state. Nothing is asserted differently.
+
+Since c3k (stage 2a of the meaning check, rules ``selfcert-5``) the cause is fixed in the reader: the memo is keyed on the
+directories it reads (``selfcert._memo_roots``), so neither leak can happen (``test_c3k_reader.py`` pins it). The isolation here
+stays: each test still starts from an empty memo.
 """
 from __future__ import annotations
 

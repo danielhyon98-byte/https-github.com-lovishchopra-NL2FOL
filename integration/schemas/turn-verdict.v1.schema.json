@@ -225,6 +225,19 @@
           ],
           "title": "Source",
           "type": "string"
+        },
+        "withheld_self_report": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Withheld Self Report"
         }
       },
       "required": [
@@ -529,7 +542,8 @@
                 "no_deliverable_output",
                 "receipt_error_findings",
                 "not_deliverable",
-                "internal_error"
+                "internal_error",
+                "selfcert_label_unavailable"
               ],
               "type": "string"
             },

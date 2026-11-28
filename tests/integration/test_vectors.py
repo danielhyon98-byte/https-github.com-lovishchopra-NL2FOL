@@ -49,12 +49,22 @@ def test_handshake_vectors_hold_for_the_translator():
         out = evaluate(v["capabilities"], worker_env=v["worker_env"], base=v["base"])
         assert {"ok": out.ok, "code": out.code, "raw_code": out.raw_code} == v["expect"], v["name"]
     names = {v["name"] for v in _load("handshake")}
-    # one refusal per handshake code the Worker can see (001, 002, 004-007, 009-013, 016), and the router's
-    # attachment changes nothing
+    # one refusal per handshake code the Worker can see (001, 002, 004-007, 009-013, 016, and since contract 0.10 the meaning
+    # label's 017 and 018; 019, an unaccepted model, is the service's preflight only), and the router's attachment changes
+    # nothing. Rewritten for contract 0.10 (stricter: the old codes stand and the label's two are required too).
     codes = {v["expect"]["code"] for v in _load("handshake") if v["expect"]["code"]}
     assert codes == {"KIT-HS-001", "KIT-HS-002", "KIT-HS-004", "KIT-HS-005", "KIT-HS-006", "KIT-HS-007", "KIT-HS-009", "KIT-HS-010",
-                     "KIT-HS-011", "KIT-HS-012", "KIT-HS-013", "KIT-HS-016"}
+                     "KIT-HS-011", "KIT-HS-012", "KIT-HS-013", "KIT-HS-016", "KIT-HS-017", "KIT-HS-018"}
     assert "router-attached-changes-nothing" in names
+    # the meaning label (contract 0.10): a hosted Worker refuses no labeller and a fake or recorded one, admits a provider
+    # (degraded too); the simulation refuses a provider and admits the rest; a malformed member is out of contract
+    expect = {v["name"]: v["expect"]["code"] for v in _load("handshake")}
+    assert {n: expect[n] for n in sorted(expect) if "label" in n} == {
+        "label-member-missing": "KIT-HS-001", "label-model-named": "KIT-HS-001", "label-not-required": "KIT-HS-001",
+        "label-state-unknown": "KIT-HS-001", "sim-label-faithful-admitted": None, "sim-label-provider": "KIT-HS-018",
+        "sim-label-recorded-admitted": None, "staging-label-faithful": "KIT-HS-018", "staging-label-provider": None,
+        "staging-label-provider-degraded": None, "staging-label-provider-off": "KIT-HS-017", "staging-label-recorded": "KIT-HS-018",
+        "staging-label-unconfigured": "KIT-HS-017"}
 
 
 def test_code_vectors_are_the_closed_tables():

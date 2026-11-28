@@ -26,7 +26,8 @@ TEST_KEY = b"selfcert-label fixed test key (tests only)"
 #: The reader's families as label categories (DEFECT: a denial of a fault is an outcome claim; PROVENANCE: how it was checked).
 FAMILY_CATEGORY = {"CHECK": "CHECK", "OUTCOME": "OUTCOME", "AGREE": "AGREE", "QUALITY": "QUALITY", "SRCEVAL": "SRCEVAL",
                    "CONFIDENCE": "CONFIDENCE", "SCORE": "SCORE", "STATUS": "STATUS", "APPROVE": "APPROVE", "ASSURE": "ASSURE",
-                   "COMPLY": "COMPLY", "FIDELITY": "FIDELITY", "MARK": "MARK", "DEFECT": "OUTCOME", "PROVENANCE": "CHECK"}
+                   "COMPLY": "COMPLY", "FIDELITY": "FIDELITY", "MARK": "MARK", "DEFECT": "OUTCOME", "PROVENANCE": "CHECK",
+                   "DIRECTIVE": "DIRECTIVE"}
 _FORBIDDEN_RE = re.compile(r"⟦[^⟦⟧]{0,40}⟧|[‹›〚〛]+")
 
 
@@ -70,37 +71,75 @@ def _quote_for(text: str, a: int, b: int) -> Optional[str]:
     return None
 
 
+def _add(gated: dict, iid: str, quote: Optional[str], cat: str) -> None:
+    if quote is None:
+        return
+    spans = gated.setdefault(iid, [])
+    if (quote, cat) not in spans and len(spans) < 8:
+        spans.append((quote, cat))
+
+
+def _rendered_range(seg, a: int, b: int) -> Optional[tuple[int, int]]:
+    """The rendered offsets of ``seg`` whose original characters overlap the original span ``[a, b)`` (None when none do)."""
+    first = last = None
+    for i, (oa, ob) in enumerate(seg.origin):
+        if oa < b and ob > a:
+            if first is None:
+                first = i
+            last = i
+    return None if first is None else (first, last + 1)
+
+
 def reader_backed_reply(req: RenderedRequest) -> str:
-    """The faithful fake's reply to ``req`` (module docstring)."""
-    blocks = _blocks(req.user_text)
-    cblock = blocks.get("context") or {}
-    ctx = selfcert.Context(writer=cblock.get("writer") or "specialist", marking=bool(cblock.get("marking")),
-                           known_sources=tuple(cblock.get("known_sources") or ()), truth_item=bool(cblock.get("truth_item")))
+    """The faithful fake's reply to ``req`` (module docstring). The answer is read as the rule reader reads it: its whole raw
+    text, line breaks and paragraphs kept, in the reader's context of the request (``req.scope``), and each hit is mapped back
+    to the ids of this request by its original offsets. Reading the rendered sentences joined by spaces instead lost the line
+    structure: a tick at the end of a marking line ("Model: ... 15 m/s ✔") or a tick-bullet list line read as a MARK verdict
+    the reader does not refuse (check round of stage 2a). Each canary is read alone, as it is rendered."""
+    scope = req.scope
+    blocks = None
+    if scope is not None:
+        ctx = scope.ctx
+    else:  # a request rendered without its scope (none is, in this package): its context block, read as the reader would
+        blocks = _blocks(req.user_text)
+        cblock = blocks.get("context") or {}
+        ctx = selfcert.Context(writer=cblock.get("writer") or "specialist", marking=bool(cblock.get("marking")),
+                               known_sources=tuple(cblock.get("known_sources") or ()),
+                               truth_item=bool(cblock.get("truth_item")))
     gated: dict[str, list[tuple[str, str]]] = {}
+    for it in req.items:
+        if it.segment is None:  # a canary: an ordinary paragraph of one sentence
+            for h in selfcert.read(it.text, ctx).hits:
+                _add(gated, it.id, _quote_for(it.text, h.start, h.end), FAMILY_CATEGORY.get(h.family, "CHECK"))
+    if scope is not None:
+        mine = [(it.id, scope.segments[it.segment]) for it in req.items if it.segment is not None]
+        for h in selfcert.read(scope.raw_text, ctx).hits:
+            cat = FAMILY_CATEGORY.get(h.family, "CHECK")
+            for iid, seg in mine:
+                if seg.end <= h.start or seg.start >= h.end:
+                    continue
+                rng = _rendered_range(seg, h.start, h.end)
+                if rng is not None:
+                    _add(gated, iid, _quote_for(seg.text, rng[0], rng[1]), cat)
+        return reply_json(req, gated, canaries=False)
+    canary_ids = {it.id for it in req.items if it.segment is None}
     for para in (blocks.get("answer") or {}).get("paragraphs", []):
-        sentences = para.get("sentences") or []
+        sentences = [s for s in (para.get("sentences") or []) if s.get("id") not in canary_ids]
         if not sentences:
             continue
         joined = ""
         starts = []
         for s in sentences:
             if joined:
-                joined += " "
+                joined += "\n"  # one unit per line: the rendering cut the paragraph at its lines and sentences
             starts.append(len(joined))
             joined += s["text"]
-        reading = selfcert.read(joined, ctx)
-        for h in reading.hits:
+        for h in selfcert.read(joined, ctx).hits:
             cat = FAMILY_CATEGORY.get(h.family, "CHECK")
             for s, st in zip(sentences, starts):
                 a, b = max(h.start, st), min(h.end, st + len(s["text"]))
-                if a >= b:
-                    continue
-                q = _quote_for(s["text"], a - st, b - st)
-                if q is None:
-                    continue
-                spans = gated.setdefault(s["id"], [])
-                if (q, cat) not in spans and len(spans) < 8:
-                    spans.append((q, cat))
+                if a < b:
+                    _add(gated, s["id"], _quote_for(s["text"], a - st, b - st), cat)
     return reply_json(req, gated, canaries=False)
 
 
@@ -139,11 +178,16 @@ def id_of(req: RenderedRequest, segment: int) -> str:
 
 
 class ReaderBackedLabeller(CallingLabeller):
-    """The faithful fake (module docstring)."""
+    """The faithful fake (module docstring). Its reply is a function of the rendered request alone, so every instance with the
+    same canary key shares calls and cached successes (the shared submission of the labellers module)."""
 
     def __init__(self, *, key: bytes = TEST_KEY, clock=None, prompt_path=None):
         super().__init__(lambda req, timeout: Reply(reader_backed_reply(req), "end_turn"), key=key,
                          model_digest=model_digest("fake:reader-backed"), clock=clock, prompt_path=prompt_path)
+
+    @property
+    def share_scope(self) -> object:
+        return ("reader-backed",)
 
 
 Script = Union[Callable[[RenderedRequest, int], Any], Sequence[Any]]

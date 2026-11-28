@@ -139,9 +139,10 @@ def test_g1_on_this_tree_names_the_parts_phase_2_connects_and_reports_the_router
         assert "BLOCKER" in rows["G1 overseer package"]
     if _named_policies_merged():  # contract 0.3 merged: its row passes, and the contract line moved on with it (0.5 since the argument diagnosis)
         # the contract line moved to 0.6 with policy 2026.11-v5 (round-10 hold remedy c3b), to 0.7 with policy 2026.11-v6 (c3e),
-        # to 0.8 with policy 2026.11-v7 (c3g) and to 0.9 with policy 2026.11-v8 (c3h); rewritten to the current line, which G1
-        # requires exactly (was "G1 contract 0.5", then "G1 contract 0.6", "G1 contract 0.7", then "G1 contract 0.8")
-        assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.9"], out.stdout
+        # to 0.8 with policy 2026.11-v7 (c3g), to 0.9 with policy 2026.11-v8 (c3h) and to 0.10 with policy 2026.11-v9 (c3k, stage
+        # 2a of the meaning check); rewritten to the current line, which G1 requires exactly (was "G1 contract 0.5", then "G1
+        # contract 0.6", "G1 contract 0.7", "G1 contract 0.8", then "G1 contract 0.9")
+        assert "PASS" in rows["G1 named policies (contract 0.3)"] and "PASS" in rows["G1 contract 0.10"], out.stdout
     else:
         assert "BLOCKER" in rows["G1 named policies (contract 0.3)"]
     assert "PASS" in rows["G1 STEM branches"] and "PASS" in rows["G1 protocol"]
@@ -179,7 +180,8 @@ def test_on_this_tree_every_blocker_of_g1_and_of_the_translator_section_names_it
         assert [line.split("  ")[0] for line in blockers] == ["G1 overseer package"], out.stdout
     else:
         assert len(blockers) == 3, out.stdout
-        assert any(line.startswith("G1 contract 0.9") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
+        # (the current line, 0.10 since policy 2026.11-v9; was 0.9)
+        assert any(line.startswith("G1 contract 0.10") and "contract 0.2" in line and "contract 0.3 merge" in line for line in blockers)
     env = {k: v for k, v in os.environ.items() if not k.startswith("EPINOIC_")}
     out = subprocess.run([sys.executable, str(READINESS / "check.py"), "--translator", str(ROOT)], capture_output=True, text=True, timeout=600, env=env)
     [preflight] = [line for line in out.stdout.splitlines() if line.startswith("service preflight")]

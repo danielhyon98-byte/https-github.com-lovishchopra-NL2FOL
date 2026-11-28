@@ -1623,6 +1623,13 @@ rows; it decides nothing about the website. It is not a row of the table above, 
   window of a long sentence, no cap on the pieces read, every word-count line read as D7 reads it). The kit's compatibility
   record accepts only policy 2026.11-v8 and contract 0.9; its generated copies and vectors are regenerated with the kit's own
   tooling. D34 stays open as above.
+- **Changed since (c3k, stage 2a of the meaning check, POLICY_VERSION 2026.11-v9, contract 0.10):** the reader's rules are
+  `selfcert-5` (decision 5 and decision L4's companion test of D36, and the stage-1 misses closed by class), and the policy
+  identity binds the block-only meaning label (`selfcert_meaning_label`: `selfcert-label-2`, its `label_digest()` and
+  `required: true`; D36). The gate is `reader OR validated label`; with the unconfigured default every answer the reader passes
+  is withheld until labels are configured, and no label is recorded or measured yet. The kit's compatibility record accepts only
+  policy 2026.11-v9 and contract 0.10; its generated copies and vectors are regenerated with the kit's own tooling. D34 stays
+  open as above.
 
 ### D35. Translator branches for Geography and Language B
 
@@ -1651,3 +1658,78 @@ rows; it decides nothing about the website. It is not a row of the table above, 
 - **How to reverse:** route the two profiles back to `generic` and restore the three `branch` values under a new map
   version.
 - **Authority:** Daniel's instruction of 16 November 2026 to do D9 and D10.
+
+## Appendix: D36, the meaning label of the self-certification class (stage 2a of the meaning check)
+
+D36 records the owner's decision of 25 November 2026 on the block-only meaning label and what the checks service does
+with it. It is not a row of the table above, which holds the kit's decisions D1 to D33. Stage 2a wires the label into every
+release path; it records no label and measures nothing. Every label of this stage is scripted in a test or produced by the
+faithful fake, which answers exactly as the rule reader reads, so every delivery decision the reader makes is unchanged under
+it. Stage 2b records labels with deployed agents of the cheapest tier and measures them; stage 2c is the push check.
+
+### D36. The meaning label in the checks service
+
+- **Decision 1 (owner, 25 November 2026: yes).** Each answer, and each combined answer, the rule reader passes is read once
+  more, by meaning, by a small labeller on the cheapest tier, separate from translation. The label can only withhold: it never
+  releases, selects or labels an answer, raises a status or adds text. The gate is `reader OR validated label`. A valid label
+  record is required for every deliverable answer; a label that is missing, unavailable or does not re-validate withholds.
+- **L1 (taken as the design states it).** `required: true` on every hosted environment. Labels are recorded, never live, until
+  D14 and D23 allow live calls. In this kit: `EPINOIC_SELFCERT_LABEL` is `unconfigured` by default, and the hosted preflight
+  refuses a staging or production service with no labeller (`KIT-HS-017`), with a fake or recorded labeller (`KIT-HS-018`), or
+  with a provider labeller whose pair (label digest, model digest) has no acceptance record (`KIT-HS-019`). No acceptance
+  record exists yet (`integration.label.LABEL_ACCEPTANCE` is empty), so no hosted environment can start; the simulation and
+  development run with the unconfigured default (every answer the reader passes is withheld, `KIT-DL-014`), recorded labels
+  (`recorded:<directory>`) or the faithful fake, and stay preflight ready.
+- **L2 (owner, 25 November 2026: yes).** The acceptance rule and the push-check rule of the design (sections 3.6 and 3.9): a
+  measured, bounded miss rate on blind sets, every found miss fixed before the next push. An acceptance record names the
+  label version, the label digest and the model digest it was measured on; only such a pair is served on a hosted environment.
+- **L3 (taken).** The cheapest tier, on the delivery path's key and daily cap (D14), at most two label calls per answer per
+  turn (one call and its one retry).
+- **L4 (taken).** DIRECTIVE (words addressed to a checker about this answer) is inside the class, with the reader's companion
+  test, so the plain forms of a targeted suppression are caught even when a label obeys them.
+- **L5 (taken).** Trust rule T17 (a label may withhold without a deterministic check, and only withhold), delivery policy
+  `delivery-v2`, overseer pack 2.3 and integration contract 0.10 with `KIT-DL-014`. Contract 0.10 adds: the overseer refusal
+  `selfcert_label_unavailable`, decision-table row 3b (`refuse_incomplete` with `KIT-DL-014`, before row 4, never a revision
+  request), the handshake member `ports.selfcert_label`, the claim entry's `withheld_self_report`, and the codes `KIT-HS-017`
+  to `KIT-HS-019`. A label that names a self-certification refuses as a reader hit does (`not_deliverable`, `KIT-DL-006`).
+- **L6 (taken).** The code exemptions of design 2.5.5, including the two over-blocks they free (correction pairs in marking,
+  worked checks that show their computation).
+- **Decision 5 (delegated by the owner; decided GATED).** Agreement with a named source or dataset that states no value ("The
+  values agree with the XQ dataset.", "Our totals match the census.") is an unchecked certification of the answer's own
+  figures and is gated. A bare citation of a source as provenance stays free, and so do a comparison that states the values
+  on both sides, agreement with a named subject-matter reference that has content of its own (a law, a theorem, a stated
+  figure) and a worked check that shows its computation. It is a change of the rule reader, which the label follows.
+- **The context field `truth_item`.** The label request carries one router fact beyond the design's list (section 2.5.2):
+  whether the router's request asks a true-or-false item. Without it a verdict word that answers such an item ("True: ...") is
+  read as a self-certification; the faithful fake then gave one false withhold among 213 negatives. It comes from the
+  router's journaled request through `selfcert.context_for`, never from the answer.
+- **The reader frames left inside the label package.** The frames the design placed in the reader (the span frames,
+  segments, the fold index map, the imperative class, the answered-question composition, the rhetorical-question frame and
+  the evaluator frame for E-OUT) are implemented inside `epinoic_logic.selfcert_label` on the reader's public API. Behaviour
+  is the same; moving them is a later cleanup.
+- **The record's seal is not a signature.** A label record carries `seal`, the SHA-256 of the rest of the record. It shows a
+  change by anyone who does not recompute it. Integrity against a deliberate re-seal comes from the channel's journal, which
+  holds the record beside the SHA-256 of the text it labelled, and from the auditor's re-validation (`OVS-FID-010`).
+- **What the checks service does (contract 0.10).** Step 4 of a turn submits the label of each answer the reader passes,
+  against the same router request the hub labels it with, so the label runs beside the translation prefetch and the hub's
+  submission joins the same call. At step 9 the service reads the label's findings on the deliverable's receipt: an answer the
+  label could not read is never delivered (`selfcert_label_unavailable`, `KIT-DL-014`), one it names neither (`not_deliverable`,
+  `KIT-DL-006`), even where the overseer allowed it; a claim it names is listed `NOT_ELIGIBLE` with `withheld_self_report`.
+  Daily counts of answers withheld for an unavailable label, by kind, go to the metadata log, with an alarm above 2% of the
+  day's answers (counts only, never text; D15). No label text reaches a verdict, a log, the IR or the engine.
+- **Open questions (memo section 4.2; open, not decided).**
+  - **X12 and X13.** Should mark-allocation codes and end-of-proof marks become code exemptions once the 'A1 A1' and '∎' pins
+    are confirmed? Until then they stay with the model.
+  - **The model digest.** Which model identifier is configured (D23)? Its SHA-256 is what an acceptance record binds; the
+    kit only ever holds the digest.
+  - **Duplicate mode.** Should the router's documented decision keep refusing a label-blocked canonical answer rather than
+    falling back to the other member? Unchanged today.
+  - **The alarm.** Is 2% of a day's answers the right level for the outage alarm?
+  - **Who writes and judges** the blind sets, and who settles adjudication disagreements on genuine work.
+- **Who acts, when:** stage 2b records and measures labels (no acceptance record before it); the kit step of stage 2a re-pinned
+  the versions (policy 2026.11-v9, contract 0.10, `selfcert-label-2` in the policy identity); the owner answers the open
+  questions.
+- **How to reverse:** set `EPINOIC_SELFCERT_LABEL` back to `unconfigured` (every answer the reader passes is then withheld,
+  never delivered on the reader alone): there is no reader-only mode.
+- **Authority:** the owner's decision of 25 November 2026 on decision 1 and L2, with L3 to L6 as the design states them; the
+  owner's delegation of decision 5.

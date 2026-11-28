@@ -138,6 +138,7 @@ from ..named import (
 from ..translate.common import truncate
 from ..translate.contracts import ClaimRecord, ClaimVerificationOutcome, SpecialistReport, StructuralFinding, SuppliedText, TaskRecord, TranslationStatus, sha256_text
 from ..translate.diag_core import report_diagnostics
+from ..translate.outcome import withhold_labelled
 from ..translate.grounding import check_claim_sources, locate_excerpt, locate_long_elision, locate_quotation, locate_quotation_inexact
 from ..version import ARG_RULES_VERSION
 from .citations import citation_evidence
@@ -1863,6 +1864,153 @@ def _raw_claim_provenance(data: Mapping) -> list[IntegrityFinding]:
     return out
 
 
+# ------------------------------------------------------------------------------------------ the meaning label (stage 2a)
+#: The receipt codes of the meaning label (meaning-check design 2.5.6, interface (b)): INT-SELF-001 for each sentence a valid
+#: label names (place and family, never a word of the answer; ``deterministic=False``), INT-SELF-002 for an answer the label
+#: could not read (its unavailable kind). The label package names no code: ``LabelResult.findings`` takes them from here.
+SELFCERT_LABEL_CODES: Mapping[str, str] = {"named": "INT-SELF-001", "unavailable": "INT-SELF-002"}
+#: The channel's receipt severity table for the label codes (the overseer's ``emitted.py`` registers the same severities).
+#: Both are warnings: the transmission is delivered to the router with its findings (ACCEPTED_WITH_FINDINGS, never ACCEPTED) and
+#: every release path withholds the answer (a named label as a reader hit, an unavailable one as an outage, KIT-DL-014).
+SELFCERT_LABEL_SEVERITY: Mapping[str, str] = {"INT-SELF-001": "warning", "INT-SELF-002": "warning"}
+_LABEL_RULE_FAILED = "meaning-label-unavailable"
+_LABEL_FAILED_MESSAGE = ("the {what} could not be read by the meaning label (label-failed; the channel's label step failed internally): "
+                         "withheld (rule meaning-label-unavailable)")
+_WS_RE = re.compile(r"\s+")
+_SENTENCE_EDGE = ".!?\n"
+
+
+def _flat(text: str) -> str:
+    return _WS_RE.sub(" ", text or "").strip().casefold()
+
+
+def answer_label_text(report: SpecialistReport, prose: Optional[str] = None) -> str:
+    """The text the meaning label reads for a specialist's answer: exactly the text that is delivered as the answer.
+
+    * An answer that arrived as prose (``respond_text``) is that text as it arrived, which is the report's ``original_response``
+      (the service's step 4 labels the same text against the same request, so both render byte-identical label requests).
+    * A structured report (a report object or a JSON report) also carries its own texts beyond the response, which travel in the
+      delivered payload: its assumptions and unresolved issues and each claim's assumptions, assessment criteria and locators
+      (``selfcert.pieces.report_texts``: a platform note's own shape and a copy of the response are left out). The label reads
+      the response followed by each of them as a paragraph of its own, in report order, so it reads what a reader of the
+      delivered answer reads.
+
+    Raises on a report it cannot read: the caller turns that into an unavailable label (``label-failed``), never into no label."""
+    response = report.original_response
+    if prose is not None and prose == response:
+        return prose
+    from ..selfcert.pieces import report_texts
+    extra = [t for _where, _cid, t in report_texts(report) if isinstance(t, str) and t.strip()]
+    if not extra:
+        return response
+    return "\n\n".join([response] + list(dict.fromkeys(extra)))
+
+
+def synthesis_label_text(synthesis: Synthesis) -> str:
+    """The text the meaning label reads for a combined answer (``writer='combinator'``): the synthesis's student-facing text,
+    then each synthesized claim whose words the text does not already carry, then every other free text of the synthesis that
+    travels in the delivered payload and that the rule reader reads there (INT-LEDGER-029, the release paths'
+    ``payload_self_reports``): each ledger entry's reason, each conflict's description and basis, and each evidence reference's
+    locator that holds a letter. Each is a paragraph of its own, in payload order, a repeated one once. The label therefore reads
+    what a reader of the delivered synthesis reads, as :func:`answer_label_text` does for a structured report's own fields (check
+    round of stage 2a: a self-certification in a ledger reason or a conflict was delivered unlabelled)."""
+    text = synthesis.text
+    flat = _flat(text)
+    extra = [c.text for c in synthesis.claims if c.text.strip() and _flat(c.text) not in flat]
+    for c in synthesis.claims:
+        for ref in c.evidence_refs:
+            loc = getattr(ref, "locator", None)
+            if isinstance(loc, str) and any(ch.isalpha() for ch in loc):
+                extra.append(loc)
+    for e in synthesis.ledger:
+        if isinstance(e.reason, str) and e.reason.strip():
+            extra.append(e.reason)
+    for k in synthesis.conflicts:
+        for t in (k.description, k.basis):
+            if isinstance(t, str) and t.strip():
+                extra.append(t)
+    return "\n\n".join([text] + list(dict.fromkeys(extra))) if extra else text
+
+
+def _alnum_index(text: str) -> tuple[str, list[int]]:
+    """The letters and digits of ``text`` alone, case-folded one character for one, with each one's offset in ``text``."""
+    chars: list[str] = []
+    where: list[int] = []
+    for i, ch in enumerate(text):
+        if ch.isalnum():
+            low = ch.lower()
+            chars.append(low if len(low) == 1 else ch)
+            where.append(i)
+    return "".join(chars), where
+
+
+def _sentence_bounds(text: str, a: int, b: int, units: Sequence[tuple[int, int]]) -> tuple[int, int]:
+    """The bounds of the label's own unit that holds the span ``[a, b)`` (``units``: the own scope's segments as original offsets),
+    else the sentence around it by its end marks and line breaks."""
+    for ua, ub in units:
+        if ua <= a < ub:
+            return ua, max(ub, b)
+    lo = max((text.rfind(ch, 0, a) for ch in _SENTENCE_EDGE), default=-1) + 1
+    his = [i for i in (text.find(ch, max(a, b - 1)) for ch in _SENTENCE_EDGE) if i >= 0]  # the span's own end mark included
+    return lo, (min(his) + 1) if his else len(text)
+
+
+def _named_claims(text: str, spans, claims: Sequence[tuple[str, str]], units: Sequence[tuple[int, int]] = ()) -> list[str]:
+    """The claims a named span falls in. Each claim is LOCATED in the labelled text by its letters and digits alone (the parser's
+    claim text drops marks and normalises spacing: "Model: v = d / t = 15 m/s." of the sentence "Model: v = d / t = 15 m/s ✔."),
+    and a claim with an occurrence that overlaps the label's own unit holding the span is named; a claim whose words hold the
+    span's words, or whose words lie in that unit, is named too. Matching errs toward naming: a named claim never shows a
+    success status, an unnamed one keeps its own display (check round of stage 2a: a claim whose text the parser normalised was
+    never named and kept its ENTAILED display). ``units``: the own scope's segments (original offsets), when known."""
+    out: list[str] = []
+    bounds = []
+    for sp in spans:
+        a, b = int(sp.start), int(sp.end)
+        if not (0 <= a < b <= len(text)):
+            continue
+        lo, hi = _sentence_bounds(text, a, b, units)
+        bounds.append((lo, hi, _flat(text[a:b]), _flat(text[lo:hi])))
+    if not bounds:
+        return out
+    folded, where = _alnum_index(text)
+    for cid, ct in claims:
+        if cid in out:
+            continue
+        flat_claim = _flat(ct)
+        if not flat_claim:
+            continue
+        if any((quote and quote in flat_claim) or flat_claim in sentence or (sentence and sentence in flat_claim)
+               for _lo, _hi, quote, sentence in bounds):
+            out.append(cid)
+            continue
+        key, _w = _alnum_index(ct)
+        if not key:
+            continue
+        k = folded.find(key)
+        while k >= 0:
+            ca, cb = where[k], where[k + len(key) - 1] + 1
+            if any(ca < hi and cb > lo for lo, hi, _q, _s in bounds):
+                out.append(cid)
+                break
+            k = folded.find(key, k + 1)
+    return out
+
+
+@dataclass
+class _LabelPending:
+    """One answer's label between its submission (after the branch checks) and its collection (immediately before the receipt
+    is finished): the text and the router's record it is read against, the handle, or the reader's refusal (``skipped``)."""
+    text: Optional[str]
+    request: Any
+    request_json: Optional[str]
+    writer: str
+    what: str
+    labeller: Any = None
+    handle: Any = None
+    result: Any = None
+    failed: bool = False
+
+
 class TranslatorChannel:
     """One channel per router task. Keeps the message log, the requests, and every
     formalized claim transmitted so far (for cross-agent consistency)."""
@@ -1873,9 +2021,23 @@ class TranslatorChannel:
 
     def __init__(self, plan: WorkPlan, *, signing_key: bytes, key_id: str = "channel",
                  verify_claim_fn: Optional[VerifyClaimFn] = None, config: SolverConfig = SolverConfig(), registry=None,
-                 formalize_synthesis_fn: Optional[FormalizeSynthesisFn] = None, observers: Sequence[ChannelObserver] = ()) -> None:
+                 formalize_synthesis_fn: Optional[FormalizeSynthesisFn] = None, observers: Sequence[ChannelObserver] = (),
+                 selfcert_labeller: Optional[Any] = None) -> None:
         if not signing_key:
             raise ValueError("a signing key is required")
+        # The meaning label (stage 2a, interface (a)): the labeller given, else ``selfcert_label.labellers.default_labeller()``
+        # looked up at each use (never bound here), whose production default withholds every answer the reader passes.
+        if selfcert_labeller is not None:
+            from ..selfcert_label.labellers import Labeller
+            if not isinstance(selfcert_labeller, Labeller):
+                raise TypeError("selfcert_labeller must be a selfcert_label Labeller")
+        self.selfcert_labeller = selfcert_labeller
+        #: message id -> (label record JSON or None, the text the label read, the router's record JSON) of every labelled answer,
+        #: relayed report and synthesis; the call's event carries it (``events.ChannelEvent.label_json``), never a payload.
+        self.label_records: dict[str, tuple[Optional[str], str, Optional[str]]] = {}
+        #: report id -> (labelled text, request, request JSON) of the report's delivery, so a forward or relay of it is labelled
+        #: on the same text against the same request (and shares its label)
+        self._answer_labels: dict[str, tuple[str, Any, Optional[str]]] = {}
         # Observation (optional, never part of the channel's checks): the observers, and the per-instance state that owns
         # the channel uid, the event counter, the call depth and the bounded observer failures.
         self._observers: tuple[ChannelObserver, ...] = tuple(_check_observer(o) for o in observers)
@@ -2174,7 +2336,11 @@ class TranslatorChannel:
         except Exception as exc:  # adapter and contract errors become a rejection, never an exception out of the hub
             return self._withheld_text(request_message_id, text, agent_id=agent_id, report_id=report_id, branch_key=branch.key, findings=[
                 IntegrityFinding(code="INT-REQ-009", severity="error", message=f"response could not be parsed into a report by branch {branch.key}: {type(exc).__name__}: {_shape_reason(exc)}", report_ids=[report_id], agent_ids=[agent_id])])
-        return self.respond(request_message_id, report, sender_agent_id=agent_id)
+        self._prose_answer = text  # the label reads the answer as it arrived (``answer_label_text``)
+        try:
+            return self.respond(request_message_id, report, sender_agent_id=agent_id)
+        finally:
+            self._prose_answer = None
 
     def _respond_payload(self, request_message_id: str, payload, *, agent_id: str, report_id: str) -> tuple[Optional[AgentMessage], TransmissionReceipt]:
         """A response handed over as something other than text: a mapping (a report as JSON received over the wire) is
@@ -2531,6 +2697,7 @@ class TranslatorChannel:
         # INT-REQ-000 like a reply to an unknown id, never an exception.
         request_message_id, id_problem = _message_id_given(request_message_id)
         req = self.requests.get(request_message_id) if request_message_id is not None else None
+        prose, self._prose_answer = self.__dict__.get("_prose_answer"), None
         findings: list[IntegrityFinding] = []
         try:
             sender = sender_agent_id or report.agent_id
@@ -2631,6 +2798,8 @@ class TranslatorChannel:
                 findings.append(IntegrityFinding(code="INT-REQ-008", severity="warning", message=f"item {item.item_id} uses the command term {item.command_term!r}, which requires a judgement or position on degree; no judgement/point claim was found (command terms C6)", claim_ids=[]))
         constraint_results, formal_ids = self._guarded("request constraints (INT-REQ-005)", findings, lambda: self._constraints(req, report, view=view), ([], []), **rid)
         structural, branch_formal, branch_ids = self._branch_checks(report, req, findings, frozenset(covered), frozenset(form_covered))
+        # the meaning label (design 2.5.1 item 2): asked after the branch checks, collected immediately before the receipt
+        label = self._label_begin(lambda: answer_label_text(report, prose), lambda: req, writer="specialist")
         # a quotation refuted against the supplied texts is not also "unverifiable"; with no text supplied, a quotation the
         # request alone refutes keeps the pack's CORE-SRC-003 beside the error (no supplied text holds it either)
         refuted = {cid for f in uncredited if supplied for cid in f.claim_ids}
@@ -2661,9 +2830,12 @@ class TranslatorChannel:
         # formalizations cannot displace the agent's genuine claims under the same ids.
         outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(report, findings, pool=echo is None, task=self._task_record(req)), [], **rid)
         report_named = self._guarded("argument diagnosis (report level)", findings, lambda: self._report_diagnosis(report, req, outcomes), None, **rid)
+        outcomes = self._label_end(label, msg, findings, outcomes, report=report, task_fn=lambda: self._task_record(req), **rid)
         if not _is_blocking(findings):  # delivered <=> transmitted: a synthesis may cite any report the router received
             self.transmitted_reports.setdefault(report.report_id, report)
             self.report_deliveries.setdefault(report.report_id, set()).add(msg.message_id)
+            if label.text is not None:
+                self._answer_labels.setdefault(report.report_id, (label.text, req, label.request_json))
         return self._finish(msg, "specialist_to_router", findings, coverage, constraint_results, outcomes, formal_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
                             report=report, report_named=report_named)
 
@@ -2768,6 +2940,8 @@ class TranslatorChannel:
                 if payload_obj.report_id in self.superseded:
                     findings.append(IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message=f"router forwarded report {payload_obj.report_id!r}, which agent {payload_obj.agent_id!r} superseded with report {self.superseded[payload_obj.report_id]!r} on this channel; the recipient receives a superseded report", report_ids=[payload_obj.report_id, self.superseded[payload_obj.report_id]], agent_ids=[payload_obj.agent_id, to_agent_id], message_ids=[msg.message_id]))
                 self.forwards.setdefault(payload_obj.report_id, []).append((to_agent_id, msg.message_id))
+                fwd_label = self._label_begin_report(payload_obj)
+                self._label_end(fwd_label, msg, findings, [], report=payload_obj, report_ids=[payload_obj.report_id], agent_ids=[payload_obj.agent_id])
                 return self._finish(msg, "agent_to_agent", findings, [], [], [], branch_key=bk)
             # A specialist's relay of a report is a hand-off of a report already delivered to the router on this channel in
             # reply to a request: a new report enters only through respond(). A report never delivered is refused
@@ -2784,6 +2958,7 @@ class TranslatorChannel:
             findings += self._guarded("claim-id collision", findings, lambda: self._claim_id_collisions(payload_obj), [], **rid)
             findings += self._guarded("folded claims (INT-REQ-013)", findings, lambda: self._fold_findings(payload_obj, payload_obj.supplied_texts), [], **rid)
             structural, branch_formal, branch_ids = self._branch_checks(payload_obj, None, findings)
+            relay_label = self._label_begin_report(payload_obj)
             findings += self._guarded("credits to texts not supplied (INT-REQ-015)", findings, lambda: self._foreign_credits(payload_obj, payload_obj.supplied_texts, structural), [], **rid)
             if payload_obj.report_id in self.superseded:
                 findings.append(IntegrityFinding(code="INT-HANDOFF-014", severity="warning", message=f"agent {from_agent_id!r} relayed report {payload_obj.report_id!r}, which agent {payload_obj.agent_id!r} superseded with report {self.superseded[payload_obj.report_id]!r} on this channel; the recipient receives a superseded report", report_ids=[payload_obj.report_id, self.superseded[payload_obj.report_id]], agent_ids=sorted({from_agent_id, to_agent_id}), message_ids=[msg.message_id]))
@@ -2791,6 +2966,7 @@ class TranslatorChannel:
             outcomes = self._guarded("claim verification", findings, lambda: self._verify_claims(payload_obj, findings, pool=False), [], **rid)
             relayed_report, relayed_named = payload_obj, self._guarded("argument diagnosis (report level)", findings,
                                                                        lambda: self._report_diagnosis(payload_obj, None, outcomes), None, **rid)
+            outcomes = self._label_end(relay_label, msg, findings, outcomes, report=payload_obj, **rid)
         else:
             findings += self._synthesis_id_reuse(payload_obj, msg, findings)
             if _is_blocking(findings):  # an invalid synthesis, an unselected or impersonating combinator, or a reused synthesis id: its ledger is not examined
@@ -2807,6 +2983,9 @@ class TranslatorChannel:
             branch_ids += ent_ids
             findings = self._state_synthesis_checks(findings, checked)
             findings += self._guarded("unchecked paraphrases (INT-SYNTH-012)", findings, lambda: self._unchecked_paraphrases(payload_obj, scope, checked), [], **sid)
+            synthesis = payload_obj
+            synth_label = self._label_begin(lambda: synthesis_label_text(synthesis), self._synthesis_request, writer="combinator")
+            self._label_end(synth_label, msg, findings, [], synthesis=synthesis, agent_ids=[synthesis.combinator_agent_id])
             if not _is_blocking(findings):
                 self.syntheses.setdefault(payload_obj.synthesis_id, payload_obj)
         return self._finish(msg, "agent_to_agent", findings, [], [], outcomes, branch_ids, structural=structural, branch_formal=branch_formal, branch_key=bk,
@@ -3028,6 +3207,151 @@ class TranslatorChannel:
                     f = f.model_copy(update={"message": f.message.replace("check required", "check " + _NOT_PERFORMED)})
             out.append(f)
         return out
+
+    # ------------------------------------------------------------------ the meaning label (stage 2a)
+    def _labeller(self) -> Any:
+        """The labeller of this channel: the one it was given, else the default looked up NOW (interface (a))."""
+        if self.selfcert_labeller is not None:
+            return self.selfcert_labeller
+        from ..selfcert_label import labellers  # the module, read at use time: the one switch is set_default_labeller
+        return labellers.default_labeller()
+
+    def _synthesis_request(self) -> dict:
+        """The router's record a synthesis is labelled against: the plan's subject and task type, the first request's text and
+        every text the router supplied on this channel (by document id, first copy), so quotations of a supplied text are
+        located by code and its title is a known source. Deterministic over the channel's requests; journaled with the record."""
+        reqs = list(self.requests.values())
+        texts: dict[str, Any] = {}
+        for r in reqs:
+            for t in r.supplied_texts:
+                texts.setdefault(t.document_id, t.model_dump(mode="json", exclude_none=True))
+        out: dict[str, Any] = {"subject": self.plan.subject, "task_type": self.plan.task_type, "supplied_texts": list(texts.values())[:16]}
+        if reqs:
+            out["user_input"] = reqs[0].user_input
+        return out
+
+    def _label_begin_report(self, report: SpecialistReport) -> "_LabelPending":
+        """The label of a report carried again (a forward or a relay): the text and request of its delivery, so it shares the
+        delivery's label; a report with no delivery on this channel is read as a structured report against no request."""
+        held = self._answer_labels.get(report.report_id)
+
+        def delivery() -> tuple[str, Any]:
+            if held is not None and held[0] == answer_label_text(report, held[0]):
+                return held[0], held[1]
+            return answer_label_text(report), None
+        got: list = []
+        return self._label_begin(lambda: got.append(delivery()) or got[0][0], lambda: got[0][1] if got else None, writer="specialist")
+
+    def _label_begin(self, text_fn: Callable[[], str], request_fn: Callable[[], Any], *, writer: str) -> "_LabelPending":
+        """Submit the label of one answer (design 2.5.1 item 2). The rule reader reads the text first, with the context of the
+        router's request: a reader refusal journals a ``skipped`` record (reason ``reader-refused``) and makes no label call;
+        otherwise the label is submitted with the same request the service's step 4 renders (interface (e)). Never raises:
+        a failure here is collected as ``label-failed`` (INT-SELF-002)."""
+        what = "synthesis" if writer == "combinator" else "answer"
+        pending = _LabelPending(text=None, request=None, request_json=None, writer=writer, what=what)
+        try:
+            pending.text = text_fn()
+            if not isinstance(pending.text, str):
+                raise TypeError("the labelled text is not a string")
+            request = pending.request = request_fn()
+            pending.request_json = canonical_json(request) if request is not None else None
+            pending.labeller = self._labeller()
+            from .. import selfcert
+            try:
+                ctx = selfcert.context_for(request, writer=writer)
+            except Exception:  # noqa: BLE001 - the strict default, as the label package reads it
+                ctx = selfcert.Context(writer=writer)
+            if selfcert.read(pending.text, ctx).refuses():
+                pending.result = pending.labeller.skipped(pending.text, request, writer=writer)
+            else:
+                pending.handle = pending.labeller.submit(pending.text, request, writer=writer)
+        except Exception:  # noqa: BLE001 - label code that fails withholds (label-failed), never INT-INTERNAL-001 alone
+            pending.failed = True
+        return pending
+
+    def _label_end(self, pending: "_LabelPending", msg: AgentMessage, findings: list[IntegrityFinding], outcomes,
+                   *, report: Optional[SpecialistReport] = None, synthesis: Optional[Synthesis] = None, task_fn: Optional[Callable[[], Any]] = None,
+                   **ids):
+        """Collect the label (immediately before the receipt is finished), journal its record on the call's event, add its
+        findings (INT-SELF-001 per named sentence with the claims it falls in, INT-SELF-002 with the unavailable kind) and
+        withhold the success display of every claim it names. Returns the outcomes. Any exception in label code is INT-SELF-002
+        ``label-failed`` (never INT-INTERNAL-001 alone, never no finding); a failure is never ``none_named``."""
+        from ..selfcert_label.record import LabelResult
+        result = None
+        if not pending.failed:
+            try:
+                result = pending.result if pending.result is not None else pending.labeller.result(pending.handle)
+                if not isinstance(result, LabelResult):
+                    raise TypeError("the labeller returned no label result")
+            except Exception:  # noqa: BLE001
+                result = None
+        record_json: Optional[str] = None
+        new: list[IntegrityFinding] = []
+        named_claims: list[str] = []
+        try:
+            if result is None:
+                raise RuntimeError("no label result")
+            record_json = canonical_json(result.record)
+            claims = ([(c.claim_id, c.claim_text) for c in report.claims] if report is not None else
+                      [(c.claim_id, c.text) for c in synthesis.claims] if synthesis is not None else [])
+            units: Optional[list[tuple[int, int]]] = None
+            for f in result.findings(SELFCERT_LABEL_CODES):
+                code = f["code"]
+                cids: list[str] = []
+                if code == SELFCERT_LABEL_CODES["named"]:
+                    if units is None:
+                        units = self._label_units(pending)
+                    cids = _named_claims(pending.text, [sp for sp in result.spans if sp.place == f.get("place")], claims, units)
+                    named_claims += [c for c in cids if c not in named_claims]
+                new.append(IntegrityFinding(code=code, severity=SELFCERT_LABEL_SEVERITY[code], message=f["message"], deterministic=False,
+                                            claim_ids=cids, message_ids=[msg.message_id], **ids))
+            if result.withholds and result.state != "skipped" and not new:
+                raise RuntimeError("a withholding label gave no finding")
+        except Exception:  # noqa: BLE001 - fail closed: the answer is withheld as unavailable (label-failed)
+            record_json = record_json if result is not None and result.state == "unavailable" else self._failed_record(pending)
+            named_claims = []
+            new = [IntegrityFinding(code=SELFCERT_LABEL_CODES["unavailable"], severity="warning", deterministic=False,
+                                    message=_LABEL_FAILED_MESSAGE.format(what=pending.what), message_ids=[msg.message_id], **ids)]
+        self.label_records[msg.message_id] = (record_json, pending.text if isinstance(pending.text, str) else "", pending.request_json)
+        findings.extend(new)
+        if not named_claims or report is None or not outcomes:
+            return outcomes
+        claim_of = {c.claim_id: c for c in report.claims}
+        try:
+            task = task_fn() if task_fn is not None else None
+        except Exception:  # noqa: BLE001 - the recomposition reads the task record when it can; the display is withheld either way
+            task = None
+        out = []
+        for o in outcomes:
+            if o.claim_id in named_claims and o.claim_id in claim_of:
+                try:
+                    o = withhold_labelled(o, claim_of[o.claim_id], signing_key=self.key, key_id=self.key_id, report=report, task=task)
+                except Exception:  # noqa: BLE001 - a named claim that cannot be recomposed shows no success status either
+                    if o.display_status in _PASSING:
+                        o = o.model_copy(update={"display_status": S.NOT_ELIGIBLE})
+            out.append(o)
+        return out
+
+    @staticmethod
+    def _label_units(pending: "_LabelPending") -> list[tuple[int, int]]:
+        """The label's own units of the labelled text as original offsets (the own scope the labeller read), or none when they
+        cannot be built (the claims are then located by the sentence's end marks)."""
+        try:
+            from ..selfcert_label.scope import own_scope
+            scope = own_scope(pending.text, pending.request, writer=pending.writer)
+            return [(seg.start, seg.end) for seg in scope.segments]
+        except Exception:  # noqa: BLE001 - the end marks decide
+            return []
+
+    def _failed_record(self, pending: "_LabelPending") -> Optional[str]:
+        """The record of a label that failed in the channel (``unavailable``, ``label-failed``), or None when even that cannot be
+        built (the release gate then finds no record and withholds)."""
+        try:
+            lab = pending.labeller if pending.labeller is not None else self._labeller()
+            return canonical_json(lab._failed(pending.text if isinstance(pending.text, str) else "", pending.request, pending.writer,
+                                              "label-failed").record)
+        except Exception:  # noqa: BLE001
+            return None
 
     # ------------------------------------------------------------------ internals
     @staticmethod
@@ -4330,8 +4654,11 @@ class TranslatorChannel:
                 f"{len(req.supplied_texts)} supplied text(s); findings: {', '.join(sorted({f.code for f in findings})) or 'none'}.")
         rev = req.revision
         if rev is not None:  # a revision request (channel/feedback.py); every other request's summary is unchanged
+            gate = sum(f.code in SELFCERT_LABEL_SEVERITY for f in rev.flaws)  # named apart, never beside the status word
             text += (f" Revision request {rev.round} of {rev.max_rounds} for answer {rev.revises_message_id}: {len(rev.flaws)} flaw(s) "
-                     f"({', '.join(sorted({f.code for f in rev.flaws}))}), {sum(f.basis == 'advisory' for f in rev.flaws)} advisory.")
+                     f"({', '.join(sorted({f.code for f in rev.flaws if f.code not in SELFCERT_LABEL_SEVERITY}))}"
+                     + (f"{'; ' if gate < len(rev.flaws) else ''}{gate} by place, self-certification gate" if gate else "")
+                     + f"), {sum(f.basis == 'advisory' for f in rev.flaws)} advisory.")
         return text
 
     @staticmethod
@@ -4378,4 +4705,17 @@ class TranslatorChannel:
         return (f"Transmission {status.value} via branch {branch}. Items addressed (heuristic): {covered}/{len(coverage)}. Request constraints: "
                 + (", ".join(f"{c.constraint_id}={'ok' if c.satisfied else 'FAILED' if c.satisfied is False else 'unchecked'}" for c in constraint_results) or "none")
                 + f". Report's own formal checks: {bf}. Subject findings: {subject}. Claim outcomes: {verdicts or 'none'}. "
-                f"Findings: {', '.join(sorted({f.code for f in findings})) or 'none'}. " + TranslatorChannel._argument_summary(named, named_info) + _SCOPE_TAIL)
+                f"Findings: {', '.join(sorted({f.code for f in findings if f.code not in SELFCERT_LABEL_SEVERITY})) or 'none'}. "
+                + TranslatorChannel._label_summary(findings) + TranslatorChannel._argument_summary(named, named_info) + _SCOPE_TAIL)
+
+    @staticmethod
+    def _label_summary(findings) -> str:
+        """The summary's sentence on the self-certification gate: how many sentences it names and whether the answer could not be
+        read, both withheld. Its codes are counted here, never in the code list beside a status word, and an answer it names
+        nothing in gets no sentence: nothing is ever shown as a pass."""
+        named = sum(1 for f in findings if f.code == SELFCERT_LABEL_CODES["named"])
+        unread = sum(1 for f in findings if f.code == SELFCERT_LABEL_CODES["unavailable"])
+        if not named and not unread:
+            return ""
+        parts = ([f"{named} sentence(s) named, withheld"] if named else []) + (["not read, withheld"] if unread else [])
+        return "Self-certification gate: " + "; ".join(parts) + ". "

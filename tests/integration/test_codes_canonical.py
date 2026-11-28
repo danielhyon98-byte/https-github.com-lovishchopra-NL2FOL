@@ -15,10 +15,15 @@ from epinoic_logic.integration.errors import (
 from epinoic_logic.ir.canonical import canonical_json as ir_canonical_json
 
 
-def test_handshake_codes_are_exactly_001_to_016():
-    assert sorted(HANDSHAKE_CODES) == [f"KIT-HS-{n:03d}" for n in range(1, 17)]
+def test_handshake_codes_are_exactly_001_to_019():
+    """Rewritten for contract 0.10 (meaning-check stage 2a; it pinned 001 to 016): the meaning label adds exactly three
+    start-up and handshake codes, each pinned by name here (stricter: the old pins stand, and the new codes are pinned too)."""
+    assert sorted(HANDSHAKE_CODES) == [f"KIT-HS-{n:03d}" for n in range(1, 20)]
     assert HANDSHAKE_CODES["KIT-HS-003"] == "z3_unavailable"
     assert HANDSHAKE_CODES["KIT-HS-007"] == "overseer_unavailable"
+    assert HANDSHAKE_CODES["KIT-HS-017"] == "selfcert_label_unconfigured"
+    assert HANDSHAKE_CODES["KIT-HS-018"] == "selfcert_label_not_admitted"
+    assert HANDSHAKE_CODES["KIT-HS-019"] == "selfcert_label_unaccepted"
 
 
 def test_every_code_is_unique_well_formed_and_named():

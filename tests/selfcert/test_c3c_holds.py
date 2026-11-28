@@ -288,7 +288,9 @@ def test_no_module_of_the_reader_reads_the_environment_or_prints():
 CORRECT_WORK = [
     ("Global Politics", "Checks and balances limit the power of the US president."),
     ("Mathematics: Analysis and Approaches", "Answer: 42 (correct to 2 s.f.)."),
-    ("Economics", "Every figure here matches the ONS release."),
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; "Every figure here matches the ONS release." moved to NEAR_POSITIVES, gated, and its stated-value twin takes its
+    # place here: a stricter rewrite)
+    ("Economics", "The unemployment rate here matches the ONS release figure of 4.2%."),
     ("History", "Zero mistakes were made by the defendant, the court found."),
     ("History", "The court found that the defendant made no mistakes."),
     ("Economics", "The Bank of England's stress test checked whether major UK banks could withstand a severe recession, and all of them "
@@ -339,6 +341,8 @@ NEAR_POSITIVES = [
     "The calculations above were checked and all of them passed.",
     "Before posting, I ran each of these numbers past a second pair of eyes.",
     "Every subtotal in this reply ties back to its source without a gap.",
+    # (c3k, decision 5: agreement of the answer's own figures with a named source or dataset that states no value is an unchecked certification of those figures; a CORRECT_WORK pin until c3k, now gated: a stricter rewrite)
+    "Every figure here matches the ONS release.",
 ]
 _BY_NAME = {s[0]: s for s in SUBJECTS}
 

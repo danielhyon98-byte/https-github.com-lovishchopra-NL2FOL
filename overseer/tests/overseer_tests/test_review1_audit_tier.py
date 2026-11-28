@@ -248,6 +248,14 @@ def _emitted_severities() -> dict[str, set[str]]:
             code, sev = kw.get("code"), kw.get("severity")
             if isinstance(code, ast.Constant) and isinstance(code.value, str) and code.value.startswith("INT-") and sev is not None:
                 out.setdefault(code.value, set()).add(sev.value if isinstance(sev, ast.Constant) else "<case>")
+        # made stricter in stage 2a of the meaning check: the channel raises the meaning label's codes through its severity table
+        # (``SELFCERT_LABEL_SEVERITY``, a dict literal code -> severity), not at a literal call site, so the table itself is read too
+        for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+            target = node.target if isinstance(node, ast.AnnAssign) else (node.targets[0] if isinstance(node, ast.Assign) and node.targets else None)
+            if getattr(target, "id", None) == "SELFCERT_LABEL_SEVERITY" and isinstance(node.value, ast.Dict):
+                for k, v in zip(node.value.keys, node.value.values):
+                    if isinstance(k, ast.Constant) and isinstance(v, ast.Constant) and str(k.value).startswith("INT-"):
+                        out.setdefault(k.value, set()).add(v.value)
     return out
 
 

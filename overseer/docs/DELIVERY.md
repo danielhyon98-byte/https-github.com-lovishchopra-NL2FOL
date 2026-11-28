@@ -5,8 +5,47 @@
 > (module `epinoic_overseer`), `tests/overseer/` is `overseer/tests/overseer_tests/`, `scripts/overseer/` is
 > `overseer/scripts/`, and `docs/<name>` of an overseer document is `overseer/docs/<name>`.
 
-This document describes `epinoic_logic.overseer.delivery_policy` (policy version `delivery-v1`). The policy decides what
-the router may hand on for one deliverable, and it records why in a signed receipt.
+This document describes `epinoic_logic.overseer.delivery_policy` (policy version `delivery-v2` since stage 2a of the
+meaning check; `delivery-v1` before it). The policy decides what the router may hand on for one deliverable, and it records
+why in a signed receipt.
+
+## The meaning label (delivery-v2; stage 2a of the meaning check)
+
+Every answer and every combined answer the channel delivers carries a record of the self-certification meaning label
+(`ChannelEvent.label_json` beside the exact text it read, `labelled_text`, and that text's SHA-256): a separate labeller reads
+the answer's own sentences and may only withhold (trust rule T17, pack 2.3). Every release path of the overseer reads that
+record through one gate, `epinoic_overseer.label_gate.label_gate(event, request, *, labeller=None)`, AFTER its existing reads
+(the receipt's self-report codes, the task audit's OVS-FID-005 and OVS-FID-009, and the rule reader on the payload as written):
+
+- the gate re-validates the journaled record with the labeller's own canary key and model digest (the labeller given; else the
+  channel's or the hub's configured `selfcert_labeller`; else the translator's default labeller, looked up at the moment of the
+  call, whose production default is unconfigured and withholds every answer the reader passes);
+- a usable `none_named` record allows nothing by itself: every other rule decides as before, and `none_named` is never shown
+  as a pass;
+- a `named` record refuses as a reader hit does (rule `self-certification-gate`, port refusal `not_deliverable`, KIT-DL-006),
+  named by place and family, never by a word of the answer; a `skipped` record (the reader already refuses the text) refuses as
+  the reader's own refusal, once its refusal reproduces at the gate;
+- a missing record, a record or text that is not the journaled one, a record that does not re-validate and a record whose state
+  is `unavailable` raise `LabelUnavailable`: the answer is withheld as an outage (rule `meaning-label-unavailable`, port refusal
+  `selfcert_label_unavailable`, KIT-DL-014, no revision request), never as a fault of the answer. The auditor names a delivered
+  answer whose record is missing or does not reproduce OVS-FID-010 (error; `checks/label.py`), and `audit_self_reports` reads it
+  on every path.
+
+The paths: the fallback (`_integrity`: `deliverable=False` whatever the accuracy; a claim the label names, INT-SELF-001 with its
+claim ids, leaves the accuracy's numerator and denominator, as a reader hit does), the not-checked delivery (it reads
+`deliverable`), the formal path (rule `self-report-disclosed`; the formal label stays withheld for every answer anyway), the
+router's documented decision (`consolidate.delivery_decision`; in duplicate mode it keeps refusing a label-blocked canonical
+answer, while the fallback considers the other member), the combined answer (`policy.release_decision`; the synthesis is labelled
+with the combinator as writer) and the port's refusal map (`port.REFUSAL_RULES`). The flash router reads no text: whatever its
+plan, a label-blocked candidate is never deliverable. The overseer's re-derivation of a claim's display (OVS-RES-009, OVS-TRN-007
+and the policy's own) withholds a success display of a claim the label names (NOT_ELIGIBLE), as the channel's composer does; a
+non-success display is never changed.
+
+**The receipt (delivery-v2).** `delivery_receipt/1.0` is extended additively: each candidate carries a `selfcert_label` member,
+its state (`named`, `none_named`, `unavailable` or `skipped`), the places and families a named label gives, the record's
+unavailable kind and the code that names an unusable record (INT-SELF-002, OVS-FID-010), and counts. Never the answer's words,
+never the label's output, never a success word. The delivered payload is unchanged byte for byte, no status line is added, and
+the WITHHELD wording is unchanged.
 
 ## The requirement
 

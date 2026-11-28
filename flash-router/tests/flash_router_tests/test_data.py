@@ -5,7 +5,8 @@ thresholds, the method table, the batch sizes) and its cost data, each with a di
 - a released file never changes: 0.1.0's rules and cost model are kept, pinned to the digests 0.1.0 reported in its
   identity, 0.2.0's to theirs, 0.3.0's (the flash decision maker, architecture step 3) to theirs, 0.4.0's (the system
   text sizes of the overseer's pack 2.1, and the port's N_FOLD fit-checked) to theirs, and 0.5.0's (the system text sizes
-  of the overseer's pack 2.2, round-10 hold remedy c3b; rules/5 is rules/4 re-released under its own name) to theirs;
+  of the overseer's pack 2.2, round-10 hold remedy c3b; rules/5 is rules/4 re-released under its own name) to theirs, and
+  0.6.0's (the system text sizes of the overseer's pack 2.3, meaning-check stage 2a; rules/6 is rules/5 re-released) to theirs;
 - the identity (hellos and every plan) reports the current files' digests and this release's version, which is the
   project's version and the release the manifest names for the current files;
 - the loader refuses data the planners cannot read (a repeated key, a non-JSON constant, a missing parameter);
@@ -40,13 +41,19 @@ RELEASED = {
     "cost-data-4.json": "bc66e9e945a831456517f06c25955d7ddfdbdd476d0f13229a81600115a69600",  # 0.4.0, sizes of pack 2.1
     "rules-5.json": "0afaa2be6ac296da1188774d7b7c45d47f3eebdb7601de3f6e6da44b9ab02ce0",      # 0.5.0, rules/4 re-released as rules/5
     "cost-data-5.json": "54a4d682e39eddf4993a22726215d584f63a2f70f5cf8adca62d7e09f49e97cd",  # 0.5.0, sizes of pack 2.2
+    "rules-6.json": "0b515bda462fa6039b863769923c3acfc2fe43002b0061e403699e64a1ba7393",      # 0.6.0, rules/5 re-released as rules/6
+    "cost-data-6.json": "07b795c5cf22b0ff8ceb5bf4e319368929a28a87dc80df3a2f2d56947b35bf42",  # 0.6.0, sizes of pack 2.3
 }
 #: The system text the overseer's pack 2.1 sends for each composition, in characters (its deployer README, section 4,
 #: "Input budget"; the pack's loader builds exactly these): the sizes the current cost data must price every call with.
 PACK_2_1_SYSTEM_TEXT_CHARS = {"core": 249054, "core+stem": 461507, "core+translations": 345025, "core+stem+translations": 557478}
 #: The same for pack 2.2 (round-10 hold remedy c3b: the receipt code CORE-SELF-002 listed in Kinds and codes, 194 characters more
-#: in every composition), measured with the overseer's loader: the sizes the current cost data (0.5.0) prices every call with.
+#: in every composition), measured with the overseer's loader: the sizes cost data 5 (0.5.0) priced every call with.
 PACK_2_2_SYSTEM_TEXT_CHARS = {"core": 249248, "core+stem": 461701, "core+translations": 345219, "core+stem+translations": 557672}
+#: The same for pack 2.3 (meaning-check stage 2a: the label's receipt codes INT-SELF-001 and INT-SELF-002, the auditor's OVS-FID-010
+#: and rule T17; 2,593 characters more in every composition), measured with the overseer's loader: the sizes the current cost data
+#: (0.6.0) prices every call with.
+PACK_2_3_SYSTEM_TEXT_CHARS = {"core": 251841, "core+stem": 464294, "core+translations": 347812, "core+stem+translations": 560265}
 
 
 def _canonical_sha(path: Path) -> str:
@@ -60,9 +67,9 @@ def test_every_data_file_matches_its_manifest_and_every_released_file_its_pin():
     for name, entry in MANIFEST["files"].items():
         assert _canonical_sha(DATA / name) == entry["sha256"], name
         assert RELEASED.get(name) == entry["sha256"], f"{name}: a released file never changes; a new one is pinned here when it is released"
-    # 0.5.0 (rules-4 and cost-data-4 before, from 0.4.0; rules-3 and cost-data-3 before them, from 0.3.0; rules-2 and cost-data-2
-    # before those)
-    assert MANIFEST["current"] == {"rules": "rules-5.json", "cost_data": "cost-data-5.json"}
+    # 0.6.0 (rules-5 and cost-data-5 before, from 0.5.0; rules-4 and cost-data-4 before them, from 0.4.0; rules-3 and cost-data-3
+    # from 0.3.0; rules-2 and cost-data-2 before those)
+    assert MANIFEST["current"] == {"rules": "rules-6.json", "cost_data": "cost-data-6.json"}
 
 
 def test_the_identity_reports_the_current_files_and_this_release():
@@ -158,15 +165,17 @@ def test_the_0_4_0_cost_data_priced_every_call_with_the_system_text_of_pack_2_1(
     assert {k: v for k, v in doc["methods"].items() if k != "N_FOLD"} == {k: v for k, v in previous["methods"].items() if k != "N_FOLD"}
 
 
-def test_the_current_cost_data_prices_every_call_with_the_system_text_of_the_pack_the_overseer_sends():
+def test_the_0_5_0_cost_data_priced_every_call_with_the_system_text_of_pack_2_2():
     """0.5.0 (round-10 hold remedy c3b): the overseer installed pack 2.2, which lists the receipt code CORE-SELF-002 and sends
     194 characters more system text in every composition than pack 2.1. A pack release that changes the sizes is a new
     cost-data file (rule D4): cost data 5 records pack 2.2's sizes exactly and names that pack; everything else it prices
-    with is cost data 4's. The current rules (rules/5) are rules/4 re-released under their own name with this release: the
-    same sections, parameters, methods and rules, word for word but the name line."""
-    cost, before = rules.COST_MODEL, json.loads((DATA / "cost-data-4.json").read_text(encoding="utf-8"))
-    assert MANIFEST["files"][MANIFEST["current"]["cost_data"]]["release"] == MANIFEST["files"][MANIFEST["current"]["rules"]]["release"] \
-        == __version__ == "0.5.0"
+    with is cost data 4's. Rules/5 are rules/4 re-released under their own name with that release: the same sections,
+    parameters, methods and rules, word for word but the name line.
+
+    0.6.0 made rules-6 and cost-data-6 the current files: these assertions, which held 0.5.0's current files, are kept on 0.5.0's
+    released files, which never change (as 0.5.0 kept 0.4.0's), and the current files are held to the same by the next test."""
+    cost, before = json.loads((DATA / "cost-data-5.json").read_text(encoding="utf-8")), json.loads((DATA / "cost-data-4.json").read_text(encoding="utf-8"))
+    assert MANIFEST["files"]["cost-data-5.json"]["release"] == MANIFEST["files"]["rules-5.json"]["release"] == "0.5.0"
     assert cost["name"] == "epinoic-flash-router/cost-data-5" and cost["recorded"]["system_text_pack"] == "overseer-knowledge-docs 2.2"
     assert cost["system_text_chars"] == PACK_2_2_SYSTEM_TEXT_CHARS
     assert all(cost["system_text_chars"][k] - before["system_text_chars"][k] == 194 for k in PACK_2_2_SYSTEM_TEXT_CHARS)
@@ -175,8 +184,32 @@ def test_the_current_cost_data_prices_every_call_with_the_system_text_of_the_pac
     assert {k: v for k, v in cost["recorded"].items() if k not in ("system_text_pack", "system_text_measured")} == \
         {k: v for k, v in before["recorded"].items() if k not in ("system_text_pack", "system_text_measured")}
     assert "model" not in json.dumps(cost["recorded"]).lower()
-    doc, previous = rules.RULES_DOCUMENT, json.loads((DATA / "rules-4.json").read_text(encoding="utf-8"))
+    doc, previous = json.loads((DATA / "rules-5.json").read_text(encoding="utf-8")), json.loads((DATA / "rules-4.json").read_text(encoding="utf-8"))
     assert doc["name"] == "epinoic-flash-router rules/5" and doc["rules"].startswith("epinoic-flash-router rules/5\n") and doc["version"] == 5
+    assert doc["rules"].split("\n", 1)[1] == previous["rules"].split("\n", 1)[1]
+    assert {k: v for k, v in doc.items() if k not in ("name", "rules", "version")} == {k: v for k, v in previous.items() if k not in ("name", "rules", "version")}
+
+
+def test_the_current_cost_data_prices_every_call_with_the_system_text_of_the_pack_the_overseer_sends():
+    """0.6.0 (meaning-check stage 2a): the overseer installed pack 2.3, which lists the meaning label's receipt codes INT-SELF-001
+    and INT-SELF-002, the auditor's OVS-FID-010 and rule T17, and sends 2,593 characters more system text in every composition
+    than pack 2.2. A pack release that changes the sizes is a new cost-data file (rule D4): cost data 6 records pack 2.3's sizes
+    exactly and names that pack; everything else it prices with is cost data 5's. The current rules (rules/6) are rules/5
+    re-released under their own name with this release: the same sections, parameters, methods and rules, word for word but the
+    name line."""
+    cost, before = rules.COST_MODEL, json.loads((DATA / "cost-data-5.json").read_text(encoding="utf-8"))
+    assert MANIFEST["files"][MANIFEST["current"]["cost_data"]]["release"] == MANIFEST["files"][MANIFEST["current"]["rules"]]["release"] \
+        == __version__ == "0.6.0"
+    assert cost["name"] == "epinoic-flash-router/cost-data-6" and cost["recorded"]["system_text_pack"] == "overseer-knowledge-docs 2.3"
+    assert cost["system_text_chars"] == PACK_2_3_SYSTEM_TEXT_CHARS
+    assert all(cost["system_text_chars"][k] - before["system_text_chars"][k] == 2593 for k in PACK_2_3_SYSTEM_TEXT_CHARS)
+    assert {k: v for k, v in cost.items() if k not in ("name", "system_text_chars", "recorded")} == \
+        {k: v for k, v in before.items() if k not in ("name", "system_text_chars", "recorded")}
+    assert {k: v for k, v in cost["recorded"].items() if k not in ("system_text_pack", "system_text_measured")} == \
+        {k: v for k, v in before["recorded"].items() if k not in ("system_text_pack", "system_text_measured")}
+    assert "model" not in json.dumps(cost["recorded"]).lower()
+    doc, previous = rules.RULES_DOCUMENT, json.loads((DATA / "rules-5.json").read_text(encoding="utf-8"))
+    assert doc["name"] == "epinoic-flash-router rules/6" and doc["rules"].startswith("epinoic-flash-router rules/6\n") and doc["version"] == 6
     assert doc["rules"].split("\n", 1)[1] == previous["rules"].split("\n", 1)[1]
     assert {k: v for k, v in doc.items() if k not in ("name", "rules", "version")} == {k: v for k, v in previous.items() if k not in ("name", "rules", "version")}
 
@@ -186,8 +219,9 @@ def test_the_finding_s_dossier_between_the_two_fit_limits_is_disclosed_over_budg
     Under cost data 3 (pack 2.0's sizes) one instance needed 198,174 tokens of 200,000 (fits, in_depth_cheapest); under the
     cost data of 0.4.0 (pack 2.1's) it needs 201,514: the decision says it does not fit and discloses over_budget, never
     shortening it, and the floor's one review is still planned. 0.5.0 (pack 2.2's sizes, the current cost data) needs 48
-    tokens more, 201,562 (62,312 tokens of system text for the core composition against 62,264): still over budget. The
-    0.4.0 case is kept on its released files, made current in a copy."""
+    tokens more, 201,562 (62,312 tokens of system text for the core composition against 62,264): still over budget. 0.6.0 (pack
+    2.3's sizes, the current cost data, 2,593 characters more) needs 202,211: still over budget. The 0.4.0 and 0.5.0 cases are
+    kept on their released files, made current in a copy."""
     def item_plan(router: port.FlashRouter) -> dict:
         request = {"schema": "epinoic.integration.pool-routing-request.v1", "protocol": "epinoic.integration.v1", "port_version": "1.2",
                    "items": [{"item_id": "d1", "repeated_faults": 0, "risk_signals": [], "risk_records": [], "advised": False,
@@ -204,10 +238,20 @@ def test_the_finding_s_dossier_between_the_two_fit_limits_is_disclosed_over_budg
     d = then["decision"]
     assert (d["need_tokens"], d["budget_tokens"], d["fits"], d["reasons"]) == (201514, 200000, False, ["over_budget"])
     assert not any(c["keeps_accuracy"] for c in d["candidates"])
+    released_0_5_0 = tmp_path / "data-0.5.0"  # the released 0.5.0 files (pack 2.2's sizes), made current in a copy
+    shutil.copytree(DATA, released_0_5_0)
+    manifest = json.loads((released_0_5_0 / "MANIFEST.json").read_text(encoding="utf-8"))
+    manifest["current"] = {"rules": "rules-5.json", "cost_data": "cost-data-5.json"}
+    (released_0_5_0 / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+    was = item_plan(port.FlashRouter(str(released_0_5_0)))
+    assert (was["method"], was["instances"]) == ("IN_DEPTH", [1])
+    d = was["decision"]
+    assert (d["need_tokens"], d["budget_tokens"], d["fits"], d["reasons"]) == (201562, 200000, False, ["over_budget"])
+    assert not any(c["keeps_accuracy"] for c in d["candidates"])
     now = item_plan(port.FlashRouter())
     assert (now["method"], now["instances"]) == ("IN_DEPTH", [1])
     d = now["decision"]
-    assert (d["need_tokens"], d["budget_tokens"], d["fits"], d["reasons"]) == (201562, 200000, False, ["over_budget"])
+    assert (d["need_tokens"], d["budget_tokens"], d["fits"], d["reasons"]) == (202211, 200000, False, ["over_budget"])
     assert not any(c["keeps_accuracy"] for c in d["candidates"])
     released_0_3_0 = tmp_path / "data-0.3.0"  # the released 0.3.0 files, kept at their digests, made current in a copy
     shutil.copytree(DATA, released_0_3_0)

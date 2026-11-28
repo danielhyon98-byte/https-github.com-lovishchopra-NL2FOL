@@ -453,7 +453,17 @@ def run_shadow(ctx: CheckContext) -> str:
                 return produced
         return bare
 
-    shadow = TranslatorChannel(plan, signing_key=runs_key, key_id=RUN_KEY_ID, verify_claim_fn=serve, config=cfg, registry=registry)
+    # The meaning label is replayed with the live channel's labeller (the hub's configured ``selfcert_labeller``), as the label
+    # check OVS-FID-010 re-validates with it; only a channel that was given none labels with the translator's default, looked up
+    # by the channel at use time. Replaying with the process default instead made a configured hub's clean answers differ from
+    # their receipts (INT-SELF-002 not-configured) and fail the task audit (check round of stage 2a).
+    live_labeller = None
+    try:
+        live_labeller = getattr(ctx.live, "selfcert_labeller", None) if ctx.live is not None else None
+    except Exception:  # noqa: BLE001 - the channel's default decides
+        live_labeller = None
+    shadow = TranslatorChannel(plan, signing_key=runs_key, key_id=RUN_KEY_ID, verify_claim_fn=serve, config=cfg, registry=registry,
+                               selfcert_labeller=live_labeller)
     hook = bool(info.get("formalize_synthesis_hook"))
     if hook:
         ctx.note("shadow replay: synthesis transfers not comparable (the channel had a synthesis-formalization hook)")

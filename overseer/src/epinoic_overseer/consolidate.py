@@ -340,7 +340,7 @@ class ConsolidationDecision:
 
 
 def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None,
-                      self_report_gate: bool = True) -> ConsolidationDecision:
+                      self_report_gate: bool = True, labeller: Any = None) -> ConsolidationDecision:
     """The router may deliver ``message_id`` (or, when None, the response's deliverable answer) only when the response
     verifies under the consolidation key, its status is CONSOLIDATED or CONSOLIDATED_WITH_FINDINGS, the message is its
     deliverable answer, and, at delivery (review round 3, as ``may_release`` does for a synthesis), against ``hub`` (the
@@ -353,7 +353,15 @@ def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] 
     clearance commit, where this decision allowed a deliverable answer whose receipt named CORE-SELF-001 at warning severity and
     only the port's caller added the gate). ``self_report_gate=False`` is for the delivery policy alone, which reads the same gate
     on the same answer itself with its own reasons (its formal path and its fallback), so its receipt does not name it twice; every
-    other caller keeps the default. Never raises."""
+    other caller keeps the default. Never raises.
+
+    The meaning label (stage 2a of the meaning check, rules ``self-certification-gate`` and ``meaning-label-unavailable``): after
+    every read above, the deliverable answer's journaled label record is read through the one gate
+    (:func:`.label_gate.label_gate`, with ``labeller``, else the hub's configured labeller, else the translator's default at the
+    moment of the call): a named sentence refuses as a reader hit does (``not_deliverable``), a missing or unusable record as an
+    outage (``selfcert_label_unavailable``). In duplicate mode a label-blocked canonical answer is refused here, never replaced by
+    the other member (the delivery policy's fallback considers the other member); ``self_report_gate=False`` leaves this to the
+    delivery policy too."""
     if not isinstance(resp, ConsolidatedResponse):
         return ConsolidationDecision(False, "not a consolidated response")
     try:
@@ -375,13 +383,13 @@ def delivery_decision(resp: Any, keyring: KeyRing, *, message_id: Optional[str] 
     why = _current_at_delivery(resp, target, hub)
     if why is not None:
         return ConsolidationDecision(False, why, resp.status, target)
-    why = self_report_at_delivery(resp, target, hub) if self_report_gate else None  # rule self-certification-gate (hold-fix round 3)
+    why = self_report_at_delivery(resp, target, hub, labeller=labeller) if self_report_gate else None  # rule self-certification-gate (hold-fix round 3)
     if why is not None:
         return ConsolidationDecision(False, why, resp.status, target)
     return ConsolidationDecision(True, "ok", resp.status, target)
 
 
-def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -> Optional[str]:
+def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any, *, labeller: Any = None) -> Optional[str]:
     """Rule ``self-certification-gate`` at the port's consolidated delivery (hold-fix round 2 of the round-9 push-check hold on the
     c2 clearance commit: the overseer port's single and duplicate delivery, which the service's turn check reads, delivered an
     answer whose receipt named its self-certification only at warning severity; since hold-fix round 3 :func:`delivery_decision`
@@ -393,8 +401,14 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
     for a self-report the channel let through as content (OVS-FID-005, OVS-FID-009 at any severity, :func:`.meta_notes.audit_self_reports`:
     the c3c run found this decision allowing an answer the delivery policy's fallback withheld by OVS-FID-009, so every release path
     now reads the same self-report). Read from the journal and the auditor; an answer the journal cannot show, or a task audit the
-    auditor cannot show, is refused (fail closed)."""
-    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_self_reports, payload_self_reports
+    auditor cannot show, is refused (fail closed).
+
+    Then the meaning label (stage 2a), after every read above: the task audit's OVS-FID-010 (the answer's label record missing or not
+    reproducing) and the journaled record itself (:func:`.label_gate.label_refusal`): a named sentence refuses under rule
+    ``self-certification-gate``; a missing, unusable or unavailable label under rule ``meaning-label-unavailable`` (an outage,
+    ``selfcert_label_unavailable``). Named by place, family, state and kind, never by a word."""
+    from .meta_notes import SELF_REPORT_RECEIPT_CODES, audit_label_reports, audit_self_reports, payload_self_reports
+    from .label_gate import label_refusal, labeller_of
     try:
         import json
         auditor = hub._require_auditor()
@@ -412,7 +426,7 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
         audit = next((a for a in auditor.audits(resp.channel_uid) if a.scope == "task" and a.audit_id == resp.task_audit_id), None)
         if audit is None:
             raise LookupError("the consolidation's task audit")
-        named_by_audit = audit_self_reports(audit, target)
+        named_by_audit, label_by_audit = audit_label_reports(audit_self_reports(audit, target))
         if named_by_audit:
             return (f"the task audit names a self-report the deliverable answer carries as content ({'; '.join(named_by_audit[:8])}): a delivered "
                     "answer never contains a claim that it was checked or verified (rule self-certification-gate)")
@@ -432,6 +446,19 @@ def self_report_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -
     if named:
         return (f"the deliverable answer certifies its own checking, read on the answer as written ({'; '.join(named[:8])}): a delivered answer "
                 "never contains a claim that it was checked or verified (rule self-certification-gate)")
+    # the meaning label (stage 2a), after every read above: the task audit's OVS-FID-010, then the journaled record itself
+    if label_by_audit:
+        return (f"the task audit names the deliverable answer's meaning-label record as missing or not reproducing ({'; '.join(label_by_audit[:8])}): "
+                "it is not delivered unlabelled (rule meaning-label-unavailable)")
+    refusal = label_refusal(event, receipt, labeller=labeller_of(labeller, getattr(hub, "selfcert_labeller", None)))
+    if refusal is not None and refusal.skipped:  # the record says the rule reader refuses the answer: the reader's own refusal
+        return ("the deliverable answer certifies its own checking, read on the answer as written (the rule reader refuses it, label state "
+                "skipped): a delivered answer never contains a claim that it was checked or verified (rule self-certification-gate)")
+    if refusal is not None and refusal.kind == "named":
+        return (f"the meaning label names a self-certification in the deliverable answer ({refusal.detail}): a delivered answer never contains a "
+                "claim about its own checking (rule self-certification-gate)")
+    if refusal is not None:
+        return f"the deliverable answer has no usable meaning label ({refusal.detail}): it is not delivered unlabelled (rule meaning-label-unavailable)"
     return None
 
 
@@ -462,8 +489,8 @@ def _current_at_delivery(resp: ConsolidatedResponse, target: str, hub: Any) -> O
     return None
 
 
-def may_deliver(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None) -> bool:
-    return delivery_decision(resp, keyring, message_id=message_id, hub=hub).allowed
+def may_deliver(resp: Any, keyring: KeyRing, *, message_id: Optional[str] = None, hub: Any = None, labeller: Any = None) -> bool:
+    return delivery_decision(resp, keyring, message_id=message_id, hub=hub, labeller=labeller).allowed
 
 
 # ============================================================================================ claims and keys

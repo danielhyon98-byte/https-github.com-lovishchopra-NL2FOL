@@ -7,7 +7,12 @@ One call uses one fresh hub from the overseer port (``new_hub``: a ``RouterHub``
 2. build and seal a ``WorkPlan`` (subject from the subject map, the answers' agent ids, ``deadline_at``);
 3. open the task and dispatch the student's message to each agent; the clearance of each dispatch receipt is checked
    before acting (a REJECTED dispatch is an integrity failure);
-4. prefetch translations (live providers only; :class:`~epinoic_logic.integration.verifier.PrefetchingProvider`);
+4. prefetch translations (live providers only; :class:`~epinoic_logic.integration.verifier.PrefetchingProvider`); and, for
+   each answer, the meaning label (meaning-check design 2.5.1 item 1): ``selfcert.read`` runs on the raw answer with the
+   context of the router's request; if the reader does not refuse, the label is submitted (``labeller.submit``) against the
+   same request the hub's channel labels it with, so the hub's later submission of the same answer joins this call (one
+   call, shared through the label package's in-flight table) and the label runs beside the translation prefetch. A failure
+   here costs only the head start: the hub labels the answer itself, and its receipt carries the label's findings;
 5. receive each answer as raw text (the branch parser extracts the claims; the STEM front end runs with
    ``min(STEM_CHECK_BUDGET_S, budget left)``); the clearance of each response receipt is checked before acting;
 6. (combined mode only) the combinator port's synthesis, relayed through the hub: not offered until a combinator is
@@ -15,7 +20,14 @@ One call uses one fresh hub from the overseer port (``new_hub``: a ``RouterHub``
 7. ``close``: the FINAL audit, signed under ``overseer-audit``;
 8. ``deliver``: consolidation and ``delivery_decision`` (single, duplicate), or ``release_decision`` (combined);
 9. per-claim entries of the deliverable, the counts and the decision table under the named policy: the decision is
-   made here and nothing after this step changes it;
+   made here and nothing after this step changes it. The service reads the meaning label on the deliverable's receipt
+   (the label guard, contract 0.10): a receipt carrying INT-SELF-002 (the label could not read the answer) or INT-SELF-001
+   (it names a self-certification) is never delivered, even when the overseer allowed it: the verdict's refusal is then
+   ``selfcert_label_unavailable`` (KIT-DL-014, no revision request) or ``not_deliverable`` (KIT-DL-006). A content refusal
+   of the overseer (``receipt_error_findings``, ``consolidation_conflicting``, ``no_deliverable_output``) over answers the
+   label did not read (or named) all is reported as that label refusal; an integrity refusal is kept. A claim the label
+   names is never shown as a success (``claims.claim_entries``). Daily counts of answers withheld for an unavailable
+   label, by kind, go to the metadata log with an alarm above 2% (``label.LabelOutageCounter``; counts only);
 10. when the asynchronous overseer-agent review is enabled: build the flash router's request, ask the router (in its own
     process) for a plan within what is left of the budget and at most ``router_timeout_s``, admit the plan against the
     minimum-oversight floor (or run the floor), and hand the review to the overseer port, which queues it. Any failure
@@ -52,9 +64,10 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 from .capabilities import utc_now
 from .claims import claim_entries
-from .delivery import DecisionInput, count_claims, decide, sign_verdict, summarize
+from .delivery import UNRESOLVED_REFUSALS, DecisionInput, count_claims, decide, sign_verdict, summarize
 from .errors import IntegrationError
 from .evidence_tap import EvidenceTap
+from .label import NAMED_REFUSAL, UNAVAILABLE_REFUSAL, LabelOutageCounter, receipt_label
 from .overseer_port import (
     MAX_PENDING_WAIT_MS, check_clearance, check_delivery, check_final_audit, check_review_ticket,
 )
@@ -113,7 +126,7 @@ class TurnChecker:
     def __init__(self, config: CheckerConfig, *, port: Any, corpus: Optional[FixtureCorpus] = None,
                  live_verifier: Optional[Callable[..., Any]] = None, router: Optional[RouterAttachment] = None,
                  evidence_tap: Optional[EvidenceTap] = None, clock: Callable[[], float] = time.monotonic,
-                 wall: Callable[[], str] = utc_now) -> None:
+                 wall: Callable[[], str] = utc_now, labeller: Any = None, label_counter: Optional[LabelOutageCounter] = None) -> None:
         self.cfg = config
         self.port = port
         self.corpus = corpus
@@ -122,6 +135,13 @@ class TurnChecker:
         self.tap = evidence_tap
         self.clock = clock
         self.wall = wall
+        if labeller is not None:
+            from ..selfcert_label.labellers import Labeller
+            if not isinstance(labeller, Labeller):
+                raise TypeError("labeller must be a selfcert_label Labeller")
+        #: The meaning labeller (``None``: ``selfcert_label.labellers.default_labeller()``, looked up at each use).
+        self.labeller = labeller
+        self.label_counter = label_counter if label_counter is not None else LabelOutageCounter()
 
     # ------------------------------------------------------------------------------------------------- public
 
@@ -210,6 +230,10 @@ class TurnChecker:
 
         hub = timed(lambda: self.port.new_hub(signing_key=cfg.engine_key, key_id=cfg.engine_key_id,
                                               verify_claim_fn=self._verifier(req, deadline, log), config=cfg.solver_config))
+        if self.labeller is not None:
+            # every channel the hub opens labels with the service's labeller (the hub's documented ``selfcert_labeller``);
+            # without one, the hub and step 4 each ask the default at use time
+            hub.selfcert_labeller = self.labeller
         channel = hub.open_task(plan)
         supplied = [SuppliedText(document_id=t.document_id, title=t.title, text=t.text) for t in req.task.supplied_texts]
 
@@ -226,6 +250,11 @@ class TurnChecker:
                 return self._early(req, started, hub, rc, plan, evidence, refusal="clearance_pending" if c.state == "AUDIT_PENDING" else "clearance_failed",
                                    overseer_ms_ref=lambda: overseer_ms, timed=timed, received=[], task_request=None, deadline=deadline)
             dispatched.append((a, msg, task_request))
+
+        # 4. The meaning label of each answer the reader passes, submitted now so it runs beside the translation prefetch;
+        # the hub's own submission of the same answer joins it. The handles are kept until the call ends.
+        label_handles = [self._label_submit(a.answer, task_request, deadline) for a, _msg, task_request in dispatched]
+        evidence["label"] = {"submitted": sum(1 for h in label_handles if h is not None), "answers": len(dispatched)}
 
         # 5. Receive each answer as raw text; the STEM checks get what is left of the budget (at most the module budget).
         received: list[tuple[Any, Any, Any]] = []
@@ -257,6 +286,7 @@ class TurnChecker:
         raw_delivery = timed(lambda: self.port.deliver(hub, task_id, mode=req.mode))
         evidence["port"].append({"op": "deliver", "message": dict(raw_delivery) if isinstance(raw_delivery, Mapping) else None})
         delivery = check_delivery(raw_delivery, task_id=task_id, final_audit_id=final.audit_id, answers=answers)
+        self._count_labels(received)
 
         # 9. Entries of the deliverable (the representative in duplicate mode), counts and the decision table.
         chosen = received[0]
@@ -266,12 +296,15 @@ class TurnChecker:
                                       message_id=delivery.deliverable.message_id)
             chosen = next((r for r in received if r[0].agent_id == deliverable.agent_id), received[0])
         a, reply, rc = chosen
+        allowed, refusal = self._label_guard(delivery.allowed, delivery.refusal, rc, received, evidence)
+        if not allowed:
+            deliverable = None
         claims = SpecialistReport.model_validate(reply.payload).claims if reply is not None else []
         entries, fields = claim_entries(rc, claims, a.answer, log)
         counts = count_claims(fields)
         inp = DecisionInput(policy=req.policy, revision_of=req.revision_of, receipt_status=rc.status.value,
                             receipt_error_codes=tuple(sorted({f.code for f in rc.findings if f.severity == "error"})),
-                            overseer_state=final.state, delivery_allowed=delivery.allowed, overseer_refusal=delivery.refusal,
+                            overseer_state=final.state, delivery_allowed=allowed, overseer_refusal=refusal,
                             consolidation_status=delivery.consolidation.status if delivery.consolidation is not None else None,
                             blocking=counts["blocking"], unavailable=counts["unavailable"], budget_skipped=counts["budget_skipped"])
         decision, reasons = decide(inp)
@@ -280,9 +313,62 @@ class TurnChecker:
         review = self._review(req, hub, task_id, received, dispatched[0][2], evidence, timed, deadline)
         verdict = self._assemble(req, started, plan, final.audit_id, final.channel_uid, received, rc, entries, counts, decision, reasons,
                                  deliverable=deliverable, consolidation=delivery.consolidation, final_state=final.state,
-                                 final_codes=list(final.error_codes), delivery_allowed=delivery.allowed, refusal=delivery.refusal,
+                                 final_codes=list(final.error_codes), delivery_allowed=allowed, refusal=refusal,
                                  review=review, log=log, overseer_ms=overseer_ms)
+        del label_handles  # the step-4 handles live until the decision is made (an uncollected handle costs nothing more)
         return sign_verdict(verdict, cfg.verdict_key, cfg.verdict_key_id)
+
+    # ------------------------------------------------------------------------------------------------- the meaning label
+
+    def _label_submit(self, text: str, request: Any, deadline: float) -> Any:
+        """Step 4 for one answer (module docstring): the label's handle, or ``None`` when the reader refuses the answer
+        (the hub then journals the ``skipped`` record) or anything here fails (the hub then labels the answer itself; a
+        failure here never withholds or releases anything by itself). A labeller that waits on a provider is given what is
+        left of the call's budget, on its own clock; one that computes locally has no wait to bound."""
+        try:
+            from .. import selfcert
+            from ..selfcert_label import labellers
+            lab = self.labeller if self.labeller is not None else labellers.default_labeller()  # at use time (interface (a))
+            try:
+                ctx = selfcert.context_for(request, writer="specialist")
+            except Exception:  # noqa: BLE001 - the strict default, as the channel reads it
+                ctx = selfcert.Context(writer="specialist")
+            if selfcert.read(text, ctx).refuses():
+                return None
+            label_deadline = None
+            if getattr(lab, "background", False):
+                label_deadline = lab.clock() + max(0.0, deadline - self.clock())
+            return lab.submit(text, request, writer="specialist", deadline=label_deadline)
+        except Exception:  # noqa: BLE001 - the head start is lost, nothing else: the hub labels the answer
+            return None
+
+    @staticmethod
+    def _label_guard(allowed: bool, refusal: Optional[str], rc: Any, received: Sequence[tuple[Any, Any, Any]],
+                     evidence: dict) -> tuple[bool, Optional[str]]:
+        """The label guard of step 9 (module docstring): ``(delivery allowed, refusal)`` after reading the meaning label's
+        findings on the receipts. Never raises and never allows what the overseer refused."""
+        try:
+            own, _kinds = receipt_label(rc)
+            new_allowed, new_refusal = allowed, refusal
+            if allowed and own is not None:
+                new_allowed, new_refusal = False, own
+            elif not allowed and refusal in UNRESOLVED_REFUSALS:
+                labels = [receipt_label(r)[0] for _a, _reply, r in received if getattr(getattr(r, "status", None), "value", None) != "REJECTED"]
+                if labels and all(lab is not None for lab in labels):
+                    new_refusal = NAMED_REFUSAL if NAMED_REFUSAL in labels else UNAVAILABLE_REFUSAL
+        except Exception:  # noqa: BLE001 - a guard that cannot read the receipt withholds
+            new_allowed, new_refusal = False, (refusal if not allowed and refusal is not None else UNAVAILABLE_REFUSAL)
+        if (new_allowed, new_refusal) != (allowed, refusal):
+            evidence["label_guard"] = {"overseer_allowed": allowed, "overseer_refusal": refusal, "refusal": new_refusal}
+        return new_allowed, new_refusal
+
+    def _count_labels(self, received: Sequence[tuple[Any, Any, Any]]) -> None:
+        """One count per received answer for the daily outage line (its unavailable kinds; counts only, never text)."""
+        for _a, _reply, rc in received:
+            try:
+                self.label_counter.record(receipt_label(rc)[1])
+            except Exception:  # noqa: BLE001 - monitoring never changes a verdict
+                pass
 
     def _review(self, req: TurnCheckRequest, hub: Any, task_id: str, received: Sequence[tuple[Any, Any, Any]], task_request: Any,
                 evidence: dict, timed: Callable[[Callable[[], Any]], Any], deadline: float) -> dict:
@@ -341,6 +427,7 @@ class TurnChecker:
         raw_final = timed(lambda: self.port.close(hub, req.ids.task_id))
         evidence["port"].append({"op": "close", "message": dict(raw_final) if isinstance(raw_final, Mapping) else None})
         final = check_final_audit(raw_final, task_id=req.ids.task_id)
+        self._count_labels(received)
         inp = DecisionInput(policy=req.policy, revision_of=req.revision_of, receipt_status=rc.status.value,
                             receipt_error_codes=tuple(sorted({f.code for f in rc.findings if f.severity == "error"})),
                             overseer_state=final.state, delivery_allowed=False, overseer_refusal=refusal, consolidation_status=None,

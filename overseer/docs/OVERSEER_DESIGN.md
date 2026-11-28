@@ -6405,3 +6405,27 @@ round-10 sentences and boundary (b) forms), `test_c3b_expectation_tables.py`, an
 SELF_MEASURES).
 
 **Decision 177 (rule `local-glosses` reads a second quantity only from each side; round-10 leftover R10-K2).** `local_gloss_names` read '2019 number of boats' and '2019 number of boats (Table 1)' apart because the figure sets {2019} and {2019, 1} differ, so the pooled-only re-run lost a real contradiction, OVS-JOINT-003 named it as pooling-only and an agent's false_conflict accusation was confirmed. Two glosses now name two quantities only when each states a function or a figure the other lacks, as the channel's rule same-gloss decides (`cross_check.gloss_difference`); a label number only one gloss writes reads no second quantity. Tests: `test_clearance_c3_overseer.py::test_local_glosses_read_a_quantity_apart_only_by_a_figure_or_function_on_each_side` and `::test_a_false_conflict_accusation_of_one_quantity_glossed_with_a_table_reference_is_refuted`.
+
+**Decision 178 (the self-certification meaning label at release; stage 2a of the meaning check, delivery-v2, pack 2.3).** The
+owner's decision 1 (25 November) adopted a block-only meaning label: a separate labeller, on the cheapest tier, reads one answer
+(or one combined answer) at a time and names the sentences in which it claims its own checking or correctness. The channel
+journals its record on the answer's event (`label_json`, beside `labelled_text` and its SHA-256), never in a payload. The overseer
+reads it through ONE gate, `label_gate.label_gate`, after every existing read on every release path (the fallback's
+`_integrity` and accuracy, the not-checked delivery, the formal path, `consolidate.delivery_decision`, `policy.release_decision`,
+the port's `REFUSAL_RULES`): a named sentence refuses as a reader hit does (rule `self-certification-gate`, `not_deliverable`); a
+missing, unusable or unavailable label refuses as an outage (rule `meaning-label-unavailable`, `selfcert_label_unavailable`,
+KIT-DL-014). The auditor's new OVS-FID-010 (error, `checks/label.py`) names a delivered answer whose record is missing or does
+not re-validate with the labeller's own key and model digest; an `unavailable` record is not named (INT-SELF-002 on the receipt
+already names the outage), and a `skipped` record is re-read by the rule reader without any labeller. Trust rule T17 (pack 2.3,
+Role and trust §8) states the one exception to TR3: this agent output acts without a deterministic check, and only to withhold;
+naming nothing certifies nothing. The re-derivation of a claim's display (OVS-RES-009, OVS-TRN-007, the policy's `_rederive`)
+reads INT-SELF-001's claim ids and withholds their success display, as the channel's composer does, so a display the label
+withheld is derivable. The delivery receipt's candidates gain a `selfcert_label` member (states, places, families, kinds, codes and
+counts; never words). The overseer reaches the label only through the translator's public API 1.5 (`epinoic_logic.api.label`:
+`default_labeller`, read at the moment of each call, and `labelled_text`), listed in `compat.REQUIRED_API`. Tests:
+`test_c3k_label_gate.py` (T1 under the production default on 68 recorded answers, T6, T7, T18, T19, T22, every path named and
+unavailable) and the suite's faithful-fake fixture (`conftest.py`: `ReaderBackedLabeller`, which names exactly what the reader
+names, so every existing expectation keeps its meaning; never a label measurement), with T24 applied to every receipt the suite
+produces. Rewritten to stricter rules: `test_delivery_policy.py::test_a_tampered_receipt_or_payload_no_longer_verifies` (marked
+`t24_expected_violation`, it asserts that T24 detects its forged delivered answer) and `test_review1_audit_tier.py`'s emitted-code
+scan (it reads the channel's `SELFCERT_LABEL_SEVERITY` table too).

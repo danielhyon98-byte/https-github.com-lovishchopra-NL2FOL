@@ -459,8 +459,9 @@ def test_every_rule_code_is_defined_once():
     # codes, and I98, a STEM receipt. The integration step (pack 1.4) added D33-D37 (the argument diagnosis, release, the
     # codes, statuses, rejections and policies), I99 (reading a diagnosis), K8 and N14. Pack 2.0 (architecture step 3, the
     # twofold review of a combined answer) added T15, D38-D40, I100-I104, K9, N15 and U12. Pack 2.1 (integration step 2,
-    # specialist feedback) added T16, D41, I105-I109 and N16.
-    for prefix, last in {"T": 16, "D": 41, "E": 15, "V": 20, "K": 9, "X": 3, "N": 16, "U": 12}.items():
+    # specialist feedback) added T16, D41, I105-I109 and N16. Pack 2.3 (stage 2a of the meaning check) added T17, withholding
+    # evidence (the self-certification label).
+    for prefix, last in {"T": 17, "D": 41, "E": 15, "V": 20, "K": 9, "X": 3, "N": 16, "U": 12}.items():
         assert nums[prefix] == list(range(1, last + 1)), prefix
     assert nums["I"][0] == 1 and nums["I"][-1] == 109
     assert [n for n in nums["I"] if 70 <= n < 82] == list(range(70, 82))  # the translation checks, I70 to I81
@@ -529,9 +530,10 @@ ONE_BYTE = {
     "kinds": ("06-kinds-and-codes.md", "OVS-CUST-004, OVS-CUST-006 |", "OVS-CUST-004, OVS-CUST-007 |"),
     "header": ("master_prompt.txt", "DOSSIER VERSION: 1.0", "DOSSIER VERSION: 1.1"),
     "rule_codes": ("03-inspection.md", "(I3)", "(I0)"),
-    # the footer names another version than the pack's own (the pack is 2.2 since the round-10 hold remedy c3b, which listed
+    # the footer names another version than the pack's own (the pack is 2.3 since stage 2a of the meaning check, which stated T17;
+    # 2.2 before it, from the round-10 hold remedy c3b, which listed
     # CORE-SELF-002; 2.1 before it, from integration step 2: the same one-byte rule on the installed pack's own footer)
-    "titles_and_footers": ("08-never.md", "Pack version 2.2 · overseer-knowledge-docs", "Pack version 2.3 · overseer-knowledge-docs"),
+    "titles_and_footers": ("08-never.md", "Pack version 2.3 · overseer-knowledge-docs", "Pack version 2.4 · overseer-knowledge-docs"),
     "facts": ("03-inspection.md", "`INT-LEDGER-008`", "`INT-LEDGER-009`"),
     "codes": ("06-kinds-and-codes.md", "INT-GLOSSARY-001", "INT-GLOSSARY-901"),
     "field_names": ("02-dossier.md", "`cited_result_ids`", "`cited_result_idz`"),

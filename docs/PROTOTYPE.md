@@ -37,7 +37,14 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    data: it is parsed strictly, validated against a closed schema and never executed. The engine checks consistency
    before entailment, signs every result (HMAC) and lists every premise the proof relied on that no check established.
    The release assessment is a separate record from the formal status. Versions on this tree (`epinoic-logic version`):
-   engine 0.4.0, policy 2026.11-v8, translator 0.4.0, IR 1.0, z3 5.1.0 (contract 0.9; self-certification rules `selfcert-4`).
+   engine 0.4.0, policy 2026.11-v9, translator 0.4.0, IR 1.0, z3 5.1.0 (contract 0.10; public API 1.5; self-certification
+   rules `selfcert-5`; meaning label `selfcert-label-2`; delivery policy `delivery-v2`; overseer pack 2.3).
+   **The meaning label of the self-certification class** (`src/epinoic_logic/selfcert_label/`, the owner's decision 1 of
+   25 November) is wired into every release path with the unconfigured default, so every answer the reader passes is
+   withheld until labels are configured. The gate is `reader OR validated label`; the label can only withhold, and no label
+   output reaches the IR, the compiler or Z3. Labels are recorded, never live: no provider is called, and the test suites
+   and the arena's wiring-parity runs use the faithful fake, which names exactly what the rule reader names. Nothing is
+   measured yet: no label has been recorded with deployed agents, and no miss or over-block rate is known.
 2. **STEM support** (`src/epinoic_logic/stem/`, the `sciences`, `mathematics` and `computer_science` branches). A
    front end reads answers that mix equations and prose in LaTeX, Unicode, ASCII and words, and evaluates no text. It
    turns each relation it recognises into an IR problem the engine decides: written arithmetic, substitutions, unit
@@ -51,9 +58,10 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
      accounts for its sources. The router acts on a transfer only when the auditor's clearance allows it
      (`policy.may_act`).
    - **The overseer agents** are model-based reviewers. They are built only from the package's code and an exportable,
-     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 2.2 (the architecture step added 2.0 and
-     2.1; the round-10 hold remedy c3b added 2.2, which lists the receipt code CORE-SELF-002); round 8 ran with 1.4, and
-     its clearance installed 1.5. Each of them stays pinned beside 2.2. Each agent gets
+     versioned knowledge pack. The installed pack is `overseer-knowledge-docs` 2.3 (the architecture step added 2.0 and
+     2.1; the round-10 hold remedy c3b added 2.2, which lists the receipt code CORE-SELF-002; stage 2a of the meaning check
+     added 2.3, which states trust rule T17 for the self-certification label and lists its codes); round 8 ran with 1.4, and
+     its clearance installed 1.5. Each of them stays pinned beside 2.3. Each agent gets
      a dossier and returns a verdict, which is validated against the journal and the
      signed results. A verdict is advisory: only an accusation that a deterministic check confirms reaches the router,
      and no agent changes a clearance.
@@ -68,7 +76,8 @@ that no miscommunication passes from one agent to the next unnamed. It has five 
    same exported pack. Since architecture step 2c that sizing is the flash router's decision (`flash-router/`, a
    separate agent attached through the router port), held to the overseer's own minimum-oversight floor: a plan below
    it is refused and the floor plan runs, and with no router attached the floor plan runs.
-5. **The delivery policy** (`overseer.delivery_policy`, `delivery-v1`, `docs/DELIVERY.md`). This is the founder's
+5. **The delivery policy** (`overseer.delivery_policy`, `delivery-v2` since stage 2a of the meaning check, which reads the
+   self-certification label on every path; `docs/DELIVERY.md`). This is the founder's
    four-minute rule. An answer can be delivered FORMALLY CHECKED only when, within the 240 s translation budget, every
    material eligible claim was translated, decided positively, passed the release rule and was cleared by the transfer
    audit, every claim of the answer carries a positive outcome of a signed engine result, and the receipt names no
@@ -194,6 +203,10 @@ python -m epinoic_overseer.export --verify <dir>/overseer-knowledge-docs-2.2.zip
 - Round-10 hold remedy c3b: pack 2.2 (a MINOR version: the receipt code CORE-SELF-002 listed in Kinds and codes §5 and §8),
   digest `ef3bed4fca02551f01dea7b1085829d5c6a723fed7222920761c819470771a28`, pinned in `overseer/src/epinoic_overseer/pack.py`
   and in the service (`integration/overseer_port.py`); pack 2.1 (`a60727fc…`) stays pinned beside it.
+- Stage 2a of the meaning check: pack 2.3 (a MINOR version: trust rule T17, the self-certification label that may only
+  withhold, and the codes INT-SELF-001, INT-SELF-002 and OVS-FID-010 listed), digest
+  `d5c9a8e34f8a23b86043a9b233090a952440c3d899e6ded99bdfab5b908b05e8`, pinned in `overseer/src/epinoic_overseer/pack.py` and in
+  the service (`integration/overseer_port.py`); pack 2.2 (`ef3bed4f…`) stays pinned beside it in the overseer.
 - The delivery policy loads the exported pack: `DeliveryPolicy(pack=load_pack(<zip>), provider_factory=...)`.
 
 ## 3. What round 8 measured

@@ -597,6 +597,12 @@ REMEDY2_ROUND3_RELAYED = [w.format(x=c) for c in REMEDY2_ROUND3_CORES for w in R
 #: A bare relay of the held sentence credited to a source: read as the writer's (a stricter rule than the round-1 control, which kept
 #: it the minister's). Expected True, fixed here.
 REMEDY2_ROUND3_STRICTER = ['The minister claimed that "all calculations have been verified by the system and are confirmed."']
+#: Rewritten to the stricter value (meaning-check stage 2a, decision 5 of the owner's delegated decisions, decided GATED): agreement
+#: with a named source or dataset that states no value is an unchecked certification of the answer's own figures. This sentence was
+#: in the correct-work list below (expected False); under decision 5 it is gated (expected True), so it moved here. A comparison that
+#: states the values on both sides, a bare citation of the source as provenance and a worked check that shows its computation stay
+#: free.
+REMEDY2_ROUND3_DECISION5 = ['Each figure agrees with the census data in Source B.']
 #: Correct work the round-2 correct-work lens found withheld, and controls of the same shapes: a step proved earlier in the same
 #: answer cited, a check that a theorem's conditions hold, essay signposting ("gone through", "looked over"), a research construct
 #: checked, a tool's verdict in a dated historical proof, a worked check on the answer's lead, a Spanish past passive with a named
@@ -641,7 +647,6 @@ REMEDY2_ROUND3_CORRECT_WORK = [
     'Two independent studies reached the same conclusion.',
     'The model was validated against data from 2010 to 2020.',
     "No counterexample to Goldbach's conjecture has been found below 4 x 10^18.",
-    'Each figure agrees with the census data in Source B.',
     'The tests showed that the drug reduced blood pressure.',
     'The results were the same each time the experiment was repeated.',
     'The treaty was approved by the Senate in 1920.',

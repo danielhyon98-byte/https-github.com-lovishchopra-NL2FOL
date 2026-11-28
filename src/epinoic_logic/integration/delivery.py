@@ -10,6 +10,10 @@ the verdict it receives (``integration/website/src/verify/decision-table.js``, s
 2. the receipt is REJECTED, the FINAL audit failed, or delivery was refused for a clearance, signature, custody or
    staleness reason -> ``refuse_integrity`` (KIT-DL-001, -003, -005, -006);
 3. the clearance is still pending after the bounded wait -> ``refuse_incomplete`` (KIT-DL-004);
+3b. the meaning label could not read the answer (refusal ``selfcert_label_unavailable``, contract 0.10) ->
+   ``refuse_incomplete`` (KIT-DL-014): an outage, not a fault of the answer, so never a revision request; it comes before
+   row 4 because an answer the label did not read is never delivered, whatever else it holds. A label that names a
+   self-certification is refusal ``not_deliverable`` (row 2, KIT-DL-006), as a reader hit is;
 4. error-level receipt findings, a CONFLICTING or NO_DELIVERABLE_OUTPUT consolidation, or a material claim that is
    COUNTEREXAMPLE, INCONSISTENT_PREMISES or UNSATISFIABLE -> ``revise`` when the policy allows one revision that has not
    happened yet, else ``refuse_unresolved`` (KIT-DL-002, -007, -008, -010; KIT-DL-020 after a revision);
@@ -49,7 +53,7 @@ from .protocol import (
 __all__ = [
     "REVISION_POLICIES", "QUALIFY_POLICY", "BUDGET_ATTEMPTS", "INTEGRITY_REFUSALS", "ClaimFields", "DecisionInput", "decide", "summarize",
     "count_claims", "decision_input_of", "signable_bytes", "sign_verdict", "verify_verdict_signature", "BindingContext",
-    "counts_problem", "binding_problem", "FORMAL_LABEL_RULE",
+    "counts_problem", "binding_problem", "FORMAL_LABEL_RULE", "LABEL_UNAVAILABLE_REFUSAL",
 ]
 
 #: Rule ``formal-label-withheld`` (``docs/DELIVERY.md`` condition 6d): :func:`summarize` never returns ``formally_checked``
@@ -69,6 +73,8 @@ INTEGRITY_REFUSALS: Mapping[str, str] = {
     "stale": "KIT-DL-006",
     "not_deliverable": "KIT-DL-006",
 }
+#: The overseer refusal of an answer the meaning label could not read (row 3b, KIT-DL-014; contract 0.10).
+LABEL_UNAVAILABLE_REFUSAL = "selfcert_label_unavailable"
 #: Overseer refusal labels that are unresolved content (row 4), with their delivery reason.
 UNRESOLVED_REFUSALS: Mapping[str, str] = {
     "receipt_error_findings": "KIT-DL-002",
@@ -153,6 +159,9 @@ def decide(inp: DecisionInput) -> tuple[str, list[str]]:
     # Row 3: the clearance is still pending.
     if inp.overseer_state == "AUDIT_PENDING" or inp.overseer_refusal == "clearance_pending":
         return "refuse_incomplete", ["KIT-DL-004"]
+    # Row 3b: the meaning label could not read the answer: an outage, never a revision request (contract 0.10).
+    if inp.overseer_refusal == LABEL_UNAVAILABLE_REFUSAL:
+        return "refuse_incomplete", ["KIT-DL-014"]
     # Row 4: unresolved content.
     if inp.receipt_error_codes:
         reasons.append("KIT-DL-002")
@@ -331,6 +340,9 @@ def binding_problem(verdict: Any, ctx: BindingContext) -> Optional[tuple[str, st
         return "kit_dl_030", "bound to other answers"
     if v.scope_statement != SCOPE_STATEMENT or v.audit_scope_statement != AUDIT_SCOPE_STATEMENT:  # pragma: no cover - Literal-checked
         return "kit_dl_030", "the scope statement differs from the pinned constant"
+    for c in v.claims:  # contract 0.10: a claim the meaning label names is never listed as a success
+        if c.withheld_self_report is True and (c.formal != "NOT_ELIGIBLE" or c.release_permitted):
+            return "kit_dl_030", "a claim the meaning label names is shown as a success"
     counts = {k: data["counts"][k] for k in data["counts"]}
     listed = count_claims(ClaimFields(c.materiality, c.formal, c.attempt, c.release_permitted) for c in v.claims)
     problem = counts_problem(counts, listed, len(v.claims))

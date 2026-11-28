@@ -60,6 +60,11 @@ Observation and the Overseer (optional; ``docs/OVERSEER_DESIGN.md`` sections 4, 
   - ``close()``: stops the auditor's replay worker (process mode) when the last hub using that auditor closes.
     The worker starts with the first replay job. ``RouterHub`` is a context manager.
 
+* ``selfcert_labeller=`` (meaning-check stage 2a): the labeller of the meaning label every channel the hub opens uses
+  (``TranslatorChannel(selfcert_labeller=...)``); without one, each channel asks ``selfcert_label.labellers.default_labeller()``
+  at each use, whose production default (``UnconfiguredLabeller``) withholds every answer the reader passes (INT-SELF-002,
+  ``not-configured``). The label reads exactly the text that is delivered as the answer (``channel.bus.answer_label_text``):
+  raw text as it arrived, or a structured report's response followed by its own texts.
 * ``open_task`` never loses a channel: a channel it would replace (a task id opened again) is kept in
   ``closed_channels`` (keyed by ``channel_uid``, at most :data:`MAX_CLOSED_CHANNELS`, oldest dropped first), its
   journal continues and it can still be audited (``audit(channel)``, ``audit(channel_uid)``). It is not sealed, so a
@@ -190,8 +195,16 @@ class RouterHub:
     def __init__(self, *, signing_key: bytes, key_id: str = "hub", registry: Optional[BranchRegistry] = None,
                  verify_claim_fn: Optional[VerifyClaimFn] = None, config: SolverConfig = SolverConfig(),
                  observers: Sequence[ChannelObserver] = (), auditor: Optional[Any] = None,
-                 intake: Optional[Any] = None) -> None:
+                 intake: Optional[Any] = None, selfcert_labeller: Optional[Any] = None) -> None:
         self.registry = registry or default_registry()
+        # The meaning label (meaning-check design 2.5.1 item 3, interface (a)): every channel this hub opens labels its answers
+        # with this labeller, or, when none is given, with ``selfcert_label.labellers.default_labeller()`` looked up at each use.
+        # The production default is the unconfigured labeller: every answer the reader passes is withheld (not-configured).
+        if selfcert_labeller is not None:
+            from ..selfcert_label.labellers import Labeller
+            if not isinstance(selfcert_labeller, Labeller):
+                raise TypeError("selfcert_labeller must be a selfcert_label Labeller")
+        self.selfcert_labeller = selfcert_labeller
         self.key, self.key_id, self.verify_claim_fn, self.config = signing_key, key_id, verify_claim_fn, config
         self.channels: dict[str, TranslatorChannel] = {}
         #: task id -> a quarantine channel that only issues REJECTED receipts for calls on a task no plan opened (never delivers)
@@ -235,7 +248,8 @@ class RouterHub:
 
     def open_task(self, plan: WorkPlan) -> TranslatorChannel:
         self._check_open()
-        ch = TranslatorChannel(plan, signing_key=self.key, key_id=self.key_id, verify_claim_fn=self.verify_claim_fn, config=self.config, registry=self.registry)
+        ch = TranslatorChannel(plan, signing_key=self.key, key_id=self.key_id, verify_claim_fn=self.verify_claim_fn, config=self.config, registry=self.registry,
+                               selfcert_labeller=self.selfcert_labeller)
         if self.auditor is not None:
             ch.add_observer(self.auditor.observer_for(ch))
         for obs in self.observers:
@@ -316,7 +330,8 @@ class RouterHub:
         ch = self._unopened.get(key)
         if ch is None:
             plan = WorkPlan(plan_id="unopened-task", request_id="unopened-task", task_id=key, subject="generic", task_type="unopened", selected_agent_ids=[_NO_AGENT])
-            ch = TranslatorChannel(plan, signing_key=self.key, key_id=self.key_id, verify_claim_fn=None, config=self.config, registry=self.registry)
+            ch = TranslatorChannel(plan, signing_key=self.key, key_id=self.key_id, verify_claim_fn=None, config=self.config, registry=self.registry,
+                                   selfcert_labeller=self.selfcert_labeller)
             self._unopened[key] = ch
         return ch
 

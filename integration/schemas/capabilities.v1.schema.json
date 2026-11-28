@@ -288,6 +288,9 @@
         "router": {
           "$ref": "#/$defs/RouterPortCaps"
         },
+        "selfcert_label": {
+          "$ref": "#/$defs/SelfcertLabelCaps"
+        },
         "specialist": {
           "$ref": "#/$defs/SpecialistPortCaps"
         },
@@ -301,7 +304,8 @@
         "overseer",
         "translation",
         "combinator",
-        "router"
+        "router",
+        "selfcert_label"
       ],
       "title": "Ports",
       "type": "object"
@@ -418,6 +422,69 @@
         "digests"
       ],
       "title": "SelfTestReport",
+      "type": "object"
+    },
+    "SelfcertLabelCaps": {
+      "additionalProperties": false,
+      "description": "The meaning label as the handshake reports it (contract 0.10, meaning-check stage 2a): its version and digest, the\nconfigured model's digest (a SHA-256, never a name; ``None`` when no model is configured), the labeller's kind and its\nstate at this request (``ok``, ``degraded`` while a circuit breaker is open, ``off`` with no labeller). The label is\nrequired on every release path: with no labeller every answer the reader passes is withheld.",
+      "properties": {
+        "label_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Label Digest",
+          "type": "string"
+        },
+        "labeller": {
+          "enum": [
+            "unconfigured",
+            "recorded",
+            "faithful",
+            "provider",
+            "other"
+          ],
+          "title": "Labeller",
+          "type": "string"
+        },
+        "model_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Digest"
+        },
+        "required": {
+          "const": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "ok",
+            "degraded",
+            "off"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^selfcert-label-[0-9]{1,4}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "label_digest",
+        "required",
+        "labeller",
+        "state"
+      ],
+      "title": "SelfcertLabelCaps",
       "type": "object"
     },
     "ServiceLimits": {

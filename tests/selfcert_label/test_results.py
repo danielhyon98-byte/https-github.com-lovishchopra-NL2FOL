@@ -59,8 +59,9 @@ def test_t4_one_named_span_gives_one_finding_by_place_and_family_and_no_word_of_
     (f,) = res.findings(CODES)
     assert (f["code"], f["place"], f["family"], f["severity"], f["deterministic"]) == (
         "INT-SELF-001", "paragraph 2, sentence 1", "OUTCOME", "warning", False)
+    # (rewritten, stage 2a: the message names the label version, which moved selfcert-label-1 -> selfcert-label-2)
     assert f["message"] == ("paragraph 2, sentence 1 of the answer: the meaning label names a self-certification (family OUTCOME; "
-                            "label selfcert-label-1): never delivered (rule self-certification-gate)")
+                            "label selfcert-label-2): never delivered (rule self-certification-gate)")
     (sp,) = res.record["spans"]
     assert NAMED[sp["start"]:sp["end"]] == QUOTE
     outside = _all_but_raw(res.record) + json.dumps(res.findings(CODES))
@@ -85,7 +86,8 @@ def test_the_record_holds_every_required_field(key, test_prompt):
     # (rewritten to a stricter rule, attack round 16: the record also carries its seal, the SHA-256 of everything else in it)
     assert set(rec) == {"record", "input_key", "label_version", "label_digest", "model_digest", "writer", "state", "kind", "spans",
                         "exemptions", "canary", "attempts", "seal"}
-    assert rec["record"] == "selfcert-label-record/1" and rec["label_version"] == "selfcert-label-1"
+    # (rewritten, stage 2a: the record carries the label version, which moved selfcert-label-1 -> selfcert-label-2)
+    assert rec["record"] == "selfcert-label-record/1" and rec["label_version"] == "selfcert-label-2"
     assert re.fullmatch(r"[0-9a-f]{64}", rec["model_digest"]) and rec["model_digest"] == model_digest("fake:scripted")
     (a,) = rec["attempts"]
     assert set(a) == {"chunk", "part", "attempt", "diagnostic", "request_key", "raw_reply", "raw_sha256", "stop_reason",
@@ -206,6 +208,7 @@ def test_a_reply_closes_the_breaker_count(key, test_prompt):
     assert lab.health() == "ok" and lab.consecutive == 3
 
 
+@pytest.mark.real_labeller  # (stage 2a: the suite installs the faithful fake as the default; this test reads the PRODUCTION one)
 def test_the_default_labeller_is_unconfigured_and_withholds_everything(key, test_prompt):
     lab = default_labeller()
     assert isinstance(lab, UnconfiguredLabeller) and lab.health() == "off"

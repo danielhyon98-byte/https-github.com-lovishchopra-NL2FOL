@@ -42,6 +42,9 @@ HANDSHAKE_CODES: Mapping[str, str] = MappingProxyType({
     "KIT-HS-014": "transport_unconfigured",
     "KIT-HS-015": "handshake_unreachable",
     "KIT-HS-016": "timing_infeasible",
+    "KIT-HS-017": "selfcert_label_unconfigured",
+    "KIT-HS-018": "selfcert_label_not_admitted",
+    "KIT-HS-019": "selfcert_label_unaccepted",
 })
 
 REQUEST_CODES: Mapping[str, str] = MappingProxyType({
@@ -73,6 +76,7 @@ DELIVERY_CODES: Mapping[str, str] = MappingProxyType({
     "KIT-DL-011": "checks_incomplete",
     "KIT-DL-012": "ambiguous_material_claim",
     "KIT-DL-013": "budget_spent",
+    "KIT-DL-014": "selfcert_label_unavailable",
     "KIT-DL-020": "revision_exhausted",
     "KIT-DL-030": "worker_binding_mismatch",
     "KIT-DL-900": "internal_error",
@@ -143,7 +147,7 @@ WORKER_RAW_CODES: tuple[str, ...] = (
     "verifier_binding_mismatch",
     # delivery decisions
     "kit_dl_001", "kit_dl_002", "kit_dl_003", "kit_dl_004", "kit_dl_005", "kit_dl_006", "kit_dl_007", "kit_dl_008",
-    "kit_dl_010", "kit_dl_011", "kit_dl_012", "kit_dl_013", "kit_dl_020", "kit_dl_030", "kit_dl_900",
+    "kit_dl_010", "kit_dl_011", "kit_dl_012", "kit_dl_013", "kit_dl_014", "kit_dl_020", "kit_dl_030", "kit_dl_900",
     # the turn.js release gate
     "kit_gate_binding", "kit_gate_decision", "kit_gate_review", "kit_gate_checks", "kit_gate_raw_body", "kit_gate_size",
 )

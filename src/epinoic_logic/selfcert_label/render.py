@@ -29,7 +29,7 @@ from .scope import Chunk, OwnScope
 __all__ = ["RenderError", "RenderedRequest", "Item", "render_request", "system_text", "schema_bytes", "PROMPT_PATH",
            "SCHEMA_PATH", "MAX_TOKENS", "LABEL_VERSION"]
 
-LABEL_VERSION = "selfcert-label-1"
+LABEL_VERSION = "selfcert-label-2"
 _HERE = pathlib.Path(__file__).resolve().parent
 #: The frozen system prompt (owned by the prompt author; read as opaque UTF-8).
 PROMPT_PATH = _HERE / "prompt.md"
@@ -63,6 +63,10 @@ class RenderedRequest:
     diagnostic: tuple[str, ...]
     items: tuple[Item, ...] = field(repr=False)
     max_tokens: int = MAX_TOKENS
+    #: the own scope the request was rendered from. It is not rendered and not in the request key (the key binds the user text):
+    #: it is carried for the faithful fake, which reads the answer's raw text as the rule reader does (its line structure and
+    #: paragraphs kept) and maps each hit back to the ids of this request (meaning-check design 3.4)
+    scope: Optional[OwnScope] = field(default=None, repr=False, compare=False)
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -198,4 +202,4 @@ def render_request(scope: OwnScope, chunk: Chunk, *, key: bytes, input_key: str,
         h.update(len(part_bytes).to_bytes(8, "big"))
         h.update(part_bytes)
     return RenderedRequest(system_text=sys_text, user_text=user, request_key=h.hexdigest(), chunk=chunk.index, part=part,
-                           attempt=attempt, diagnostic=tuple(diagnostic), items=tuple(items))
+                           attempt=attempt, diagnostic=tuple(diagnostic), items=tuple(items), scope=scope)

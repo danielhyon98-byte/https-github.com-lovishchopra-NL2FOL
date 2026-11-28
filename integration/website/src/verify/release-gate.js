@@ -47,7 +47,8 @@ const ROUTER_VERSION = /^[0-9]{1,4}(?:\.[0-9]{1,4}){0,3}$/;
 const FORMAL = freeze(["ENTAILED", "COUNTEREXAMPLE", "INCONSISTENT_PREMISES", "CONSISTENT", "SATISFIABLE", "UNSATISFIABLE", "UNKNOWN", "TIMEOUT",
   "UNSUPPORTED", "INVALID_FORMALIZATION", "AMBIGUOUS_TRANSLATION", "NOT_ELIGIBLE", "INTERNAL_ERROR", "NOT_ATTEMPTED"]);
 const REFUSALS = freeze(["clearance_failed", "clearance_pending", "final_audit_not_passed", "signature_invalid", "custody_failed", "stale",
-  "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "internal_error"]);
+  "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "internal_error",
+  "selfcert_label_unavailable"]);
 
 const codePoints = (s) => [...s].length;
 const str = (re, { min = 0, max = Infinity } = {}) => (v) => typeof v === "string" && (re === null || re.test(v)) && codePoints(v) >= min && codePoints(v) <= max;
@@ -109,7 +110,7 @@ const VERDICT = obj({
     attempt: oneOf("attempted", "not_eligible", "skipped_cap", "skipped_budget", "provider_unavailable", "stem_budget"),
     fidelity: oneOf("faithful", "unfaithful", "uncertain", "missing", "stale", "unbound", "without_evidence"),
     evidence_resolved: bool, release_permitted: bool,
-  }, { result_id: orNull(str(ID)), binding_digest: orNull(str(SHA)) }), { max: 32 }),
+  }, { result_id: orNull(str(ID)), binding_digest: orNull(str(SHA)), withheld_self_report: orNull(lit(true)) }), { max: 32 }),
   summary: orNull(oneOf("formally_checked", "partly_checked", "formal_only", "not_formally_checkable", "incomplete")),
 });
 
@@ -176,6 +177,10 @@ export async function bindingProblem(verdict, ctx) {
   for (const [agentId, text, resultSha] of ctx.answers) sent.push(pairKey([agentId, await sha256Text(text), resultSha]));
   const got = v.bound.answers.map((a) => pairKey([a.agent_id, a.answer_sha256, a.result_sha256]));
   if (JSON.stringify([...sent].sort(compareCodePoints)) !== JSON.stringify([...got].sort(compareCodePoints))) return ["kit_dl_030", "bound to other answers"];
+  // contract 0.10: a claim the meaning label names is never listed as a success (the service's binding_problem, same rule)
+  for (const c of v.claims) {
+    if (c.withheld_self_report === true && (c.formal !== "NOT_ELIGIBLE" || c.release_permitted !== false)) return ["kit_dl_030", "a claim the meaning label names is shown as a success"];
+  }
   const listed = countClaims(v.claims.map((c) => ({ materiality: c.materiality, formal: c.formal, attempt: c.attempt, release_permitted: c.release_permitted })));
   const countsDetail = countsProblem(v.counts, listed, v.claims.length);
   if (countsDetail !== null) return ["kit_dl_030", countsDetail];

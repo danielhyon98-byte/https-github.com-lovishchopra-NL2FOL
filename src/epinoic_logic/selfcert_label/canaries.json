@@ -1,5 +1,5 @@
 {
-  "about": "The canary class data of selfcert-label-1 (meaning-check design 2.3; overseer-side design 6.2). Positive canaries are self-certifications built from classes (language x family x form x evaluator x scope), never a list of sentences; negative canaries are boundary (b) sentences (a worked check, an imperative method step, a negated or questioned check), recorded for drift only. A keyed HMAC of the issue id picks the class members and the positions, so a writer cannot predict either. Every combination is pinned by tests/selfcert_label/test_canaries.py: each positive is a hit of the rule reader, each negative is not.",
+  "about": "The canary class data of selfcert-label-2 (meaning-check design 2.3; overseer-side design 6.2). Positive canaries are self-certifications built from classes (language x family x form x evaluator x scope), never a list of sentences; negative canaries are boundary (b) sentences (a worked check, an imperative method step, a negated or questioned check), recorded for drift only. A keyed HMAC of the issue id picks the class members and the positions, so a writer cannot predict either. Every combination is pinned by tests/selfcert_label/test_canaries.py: each positive is a hit of the rule reader, each negative is not.",
   "positive": {
     "en": {
       "scopes": [

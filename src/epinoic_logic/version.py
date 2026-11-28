@@ -119,6 +119,22 @@ History of the self-certification bumps (round-10 clearance c3, its hold remedy 
   ("confirmed by the 1921 census") and the other readings of ``selfcert-3`` are unchanged. The Geography and Language B
   corrections of the same run change deterministic packs only (decision D35) and carry no version reason of their own.
   Contract 0.8 to 0.9.
+* POLICY_VERSION 2026.11-v9 (c3k, stage 2a of the meaning check; the owner's decision 1 of 25 November with its acceptance rule
+  L2): the block-only meaning label of the self-certification class is part of the policy. ``engine.identity.policy_manifest``
+  gains ``selfcert_meaning_label`` (the meaning label's ``LABEL_VERSION`` ``selfcert-label-2``, ``label_digest()`` over its prompt,
+  schema, canary and exemption data, every module of the package and the rule reader's digest, and ``required: true``), so a
+  change to any of them without a version bump still makes every result of another build stale. Every release path gates on
+  ``reader OR validated label``: a sentence the label names withholds as a reader hit does, and a missing, failed or
+  non-revalidating label withholds as unavailable, never as a pass. The production default is the unconfigured labeller, so
+  every answer the reader passes is withheld until labels are configured; no label is recorded or measured yet. The label can
+  only withhold: no label output reaches the IR, the compiler or the solver, and the model is configuration (only the SHA-256
+  of its configured identifier is recorded), never part of the policy. Eligibility rule 0 reads the self-certification rules
+  ``selfcert-5``: decision 5 (agreement of the answer's own figures with a named source or dataset that states no value is
+  gated, "The values agree with the XQ dataset."; a bare citation of a source, values stated on both sides, a reference with
+  content of its own and a worked check that shows its computation stay free), decision L4's companion test (an instruction to
+  a checker, marker, reviewer, grader, labeller or overseer about this answer, family DIRECTIVE), and the stage-1 misses closed
+  by class (``selfcert.SELFCERT_RULES`` lists them). Contract 0.9 to 0.10, delivery policy ``delivery-v2``, overseer pack 2.3
+  and public API 1.5 come with it.
 
 Argument diagnostics (ported onto this tree; docs/ARGUMENT_DIAGNOSTICS.md, section "Port onto the
 integrated translator"):
@@ -134,7 +150,7 @@ integrated translator"):
 """
 IR_VERSION = "1.0"
 ENGINE_VERSION = "0.4.0"
-POLICY_VERSION = "2026.11-v8"
+POLICY_VERSION = "2026.11-v9"
 TRANSLATOR_VERSION = "0.4.0"
 #: The version of the argument-diagnosis rules (``named``, ``engine.argument`` and the claim and report rule modules).
 ARG_RULES_VERSION = "argdiag-2"

@@ -14,6 +14,7 @@ Modules (live tier L1-L6, re-derivation R2, batch tier B1-B5):
 * ``results``   L3: RES-001..006, 009, 010 (RES-007/008 come from the replayer)
 * ``formal``    L4: FORM-001/002; R2: FORM-002 (branch), FORM-003/004
 * ``fidelity``  L5: FID-001..008 (FID-009 with ``selfcert``)
+* ``label``     L5: FID-010 (the meaning label's record of a delivered answer: missing or not reproducing; stage 2a)
 * ``selfcert``  the independent structural self-certification detector
 * ``translation`` translator oversight: TRN-001..007 (each translation of a delivered claim re-validated as untrusted IR,
   its status and eligibility re-derived, its grounding re-checked, traced to the claim and the claims it cites, checked

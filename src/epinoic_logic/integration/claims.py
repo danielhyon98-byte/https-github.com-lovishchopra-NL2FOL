@@ -6,6 +6,15 @@ authoritative journal view instead) and the verifier's log (why an eligible clai
 first. ``excerpt`` is a verbatim part of the answer of at most 200 characters; a claim whose text does not occur in the
 answer is counted but not listed (its status still counts in ``counts``). Every status is the deterministic display
 status; nothing here decides a verdict.
+
+**The meaning label's display rule** (contract 0.10; meaning-check design 2.4 O4, interface (d), test T18): a claim the
+meaning label names on the receipt (INT-SELF-001, its ``claim_ids``) whose status would be shown as a success (ENTAILED,
+CONSISTENT, SATISFIABLE; its display, or the engine result it carries when the channel already withheld that display) is
+shown NOT_ELIGIBLE (``attempt`` ``not_eligible``, release not permitted) with
+``withheld_self_report: true``, in the listed entry and in the counts alike; a branch or STEM check of such a claim the same.
+A status that is no success is never changed or raised. The channel already withholds the display it composes; this
+reads the receipt's findings again, so the verdict's entries hold whatever outcome the receipt carries. No word of the
+answer the label quoted reaches an entry: only the claim's own excerpt, as for every claim.
 """
 from __future__ import annotations
 
@@ -13,6 +22,7 @@ import re
 from typing import Any, Iterable, Optional
 
 from .delivery import ClaimFields
+from .label import named_claim_ids
 from .protocol import DEFINITIVE, FORMAL_VALUES, NEGATIVE, NOT_ATTEMPTED, POSITIVE
 from .verifier import VerifierLog, claim_is_eligible
 
@@ -42,6 +52,14 @@ def excerpt_of(text: str, answer: str) -> Optional[str]:
         return None
     found = answer[m.start():m.end()]
     return found[:MAX_EXCERPT].rstrip() or None
+
+
+def _engine_positive(outcome: Any) -> bool:
+    """Whether the engine result an outcome carries is a success status (ENTAILED, CONSISTENT, SATISFIABLE): the status a
+    claim the meaning label names would show but for the label (the channel may already have withheld its display)."""
+    ver = getattr(outcome, "verification", None) if outcome is not None else None
+    status = getattr(getattr(ver, "status", None), "value", getattr(ver, "status", None))
+    return status in POSITIVE
 
 
 def _fidelity(outcome: Any) -> tuple[str, bool, bool]:
@@ -88,6 +106,7 @@ def claim_entries(receipt: Any, claims: Iterable[Any], answer: str, log: Optiona
     """``(listed entries, every claim's decision fields)``: one entry per delivered claim, then one per branch formal check
     of the report's own statements (``source`` ``branch_check``, or ``stem`` on a STEM branch)."""
     outcomes = {o.claim_id: o for o in getattr(receipt, "outcomes", []) or []}
+    named = named_claim_ids(receipt)
     claims = list(claims)
     materiality = {c.claim_id: c.materiality for c in claims}
     texts = {c.claim_id: c.claim_text for c in claims}
@@ -106,32 +125,46 @@ def claim_entries(receipt: Any, claims: Iterable[Any], answer: str, log: Optiona
         else:
             reason = (log.reason(c.claim_id) if log is not None else None) or "provider_unavailable"
             formal, attempt, fidelity, resolved, permitted, result_id, binding = NOT_ATTEMPTED, reason, "missing", False, False, None, None
+        # a success display, or the NOT_ELIGIBLE the channel already composed over a positive engine result; any other
+        # status (incomplete or negative) is never changed, so nothing here can turn a refusal into a delivery
+        withheld = c.claim_id in named and (formal in POSITIVE or (formal == "NOT_ELIGIBLE" and _engine_positive(o)))
+        if withheld:  # the meaning label's display rule (module docstring): never shown as a success
+            formal, attempt, permitted = "NOT_ELIGIBLE", "not_eligible", False
         fields.append(ClaimFields(c.materiality, formal, attempt, permitted))
         ex = excerpt_of(c.claim_text, answer)
         if ex is None or not _ID_RE.match(c.claim_id):
             continue
-        entries.append((order, {
+        entry = {
             "claim_id": c.claim_id, "materiality": c.materiality, "role": c.claim_role if _ROLE_RE.match(str(c.claim_role)) else "other",
             "excerpt": ex, "source": "translation", "formal": formal, "attempt": attempt, "fidelity": fidelity,
             "evidence_resolved": resolved, "release_permitted": permitted, "result_id": result_id if result_id and _ID_RE.match(result_id) else None,
             "binding_digest": binding,
-        }))
+        }
+        if withheld:
+            entry["withheld_self_report"] = True
+        entries.append((order, entry))
     stem = getattr(receipt, "branch", None) in _STEM_BRANCHES
     for k, fc in enumerate(getattr(receipt, "formal_checks", []) or []):
-        named = list(getattr(fc, "claim_ids", []) or [])
-        mat = "material" if any(materiality.get(cid) == "material" for cid in named) else "supporting"
+        checked = list(getattr(fc, "claim_ids", []) or [])
+        mat = "material" if any(materiality.get(cid) == "material" for cid in checked) else "supporting"
         # the check's own verdict (its polarity folded in), never the raw engine status (integration gate 4)
         formal, attempt = branch_check_formal(fc, stem=stem)
+        withheld = formal in POSITIVE and any(cid in named for cid in checked)
+        if withheld:  # a check of a claim the meaning label names: never shown as a success either
+            formal, attempt = "NOT_ELIGIBLE", "not_eligible"
         fields.append(ClaimFields(mat, formal, attempt, False))
-        text = next((texts[cid] for cid in named if cid in texts), "")
+        text = next((texts[cid] for cid in checked if cid in texts), "")
         ex = excerpt_of(text, answer)
         cid = fc.constraint_id if _ID_RE.match(str(fc.constraint_id)) else f"check-{k}"
         if ex is None:
             continue
-        entries.append((len(claims) + k, {
+        entry = {
             "claim_id": cid, "materiality": mat, "role": "quantitative", "excerpt": ex, "source": "stem" if stem else "branch_check",
             "formal": formal, "attempt": attempt, "fidelity": "missing", "evidence_resolved": False, "release_permitted": False,
             "result_id": fc.formal_result_id if fc.formal_result_id and _ID_RE.match(fc.formal_result_id) else None, "binding_digest": None,
-        }))
+        }
+        if withheld:
+            entry["withheld_self_report"] = True
+        entries.append((len(claims) + k, entry))
     entries.sort(key=lambda e: (e[1]["materiality"] != "material", e[0]))
     return [e for _, e in entries[:MAX_ENTRIES]], fields

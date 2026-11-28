@@ -144,6 +144,8 @@ from .delivery_policy import (  # noqa: F401,E402
     verify_delivered_answer, verify_delivery_receipt,
 )
 from .keys import DELIVERY_KEY_ID  # noqa: F401,E402
+# ---------------------------------------------------------------------------------------- the meaning label's gate (stage 2a)
+from .label_gate import LabelReading, LabelUnavailable, label_gate, label_refusal  # noqa: F401,E402
 # ---------------------------------------------------------------------------------------- specialist feedback and revision
 from .feedback import (  # noqa: F401,E402
     ESCALATION_CONTRACT, ESCALATION_REASONS, ISSUE_CONTRACT, OUTCOME_CONTRACT, FlawOutcome, IntroducedFlaw, RevisionEscalation, RevisionIssueRecord,

@@ -75,8 +75,10 @@ PASS, BLOCKER, NOT_RUN, REPORTED = "PASS", "BLOCKER", "NOT RUN", "REPORTED"
 #: The contract line this kit release expects (0.6 since policy 2026.11-v5, the round-10 hold remedy c3b: eligibility rule 0 reads the
 #: one self-certification reader and the policy identity binds its rules; 0.7 since policy 2026.11-v6, c3e: rules selfcert-2, and the
 #: policy identity binds the reader's code too; 0.8 since policy 2026.11-v7, c3f and c3g: rules selfcert-3; 0.9 since policy
-#: 2026.11-v8, c3h: rules selfcert-4). A kit whose line predates it is refused at G1.
-EXPECTED_CONTRACT = "0.9"
+#: 2026.11-v8, c3h: rules selfcert-4; 0.10 since policy 2026.11-v9, c3k, stage 2a of the meaning check: rules selfcert-5, the
+#: meaning label selfcert-label-2 in the policy identity, the refusal selfcert_label_unavailable with KIT-DL-014 and the
+#: handshake member ports.selfcert_label). A kit whose line predates it is refused at G1.
+EXPECTED_CONTRACT = "0.10"
 
 def row(rows: list, name: str, status: str, detail: str) -> None:
     rows.append((name, status, detail))
@@ -344,6 +346,7 @@ def start_service(kit: Path, rows: list, profile: str) -> None:
         row(rows, "service start-up", PASS, f"selftest.passed={caps['selftest']['passed']} modes={caps['ports']['checks']['modes']}")
         r = caps["ports"]["router"]
         row(rows, "flash router (handshake)", REPORTED, f"required={r['required']} attached={r['attached']} identity={r.get('identity')} refusal={r.get('refusal')}")
+        label_row(rows, caps)
     finally:
         proc.terminate()
         try:
@@ -351,6 +354,28 @@ def start_service(kit: Path, rows: list, profile: str) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
         sink.close()
+
+
+#: The meaning labeller kinds that are test or offline sources (the faithful fake, a scripted or other labeller, recorded
+#: labels): admitted in development and the simulation only, never on a hosted environment.
+LABEL_FAKES = ("faithful", "other", "recorded")
+
+
+def label_row(rows: list, caps: dict) -> None:
+    """The meaning label as the service's capabilities report it (contract 0.10, ``ports.selfcert_label``): REPORTED with its
+    state, labeller kind and version (never a model name: only whether a model digest is configured), or a BLOCKER when the
+    service reports no label, or a fake or recorded labeller outside development and the simulation."""
+    lab = (caps.get("ports") or {}).get("selfcert_label")
+    env = caps.get("service_env")
+    if not isinstance(lab, dict):
+        row(rows, "meaning label (handshake)", BLOCKER, "the capabilities report no meaning label (contract 0.10 requires it)")
+        return
+    detail = (f"state={lab.get('state')} labeller={lab.get('labeller')} version={lab.get('version')} "
+              f"model_digest={'configured' if lab.get('model_digest') else 'none'} service_env={env}")
+    if lab.get("labeller") in LABEL_FAKES and env not in ("development", "sim"):
+        row(rows, "meaning label (handshake)", BLOCKER, f"a {lab.get('labeller')} labeller outside development and sim: {detail}")
+        return
+    row(rows, "meaning label (handshake)", REPORTED, detail)
 
 
 def router(kit: Path, rows: list, module: str) -> None:

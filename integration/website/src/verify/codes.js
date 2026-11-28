@@ -22,7 +22,7 @@ const CHECKS_CALL_FAILED = [
   "verifier_rate_limited", "verifier_capacity", "verifier_rejected", "verifier_error",
 ];
 const UNRESOLVED = ["kit_dl_002", "kit_dl_007", "kit_dl_008", "kit_dl_010", "kit_dl_012", "kit_dl_020"];
-const INCOMPLETE = ["kit_dl_004", "kit_dl_011", "kit_dl_013", "kit_dl_900"];
+const INCOMPLETE = ["kit_dl_004", "kit_dl_011", "kit_dl_013", "kit_dl_014", "kit_dl_900"];
 const INTEGRITY = [
   "kit_dl_001", "kit_dl_003", "kit_dl_005", "kit_dl_006", "kit_dl_030", "verifier_malformed", "verifier_binding_mismatch",
   "kit_gate_binding", "kit_gate_decision", "kit_gate_review", "kit_gate_checks", "kit_gate_raw_body", "kit_gate_size",

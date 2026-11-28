@@ -30,13 +30,15 @@ __all__ = [
     "ReviewRef", "OverseerSection", "ReceiptSection", "ClaimEntry", "Counts", "Timings", "Signature", "TurnVerdict",
     "MODES", "POLICIES", "DECISIONS", "SUMMARIES", "ATTEMPTS", "FIDELITY", "CLAIM_SOURCES", "OVERSEER_REFUSALS",
     "SERVICE_ENVS", "WEBSITE_ROUTES", "SELF_CERTIFICATION_KEYS", "ROUTER_ATTACH_REFUSALS", "FLOOR_IDENTITY_PREFIX",
+    "SELFCERT_LABEL_STATES", "SELFCERT_LABELLER_KINDS", "SelfcertLabelCaps",
 ]
 
 PROTOCOL = "epinoic.integration.v1"
 #: Value of the ``Epinoic-Protocol`` header on every protocol request.
 PROTOCOL_HEADER = "integration.v1"
-#: The translator's integration contract version this protocol belongs to (``docs/integration-contract.md``).
-INTEGRATION_CONTRACT_VERSION = "0.9"
+#: The translator's integration contract version this protocol belongs to (``docs/integration-contract.md``); 0.10 since
+#: the meaning label (meaning-check stage 2a: refusal ``selfcert_label_unavailable``, KIT-DL-014, ``ports.selfcert_label``).
+INTEGRATION_CONTRACT_VERSION = "0.10"
 
 #: The engine scope statement (``engine.statuses.SCOPE_STATEMENT``), carried verbatim by every verdict.
 SCOPE_STATEMENT = (
@@ -80,10 +82,17 @@ SERVICE_ENVS: tuple[str, ...] = ("development", "staging", "production", "sim")
 WEBSITE_ROUTES: tuple[str, ...] = ("history", "english")
 #: Closed labels for why the overseer did not allow delivery (``OverseerSection.refusal``). Phase 2 maps every reason the
 #: overseer's ``delivery_decision`` and ``release_decision`` give onto exactly one of these.
+#: ``selfcert_label_unavailable`` (contract 0.10, meaning-check stage 2a): the meaning label could not read the answer (an
+#: outage, not a fault of the answer): ``refuse_incomplete`` with KIT-DL-014 and no revision request. A label that names a
+#: self-certification refuses as ``not_deliverable`` (KIT-DL-006), as a reader hit does.
 OVERSEER_REFUSALS: tuple[str, ...] = (
     "clearance_failed", "clearance_pending", "final_audit_not_passed", "signature_invalid", "custody_failed", "stale",
     "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "internal_error",
+    "selfcert_label_unavailable",
 )
+#: The meaning label's states as the handshake reports them (``Labeller.health()``) and its labeller kinds.
+SELFCERT_LABEL_STATES: tuple[str, ...] = ("ok", "degraded", "off")
+SELFCERT_LABELLER_KINDS: tuple[str, ...] = ("unconfigured", "recorded", "faithful", "provider", "other")
 #: The refusals a router's attachment can give, as the handshake reports them (``ports.router.refusal``): a hello out of
 #: contract or a module without ``hello()`` and ``plan()`` (``KIT-RT-015``), a router that failed (``KIT-RT-016``).
 ROUTER_ATTACH_REFUSALS: tuple[str, ...] = ("KIT-RT-015", "KIT-RT-016")
@@ -224,6 +233,19 @@ class RouterPortCaps(Frozen):
         return self
 
 
+class SelfcertLabelCaps(Frozen):
+    """The meaning label as the handshake reports it (contract 0.10, meaning-check stage 2a): its version and digest, the
+    configured model's digest (a SHA-256, never a name; ``None`` when no model is configured), the labeller's kind and its
+    state at this request (``ok``, ``degraded`` while a circuit breaker is open, ``off`` with no labeller). The label is
+    required on every release path: with no labeller every answer the reader passes is withheld."""
+    version: Annotated[str, StringConstraints(pattern=r"^selfcert-label-[0-9]{1,4}$")]
+    label_digest: Sha256
+    required: Literal[True]
+    labeller: Literal["unconfigured", "recorded", "faithful", "provider", "other"]
+    model_digest: Optional[Sha256] = None
+    state: Literal["ok", "degraded", "off"]
+
+
 class Ports(Frozen):
     specialist: SpecialistPortCaps
     checks: ChecksPortCaps
@@ -231,6 +253,7 @@ class Ports(Frozen):
     translation: TranslationCaps
     combinator: CombinatorPortCaps
     router: RouterPortCaps
+    selfcert_label: SelfcertLabelCaps
 
 
 class ComponentVersions(Frozen):
@@ -434,6 +457,7 @@ class OverseerSection(Frozen):
     refusal: Optional[Literal[
         "clearance_failed", "clearance_pending", "final_audit_not_passed", "signature_invalid", "custody_failed", "stale",
         "consolidation_conflicting", "no_deliverable_output", "receipt_error_findings", "not_deliverable", "internal_error",
+        "selfcert_label_unavailable",
     ]] = None
     review: ReviewRef
 
@@ -462,6 +486,9 @@ class ClaimEntry(Frozen):
     release_permitted: bool
     result_id: Optional[Id] = None
     binding_digest: Optional[Sha256] = None
+    #: (contract 0.10) the meaning label names this claim (INT-SELF-001): a success display is withheld, so ``formal`` is
+    #: NOT_ELIGIBLE. Written only when true, so an entry without it reads exactly as before.
+    withheld_self_report: Optional[Literal[True]] = None
 
 
 class Counts(Frozen):

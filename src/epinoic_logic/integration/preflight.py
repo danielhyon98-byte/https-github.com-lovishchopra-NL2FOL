@@ -4,8 +4,15 @@ status 2 in ``__main__``). Z3 itself is checked earlier, by the standard-library
 
 Order: the profile (012), the component versions (002), the STEM branches and the ``nonlinear`` policy (005), the named
 policies of contract 0.3 (006), the credentials (008), the overseer port and its pinned pack (007), the translation
-provider (009), the subject map (010), the specialist contracts (011), the environment (012), the limits (013) and the
-timing figures (016). The flash router and the combinator are never required: they are reported, not refused.
+provider (009), the meaning label (017, 018, 019; ``integration.label``), the subject map (010), the specialist contracts
+(011), the environment (012), the limits (013) and the timing figures (016). The flash router and the combinator are never
+required: they are reported, not refused.
+
+The meaning label (meaning-check stage 2a): a hosted environment (staging, production) needs a provider labeller whose pair
+(label digest, model digest) has an acceptance record: no labeller is ``KIT-HS-017``, a fake or recorded labeller
+``KIT-HS-018``, a model digest with no acceptance record ``KIT-HS-019``. Development and the simulation run with the
+unconfigured default (``EPINOIC_SELFCERT_LABEL`` unset: every answer the reader passes is withheld as ``not-configured``),
+recorded labels or the faithful fake, and stay ready; a provider label in the simulation is ``KIT-HS-018``.
 
 Each part is read by a probe method (:class:`Probes`); tests replace one probe at a time to show that each part, and only
 that part, gives its code. The probes look for the real interfaces (the named policies, the overseer port adapter, the
@@ -66,6 +73,8 @@ class Facts:
     router_caps: RouterPortCaps = None  # type: ignore[assignment]
     combinator: CombinatorPortCaps = None  # type: ignore[assignment]
     modes: tuple[str, ...] = ("single",)
+    #: The meaning label's setting and labeller (``None``: the default, looked up at each use).
+    label: Any = field(default=None, repr=False)
 
 
 def _hex_key(value: Optional[str], name: str, code: str) -> bytes:
@@ -168,6 +177,20 @@ class Probes:
         # (router_child.boundary_problem). The loopback simulation runs with ephemeral test keys and attaches it anyway.
         return attach_router(settings.flash_router, require_secret_boundary=settings.profile == "integration")
 
+    def label_transport(self) -> Any:
+        """The transport a provider labeller calls (``None``: none is injected). Live calls are off: this repository injects
+        no transport; a deployment that is allowed live labels supplies one by replacing this probe."""
+        return None
+
+    def label(self, settings: IntegrationSettings) -> Any:
+        """The meaning label's setting and labeller (``integration.label.LabelSetup``; ``KIT-HS-017`` when it cannot be
+        built). The labeller is checked against the environment by ``integration.label.check_label``."""
+        from .label import LabelSetup, live_labeller, parse_setting
+        setting = parse_setting(settings.selfcert_label)
+        labeller = live_labeller(setting, key_hex=settings.selfcert_label_key_hex,
+                                 transport=self.label_transport() if setting.kind == "provider" else None)
+        return LabelSetup(setting=setting, labeller=labeller)
+
     def combinator(self, settings: IntegrationSettings) -> CombinatorPortCaps:
         # The combinator's v1 implementation (a provider call with a pinned instruction pack) is connected in phase 2;
         # until then the port reports itself unavailable and the checks port omits the mode "combined".
@@ -229,6 +252,9 @@ def run_preflight(settings: IntegrationSettings, probes: Optional[Probes] = None
                 verdict_key=verdict_key, verdict_key_id=settings.verdict_key_id, overseer_secret=overseer_secret)
     hello, port = p.overseer(settings, keys)
     translation = _provider(settings)
+    from .label import check_label
+    label = p.label(settings)
+    check_label(label.setting, label.labeller, profile=settings.profile, service_env=settings.service_env)
     subject_map = p.subject_map()
     specialist = p.specialist_contracts()
     _environment(settings)
@@ -255,4 +281,4 @@ def run_preflight(settings: IntegrationSettings, probes: Optional[Probes] = None
     modes = ("single", "duplicate") + (("combined",) if combinator.available else ())
     return Facts(settings=settings, versions=versions, build=build, stem=stem, named_policies=named, keys=keys, overseer=hello,
                  overseer_port=port, translation=translation, subject_map=subject_map, specialist=specialist, limits=limits,
-                 rate_per_minute=rate, router=router, router_caps=router_caps, combinator=combinator, modes=modes)
+                 rate_per_minute=rate, router=router, router_caps=router_caps, combinator=combinator, modes=modes, label=label)
