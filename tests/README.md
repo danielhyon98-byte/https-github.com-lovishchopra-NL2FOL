@@ -3091,3 +3091,9 @@ Measured results only.
   equal to the baseline on all eleven round copies (r1 30/30, r1-adv 150/151, r2 to r6 46/46, r7 177/177, c1 203/203,
   c2 188/188, c3 164/176). No label is recorded and nothing is measured yet (stage 2b); its push check has not run, so
   nothing new is uploaded.
+
+### Progress, 05:00 UTC (28 November)
+- No code change since 04:00: the last commit with content is `73fee733` (meaning check, stage 2a). An independent review
+  of it found no weakened test (62 test files changed, 120 lines deleted: version re-pins, stricter checks and the
+  decision-5 moves) and three minor findings, which the next round fixes before any label is recorded. Its push check
+  has not run, so nothing new is uploaded.
